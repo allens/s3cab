@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it, mock } from "node:test";
+import { gzipSync } from "node:zlib";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
-
-/** @import { Readable } from "node:stream" */
+import { HEADING } from "./snapshot-file.mjs";
 
 // Unit tests for referencedObjects' snapshot-read error handling, mocking the
 // s3.mjs seam (docs/design/testing.md: mock at s3.mjs, not the AWS SDK). Split from
@@ -82,6 +83,34 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
       result.unreadable.map((u) => u.snapshot),
       ["2025-03-10T0900"],
     );
+  });
+
+  it("carries a readable snapshot's refused row into `invalid` — cleanup's abort signal (ADR-0101)", async () => {
+    snapshotKeys = [key("s", "2025-05-01T0800")];
+    const ok = "a".repeat(64);
+    const text =
+      HEADING +
+      [
+        "@SET\tDIR\t\t\t/home/me/",
+        `-\t${ok}\t3\t2025-05-01T08:00:00.000Z\t/home/me/ok.txt`,
+        `-\t${"b".repeat(64)}\tx\t2025-05-01T08:00:00.000Z\t/home/me/torn.txt`,
+        "@S3CAB\tEND\t\t2025-05-01T08:00:01.000Z\t",
+        "",
+      ].join("\n");
+    onGetStream = async () => Readable.from([gzipSync(text)]);
+
+    const bySet = await referencedObjects(BUCKET);
+    const result = bySet.get("s");
+    assert.ok(result);
+    assert.equal(result.snapshotsChecked, 1);
+    assert.deepEqual([...result.referenced.keys()], [ok]);
+    assert.deepEqual(result.invalid, [
+      {
+        snapshot: "2025-05-01T0800",
+        path: "/home/me/torn.txt",
+        reason: "its size isn't a whole number of bytes",
+      },
+    ]);
   });
 
   it("still rethrows an operational error (aborts the scan)", async () => {

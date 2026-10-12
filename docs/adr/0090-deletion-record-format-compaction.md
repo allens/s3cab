@@ -1,8 +1,8 @@
 # The deletion record: root-level indexed files, tombstone rows, compacted by `cleanup`
 
-**Status:** accepted (settled 2026-08-22 in a grilling session; built the same day). Once built,
-the Rows section is superseded by [0102](0102-deletion-record-takes-the-snapshot-layout.md)
-(proposed): `#deleted` rows in the snapshot's layout; the record's job stands. The
+**Status:** accepted (settled 2026-08-22 in a grilling session; built the same day). The
+Rows section is superseded by [0102](0102-deletion-record-takes-the-snapshot-layout.md):
+`#deleted` rows in the snapshot's layout; the record's job stands. The
 record format for the hash-operand `delete` ([0089](0089-hash-operand-delete.md)).
 Supersedes [0064](0064-path-scoped-delete-deletion-record.md)'s record shape (the
 `deletions/` prefix, per-run timestamp names, `hash<TAB>path` rows, the `#` header block)

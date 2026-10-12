@@ -12,8 +12,8 @@
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
  * that, because a session opened inside the repo is handed CLAUDE.md before it reads
- * anything — and CLAUDE.md discusses the #SNAPSHOT header's UTC instant, the #DIR
- * headers, the drive-letter normalisation and (via ADR-0004's filename) the TSV
+ * anything — and CLAUDE.md discusses the snapshot's UTC start instant, the @SET DIR
+ * rows, the drive-letter normalisation and (via ADR-0004's filename) the TSV
  * encoding. Those are restore-correctness facts the reading is supposed to have to
  * derive, and a contaminated run fails silently: the ambiguity list comes back
  * shorter, which reads as "the spec is fixed". So the firewall is physical — a

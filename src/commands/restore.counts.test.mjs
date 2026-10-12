@@ -30,7 +30,7 @@ mock.module("../lib/env.mjs", {
 mock.module("../lib/remote.mjs", {
   exports: {
     listRemoteSnapshots: async () => ["2026-07-19T1200"],
-    readRemoteSnapshot: async () => snapshot,
+    readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
   },
 });
 mock.module("../lib/restore.mjs", {
@@ -53,7 +53,9 @@ mock.module("../lib/progress.mjs", {
   },
 });
 mock.module("../lib/deletion-record.mjs", {
-  exports: { readDeletionRecords: async () => new Map() },
+  exports: {
+    readDeletionRecords: async () => ({ deleted: new Map(), invalid: [] }),
+  },
 });
 // Not seams under test — no plan here ever fetches — but they stand between the
 // command and the SDK, so leaving them real drags the whole auth chain in.

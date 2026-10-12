@@ -80,6 +80,42 @@ export function preparePath(path) {
 }
 
 /**
+ * Normalize a path for containment: separators to `/` and case folded for a
+ * Windows-shaped path, both left alone for a POSIX one.
+ * @param {string} p
+ * @returns {string}
+ */
+const normalize = (p) => {
+  const { path, foldCase } = preparePath(p);
+  return foldCase ? path.toLowerCase() : path;
+};
+
+/**
+ * Build the "does this path fall under any of these folders?" predicate — a
+ * folder matches a path that equals it or lies under it (a `/`-boundary prefix),
+ * separators unified and case folded for a Windows-shaped path, a trailing
+ * separator ignored — so `/` is the root, and every absolute POSIX path is under
+ * it. `restore`'s path filters, the walk's test of whether a link leads outside
+ * the backup (ADR-0103), and the snapshot reader's test that a row's path is
+ * under a `@SET DIR` (ADR-0101).
+ * @param {string[]} folders - Paths to match under
+ * @returns {((path: string) => boolean) | undefined} `undefined` when no folder
+ *   is given, or all are blank
+ */
+export function pathMatcher(folders) {
+  const needles = folders
+    .filter((folder) => folder.trim() !== "")
+    .map((folder) => normalize(folder).replace(/\/+$/, ""));
+  if (needles.length === 0) {
+    return undefined;
+  }
+  return (path) => {
+    const hay = normalize(path);
+    return needles.some((n) => hay === n || hay.startsWith(n + posix.sep));
+  };
+}
+
+/**
  * Compile a glob's *tokens* into regular-expression source, **unanchored** — the
  * shared half of s3cab's two path matchers, which each wrap their own anchoring
  * around it ([ADR-0088](../../docs/adr/0088-find-matches-like-posix-find.md)):

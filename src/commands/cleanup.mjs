@@ -31,12 +31,14 @@ import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
  * destructive-command pattern
  * ([ADR-0064](../../docs/adr/0064-path-scoped-delete-deletion-record.md)) `delete`
  * also follows, here with the gentler y/N tier: cleanup removes only orphans past
- * the grace window, never content a live snapshot references. Two damage
- * interlocks (docs/design/backup.md): an **unreadable snapshot aborts both modes**
- * (its references are unknown, so the orphan numbers would be lies — triage with
- * `verify` first), and **missing objects make the act path refuse** (the
- * repository is already losing data; don't compound it). The **7-day grace
- * window** protects objects too young to be sure aren't an in-flight backup's.
+ * the grace window, never content a live snapshot references. Three damage
+ * interlocks (docs/design/backup.md): an **unreadable snapshot, or one with a
+ * refused row, aborts both modes** (its references are unknown, so the orphan
+ * numbers would be lies — triage with `verify` first; ADR-0101), and **missing
+ * objects make the act path refuse** (the repository is already losing data;
+ * don't compound it), as does a **damaged deletion record** (compacting it would
+ * lose rows, ADR-0101). The **7-day grace window** protects objects too young to
+ * be sure aren't an in-flight backup's.
  *
  * Reclaiming warns that cleanup must not run while a backup is (a documented,
  * accepted race — see the design). It reclaims only orphans (`stored −
@@ -93,7 +95,8 @@ export async function cleanup(bucket, options = {}) {
   // referenced object look missing. The record is what keeps a referenced hash
   // a `delete` explained (ADR-0064) out of interlock #2 — without it, the first
   // `delete` would make the act path refuse forever.
-  const { referencedBySet, stored, deleted } = await scanBucket(bucket);
+  const { referencedBySet, stored, deleted, invalidRecords } =
+    await scanBucket(bucket);
 
   // The whole diff — orphans (with the grace window), the delete-list, and the
   // missing/damaged/unreadable tallies — is one pure computation over the two
@@ -116,6 +119,31 @@ export async function cleanup(bucket, options = {}) {
           "objects nothing else references would look unused and be deleted",
         color: styleEnabled(process.stderr),
       }),
+    );
+  }
+
+  // Interlock #1's twin (both modes): a refused row references nothing
+  // (ADR-0101), so content only it names would count as an orphan. Each
+  // snapshot is named once; verify gives the paths and why.
+  const invalid = [
+    ...new Set(
+      [...referencedBySet].flatMap(([set, { invalid }]) =>
+        invalid.map(({ snapshot }) => `${set}/${snapshot}`),
+      ),
+    ),
+  ];
+  if (invalid.length > 0) {
+    const one = invalid.length === 1;
+    throw new Error(
+      [
+        `Can't clean up safely — ${one ? "this snapshot has rows" : "these snapshots have rows"} ` +
+          `that aren't valid, so content only those rows name would look unused ` +
+          `and be deleted:`,
+        ...invalid.map((name) => `  ${name}`),
+        ``,
+        `Check ${one ? "it" : "them"} with:`,
+        `  ${shellCommand(`s3cab verify ${bucket}`, styleEnabled(process.stderr))}`,
+      ].join("\n"),
     );
   }
 
@@ -188,6 +216,21 @@ export async function cleanup(bucket, options = {}) {
         `so this is not the moment to reclaim.\n\n` +
         `Check them with:\n` +
         `  ${shellCommand(`s3cab verify ${bucket}`)}`,
+    );
+  }
+
+  // Interlock #3 (act path only): compaction keeps only the rows it can parse
+  // and then deletes the original, so a damaged record file would lose its
+  // other rows for good (ADR-0101).
+  if (invalidRecords.length > 0) {
+    throw new Error(
+      `Can't clean up safely: the deletion record is damaged, and cleaning ` +
+        `up would lose what it records.\n` +
+        invalidRecords
+          .map(({ uri, reason }) => `  ${uri} (${reason})`)
+          .join("\n") +
+        `\n\nFix what each one names, then re-run. The record's format is ` +
+        `explained at https://s3cab.plantegral.com/guide/format`,
     );
   }
 

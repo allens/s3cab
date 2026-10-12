@@ -54,7 +54,9 @@ import { shellCommand } from "../lib/style.mjs";
  * a backup taken on Linux can hold a name Windows forbids, and one taken on
  * Windows a name too long for Linux — reported `refused`, exit 1. (A `:` is
  * refused before anything is written, since NTFS would take it as a stream
- * rather than refuse it — see `planRestore`.) Only those three degrade; any
+ * rather than refuse it — see `planRestore`.) So is a path whose snapshot row
+ * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
+ * Only those four degrade; any
  * other failure (network, credentials, a full disk) still aborts, since it is
  * wrong about the *run*, not about one file.
  *
@@ -87,6 +89,7 @@ import { shellCommand } from "../lib/style.mjs";
  * @property {string[]} missing - Paths not restored because their content is absent with no explanation
  * @property {string[]} corrupt - Paths not restored because their stored content is damaged (it doesn't hash to its key)
  * @property {string[]} refused - Paths not restored because this filesystem won't create a file by that name (a character it forbids, or longer than it accepts)
+ * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
@@ -117,13 +120,15 @@ export async function restore(paths = [], options = {}) {
   // names is non-empty (guarded above), so the latest is defined.
   const name = options.snapshot ?? /** @type {string} */ (names[0]);
 
-  const { entries, dirs } = await readRemoteSnapshot(
-    set.bucket,
-    set.name,
-    name,
-  );
+  const snapshot = await readRemoteSnapshot(set.bucket, set.name, name);
+  const { entries, dirs } = snapshot;
   const targets = selectEntries(entries.keys(), paths);
-  if (paths.length && targets.length === 0) {
+  // The rows the reader refused (ADR-0101): restored nowhere, reported, exit 1.
+  const invalid = selectEntries(snapshot.refused.keys(), paths).map((path) => ({
+    path,
+    reason: /** @type {string} */ (snapshot.refused.get(path)),
+  }));
+  if (paths.length && targets.length === 0 && invalid.length === 0) {
     throw new Error(
       `No files in snapshot '${name}' matched: ${paths.join(", ")}`,
     );
@@ -206,7 +211,10 @@ export async function restore(paths = [], options = {}) {
   let deletionRecords;
   /** @param {string} hash */
   const recordFor = async (hash) => {
-    deletionRecords ??= await readDeletionRecords(set.bucket);
+    if (!deletionRecords) {
+      const records = await readDeletionRecords(set.bucket);
+      deletionRecords = records.deleted;
+    }
     return deletionRecords.get(hash);
   };
   /** @param {RecordedDeletion | undefined} record @param {string} dest */
@@ -333,7 +341,13 @@ export async function restore(paths = [], options = {}) {
   // — still prints. Deliberately-deleted skips alone leave exit 0 (ADR-0064):
   // the record proves the gap is intended, and a scripted restore should not
   // alarm on a decision its owner already made.
-  if (missing.length || corrupt.length || collided.length || refused.length) {
+  if (
+    missing.length ||
+    corrupt.length ||
+    collided.length ||
+    refused.length ||
+    invalid.length
+  ) {
     process.exitCode = 1;
   }
 
@@ -347,6 +361,7 @@ export async function restore(paths = [], options = {}) {
     missing,
     corrupt,
     refused,
+    invalid,
     deleted,
   };
 }

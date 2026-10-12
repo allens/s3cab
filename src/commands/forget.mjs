@@ -192,7 +192,7 @@ export async function forget(snapshots = [], options = {}) {
     // The record alone can't say it is gone — deleted content re-uploads on the
     // next backup, and the row stays — so only the recorded hashes this run would
     // orphan are HEADed, and only the absent ones are left out.
-    const deleted = await readDeletionRecords(set.bucket);
+    const { deleted } = await readDeletionRecords(set.bucket);
     const sizes = await storedObjectSizes(set.bucket, [
       ...orphaned.intersection(deleted),
     ]);

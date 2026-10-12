@@ -69,9 +69,9 @@ const T3 = "2026-08-22T11:04:55.120Z";
 
 /**
  * Pins the clock seam's one read (format.mjs), so the instant a merge stamps on
- * its header is `instant` — the only way to steer it, as for every recorded
- * instant. Pinned in a zone that is not UTC, so a header that leaked local time
- * would show.
+ * its `@S3CAB END` is `instant` — the only way to steer it, as for every
+ * recorded instant. Pinned in a zone that is not UTC, so an `END` that leaked
+ * local time would show.
  * @param {TestContext} t
  * @param {string} instant
  */
@@ -79,6 +79,23 @@ const pinClock = (t, instant) =>
   t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
     Temporal.Instant.from(instant).toZonedDateTimeISO("Europe/London"),
   );
+
+/**
+ * A hand-built `#deleted` row, unpadded: a reader trims the leading fields, so
+ * the padding is the writer's business.
+ */
+const deletedRow = (
+  /** @type {string} */ hash,
+  /** @type {number|string} */ size,
+  /** @type {string} */ instant,
+  /** @type {string} */ by,
+) => `#deleted\t${hash}\t${size}\t${instant}\t${by}\n`;
+
+/** A record file around hand-built `rows`: the heading first, END last. */
+const fileOf = (/** @type {string[]} */ ...rows) =>
+  "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+  rows.join("") +
+  `@S3CAB\tEND\t\t${T3}\t\n`;
 
 const puts = () => ops.filter((o) => o.op === "put");
 const deletes = () => ops.filter((o) => o.op === "delete");
@@ -103,65 +120,131 @@ describe("formatDeletionRecord", () => {
     { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
   ];
 
-  it("writes the #DELETED header, one row per object, and a bare #END trailer", () => {
-    const text = formatDeletionRecord(T3, rows);
-    const lines = text.split("\n");
-    // The header row matches the snapshot column grammar positionally: col1
-    // the #TAG, col2 empty (a header has no size), col3 the write instant,
-    // col4 the one sentence a reader needs.
-    assert.equal(
-      lines[0],
-      `#DELETED\t\t${T3}\tThese objects were removed on purpose. Absence here is not damage.`,
+  it("writes the snapshot's heading and @S3CAB rows, a padded #deleted row per object, and @S3CAB END", (t) => {
+    pinClock(t, T3);
+    const lines = formatDeletionRecord(rows).split("\n");
+    assert.match(
+      lines[0] ?? "",
+      /^@S3CAB\tFORMAT +\t {8}size\ttime {20}\thttps:/,
     );
-    assert.equal(lines[1], `${HASH_A}\t1204\t${T1}\tallen@DESKTOP`);
-    assert.equal(lines[2], `${HASH_B}\t892\t${T2}\tallen@LAPTOP`);
-    // Bare trailer, deliberately: a record lands in one atomic uncompressed
-    // PUT, so PARTIAL cannot occur and no status column carries over.
-    assert.equal(lines[3], "#END");
-    assert.ok(text.endsWith("#END\n"));
+    assert.match(lines[1] ?? "", /^@S3CAB\tVERSION +\t +\t +\t\d/);
+    assert.match(lines[2] ?? "", /^@S3CAB\tHOME +\t +\t +\t.+[\\/]$/);
+    // `#deleted` overflows column 1's six; the columns after it still pad.
+    assert.equal(
+      lines[3],
+      `#deleted\t${HASH_A}\t        1204\t${T1}\tallen@DESKTOP`,
+    );
+    assert.equal(
+      lines[4],
+      `#deleted\t${HASH_B}\t         892\t${T2}\tallen@LAPTOP`,
+    );
+    assert.equal(
+      lines[5],
+      `@S3CAB\t${"END".padEnd(64)}\t${" ".repeat(12)}\t${T3}\t`,
+    );
+    assert.equal(lines[6], "", "ends with a newline");
+    assert.equal(lines.length, 7);
   });
 
   it("sorts rows by instant then hash, so a compacted file reads chronologically", () => {
-    const text = formatDeletionRecord(T3, [
-      { hash: HASH_B, size: 1, instant: T2, by: "x" },
-      { hash: HASH_C, size: 1, instant: T1, by: "x" },
-      { hash: HASH_A, size: 1, instant: T2, by: "x" },
-    ]);
-    const order = text
-      .split("\n")
-      .filter((line) => line && !line.startsWith("#"))
-      .map((line) => line.slice(0, 64));
+    const order = parseDeletionRecord(
+      formatDeletionRecord([
+        { hash: HASH_B, size: 1, instant: T2, by: "x" },
+        { hash: HASH_C, size: 1, instant: T1, by: "x" },
+        { hash: HASH_A, size: 1, instant: T2, by: "x" },
+      ]),
+    ).rows.map((row) => row.hash);
     assert.deepEqual(order, [HASH_C, HASH_A, HASH_B]);
+  });
+
+  it("spells out a tab or line ending in who deleted it", () => {
+    const [row] = parseDeletionRecord(
+      formatDeletionRecord([
+        { hash: HASH_A, size: 1, instant: T1, by: "odd\tuser@PC" },
+      ]),
+    ).rows;
+    assert.equal(row?.by, "odd␉user@PC");
   });
 });
 
 describe("parseDeletionRecord", () => {
-  it("round-trips what formatDeletionRecord writes", () => {
+  it("round-trips what formatDeletionRecord writes, as a valid file", () => {
     const rows = [
       { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
       { hash: HASH_B, size: 892, instant: T2, by: "allen@LAPTOP" },
     ];
-    assert.deepEqual(parseDeletionRecord(formatDeletionRecord(T3, rows)), rows);
+    assert.deepEqual(parseDeletionRecord(formatDeletionRecord(rows)), {
+      rows,
+      invalid: undefined,
+    });
   });
 
-  it("ignores rows whose first field is not a SHA-256 — lenient only in the safe direction", () => {
-    // A mangled row must be *ignored*, never allowed to explain away a missing
-    // object it doesn't actually name.
-    const text =
-      `not-a-hash\t1\t${T1}\tx\n` +
-      `${HASH_A.slice(0, 63)}\t1\t${T1}\ttoo-short\n` +
-      `${HASH_A}\t7\t${T1}\tallen@PC\n`;
-    assert.deepEqual(parseDeletionRecord(text), [
-      { hash: HASH_A, size: 7, instant: T1, by: "allen@PC" },
-    ]);
+  it("skips the @ and # rows it doesn't know", () => {
+    const { rows, invalid } = parseDeletionRecord(
+      fileOf(
+        `@S3CAB\tNEWS\t\t\tsomething\n#future\tthing\n`,
+        deletedRow(HASH_C, 1, T1, "x"),
+      ),
+    );
+    assert.deepEqual(
+      rows.map((row) => row.hash),
+      [HASH_C],
+    );
+    assert.equal(invalid, undefined);
   });
 
-  it("keeps a row whose size is mangled (as 0) — deliberately-gone is the fact that must survive", () => {
-    const text = `${HASH_A}\tgarbage\t${T1}\tallen@PC\n`;
-    assert.deepEqual(parseDeletionRecord(text), [
-      { hash: HASH_A, size: 0, instant: T1, by: "allen@PC" },
-    ]);
-  });
+  // A refused row must never explain away a missing object: its content counts
+  // as not deleted, the safe direction, and the file is invalid as a whole.
+  for (const [name, row] of [
+    ["a hash that isn't a SHA-256", deletedRow("not-a-hash", 1, T1, "x")],
+    ["a short hash", deletedRow(HASH_A.slice(0, 63), 1, T1, "x")],
+    ["a size that isn't a whole number", deletedRow(HASH_A, "1.5", T1, "x")],
+    [
+      "a time that isn't a UTC instant",
+      deletedRow(HASH_A, 1, "2026-08-14", "x"),
+    ],
+  ]) {
+    it(`refuses a #deleted row with ${name}, and the file is invalid`, () => {
+      const { rows, invalid } = parseDeletionRecord(
+        fileOf(String(row), deletedRow(HASH_B, 7, T1, "allen@PC")),
+      );
+      assert.deepEqual(rows, [
+        { hash: HASH_B, size: 7, instant: T1, by: "allen@PC" },
+      ]);
+      assert.match(invalid ?? "", /a #deleted row is malformed/);
+    });
+  }
+
+  for (const [
+    name,
+    text,
+    reason,
+  ] of /** @type {[string, string, RegExp][]} */ ([
+    [
+      "doesn't open with the heading",
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/^[^\n]*\n/, ""),
+      /heading/,
+    ],
+    [
+      "has no END",
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
+      /END row is missing/,
+    ],
+    [
+      "has rows after END",
+      fileOf() + deletedRow(HASH_A, 1, T1, "x"),
+      /rows follow/,
+    ],
+    [
+      "holds a type starting with neither @ nor #",
+      fileOf(`-\t${HASH_A}\t1\t${T1}\t/a.txt\n`),
+      /unknown row type '-'/,
+    ],
+  ])) {
+    it(`calls a file that ${name} invalid`, () => {
+      assert.match(parseDeletionRecord(text).invalid ?? "", reason);
+    });
+  }
 });
 
 describe("writeDeletionRecord", () => {
@@ -222,24 +305,42 @@ describe("writeDeletionRecord", () => {
 
 describe("readDeletionRecords", () => {
   it("returns an empty map for a repository that never ran delete", async () => {
-    assert.deepEqual(await readDeletionRecords("b"), new Map());
+    assert.deepEqual(await readDeletionRecords("b"), {
+      deleted: new Map(),
+      invalid: [],
+    });
+  });
+
+  it("names each invalid file, and still counts its well-formed rows", async () => {
+    record(1, fileOf(deletedRow(HASH_A, 1, T1, "x")));
+    record(
+      2,
+      fileOf(deletedRow(HASH_B, 1, T2, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
+    );
+
+    const { deleted, invalid } = await readDeletionRecords("b");
+
+    assert.deepEqual([...deleted.keys()], [HASH_A, HASH_B]);
+    assert.deepEqual(invalid, [
+      {
+        uri: "s3://b/objects.deleted-2.tsv",
+        reason: "the closing @S3CAB END row is missing",
+      },
+    ]);
   });
 
   it("unions rows across files; deletedOn is the row's instant", async () => {
     record(
       1,
-      formatDeletionRecord(T1, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
     record(
       2,
-      formatDeletionRecord(T2, [
-        { hash: HASH_B, size: 2, instant: T2, by: "y" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_B, size: 2, instant: T2, by: "y" }]),
     );
+    const { deleted } = await readDeletionRecords("b");
     assert.deepEqual(
-      await readDeletionRecords("b"),
+      deleted,
       new Map([
         [HASH_A, { deletedOn: T1 }],
         [HASH_B, { deletedOn: T2 }],
@@ -251,25 +352,26 @@ describe("readDeletionRecords", () => {
     // Deleted, re-backed-up, deleted again: the later row is the operative
     // fact. The newer row is registered in the *lower-indexed* file to prove
     // the row instants, not the file order, decide.
-    record(1, `${HASH_A}\t1\t${T2}\tx\n`);
-    record(2, `${HASH_A}\t1\t${T1}\tx\n`);
-    const deleted = await readDeletionRecords("b");
+    record(1, fileOf(deletedRow(HASH_A, 1, T2, "x")));
+    record(2, fileOf(deletedRow(HASH_A, 1, T1, "x")));
+    const { deleted } = await readDeletionRecords("b");
     assert.equal(deleted.get(HASH_A)?.deletedOn, T2);
   });
 
   it("ignores keys that don't follow the record grammar", async () => {
     listed.push({ Key: "objects.deleted-" });
     listed.push({ Key: "objects.deleted-notes.txt" });
-    record(1, `${HASH_A}\t1\t${T1}\tx\n`);
-    const deleted = await readDeletionRecords("b");
+    record(1, fileOf(deletedRow(HASH_A, 1, T1, "x")));
+    const { deleted } = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_A]);
   });
 
   it("skips a record that vanished between the LIST and the read", async () => {
     listed.push({ Key: "objects.deleted-1.tsv" }); // no body registered
-    record(2, `${HASH_B}\t1\t${T1}\tx\n`);
-    const deleted = await readDeletionRecords("b");
+    record(2, fileOf(deletedRow(HASH_B, 1, T1, "x")));
+    const { deleted, invalid } = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_B]);
+    assert.deepEqual(invalid, []);
   });
 });
 
@@ -283,9 +385,7 @@ describe("compactDeletionRecords", () => {
   it("leaves a single already-compact file alone", async () => {
     record(
       1,
-      formatDeletionRecord(T1, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
     const result = await compactDeletionRecords("b", new Set([HASH_A]));
     assert.deepEqual(result, { files: 0, rows: 1, trimmed: 0 });
@@ -296,15 +396,11 @@ describe("compactDeletionRecords", () => {
     pinClock(t, T3);
     record(
       1,
-      formatDeletionRecord(T1, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
     record(
       2,
-      formatDeletionRecord(T2, [
-        { hash: HASH_B, size: 2, instant: T2, by: "y" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_B, size: 2, instant: T2, by: "y" }]),
     );
     const result = await compactDeletionRecords("b", new Set([HASH_A, HASH_B]));
     assert.deepEqual(result, { files: 2, rows: 2, trimmed: 0 });
@@ -317,7 +413,7 @@ describe("compactDeletionRecords", () => {
     );
     assert.equal(
       puts()[0]?.content,
-      formatDeletionRecord(T3, [
+      formatDeletionRecord([
         { hash: HASH_A, size: 1, instant: T1, by: "x" },
         { hash: HASH_B, size: 2, instant: T2, by: "y" },
       ]),
@@ -344,43 +440,39 @@ describe("compactDeletionRecords", () => {
     // nothing can ever ask about it and its row is dead.
     record(
       1,
-      formatDeletionRecord(T1, [
+      formatDeletionRecord([
         { hash: HASH_A, size: 1, instant: T1, by: "x" },
         { hash: HASH_B, size: 2, instant: T1, by: "x" },
       ]),
     );
     record(
       2,
-      formatDeletionRecord(T2, [
-        { hash: HASH_C, size: 3, instant: T2, by: "y" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_C, size: 3, instant: T2, by: "y" }]),
     );
     const result = await compactDeletionRecords("b", new Set([HASH_A]));
     assert.deepEqual(result, { files: 2, rows: 1, trimmed: 2 });
     assert.equal(
       puts()[0]?.content,
-      formatDeletionRecord(T3, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
   });
 
   it("collapses identical rows duplicated across files (a crashed earlier merge)", async (t) => {
     pinClock(t, T3);
     const row = { hash: HASH_A, size: 1, instant: T1, by: "x" };
-    record(1, formatDeletionRecord(T1, [row]));
-    record(2, formatDeletionRecord(T2, [row]));
+    record(1, formatDeletionRecord([row]));
+    record(2, formatDeletionRecord([row]));
     const result = await compactDeletionRecords("b", new Set([HASH_A]));
     // Collapsing a duplicate is dedup, not trimming — `trimmed` counts only
     // rows dropped because no snapshot references them.
     assert.deepEqual(result, { files: 2, rows: 1, trimmed: 0 });
-    assert.equal(puts()[0]?.content, formatDeletionRecord(T3, [row]));
+    assert.equal(puts()[0]?.content, formatDeletionRecord([row]));
   });
 
   it("rewrites even a single file when trimming shrinks it", async () => {
     record(
       1,
-      formatDeletionRecord(T1, [
+      formatDeletionRecord([
         { hash: HASH_A, size: 1, instant: T1, by: "x" },
         { hash: HASH_B, size: 2, instant: T1, by: "x" },
       ]),
@@ -400,15 +492,11 @@ describe("compactDeletionRecords", () => {
   it("writes no merge when every row is dead — the steady state is no record at all", async () => {
     record(
       1,
-      formatDeletionRecord(T1, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
     record(
       2,
-      formatDeletionRecord(T2, [
-        { hash: HASH_B, size: 2, instant: T2, by: "y" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_B, size: 2, instant: T2, by: "y" }]),
     );
     const result = await compactDeletionRecords("b", new Set());
     assert.deepEqual(result, { files: 2, rows: 0, trimmed: 2 });
@@ -429,15 +517,11 @@ describe("compactDeletionRecords", () => {
     listed.push({ Key: "objects.deleted-1.tsv" }); // no body registered
     record(
       2,
-      formatDeletionRecord(T1, [
-        { hash: HASH_A, size: 1, instant: T1, by: "x" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
     );
     record(
       3,
-      formatDeletionRecord(T2, [
-        { hash: HASH_B, size: 2, instant: T2, by: "y" },
-      ]),
+      formatDeletionRecord([{ hash: HASH_B, size: 2, instant: T2, by: "y" }]),
     );
     const result = await compactDeletionRecords("b", new Set([HASH_A, HASH_B]));
     assert.deepEqual(result, { files: 2, rows: 2, trimmed: 0 });
@@ -451,5 +535,17 @@ describe("compactDeletionRecords", () => {
         .sort(),
       ["s3://b/objects.deleted-2.tsv", "s3://b/objects.deleted-3.tsv"],
     );
+  });
+
+  it("refuses to compact past an invalid file, writing and deleting nothing", async () => {
+    // The merge keeps only parsed rows and then deletes the original, so a
+    // refused row would be lost for good.
+    record(1, fileOf(deletedRow(HASH_A, 1, T1, "x")));
+    record(2, fileOf(deletedRow("not-a-hash", 1, T1, "x")));
+    await assert.rejects(
+      () => compactDeletionRecords("b", new Set([HASH_A])),
+      /Not compacting: s3:\/\/b\/objects\.deleted-2\.tsv isn't valid/,
+    );
+    assert.deepEqual(ops, []);
   });
 });

@@ -267,7 +267,6 @@ export async function deleteHashes(hashes = [], options = {}) {
   const recordUri = await writeDeletionRecord(
     bucket,
     formatDeletionRecord(
-      instant,
       found.map(({ hash, size }) => ({ hash, size, instant, by })),
     ),
   );

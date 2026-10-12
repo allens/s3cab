@@ -44,6 +44,8 @@ let storeHashes = [];
 let listedPrefixes = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** @type {{ uri: string, reason: string }[]} the record files that aren't valid */
+let invalidRecords = [];
 /** How many times the deletion record was read — see the trust suite. */
 let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
@@ -95,7 +97,7 @@ mock.module("./deletion-record.mjs", {
   exports: {
     readDeletionRecords: async () => {
       recordReads++;
-      return deletionRecords;
+      return { deleted: deletionRecords, invalid: invalidRecords };
     },
   },
 });
@@ -152,6 +154,7 @@ beforeEach(() => {
   storeHashes = [];
   listedPrefixes = [];
   deletionRecords = new Map();
+  invalidRecords = [];
   recordReads = 0;
   putError = undefined;
   duringPut = undefined;
@@ -397,7 +400,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     assert.equal(uploaded, 1);
   });
 
-  it("passes an #ERROR row through without an upload", async () => {
+  it("passes an #error row through without an upload", async () => {
     await using dir = await mkTmpDir();
     const unreadable = join(dir.path, "locked.bin");
     /** @type {[string, Error]} */
@@ -630,6 +633,33 @@ describe("uploadSnapshot baseline trust", () => {
       },
     ]);
     assert.equal(result.candidates, 1);
+  });
+
+  it("LISTs the store when the deletion record is damaged, even under a trusted baseline (ADR-0101)", async (t) => {
+    // A damaged record can't be trusted to name every deletion, so the
+    // baseline can't vouch for what's stored: the store's own LIST answers.
+    await using dir = await mkTmpDir();
+    const { file, hash, args } = await oneFileFixture(dir.path);
+    invalidRecords = [
+      {
+        uri: "s3://trust-bucket/objects.deleted-1.tsv",
+        reason: "the closing @S3CAB END row is missing",
+      },
+    ];
+    const warn = t.mock.method(console, "warn", () => {});
+
+    const result = await uploadSnapshot(args);
+
+    assert.deepEqual(listedPrefixes, ["s3://trust-bucket/objects/"]);
+    assert.deepEqual(putFiles[0], {
+      path: file,
+      uri: `s3://trust-bucket/objects/${hash}`,
+    });
+    assert.equal(result.candidates, 1);
+    assert.match(
+      String(warn.mock.calls[0]?.arguments[0]),
+      /deletion record in 's3:\/\/trust-bucket' is damaged/,
+    );
   });
 
   it("distrusts a baseline gone from the cloud — LISTs the store and re-plans its objects", async () => {

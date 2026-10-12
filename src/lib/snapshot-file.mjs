@@ -7,75 +7,65 @@ import {
   statSync,
 } from "node:fs";
 import { open, rename, unlink } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { constants, createGunzip, createGzip } from "node:zlib";
+import pkg from "../../package.json" with { type: "json" };
 import { EXIT_INTERRUPTED, InterruptedError, isENOENT } from "./error.mjs";
-import { completionInstant, localMoment, showControlChars } from "./format.mjs";
-import { tildeify } from "./home.mjs";
+import {
+  completionInstant,
+  formatByteValue,
+  localMoment,
+  showControlChars,
+} from "./format.mjs";
+import { s3cabDir, tildeify } from "./home.mjs";
+import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
-import { UNREPRESENTABLE_IN_TSV } from "./walk.mjs";
+import { userAtMachine } from "./user-at-machine.mjs";
 
-/** @import { ExclusionRecord } from "./walk.mjs" */
+/** @import { ExclusionRecord, WalkError } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
 /** @import { AssertionError } from "node:assert" */
 
-// The snapshot TSV — this module is its sole writer and parser. The file-row
-// grammar (the tab-separated `hash`/`size`/`mtime`/`path` columns) is the
-// recovery contract, specified in guide/format.md and decided in ADR-0004;
-// `formatLine` below documents the fixed column widths it pads. The metadata
-// rows are an internal detail (a recovery reader skips every `#` line), so their
-// grammar lives here:
-//   #SNAPSHOT<TAB>set<TAB>instant<TAB>name zone   opening header (ADR-0072); set = ADR-0024 identity
-//   #DIR<TAB><TAB><TAB>path                       one per member directory
-//   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
-//   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
-//   #ERROR<TAB><TAB>reason<TAB>path               a file the walk couldn't hash
-//   #END<TAB>status<TAB>instant<TAB>              last line — the completeness trailer (ADR-0082)
-// so a snapshot is self-describing even found alone (docs/design/backup.md).
-// `writeSnapshot` is the sole writer of all of it (header via `snapshotHeader`,
-// then the `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows via `excludedLine`/`skippedLine`/
-// `errorLine`); the walk yields these as separate data buckets and no longer
-// knows the grammar. On read, `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR`
-// (into the headers), `#ERROR` (into `errors`), and `#SKIPPED` (into `skipped`);
-// `#EXCLUDED` and any other comment line are ignored. That asymmetry is
-// deliberate and settled: the live question ("what are my patterns dropping?")
-// is answered by `tree --excluded` from a fresh walk, so a reader can check an
-// exclude.txt edit by re-running rather than by taking another snapshot
-// (ADR-0080). These rows stay a record for hand recovery — don't wire them up.
+// The snapshot TSV — this module is its sole writer and parser. The layout is
+// specified in guide/format.md and decided in ADR-0098 and ADR-0103: five
+// tab-separated columns under a fixed heading row, each row typed by its first
+// column. The walk yields its findings as separate data buckets and doesn't
+// know the grammar; `writeSnapshot` writes all of it. On read,
+// `parseSnapshotStream` surfaces only what code reads (ADR-0098's table): `-`
+// rows into `entries`, `#error` into `errors`, `@SET DIR` into `dirs`,
+// `@SNAPSHOT START`'s instant, and `@S3CAB END` as the completeness check — and
+// refuses what ADR-0101 calls invalid, the whole file or one path. Every other
+// `@` or `#` row is for people and is skipped. `#excluded` is one of those
+// deliberately: "what are my patterns dropping?" is answered by `tree
+// --excluded` from a fresh walk, so a reader can check an exclude.txt edit by
+// re-running rather than by taking another snapshot (ADR-0080).
 
-// The comment markers heading the grammar's non-file lines — shared by the
-// (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)
-// and `parseSnapshotStream`, so the literal strings live in exactly one place.
-const SNAPSHOT = "#SNAPSHOT";
-const DIR = "#DIR";
-const EXCLUDED = "#EXCLUDED";
-const SKIPPED = "#SKIPPED";
-const ERROR = "#ERROR";
-const END = "#END";
+// The row types and the properties the parser reads — shared with the writers,
+// so the literal strings live in exactly one place. The first character says
+// what a row is (ADR-0103): `@` a property, `-` a file, `#` a path a restore
+// doesn't act on.
+const FILE = "-";
+const EXCLUDED = "#excluded";
+const ERROR = "#error";
+const S3CAB = "@S3CAB";
+const SET = "@SET";
+const SNAPSHOT = "@SNAPSHOT";
+const FORMAT = "FORMAT";
+const DIR = "DIR";
+const START = "START";
+const END = "END";
+const HEADING_URL = "https://s3cab.plantegral.com/guide/format";
 
 /**
- * The two values the `#END` trailer's status column takes: this file holds every
- * file the walk found, or it stops part-way because the user pressed Ctrl+C and
- * the run parked what it had (ADR-0067).
- *
- * The trailer's *presence* and its *status* answer different questions, and both
- * are worth having. Presence says the run ended in a controlled way — a torn
- * write leaves no trailer at all, so a reader can tell "you stopped it" from
- * "the process died mid-row" and knows the last row is whole either way. The
- * status then says whether the rows are all of them. A bare `#END` conflated the
- * two: a parked file was intact *and* announced with the same marker a finished
- * snapshot uses, which reads as "done" to anyone who hasn't read ADR-0082.
- *
- * Both fit the 10-column status field `formatLine` pads to; a longer word would
- * push every trailer's instant out of the column the `#SNAPSHOT` instant sits in.
+ * Row 1 of every s3cab file: names the columns Excel's AutoFilter shows, says
+ * what the file is, and where its format is explained. The URL is frozen into
+ * every stored file, so it must keep resolving (CLAUDE.md, printed URLs).
  */
-const COMPLETE = "COMPLETE";
-const PARTIAL = "PARTIAL";
+export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
 
 /**
  * The properties a snapshot records for one file — its content `hash`, `size`,
@@ -103,32 +93,27 @@ const PARTIAL = "PARTIAL";
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */
 /**
- * Paths the walk omitted by design, each with the `dirent_type` that got it
- * omitted and the recorded reason. **Both columns, not just the reason:** the
- * reason is nearly always the same string (`Unsupported file type`), while the
- * type is what actually answers "what *was* that?" — the question a reader has
- * when they meet the entry (ADR-0078). The row has carried the type all along;
- * only the reader dropped it.
- * @typedef {Map<string, { fileType: string, reason: string }>} SnapshotSkipped
+ * The paths whose rows the reader refused (ADR-0101), each mapped to why.
+ * @typedef {Map<string, string>} SnapshotRefused
  */
 /**
- * A parsed snapshot: the file `entries`, paths that failed hashing (`errors`,
- * mapped to the recorded reason), paths skipped by design (`skipped`, mapped to
- * the dirent type and the skip reason), plus the `#SNAPSHOT`/`#DIR`
- * headers that make it self-describing (docs/design/backup.md). `dirs` are the
- * member directories captured at snapshot time; `identity` is the set name
- * (ADR-0024). `instant` and `zone` are the moment it was taken
- * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
- * All three are optional because a snapshot may carry no `#SNAPSHOT` line at all
- * — the row-only form the test fixture builder writes — not because any header
- * layout omits them.
- *
- * `status` and `completed` are the `#END` trailer's two columns: whether the
- * rows are all of them (`COMPLETE`/`PARTIAL`), and when the last one was
- * written. Neither has a branch behind it and both are surfaced anyway: they are
- * documented columns of the file (guide/format.md), and a parser that silently
- * dropped them would be a trap for the next reader.
- * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string, status?: string, completed?: string }} Snapshot
+ * A parsed snapshot: what the code reads of it (ADR-0098) — the `-` rows
+ * (`entries`), paths with no usable row (`errors`: the `#error` rows mapped to
+ * their message, and every refused path to its reason), the refused paths alone
+ * (`refused`, for `restore` and `verify`, which report them as damage), the
+ * member directories captured at snapshot time (`dirs`, from `@SET DIR`), and
+ * the moment the run started (`instant`, from `@SNAPSHOT START`).
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, refused: SnapshotRefused, dirs: string[], instant?: string }} Snapshot
+ */
+/**
+ * What a snapshot records about its set and the run's configuration — the
+ * `@SET` rows. Read only by people (ADR-0098).
+ * @typedef {Object} SnapshotSet
+ * @property {string} name - The set's name (its whole identity, ADR-0024)
+ * @property {string} bucket - The set's bucket
+ * @property {string} [endpoint] - The S3 endpoint, for a provider other than AWS
+ * @property {string[]} dirs - Member directories, canonical
+ * @property {string[]} patterns - The exclude patterns in force
  */
 
 /**
@@ -377,19 +362,17 @@ export async function withSnapshotFile(
  * against the live file's size and mtime before reuse, so an entry from a stale
  * (or even a concurrently written) file is either still valid — a correct reuse —
  * or invalidated, and re-hashed. There is no corruption path from reading, which
- * is also why the file's `#SNAPSHOT` identity is deliberately *not* checked
- * against the set: a path whose size and mtime still match is the same file
- * whichever set recorded it, so the check would reject nothing that could do harm.
+ * is also why the file's `@SET NAME` is deliberately *not* checked against the
+ * set: a path whose size and mtime still match is the same file whichever set
+ * recorded it, so the check would reject nothing that could do harm.
  * `instant` — when the stopped run started — comes back too: `readBaseline`
  * uses it as the change-time check's boundary for a set with no previous
  * snapshot to take one from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
- * which a snapshot never is: a file parked by {@link recoverWorkFile} is a work
- * file its run never closed, so it has no `#END` and its last row is torn. Always
- * on, not only for a recovered file — a gracefully parked one simply has nothing
- * for the tolerance to forgive, and one reader with one mode beats a "was this
- * recovered?" branch to get wrong. A recovered file still has its `#SNAPSHOT`
- * header, the first line its run wrote, so `instant` is there either way.
+ * which a snapshot never is: a parked file has no `@S3CAB END`, whether its run
+ * was stopped or killed, and a killed run's last row is torn. Every parked file
+ * has its `@SNAPSHOT START` row, written before any object, so `instant` is
+ * there either way.
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
  * @param {string} [notBefore] - When the previous snapshot started; a parked file whose run started earlier is ignored
  * @returns {Promise<{ entries: SnapshotEntries, instant?: string } | undefined>} The parked entries and when the stopped run started, or undefined when none are parked
@@ -507,14 +490,14 @@ const inProgressError = (tmpPath) => {
 };
 
 /**
- * Write a complete snapshot file and return its path: the `#SNAPSHOT`/`#DIR`
- * header, `#EXCLUDED` rows for pattern-matched entries, `#SKIPPED` rows for
- * by-design-unsupported entries, then a file-entry row per kept file — each
- * hashed via the injected `getProps`, with an `#ERROR` row for any that fails —
- * all gzip-compressed and atomically renamed into place (`withSnapshotFile`).
- * This is the single production seam for "files → snapshot file"; the grammar
- * (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`/`formatLine`,
- * `SnapshotRow`) never leaves this module.
+ * Write a complete snapshot file and return its path: the heading row, the
+ * `@S3CAB`/`@SET`/`@SNAPSHOT` property rows, `#excluded` rows for
+ * pattern-matched entries, `#error` rows for entries the walk couldn't check,
+ * then a `-` row per kept file — each hashed via the
+ * injected `getProps`, with an `#error` row for any that fails — and the
+ * `FILES`/`SIZE`/`END` trailer, all gzip-compressed and atomically renamed into
+ * place (`withSnapshotFile`). This is the single production seam for "files →
+ * snapshot file"; the grammar never leaves this module.
  *
  * Hashing is *injected* as `getProps`, not imported — the seam that lets a test
  * drive the writer without touching disk (it passes a `getProps` that synthesizes
@@ -523,11 +506,11 @@ const inProgressError = (tmpPath) => {
  * `files` is accepted as any (async) iterable, so the caller can hand in a
  * progress-wrapped stream.
  *
- * Write order is header → excluded → skipped → entries: the "not backed up"
- * diagnostics sit near the top, where someone opening the file to ask "why
- * wasn't X backed up?" finds them without scrolling past the entries. `#ERROR`
- * rows stay inline with the entries, in file order. Parsing is marker-driven so
- * order doesn't affect correctness (`parseSnapshotStream`).
+ * The "not backed up" rows come before the objects, where someone opening the
+ * file to ask "why wasn't X backed up?" finds them without scrolling past the
+ * entries. A hashing `#error` stays inline with the objects, in file order.
+ * Parsing is type-driven so order doesn't affect correctness
+ * (`parseSnapshotStream`).
  *
  * `through` is the **fusion seam** (ADR-0069): a pass-through inserted between
  * the hashing producer and the TSV sink, so a caller can act on each row *the
@@ -539,11 +522,10 @@ const inProgressError = (tmpPath) => {
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
  * @param {{ name: string, instant: string, zone: string }} moment - The snapshot's moment, from one clock read (`snapshotMoment`): its name, the UTC instant, and the zone the name was minted in
  * @param {object} args
- * @param {string} args.identity - The set name (its whole identity, ADR-0024) — the `#SNAPSHOT` line
- * @param {string[]} args.dirs - Member directories (one `#DIR` line each)
+ * @param {SnapshotSet} args.set - The set as this run saw it (→ `@SET` rows)
  * @param {Iterable<string> | AsyncIterable<string>} args.files - Kept file paths to hash and record
- * @param {ExclusionRecord[]} args.excluded - Pattern-matched entries (→ `#EXCLUDED` rows)
- * @param {ExclusionRecord[]} [args.skipped] - By-design unsupported entries (→ `#SKIPPED` rows)
+ * @param {ExclusionRecord[]} args.excluded - Pattern-matched entries (→ `#excluded` rows)
+ * @param {WalkError[]} args.errors - Entries the walk couldn't check (→ `#error` rows)
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
  * @param {RowTransform} [args.through] - Pass-through applied to each hashed row before it reaches the TSV (`backup`'s object uploader)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
@@ -554,17 +536,41 @@ export async function writeSnapshot(
   snapshotDir,
   moment,
   {
-    identity,
-    dirs,
+    set,
     files,
     excluded,
-    skipped = [],
+    errors,
     getProps,
     through,
     overwrite = false,
     onStop,
   },
 ) {
+  // Whatever a person reads is spelled out (ADR-0100); only the paths the code
+  // reads back as real ones are refused instead, by the walk.
+  const preamble = [
+    versionAndHome(),
+    property(SET, "NAME", set.name),
+    property(SET, "BUCKET", `s3://${set.bucket}`),
+    ...(set.endpoint ? [property(SET, "ENDPOINT", set.endpoint)] : []),
+    ...set.dirs.map((dir) => property(SET, DIR, asFolder(dir))),
+    ...set.patterns.map((pattern) => property(SET, "EXCLUDE", pattern)),
+    property(SNAPSHOT, "NAME", moment.name),
+    property(SNAPSHOT, "BY", userAtMachine()),
+    property(SNAPSHOT, START, moment.zone, moment.instant),
+    ...excluded.map(({ pattern, path, isDir }) =>
+      formatLine(
+        EXCLUDED,
+        showControlChars(pattern),
+        "",
+        "",
+        showControlChars(isDir ? asFolder(path) : path),
+      ),
+    ),
+    ...errors.map(({ path, reason, isDir }) =>
+      errorLine(reason, isDir ? asFolder(path) : path),
+    ),
+  ].join("");
   return withSnapshotFile(
     snapshotDir,
     moment.name,
@@ -579,21 +585,6 @@ export async function writeSnapshot(
       if (onStop) {
         signal.addEventListener("abort", onStop, { once: true });
       }
-      writeStream.write(snapshotHeader({ moment, identity, dirs }));
-      // A name the walk would refuse to keep can still be excluded or skipped,
-      // and excluding it is the fix the refusal suggests (ADR-0073). Written
-      // raw, its line break would split the row and make the snapshot
-      // unreadable. `excludedLine` spells it out, which is safe only because
-      // nothing reads an `#EXCLUDED` path back; `compareSnapshots` matches
-      // `#SKIPPED` paths against real ones, so a skipped one gets no row.
-      for (const { fileType, reason, path } of excluded) {
-        writeStream.write(excludedLine(fileType, reason, path));
-      }
-      for (const { fileType, reason, path } of skipped) {
-        if (!UNREPRESENTABLE_IN_TSV.test(path)) {
-          writeStream.write(skippedLine(fileType, reason, path));
-        }
-      }
       const rows = propsRows(getProps, signal);
       await pipeline(
         files,
@@ -604,7 +595,7 @@ export async function writeSnapshot(
         // The signal reaches the trailer the same way it reaches `propsRows`:
         // handed in, not read from a module global. It is what tells a finished
         // file from one the user stopped, and only this scope holds it.
-        (produced) => stringifySnapshot(produced, signal),
+        (produced) => stringifySnapshot(produced, { preamble, signal }),
         writeStream,
       );
     },
@@ -815,16 +806,13 @@ export async function parseCompressedSnapshotStream(
     tolerant ? { finishFlush: constants.Z_SYNC_FLUSH } : {},
   );
   try {
-    // The sink closes over the gunzip stream rather than taking pipeline's sink
-    // argument — the same object at runtime, but typed as a bare
-    // AsyncIterable, which the parser's readline can't take.
-    return await pipeline(source, decompressed, () =>
-      parseSnapshotStream(decompressed, { tolerant }),
+    return await pipeline(source, decompressed, (tsv) =>
+      parseSnapshotStream(tsv, { tolerant }),
     );
   } catch (error) {
     // gunzip rejects a stream that ends before its own trailer, before the
-    // parser can miss its `#END` — so for a *compressed* snapshot this is where
-    // truncation is caught, and `#END` covers what gzip's check can't see
+    // parser can miss its `END` — so for a *compressed* snapshot this is where
+    // truncation is caught, and `END` covers what gzip's check can't see
     // (ADR-0082 amendment 3). Same damage, so the same AssertionError.
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "Z_BUF_ERROR") {
       assert.fail(
@@ -844,43 +832,53 @@ export async function parseCompressedSnapshotStream(
  * through {@link parseCompressedSnapshotStream}, which fronts this parser with
  * gunzip as a pipeline sink.
  *
- * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
- * rather than discarded, so a snapshot stays self-describing on read — the
- * member dirs are what `restore --output` re-roots by. `#ERROR` rows (files the
- * walk couldn't hash) are surfaced into `errors` so `compare` can report them
- * rather than mistaking the path for deleted. `#SKIPPED` rows (entries the walk
- * omitted by design) are surfaced into `skipped`. `#EXCLUDED` and any other
- * comment line are ignored on read. Local callers that only want the file lookup
- * take `.entries` (`readSnapshotFile`); the remote reader surfaces the whole
- * snapshot.
- * @param {Readable} input - A decompressed snapshot TSV stream
+ * Only what code reads is parsed (ADR-0098): `-` rows into `entries`, `#error`
+ * rows into `errors` (so `compare` reports the path rather than mistaking it
+ * for deleted), `@SET DIR` into `dirs` (what `restore --output` re-roots by),
+ * and `@SNAPSHOT START`'s instant. Every other `@` or `#` row is for people, or
+ * from a newer s3cab, and is skipped.
+ *
+ * Validity is ADR-0101's. The whole file is refused when it isn't UTF-8,
+ * doesn't open with the heading row, doesn't end with `END`, or holds a type
+ * this version doesn't know that starts with neither `@` nor `#` — content a
+ * restore would miss (ADR-0103). One path is refused, and the rest still read,
+ * for a malformed `-` row, a path that isn't absolute, holds a tab, a CR or a
+ * `.`/`..` segment or is under no `@SET DIR`, and a path two such rows name:
+ * both are refused, so no reader guesses between them.
+ * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the `#END` trailer, and drop the final line unless that trailer is it — a row torn mid-write can look perfectly well-formed, so nothing but the trailer vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage ADR-0082's trailer exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
- * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
- * @throws {AssertionError} When the stream ends without
- *   the `#END` trailer — a truncated snapshot (ADR-0082), which
- *   `isCorruptSnapshotError` classifies as damage rather than an S3 failure
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without `@S3CAB END`, and drop the final line unless it is that row — a row torn mid-write can look perfectly well-formed, so nothing but `END` vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage `END` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
+ * @returns {Promise<Snapshot>}
+ * @throws {AssertionError} When the whole file is refused — truncation
+ *   (ADR-0082) among the rest — which `isCorruptSnapshotError` classifies as
+ *   damage rather than an S3 failure
  */
 export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   /** @type {SnapshotEntries} */
   const entries = new Map();
   /** @type {SnapshotErrors} */
   const errors = new Map();
-  /** @type {SnapshotSkipped} */
-  const skipped = new Map();
+  /** @type {SnapshotRefused} */
+  const refused = new Map();
+  /**
+   * Every path a file row has named, so a second file row refuses both. Not
+   * `#error` rows: one repeating a file row's path changes nothing a restore
+   * writes, and refusing the file for it would part s3cab from a reader that
+   * skips `#` rows (ADR-0101).
+   */
+  const seen = new Set();
   /** @type {string[]} */
   const dirs = [];
   /** @type {string | undefined} */
-  let identity;
-  /** @type {string | undefined} */
   let instant;
-  /** @type {string | undefined} */
-  let zone;
-  /** @type {string | undefined} */
-  let status;
-  /** @type {string | undefined} */
-  let completed;
+  let headed = false;
   let complete = false;
+
+  /** @param {string} path @param {string} reason */
+  const refuse = (path, reason) => {
+    entries.delete(path);
+    refused.set(path, reason);
+  };
 
   /**
    * Parse one line into the state above. Split from the read loop because
@@ -888,93 +886,71 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
    * @param {string} line
    */
   const parseLine = (line) => {
-    // The four columns, named for their *position* only: what each one holds
-    // depends on the marker in col1 and is knowable only inside the branch that
-    // has read it. col4 in particular is a path on four of the five row kinds and
-    // is *not* a path on the fifth — on `#SNAPSHOT` it is `<name> <zone>`. So each
-    // column earns a real name inside its branch, where that name can be true, and
-    // is trimmed at the same moment: the format pads the leading fields with
-    // spaces so the raw file reads as columns, and requires readers to trim
-    // (guide/format.md). Path-valued columns are deliberately *not* trimmed — the
-    // writer never pads the last field, and a filename may legitimately begin or
-    // end with a space. Within a branch the names are declared in column order.
-    //
-    // Defaulted to `""` rather than left `undefined`, so every column is a string
-    // and `.trim()` needs no `?.` or `?? ""` at a dozen call sites. A short line
-    // yields empty columns, which are falsy exactly where `undefined` was, so the
-    // marker branches skip it and the file-row assert below still catches it.
-    //
-    // Positional, not `parts.pop()`: every row is exactly four fields, because a
-    // path containing a tab is refused at write time (ADR-0073). Popping the last
-    // field defended against a case the format forbids and mishandled the one it
-    // allows — on a truncated three-field line it silently returned col3 as the
-    // path, where col4 is empty and the assert fires.
-    const [col1 = "", col2 = "", col3 = "", col4 = ""] = line.split("\t");
-    const marker = col1.trim();
+    // The five columns, named for their *position* only: what each holds depends
+    // on the type in col1, so each earns a real name inside the branch that has
+    // read it. The leading four are space-padded so the raw file reads as
+    // columns, and readers trim them (guide/format.md); col5 is never padded and
+    // never trimmed, because a filename may begin or end with a space. col5 is
+    // the whole rest of the line: a tab in a hand-edited path must reach
+    // `pathFault` and be refused, not cut the path short at the tab.
+    const [col1 = "", col2 = "", col3 = "", col4 = "", ...rest] =
+      line.split("\t");
+    const col5 = rest.join("\t");
+    const type = col1.trim();
+    const property = col2.trim();
 
-    if (marker.startsWith("#")) {
-      // Marker comments carry their payload in the trailing columns (see the
-      // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB>set<TAB>instant
-      // <TAB>name zone`, `#ERROR<TAB><TAB>reason<TAB>path`,
-      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path` and
-      // `#END<TAB>status<TAB>instant<TAB>`. `#EXCLUDED` and any other comment
-      // line are ignored on read.
-      if (marker === DIR && col4) {
-        const dir = col4;
-        dirs.push(dir);
-      } else if (marker === SNAPSHOT && col4) {
-        // set | instant | "name zone" (ADR-0072).
-        identity = col2.trim();
-        instant = col3.trim();
-        // col4 is "<name> <zone>" here — not a path. The name is the filename,
-        // which the reader already knows, so only the zone is surfaced (the
-        // header-vs-filename check is deliberately not built — ADR-0072).
-        const nameAndZone = col4;
-        const gap = nameAndZone.indexOf(" ");
-        zone = gap === -1 ? undefined : nameAndZone.slice(gap + 1);
-      } else if (marker === ERROR && col4) {
-        const errorMessage = col3.trim();
-        const path = col4;
-        errors.set(path, errorMessage);
-      } else if (marker === SKIPPED && col4) {
-        const fileType = col2.trim();
-        const reason = col3.trim();
-        const path = col4;
-        skipped.set(path, { fileType, reason });
-      } else if (marker === END) {
-        complete = true;
-        // status | instant — `undefined` when the column is empty.
-        status = col2.trim() || undefined;
-        completed = col3.trim() || undefined;
-      }
+    if (!headed) {
+      assert(
+        isHeadingRow(line),
+        "Not an s3cab snapshot: the first line isn't the @S3CAB FORMAT heading row",
+      );
+      headed = true;
       return;
     }
+    if (line.trim() === "") {
+      return;
+    }
+    // An END that isn't last no longer proves the file whole (ADR-0101).
+    assert(
+      !complete,
+      "Damaged snapshot: rows follow the closing @S3CAB END row",
+    );
 
-    // A file row — the only shape where all four columns are what their familiar
-    // names say, so this is where they get them.
-    //
-    // The assert reads the *trimmed* values, not the raw columns: the leading
-    // fields are space-padded (guide/format.md), so an all-blank column is
-    // *truthy* while the value it yields is empty — and `Number("   ")` is 0, not
-    // NaN, so a blank size column would file a real entry of size zero instead of
-    // refusing the line.
-    const hash = col1.trim();
-    const size = col2.trim();
-    const mtime = col3.trim();
-    const path = col4;
-    // Unconditional, `tolerant` or not: a line that reaches here is one the
-    // reader has already proved whole, because tolerance lives entirely in the
-    // loop's lookbehind below rather than in a judgement about this line.
-    assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
-
-    entries.set(path, {
-      size: Number(size),
-      mtime,
-      hash,
-    });
+    if (type === FILE) {
+      // A per-path row refuses its own path and nothing else (ADR-0101): rows
+      // are independent lines, so the rest of the file still reads.
+      const path = col5;
+      if (seen.has(path)) {
+        refuse(path, "it appears in two rows of the snapshot");
+        return;
+      }
+      seen.add(path);
+      const fault = fileRowFault(col2.trim(), col3.trim(), col4.trim(), path);
+      if (fault) {
+        refuse(path, fault);
+      } else {
+        entries.set(path, {
+          size: Number(col3.trim()),
+          mtime: col4.trim(),
+          hash: col2.trim(),
+        });
+      }
+    } else if (type === ERROR && col5) {
+      errors.set(col5, col2.trim());
+    } else if (type === SET && property === DIR && col5) {
+      dirs.push(col5);
+    } else if (type === SNAPSHOT && property === START) {
+      instant = col4.trim() || undefined;
+    } else if (type === S3CAB && property === END) {
+      complete = true;
+    } else {
+      assert(
+        type.startsWith("@") || type.startsWith("#"),
+        `Unknown row type '${type}': this snapshot was written by a newer s3cab, ` +
+          `or isn't an s3cab snapshot`,
+      );
+    }
   };
-
-  const rl = createInterface({ input, crlfDelay: Infinity });
 
   // Under `tolerant` the last line is held back and parsed only once a further
   // line proves it whole, because a work file's final line is a *prefix* of a
@@ -984,16 +960,12 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // filename that stops short, which would file a real hash under a prefix of a
   // real path, and a live file matching that prefix's size and mtime would then
   // have the wrong content's hash reused for it. So the final line is taken on
-  // the trailer's word rather than on its own looks. It costs a *gracefully*
-  // parked file nothing: its last line is the `#END` trailer (ADR-0067), so
-  // every row is vouched for and the held line is the trailer itself.
+  // `END`'s word rather than on its own looks. A gracefully parked file has no
+  // `END` either (ADR-0098), so it too loses its last row: one file re-hashed.
   /** @type {string | undefined} */
   let held;
 
-  for await (const line of rl) {
-    if (line.trim() === "") {
-      continue;
-    }
+  for await (const line of utf8Lines(input)) {
     if (!tolerant) {
       parseLine(line);
       continue;
@@ -1004,16 +976,16 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     held = line;
   }
 
-  // `#END` is the one line that vouches for itself: a torn write can leave a
-  // prefix of a *row*, but the trailer is the last thing written, so nothing
-  // follows it to be cut. Any other held line is dropped unread.
-  if (held?.startsWith(END)) {
+  // `END` is the one line that vouches for itself: a torn write can leave a
+  // prefix of a *row*, but `END` is the last thing written, so nothing follows
+  // it to be cut. Any other held line is dropped unread.
+  if (held !== undefined && isEndLine(held)) {
     parseLine(held);
   }
 
-  // The completeness check (ADR-0082): the `#END` trailer is what makes
-  // truncation loud, because completeness is a property of the *content* — any
-  // cut that loses a row loses the trailer with it. gunzip rejects a cut-short
+  // The completeness check (ADR-0082): `@S3CAB END` is what makes truncation
+  // loud, because completeness is a property of the *content* — any cut that
+  // loses a row loses `END` with it. gunzip rejects a cut-short
   // stream on its own, and parseCompressedSnapshotStream folds that into
   // this same AssertionError, but it can't stand in for this check: an
   // uncompressed `.tsv` has no gzip trailer at all, and the `tolerant` read below
@@ -1024,26 +996,137 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.
   // `tolerant` exempts a work file, and only a work file: it is *expected* to
-  // have no trailer, because the run that was writing it never reached one
+  // have no `END`, because the run that was writing it never reached one
   // (ADR-0092). Every other reader stays strict, which is what keeps this
   // assert the truncation detector ADR-0082 built it to be.
   assert(
     complete || tolerant,
-    "Truncated snapshot: the closing #END marker is missing, so the file was cut short",
+    "Truncated snapshot: the closing @S3CAB END row is missing, so the file was cut short",
   );
 
-  return {
-    entries,
-    errors,
-    skipped,
-    dirs,
-    identity,
-    instant,
-    zone,
-    status,
-    completed,
-  };
+  // After the read, not per row: only a whole file says which `@SET DIR` rows
+  // there are.
+  const underDir = pathMatcher(dirs) ?? (() => false);
+  for (const path of entries.keys()) {
+    if (!underDir(path)) {
+      refuse(path, "its path is under none of the snapshot's @SET DIR rows");
+    }
+  }
+  // Elsewhere a refused path is one with no row (ADR-0101): read like an
+  // `#error`, `compare` lists it as unreadable and `backup` re-hashes it.
+  for (const [path, reason] of refused) {
+    errors.set(path, reason);
+  }
+
+  return { entries, errors, refused, dirs, instant };
 }
+
+/**
+ * Why a `-` row can't be trusted, or `undefined` for a well-formed one — the
+ * field checks of ADR-0101's valid file.
+ * @param {string} hash @param {string} size @param {string} mtime @param {string} path
+ * @returns {string | undefined}
+ */
+const fileRowFault = (hash, size, mtime, path) =>
+  !/^[0-9a-f]{64}$/.test(hash)
+    ? "its hash isn't 64 lowercase hex digits"
+    : !/^[0-9]+$/.test(size)
+      ? "its size isn't a whole number of bytes"
+      : !INSTANT.test(mtime)
+        ? "its time isn't a UTC instant like 2026-08-14T09:31:07.412Z"
+        : pathFault(path);
+
+/**
+ * Why a per-path row's path can't be restored to, or `undefined`. The path's
+ * own shape says which separators count, as everywhere (path-match.mjs).
+ * @param {string} path
+ * @returns {string | undefined}
+ */
+function pathFault(path) {
+  if (!path) {
+    return "it has no path";
+  }
+  if (!foldsCase(path) && !path.startsWith("/")) {
+    return "its path isn't absolute";
+  }
+  if (path.includes("\r")) {
+    return "its path holds a carriage return";
+  }
+  if (path.includes("\t")) {
+    return "its path holds a tab";
+  }
+  const segments = preparePath(path).path.split("/");
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return "its path has a . or .. segment";
+  }
+  return undefined;
+}
+
+/** The 24-character UTC instant `toISOString` writes. */
+export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+
+/**
+ * A byte stream's lines, split on LF alone and decoded as strict UTF-8 — a CR
+ * stays in its line, where it refuses the row (ADR-0101). Bytes that aren't
+ * UTF-8 refuse the file with the parser's AssertionError, so
+ * `isCorruptSnapshotError` reads them as damage.
+ * @param {AsyncIterable<Uint8Array>} input
+ * @returns {AsyncGenerator<string>}
+ */
+async function* utf8Lines(input) {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  /** @param {Uint8Array} [bytes] */
+  const decode = (bytes) => {
+    try {
+      return bytes ? decoder.decode(bytes, { stream: true }) : decoder.decode();
+    } catch {
+      return assert.fail("Not an s3cab snapshot: the file isn't UTF-8 text");
+    }
+  };
+  let rest = "";
+  for await (const chunk of input) {
+    const lines = (rest + decode(chunk)).split("\n");
+    rest = lines.pop() ?? "";
+    yield* lines;
+  }
+  rest += decode();
+  if (rest) {
+    yield rest;
+  }
+}
+
+/**
+ * Whether `line` is the `@S3CAB END` row. The deletion record's reader too.
+ * @param {string} line
+ */
+export const isEndLine = (line) => {
+  const [type = "", property = ""] = line.split("\t");
+  return type.trim() === S3CAB && property.trim() === END;
+};
+
+/**
+ * Whether `line` is the {@link HEADING} row, padding aside — every s3cab file's
+ * first line (ADR-0101).
+ * @param {string} line
+ */
+export const isHeadingRow = (line) => {
+  const [type = "", col2 = "", size = "", time = "", url = ""] =
+    line.split("\t");
+  return (
+    type.trim() === S3CAB &&
+    col2.trim() === FORMAT &&
+    size.trim() === "size" &&
+    time.trim() === "time" &&
+    url === HEADING_URL
+  );
+};
+
+/**
+ * `path` with a trailing separator, the mark of a folder (ADR-0098). A root
+ * already has one.
+ * @param {string} path
+ */
+const asFolder = (path) => (path.endsWith(sep) ? path : path + sep);
 
 // How long the row generator runs before handing the event loop a turn, so an
 // interrupt can be heard (see `propsRows`). Measured, the handler then runs
@@ -1053,7 +1136,7 @@ const CONCEDE_MS = 100;
 /**
  * Wrap a props-computing function into the snapshot row generator: yields
  * `[path, Props]` per file, or `[path, Error]` when hashing fails — the latter
- * becomes an `#ERROR` row (via `stringifySnapshot`), so an unreadable file is
+ * becomes an `#error` row (via `stringifySnapshot`), so an unreadable file is
  * reported rather than silently dropped or mistaken for deleted. Module-private:
  * `writeSnapshot`'s pipeline is its only caller. Hashing itself is injected via
  * `getProps` (the writer's test seam) — see `writeSnapshot`.
@@ -1104,143 +1187,108 @@ function propsRows(getProps, signal) {
 }
 
 /**
- * Convert snapshot data to TSV lines, closed by the `#END` trailer (ADR-0082) —
- * every snapshot body ends here, so the trailer that proves the file wasn't cut
- * short is emitted in exactly one place. The parked-on-interrupt file gets it
- * too: a graceful stop ends the row stream early, and this generator's own tail
- * still runs before the pipeline flushes.
+ * Convert snapshot data to TSV lines: the heading row and `preamble` first, then
+ * a `-` row per file (an `#error` row for one that couldn't be hashed), then
+ * `@SNAPSHOT FILES` and `SIZE` and `@S3CAB END` (ADR-0098). Every snapshot
+ * body ends here, so the row that proves the file wasn't cut short is emitted in
+ * exactly one place.
  *
  * `signal` is the same park-on-interrupt signal `propsRows` reads, handed one
- * link further down the pipeline so the trailer can say *which* of the two ways
- * this file ended. It is the abort state at the moment the last row was written,
- * which is exactly the fact the status column records.
+ * link further down the pipeline. Aborted, the file stops after its last
+ * `-` row with no trailer at all: `END` means the file is complete, and a
+ * parked one isn't (ADR-0067).
  *
- * The trailer's instant is minted **here**, at the tail, not taken from the
- * pass's opening moment: it is when the last row landed. No code reads it — it
- * is for a person reading the file, and beside the `#SNAPSHOT` start instant it
- * is the only record of how long a run took, kept in every snapshot in the
- * bucket.
+ * `FILES` and `SIZE` are counted here, from the rows as they pass, so they are
+ * exact. `END`'s instant is minted here too, when the last row landed: beside
+ * `START` it is the only record of how long a run took.
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
- * @param {AbortSignal} [signal] - The park-on-interrupt signal; aborted means this file stops part-way (`PARTIAL`)
+ * @param {object} [options]
+ * @param {string} [options.preamble] - Rows that go before the objects, already formatted
+ * @param {AbortSignal} [options.signal] - The park-on-interrupt signal; aborted means this file stops part-way
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */
-export async function* stringifySnapshot(snapshot, signal) {
+export async function* stringifySnapshot(
+  snapshot,
+  { preamble = "", signal } = {},
+) {
+  yield HEADING + preamble;
+  let files = 0;
+  let size = 0;
   for await (const [path, props] of snapshot) {
     if (Error.isError(props)) {
       yield errorLine(props.message, path);
       continue;
     }
-    yield formatLine(props.hash, props.size, props.mtime, path);
+    files++;
+    size += props.size;
+    yield formatLine(FILE, props.hash, props.size, props.mtime, path);
   }
-  yield endLine(signal?.aborted ? PARTIAL : COMPLETE);
+  if (signal?.aborted) {
+    return;
+  }
+  yield property(SNAPSHOT, "FILES", String(files)) +
+    property(SNAPSHOT, "SIZE", `${size} (${formatByteValue(size)})`) +
+    endRow();
 }
 
 /**
- * The `#END` trailer: whether this file holds every row the walk found, and when
- * its last row was written. Module-private, and emitted from the single tail in
- * {@link stringifySnapshot} — so a snapshot cannot acquire a trailer any other
- * way, which is what makes the marker's presence mean "ended in a controlled
- * way".
- *
- * The instant goes in col3, the column `#SNAPSHOT` puts its own instant in, so
- * the two timestamps in a file line up under each other. Col4 is left empty: it
- * is the path column on every row that has a path, and a trailer has none.
- *
- * The instant is read through the clock seam (`completionInstant`, which owns
- * the rounded-up spelling and why), the same door the header's moment came
- * through — so under the model harness's virtual clock the trailer is as
- * deterministic as the rest of the file.
- * @param {typeof COMPLETE | typeof PARTIAL} status - Whether the rows are all of them
+ * The `@S3CAB` rows that follow the heading in every s3cab file: which s3cab
+ * wrote it, and from which home (ADR-0098). The deletion record opens with them
+ * too (ADR-0102).
  * @returns {string}
  */
-const endLine = (status) => formatLine(END, status, completionInstant(), "");
+export const versionAndHome = () =>
+  property(S3CAB, "VERSION", pkg.version) +
+  property(S3CAB, "HOME", asFolder(s3cabDir()));
 
 /**
- * Format one TSV line at the fixed column widths — the private padder every
- * writer below shares: col1 64-wide (hash or `#`-marker), col2 10-wide
- * right-aligned (size), col3 24-wide (mtime/datetime), then the path. Internal
- * to the grammar; callers reach it through the semantic writers and never spell
- * a line by hand.
- * @param {string} col1 - First column (hash or `#`-marker)
- * @param {string|number} col2 - Second column (size)
- * @param {string} col3 - Third column (mtime/datetime)
- * @param {string} col4 - Fourth column (path)
+ * The `@S3CAB END` row, the last line of every whole s3cab file, stamped now.
+ * @returns {string}
+ */
+export const endRow = () => property(S3CAB, END, "", completionInstant());
+
+/**
+ * Format one TSV line at the fixed column widths (ADR-0098): the type unpadded
+ * (ADR-0103: Excel keeps padding in the cell, which defeats `=COUNTIF(A:A,"-")`),
+ * col2 64, the size 12 right-aligned, the time 24, then the ragged last column.
+ * A col2 longer than its width overflows rather than being cut. The deletion
+ * record's padder too (ADR-0102).
+ * @param {string} type - The row's type
+ * @param {string} col2 - A hash, a property, or a per-path row's wide text
+ * @param {string|number} size - Size in bytes, or blank
+ * @param {string} time - An instant, or blank
+ * @param {string} last - The path, or the property's value
  * @returns {string} Formatted snapshot line
  */
-function formatLine(col1, col2, col3, col4) {
-  col1 = col1.toString().padEnd(64);
-  col2 = col2.toString().padStart(10);
-  col3 = col3.padEnd(24);
-  return `${col1}\t${col2}\t${col3}\t${col4}\n`;
-}
-
-/**
- * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
- * snapshot's datetime and identity, then one `#DIR` line per member directory —
- * the preamble that makes a snapshot self-describing even found alone
- * (docs/design/backup.md). Every spelling of the moment comes from the single
- * `snapshotMoment` read the caller made, so a snapshot's filename and its own
- * header cannot disagree. Module-private: `writeSnapshot` is its only caller;
- * the `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
- * `parseSnapshotStream` that reads them back.
- * @param {object} header
- * @param {{ name: string, instant: string, zone: string }} header.moment - The snapshot's moment (see `snapshotMoment`)
- * @param {string} header.identity - The set name (its whole identity, ADR-0024)
- * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
- * @returns {string}
- */
-function snapshotHeader({ moment, identity, dirs }) {
-  // Four columns (ADR-0072): the set, the machine-readable instant in `mtime`'s
-  // own column, then the snapshot's own name and the clock it was minted from.
-  // Col4 is *the name*, not "the local time" — so a file that gets renamed or
-  // copied still says what it was called.
-  let out = formatLine(
-    SNAPSHOT,
-    identity,
-    moment.instant,
-    `${moment.name} ${moment.zone}`,
+export function formatLine(type, col2, size, time, last) {
+  return (
+    `${type}\t${col2.padEnd(64)}\t${String(size).padStart(12)}\t` +
+    `${time.padEnd(24)}\t${last}\n`
   );
-  for (const dir of dirs) {
-    out += formatLine(DIR, "", "", dir);
-  }
-  return out;
 }
 
 /**
- * An `#EXCLUDED` row: a file or directory the walk dropped because it matched a
- * user-specified exclude pattern. Recorded for transparency; ignored on read.
- * Module-private: `writeSnapshot` formats the walk's `excluded` records with it.
- * @param {string} fileType - The dirent type (File, Directory, …)
- * @param {string} reason - The matching exclude pattern
- * @param {string} path - The excluded path
+ * A whole-snapshot row: one fact, its property in col2 and its value last, an
+ * instant in the time column. Spelled out (ADR-0100), since only people read
+ * the values.
+ * @param {string} type - `@S3CAB`, `@SET` or `@SNAPSHOT`
+ * @param {string} name - The property
+ * @param {string} value
+ * @param {string} [time] - An instant, for a property that has one
  * @returns {string}
  */
-const excludedLine = (fileType, reason, path) =>
-  formatLine(EXCLUDED, fileType, reason, showControlChars(path));
+const property = (type, name, value, time = "") =>
+  formatLine(type, name, "", time, showControlChars(value));
 
 /**
- * A `#SKIPPED` row: a file the walk omitted by design because its type is not
- * content-addressable (symlink, socket, FIFO, …). Distinct from `#EXCLUDED`
- * (user-chosen via pattern) and `#ERROR` (tried to process, failed). Surfaced
- * on read into `Snapshot.skipped` so callers can report what was ignored.
- * Module-private: `writeSnapshot` formats the walk's `skipped` records with it.
- * @param {string} fileType - The dirent type (Symbolic Link, FIFO, …)
- * @param {string} reason - Why it was skipped (e.g. "Unsupported file type")
- * @param {string} path - The skipped path
+ * An `#error` row: a path the walk couldn't check or hash, with the error's
+ * message. Surfaced on read (into `Snapshot.errors`) so `compare` reports the
+ * path rather than mistaking it for deleted. Both fields spelled out
+ * (ADR-0100): a message can span lines.
+ * @param {string} reason - The error message
+ * @param {string} path - The path
  * @returns {string}
  */
-const skippedLine = (fileType, reason, path) =>
-  formatLine(SKIPPED, fileType, reason, path);
-
-/**
- * An `#ERROR` row: a file the walk couldn't hash (e.g. permission denied),
- * recorded in the snapshot for transparency. `reason` is the error message,
- * written in col3. Unlike other comments these are surfaced on read (into
- * `Snapshot.errors`) so `compare` reports the path rather than mistaking it for
- * deleted. Module-private: `stringifySnapshot` emits it for an errored row.
- * @param {string} reason - The error message (why the file couldn't be hashed)
- * @param {string} path - The unreadable path
- * @returns {string}
- */
-const errorLine = (reason, path) => formatLine(ERROR, "", reason, path);
+const errorLine = (reason, path) =>
+  formatLine(ERROR, showControlChars(reason), "", "", showControlChars(path));

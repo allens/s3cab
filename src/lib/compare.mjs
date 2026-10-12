@@ -13,7 +13,7 @@ import { shellCommand } from "./style.mjs";
  * copies — `[]` means genuinely new; non-empty means a copy of content already
  * stored elsewhere (the renderer says "(duplicate of …)").
  *
- * `wasUnreadable` marks the file the *older* snapshot recorded as an `#ERROR`
+ * `wasUnreadable` marks the file the *older* snapshot recorded as an `#error`
  * row: it was on disk all along and simply couldn't be hashed, so it is an
  * addition to the **backup** rather than a new file
  * ([ADR-0079](../../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)).
@@ -49,19 +49,6 @@ import { shellCommand } from "./style.mjs";
  * @property {string} reason
  */
 /**
- * A path the newer snapshot's walk left out by design — a symlink, a socket, a
- * FIFO, an entry the filesystem couldn't classify. The `fileType` is the stored
- * `dirent_type` exactly as the snapshot recorded it (`Symbolic Link`), which the
- * walk already writes in readable form — so no renderer has to restyle it.
- *
- * Distinct from {@link CompareError}, which is a *fault* — a file s3cab tried to
- * back up and couldn't. A skipped entry was never a candidate.
- * @typedef {Object} SkippedEntry
- * @property {string} path
- * @property {string} fileType
- * @property {string} reason
- */
-/**
  * Structured diff between two snapshots — **absolute paths throughout**
  * (ADR-0043). Path shortening is presentation, so it lives in the renderer
  * (`renderCompareResult`, which shortens against the common ancestor of `dirs`);
@@ -78,7 +65,6 @@ import { shellCommand } from "./style.mjs";
  * @property {PathSize[]} modified
  * @property {PathSize[]} deleted
  * @property {CompareError[]} errors
- * @property {SkippedEntry[]} skipped
  */
 
 /**
@@ -183,17 +169,6 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
-  // Skipped paths get the same treatment, and for the same reason: a file that
-  // became a symlink between the two snapshots is absent from `entries` and so
-  // reads as deleted, when what happened is that the walk stopped being able to
-  // back it up. Only the path itself is reconciled, deliberately — when the
-  // skipped entry is a *directory*, the files that were under it really are gone
-  // from the backup, so reporting them as deleted is the truth, and the skipped
-  // line beside them is the explanation.
-  for (const path of untilSnapshot.skipped.keys()) {
-    deleted.delete(path);
-  }
-
   // The *older* snapshot's errored paths need no reconciliation of their own,
   // only the marking below: such a path is in neither of that snapshot's maps,
   // so it can only ever turn up as an addition (`diff` also bars it from being a
@@ -241,10 +216,6 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
       path,
       reason,
     })),
-    skipped: Array.from(
-      untilSnapshot.skipped,
-      ([path, { fileType, reason }]) => ({ path, fileType, reason }),
-    ),
   };
 }
 
@@ -304,10 +275,6 @@ function getPathsByHash(snapshotLookup) {
  *   `errors` map, not `currentSnapshot` — so `diff` never sees them.
  *   `compareSnapshots` reports them under its own `errors` category and keeps
  *   them out of `deleted`.
- * - Skipped paths (`#SKIPPED` rows: a symlink, an unsupported type) aren't
- *   entries either, so a file that became one reads as deleted here.
- *   `compareSnapshots` takes the path itself back out of `deleted`, but not the
- *   files under a skipped directory; why is the comment at its loop.
  * - A path in `previousErrors` was *there* in the previous snapshot, unreadable
  *   rather than absent, so nothing can have moved *to* it: it is barred from
  *   being a move destination and reports as added, however its content pairs up
@@ -315,7 +282,7 @@ function getPathsByHash(snapshotLookup) {
  *   content, and the content is what it is.
  * @param {SnapshotEntries} previousSnapshot - Previous snapshot lookup
  * @param {SnapshotEntries} currentSnapshot - Current snapshot
- * @param {SnapshotErrors} [previousErrors] - Paths the previous snapshot couldn't hash (`#ERROR` rows); only membership is read
+ * @param {SnapshotErrors} [previousErrors] - Paths the previous snapshot couldn't hash (`#error` rows); only membership is read
  * @returns {DiffResult} Diff results
  */
 export function diff(previousSnapshot, currentSnapshot, previousErrors) {

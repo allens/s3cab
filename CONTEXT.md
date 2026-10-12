@@ -76,9 +76,10 @@ _Avoid_: repo (the git sense), archive, vault.
 
 **Deletion record**:
 The repository-level record of deliberate content removal: root-level indexed TSVs
-(`objects.deleted-1.tsv`, `-2`, …), rows of `hash / size / instant / user@machine` — no
-paths, since the reader meeting the absence is already holding a snapshot
-([ADR-0090](docs/adr/0090-deletion-record-format-compaction.md), format spec). It is what
+(`objects.deleted-1.tsv`, `-2`, …), one `#deleted` row per object with its hash, size,
+instant and `user@machine` — no paths, since the reader meeting the absence is already
+holding a snapshot ([ADR-0090](docs/adr/0090-deletion-record-format-compaction.md),
+[ADR-0102](docs/adr/0102-deletion-record-takes-the-snapshot-layout.md), format spec). It is what
 lets the tooling tell *deliberately gone* from *corrupted*: `verify` reports a recorded hash
 as **expected-missing** (context, exit 0) rather than damage, `restore` skips it gracefully
 with its date, `backup`/`status`/`cleanup` subtract recorded hashes from their baselines and
@@ -104,7 +105,7 @@ A named list of directories that is the unit of snapshot, backup, and restore. I
 local directory under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
 (first-come).
 _Avoid_: profile, job, project, config; folder as a word for the *set* or in format prose (the
-format word is **directory** — `#DIR` in the snapshot file is just its abbreviation; "folder"
+format word is **directory** — `@SET DIR` in the snapshot file is just its abbreviation; "folder"
 collides with S3's pseudo-folders). "Folder" *is* used, deliberately, in user-facing prose for
 an on-disk directory the reader browses (a OneDrive folder, `upload --dir`'s "a folder's
 objects") — the reader's Explorer word, earned only by something confirmed to be a real
@@ -118,7 +119,7 @@ _Avoid_: owner, source, origin; `user@machine:set` (the retired form).
 
 **Snapshot**:
 A point-in-time record of every file in a backup set. Recorded on disk as a
-tab-separated (TSV) **snapshot file** — one row per file
+tab-separated (TSV) **snapshot file** — one `-` row (a **file row**) per file
 (`hash` → `size` → `mtime` → `path`).
 A snapshot name is unique only within its set, so anything spanning the whole bucket names one
 as **`set/snapshot`** (`work-laptop/2026-07-30T1400`) — matching its place in the bucket, so the
@@ -126,6 +127,14 @@ name pastes straight after `s3://<bucket>/snapshots/`. Used where several snapsh
 several sets are listed together; a single one named in a sentence stays prose (`'work-laptop'
 (snapshot …)`).
 _Avoid_: commit, version, generation; manifest (loses the point-in-time meaning), index, listing, catalog, metadata file.
+
+**Invalid** (a file or a row):
+Breaking the format spec's validity rules
+([ADR-0101](docs/adr/0101-valid-and-invalid-files.md)), which a snapshot or deletion record
+does only when cut short or hand-edited. An invalid *file* is refused whole; an invalid *row*
+refuses just its path, which `restore` and `verify` report as **invalid**. Not **corrupt**:
+that is an object whose bytes don't hash to its key.
+_Avoid_: malformed as the category (fine for what is wrong with a row), corrupt.
 
 **Namespace**:
 The set name as the `snapshots/<set>/` path segment that isolates one set's snapshots from every
@@ -137,7 +146,7 @@ folder, scope.
 One glob line in a set's `exclude.txt`, matched against each file or directory's path relative
 to **every** member directory (ADR-0050; the grammar is in
 [guide/exclude.md](guide/exclude.md), also the one built-in help topic). A matched entry
-becomes an `#EXCLUDED` row; `tree --excluded` shows what the patterns are leaving out.
+becomes an `#excluded` row; `tree --excluded` shows what the patterns are leaving out.
 _Avoid_: ignore rule/file (git's word), filter, blacklist.
 
 **s3cab home**:
@@ -155,14 +164,12 @@ live or was interrupted, and the interrupted case's hashes are parked and reused
 _Avoid_: lock file, temp file (each names only half its job).
 
 **Partial snapshot**:
-A snapshot file holding only the rows a run got through before the user stopped it, closed with
-a `PARTIAL` `#END` trailer that says so (ADR-0082). The one s3cab writes is the parked lookup
-left by Ctrl+C (`.snapshot.lookup.tsv.gz`), which the next run reads for its hashes; a partial
-snapshot is never installed as a **snapshot** of the set and never uploaded. Its opposite in
-that column is `COMPLETE`, which every finished snapshot carries.
-_Avoid_: incomplete/truncated snapshot (truncation is *damage* — a partial snapshot is intact
-and deliberate, and the trailer is precisely what tells them apart), cancelled snapshot,
-half-snapshot.
+A snapshot file holding only the rows a run got through before the user stopped it: the parked
+lookup left by Ctrl+C (`.snapshot.lookup.tsv.gz`), which the next run reads for its hashes. It
+stops after its last file row with no `@S3CAB END` (ADR-0098), so it can't pass for a
+finished snapshot; it is never installed as a **snapshot** of the set and never uploaded.
+_Avoid_: incomplete/truncated snapshot (truncation is *damage* — a partial snapshot is
+deliberate, and its filename says so), cancelled snapshot, half-snapshot.
 
 ### Cloud & commands
 

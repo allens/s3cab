@@ -1,5 +1,14 @@
-import { localMoment } from "./format.mjs";
+import { showControlChars } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
+import {
+  endRow,
+  formatLine,
+  HEADING,
+  INSTANT,
+  isEndLine,
+  isHeadingRow,
+  versionAndHome,
+} from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
 
 // The repository's **deletion record** — the root-level `objects.deleted-<n>.tsv`
@@ -8,11 +17,12 @@ import { shellCommand } from "./style.mjs";
 // *deliberate* — `verify` partitions missing objects into expected vs
 // unexplained, `restore` skips a recorded hash gracefully instead of failing,
 // and `backup`/`cleanup` subtract recorded hashes from their
-// baselines/interlocks. Rows carry hash/size/instant/user@machine and **no
-// paths**: every reader already has the path in front of it (it reached the
-// record through a snapshot), so after "this was deliberate" the useful facts
-// are who and when. When and who live in the rows, not the filename, because
-// compaction (below) destroys filenames.
+// baselines/interlocks. Its `#deleted` rows carry hash/size/instant/user@machine
+// in the snapshot's five columns (ADR-0102) and **no paths**: every reader
+// already has the path in front of it (it reached the record through a
+// snapshot), so after "this was deliberate" the useful facts are who and when.
+// When and who live in the rows, not the filename, because compaction (below)
+// destroys filenames.
 //
 // S3 has no atomic append, so each `delete` run writes a fresh file at the next
 // free index — LIST, conditional PUT (`IfNoneMatch: *`), walk upward on a lost
@@ -41,13 +51,12 @@ const RECORD_KEY = /^objects\.deleted-([1-9][0-9]*)\.tsv$/;
 // existing can't spin against S3 forever.
 const MAX_ALLOCATION_ATTEMPTS = 100;
 
+const DELETED = "#deleted";
+
 /**
- * One deletion-record row: what was deleted, how big it was (the preflight
- * HEAD's ContentLength), when (full UTC instant), and by whom
- * (`user@machine`). The columns match a snapshot row's column *types*
- * positionally — col1 hash-or-`#TAG`, col2 size, col3 timestamp, col4 the
- * ragged textual end — so the format spec's four reading rules cover both
- * files (guide/format.md).
+ * One `#deleted` row: what was deleted, how big it was (the preflight HEAD's
+ * ContentLength), when (full UTC instant), and by whom (`user@machine`) — in
+ * the columns a snapshot's `-` row puts its hash, size, time and path.
  * @typedef {Object} DeletionRow
  * @property {string} hash - The deleted object's SHA-256
  * @property {number} size - The object's stored size in bytes
@@ -56,62 +65,74 @@ const MAX_ALLOCATION_ATTEMPTS = 100;
  */
 
 /**
- * The record file's body: a `#DELETED` header row (col3 = when this file was
- * written, col4 = the one sentence a human reader needs), one row per deleted
- * object, and a bare `#END` trailer. The trailer carries no
- * `COMPLETE`/`PARTIAL`: a record is uncompressed and lands in one atomic PUT,
- * so `PARTIAL` cannot occur, and a status column with one possible value would
- * imply a distinction that does not exist (ADR-0090; the format spec already
- * admits a bare trailer). Rows sort by instant then hash, so a compacted
- * file reads chronologically.
- * @param {string} instant - When this file is being written (full UTC instant)
+ * The record file's body (ADR-0102): the heading and `@S3CAB` rows every s3cab
+ * file opens with, one `#deleted` row per object, and `@S3CAB END`. Rows sort
+ * by instant then hash, so a compacted file reads chronologically.
  * @param {DeletionRow[]} rows
  * @returns {string}
  */
-export function formatDeletionRecord(instant, rows) {
-  const header =
-    `#DELETED\t\t${instant}\t` +
-    `These objects were removed on purpose. Absence here is not damage.`;
+export function formatDeletionRecord(rows) {
   const body = [...rows]
     .sort(
       (a, b) =>
         a.instant.localeCompare(b.instant) || a.hash.localeCompare(b.hash),
     )
-    .map(
-      ({ hash, size, instant: when, by }) => `${hash}\t${size}\t${when}\t${by}`,
+    .map(({ hash, size, instant, by }) =>
+      formatLine(DELETED, hash, size, instant, showControlChars(by)),
     );
-  return [header, ...body, `#END`, ``].join("\n");
+  return HEADING + versionAndHome() + body.join("") + endRow();
 }
 
 /**
- * Parse one record file's rows. Deliberately lenient in the lenient direction
- * only: `#` rows (header, trailer) and blank lines are skipped, and a row's
- * first field must *look like* a SHA-256 (64 hex chars) to count — a mangled
- * row is ignored rather than explaining away a missing object it never named.
- * A mangled size parses to 0 rather than dropping the row: the hash is intact,
- * and "deliberately gone" is the fact that must survive.
+ * Parse one record file (ADR-0101): its well-formed `#deleted` rows, and why
+ * the file can't be trusted whole, if it can't. A malformed row is refused —
+ * its object counts as not deleted, the safe direction, since a damaged record
+ * must never make missing content look intentional. The file is invalid when a
+ * row was refused, or it doesn't open with the heading row, doesn't end with
+ * `@S3CAB END`, or holds a type starting with neither `@` nor `#`: a reader
+ * can't know what it lost. Every other `@` or `#` row is skipped (ADR-0103).
  * @param {string} text - A record file's body
- * @returns {DeletionRow[]}
+ * @returns {{ rows: DeletionRow[], invalid?: string }} `invalid` is the reason, for a file that isn't valid
  */
 export function parseDeletionRecord(text) {
   /** @type {DeletionRow[]} */
   const rows = [];
-  for (const line of text.split("\n")) {
-    if (!line || line.startsWith("#")) {
+  const [heading = "", ...lines] = text.split("\n");
+  /** @type {string | undefined} */
+  let invalid = isHeadingRow(heading)
+    ? undefined
+    : "the first line isn't the @S3CAB FORMAT heading row";
+  let ended = false;
+  for (const line of lines) {
+    if (line === "") {
       continue;
     }
-    const [hash = "", size = "", instant = "", ...rest] = line.split("\t");
-    if (/^[0-9a-f]{64}$/.test(hash)) {
-      const bytes = Number(size);
-      rows.push({
-        hash,
-        size: Number.isFinite(bytes) ? bytes : 0,
-        instant,
-        by: rest.join("\t"),
-      });
+    const [col1 = "", col2 = "", col3 = "", col4 = "", by = ""] =
+      line.split("\t");
+    const type = col1.trim();
+    const [hash, size, instant] = [col2.trim(), col3.trim(), col4.trim()];
+    if (ended) {
+      invalid ??= "rows follow the closing @S3CAB END row";
+    } else if (isEndLine(line)) {
+      ended = true;
+    } else if (type === DELETED) {
+      if (
+        /^[0-9a-f]{64}$/.test(hash) &&
+        /^[0-9]+$/.test(size) &&
+        INSTANT.test(instant)
+      ) {
+        rows.push({ hash, size: Number(size), instant, by });
+      } else {
+        invalid ??= `a #deleted row is malformed: ${line}`;
+      }
+    } else if (!type.startsWith("@") && !type.startsWith("#")) {
+      invalid ??= `it holds an unknown row type '${type}'`;
     }
   }
-  return rows;
+  if (!ended) {
+    invalid ??= "the closing @S3CAB END row is missing";
+  }
+  return { rows, invalid };
 }
 
 /**
@@ -188,18 +209,29 @@ export async function writeDeletionRecord(bucket, content) {
  * common case) costs one LIST returning nothing. A hash recorded twice
  * (re-deleted after a re-backup) keeps the newest row's instant — compared on
  * the rows themselves, since a compacted file holds rows from many runs.
+ *
+ * `invalid` names each record file that isn't valid (ADR-0101): its
+ * well-formed rows still count, but the record as a whole can't be trusted to
+ * be complete, so `backup` won't let a baseline vouch for what's stored and
+ * `cleanup` won't compact.
  * @param {string} bucket - The repository's S3 bucket
- * @returns {Promise<Map<string, RecordedDeletion>>} hash → its recorded deletion
+ * @returns {Promise<{ deleted: Map<string, RecordedDeletion>, invalid: InvalidRecord[] }>} hash → its recorded deletion, and the files that aren't valid
  */
 export async function readDeletionRecords(bucket) {
   /** @type {Map<string, RecordedDeletion>} */
   const deleted = new Map();
+  /** @type {InvalidRecord[]} */
+  const invalid = [];
   for (const { uri } of await listDeletionRecordFiles(bucket)) {
     const text = await getText(uri);
     if (text === undefined) {
       continue; // vanished between LIST and read (a compaction) — its rows live on in the merge
     }
-    for (const { hash, instant } of parseDeletionRecord(text)) {
+    const record = parseDeletionRecord(text);
+    if (record.invalid) {
+      invalid.push({ uri, reason: record.invalid });
+    }
+    for (const { hash, instant } of record.rows) {
       const known = deleted.get(hash);
       // UTC instants compare chronologically as strings.
       if (!known || known.deletedOn < instant) {
@@ -207,8 +239,13 @@ export async function readDeletionRecords(bucket) {
       }
     }
   }
-  return deleted;
+  return { deleted, invalid };
 }
+
+/**
+ * A deletion record file that isn't valid, and why.
+ * @typedef {{ uri: string, reason: string }} InvalidRecord
+ */
 
 /**
  * Compact the deletion record — `cleanup`'s half of the format (ADR-0090):
@@ -252,8 +289,17 @@ export async function compactDeletionRecords(bucket, referenced) {
     if (text === undefined) {
       continue; // vanished since the LIST (a concurrent compaction absorbed it)
     }
+    const record = parseDeletionRecord(text);
+    // The merge keeps only the rows it parsed, then deletes the original, so a
+    // refused row would be lost for good (ADR-0101). `cleanup` refuses before
+    // this; this read is later, so it checks again.
+    if (record.invalid) {
+      throw new Error(
+        `Not compacting: ${file.uri} isn't valid (${record.invalid})`,
+      );
+    }
     absorbed.push(file);
-    for (const row of parseDeletionRecord(text)) {
+    for (const row of record.rows) {
       total++;
       rows.set(`${row.hash}\t${row.size}\t${row.instant}\t${row.by}`, row);
     }
@@ -277,8 +323,7 @@ export async function compactDeletionRecords(bucket, referenced) {
   // no surviving rows writes nothing: a row nothing references needs no
   // tombstone, so the steady state there is no record file at all.
   if (kept.length > 0) {
-    const { instant } = localMoment("seconds");
-    await writeDeletionRecord(bucket, formatDeletionRecord(instant, kept));
+    await writeDeletionRecord(bucket, formatDeletionRecord(kept));
   }
   for (const { uri } of absorbed) {
     await deleteObject(uri);

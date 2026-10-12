@@ -25,7 +25,7 @@ let storedSizes = new Map();
 let heads = 0;
 /** @type {string[]} every side-effect, in order: "record" then "delete:<hash>" */
 let effects = [];
-/** @type {{ instant: string, rows: { hash: string, size: number, instant: string, by: string }[] } | undefined} */
+/** @type {{ rows: { hash: string, size: number, instant: string, by: string }[] } | undefined} */
 let formatted;
 /** @type {string[]} the command's stderr guidance, captured rather than printed */
 let warnings = [];
@@ -57,10 +57,9 @@ mock.module("../lib/objects.mjs", {
 mock.module("../lib/deletion-record.mjs", {
   exports: {
     formatDeletionRecord: (
-      /** @type {string} */ instant,
       /** @type {{ hash: string, size: number, instant: string, by: string }[]} */ rows,
     ) => {
-      formatted = { instant, rows };
+      formatted = { rows };
       return `# record: ${rows.length} row(s)\n`;
     },
     writeDeletionRecord: async (/** @type {string} */ bucket) => {
@@ -272,7 +271,6 @@ describe("delete command", () => {
     // The rows carry what the record needs: the preflight's ContentLength, one
     // shared instant, and who ran it.
     assert.ok(formatted);
-    assert.equal(formatted.instant, "2026-08-22T11:04:55.120Z");
     assert.deepEqual(
       formatted.rows.map(({ hash, size }) => ({ hash, size })),
       [
@@ -281,7 +279,7 @@ describe("delete command", () => {
       ],
     );
     for (const row of formatted.rows) {
-      assert.equal(row.instant, formatted.instant);
+      assert.equal(row.instant, "2026-08-22T11:04:55.120Z");
       assert.match(row.by, /.+@.+/);
     }
     assert.ok(

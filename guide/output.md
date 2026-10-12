@@ -21,8 +21,7 @@ structured JSON value instead:
   "moved": [],
   "modified": [{ "path": "/home/me/Pictures/diary.txt", "size": 240 }],
   "deleted": [],
-  "errors": [],
-  "skipped": []
+  "errors": []
 }
 ```
 

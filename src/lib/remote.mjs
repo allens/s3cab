@@ -112,7 +112,7 @@ export async function deleteRemoteSnapshot(bucket, set, name) {
  * empty-when-none rule and the `.entries` extraction live here once. `status`
  * uses it for its read-only remote comparison; `backup` itself diffs against the
  * **local** previous snapshot (single-owner model — see upload.mjs), not
- * this. `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
+ * this. `restore`, which also needs the `@SET DIR` rows, calls `readRemoteSnapshot`
  * directly.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
@@ -171,7 +171,7 @@ export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
  * is streamed through gunzip and parsed in flight, no temp file (a remote snapshot file
  * is byte-identical to its local form, docs/design/backup.md). `status`'s diff
  * fetches the latest already-backed-up snapshot this way (taking `.entries`);
- * `restore` reads its chosen one the same way and uses the `#DIR` headers for
+ * `restore` reads its chosen one the same way and uses the `@SET DIR` rows for
  * `--output` re-rooting — so this surfaces the whole `Snapshot`, not just
  * the lookup (a remote snapshot file is the one a recoverer finds alone).
  * @param {string} bucket - The repository's S3 bucket
@@ -277,6 +277,8 @@ async function readSetReferenced(bucket, set, names) {
   const referenced = new Map();
   /** @type {ReferencedResult["unreadable"]} */
   const unreadable = [];
+  /** @type {ReferencedResult["invalid"]} */
+  const invalid = [];
   let snapshotsChecked = 0;
 
   for (const name of names) {
@@ -308,9 +310,12 @@ async function readSetReferenced(bucket, set, names) {
     }
     snapshotsChecked++;
     addSnapshotReferences(referenced, name, snapshot.entries);
+    for (const [path, reason] of snapshot.refused) {
+      invalid.push({ snapshot: name, path, reason });
+    }
   }
 
-  return { referenced, snapshotsChecked, unreadable };
+  return { referenced, snapshotsChecked, unreadable, invalid };
 }
 
 /**

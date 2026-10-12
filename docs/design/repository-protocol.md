@@ -63,7 +63,7 @@ rests on them:
 | --- | --- |
 | `<name>.tsv.gz` | A landed local snapshot. **Nothing on it records whether it was ever uploaded** — `readBaseline` takes the latest by name regardless, and remote existence is established later by a single HEAD. |
 | `.snapshot.tsv.gz` | The in-progress work file, doubling as the per-set lock ([ADR-0048](../adr/0048-snapshot-lock-atomic-temp-file.md)) |
-| `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), closed with a `PARTIAL` `#END` trailer. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
+| `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), stopping after its last file row with no `@S3CAB END`. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
 
 ## The invariant, and the single place it is enforced
 
@@ -145,10 +145,11 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 4. Plan: orphan = stored − referenced, minus anything younger than `GRACE_MS`
    (7 days, [cleanup.mjs](../../src/lib/cleanup.mjs)); an object with no `LastModified` is treated
    as brand new and therefore protected.
-5. Interlocks: an unreadable snapshot aborts **both** modes; missing objects refuse the acting path.
+5. Interlocks: an unreadable snapshot, or one with a refused row, aborts **both** modes; missing
+   objects and an invalid deletion record refuse the acting path.
 6. Prompt, then DELETE each orphan. **[multi-step]**, and the scan→prompt→delete window is the
    race surface.
-7. Compact the deletion record (acting runs only, and only past both interlocks): union every
+7. Compact the deletion record (acting runs only, and only past every interlock): union every
    record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
    **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
    deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
@@ -240,8 +241,8 @@ a description of the protocol rather than a running defect list:
 - Bucket versioning is recommended by every guide and **checked by no code path** —
   [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
 - A truncated stored snapshot object reading as a shorter valid snapshot — **closed 2026-08-14** by
-  [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s `#END` trailer: a prefix cut either loses the
-  trailer or tears a row. (Independently found 2026-08-11; the audit did not catch this one,
+  [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s trailer, now `@S3CAB END`: a prefix cut
+  either loses it or tears a row. (Independently found 2026-08-11; the audit did not catch this one,
   because it is compression-stream semantics rather than protocol.) Since snapshots became gzip
   ([ADR-0097](../adr/0097-gzip-snapshot-compression.md)) there is a second, independent check:
   gunzip verifies the stream's own length and CRC-32 trailer, so a cut also fails to decompress.

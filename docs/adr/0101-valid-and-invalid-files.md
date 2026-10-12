@@ -1,10 +1,12 @@
 # Valid and invalid files: refuse the file, refuse one path, or ignore the row
 
-**Status:** proposed (2026-10-11; not built). Once built, supersedes
+**Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
+[0103](0103-row-marks-and-unrecorded-links.md): the type names, and an unknown `@` or `#` type is
+skipped while any other refuses the file. Supersedes
 [0082](0082-snapshot-end-trailer.md) point 3 (content after the trailer is parsed normally) and
-s3cab's last-wins reading of a repeated path. The rules now scattered through
+s3cab's last-wins reading of a repeated path. The rules once scattered through
 [guide/format.md](../../guide/format.md) ("at most once", the restorer's `..` bullet, "ignore
-anything after `#END`") become one section there. Applies to the layouts of
+anything after `#END`") are one section there, "Valid and invalid files". Applies to the layouts of
 [0098](0098-snapshot-row-layout.md) and [0102](0102-deletion-record-takes-the-snapshot-layout.md).
 
 ## Decision
@@ -70,5 +72,10 @@ bytes.
 ## Consequences
 
 s3cab's reader changes: a row with an empty field refuses its path, not the file; a repeated path
-refuses both rows, not last-wins; and the hash, size and time are checked, where until now a
+refuses both rows, not last-wins; and the hash, size and time are checked, where before a
 63-digit hash was accepted and failed later.
+
+`cleanup` aborts, dry run included, on a snapshot with a refused row: the row references nothing,
+so content only it names would look orphaned and be deleted. This is the unreadable-snapshot
+interlock again, for one path instead of a whole file. It refuses to act on an invalid deletion
+record at all, not only to compact it.

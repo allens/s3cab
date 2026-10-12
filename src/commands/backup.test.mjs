@@ -161,7 +161,6 @@ beforeEach(() => {
     bytes: 4_000_000,
     hashedFiles: 12,
     hashedBytes: 300_000,
-    skipped: 1,
     errors: [
       { path: "/p/a.pst", reason: "EBUSY: resource busy or locked" },
       { path: "/p/b.key", reason: "EACCES: permission denied" },
@@ -241,7 +240,6 @@ describe("backup (the fused pass)", () => {
       uploaded: 2,
       uploadedBytes: 1_500_000,
       uploadMs: 2_000,
-      skipped: 1,
       errors: pass.errors,
       excludeSuggestions: [],
       excludePath: "photos/exclude.txt",
@@ -294,7 +292,7 @@ describe("backup (the fused pass)", () => {
   });
 
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {
-    // The fixture pass carries two errors (#ERROR rows). The snapshot still
+    // The fixture pass carries two errors (`#error` rows). The snapshot still
     // publishes — everything it lists is stored — but a scheduled backup runs
     // on the exit code alone (guide/output.md), so it must go nonzero. Set via
     // process.exitCode, not a throw, so the run report still prints.
@@ -310,16 +308,14 @@ describe("backup (the fused pass)", () => {
     assert.equal(process.exitCode, 0);
   });
 
-  it("reports skipped and errored files from the pass, not from the diff", async () => {
+  it("reports errored files from the pass, not from the diff", async () => {
     // Two sources for one number is the divergence ADR-0078 §8 refuses. These
     // are facts about the snapshot just written, and a first backup — which runs
     // no diff at all — still has to report them.
-    pass.skipped = 7;
-    comparison = { since: "x", until: "y", skipped: [], errors: [] };
+    comparison = { since: "x", until: "y", errors: [] };
 
     const result = await backup("photos");
 
-    assert.equal(result.skipped, 7);
     assert.deepEqual(result.errors, pass.errors);
   });
 
@@ -350,15 +346,14 @@ describe("backup (the fused pass)", () => {
   it("runs no comparison at all on a first backup", async () => {
     // Every file is an addition against an empty baseline: the diff is both the
     // most expensive one there is and the least informative (ADR-0078 §7). The
-    // couldn't-be-backed-up counts still come through.
+    // couldn't-be-backed-up list still comes through.
     baseline = { previousErrors: new Map() }; // no previous snapshot
-    pass.skipped = 3;
 
     const result = await backup("photos");
 
     assert.ok(!calls.includes("compareSnapshots"));
     assert.equal(result.comparison, null);
-    assert.equal(result.skipped, 3);
+    assert.deepEqual(result.errors, pass.errors);
   });
 
   it("hands the previous local snapshot to storedHashes as the baseline", async () => {

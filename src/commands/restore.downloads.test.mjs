@@ -51,7 +51,7 @@ mock.module("../lib/env.mjs", {
 mock.module("../lib/remote.mjs", {
   exports: {
     listRemoteSnapshots: async () => ["2026-07-19T1200"],
-    readRemoteSnapshot: async () => snapshot,
+    readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
   },
 });
 mock.module("../lib/objects.mjs", {
@@ -83,7 +83,7 @@ mock.module("../lib/deletion-record.mjs", {
   exports: {
     readDeletionRecords: async () => {
       recordReads++;
-      return deletionRecords;
+      return { deleted: deletionRecords, invalid: [] };
     },
   },
 });
@@ -116,7 +116,10 @@ const fourFiles = {
   ]),
   dirs: ["/data"],
 };
-/** What `readRemoteSnapshot` returns; `fourFiles` unless a test swaps it. */
+/**
+ * What `readRemoteSnapshot` returns; `fourFiles` unless a test swaps it.
+ * @type {typeof fourFiles & { refused?: Map<string, string> }}
+ */
 let snapshot = fourFiles;
 
 /** @param {string} name */
@@ -524,5 +527,28 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     );
     assert.deepEqual(result.missing, [dest("last.txt")]);
     assert.equal(process.exitCode, 1);
+  });
+});
+
+describe("restore with a snapshot row the reader refused (ADR-0101)", () => {
+  const reason = "its hash isn't 64 lowercase hex digits";
+
+  it("restores the rest, reports the path with why, and exits 1", async () => {
+    snapshot = { ...fourFiles, refused: new Map([["/data/torn.txt", reason]]) };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.invalid, [{ path: "/data/torn.txt", reason }]);
+    assert.equal(result.restored.length, 4);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("answers a request for just that path with the refusal, not 'no match'", async () => {
+    snapshot = { ...fourFiles, refused: new Map([["/data/torn.txt", reason]]) };
+
+    const result = await restore(["/data/torn.txt"], { set: "photos", output });
+
+    assert.deepEqual(result.invalid, [{ path: "/data/torn.txt", reason }]);
+    assert.deepEqual(fetched, []);
   });
 });

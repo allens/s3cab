@@ -50,7 +50,8 @@ member directories. Write / between directories; on Windows \\ works too.
   **   anything at all, across directories
   ?    exactly one character
 
-A pattern ending in / matches a directory and everything inside it.
+A pattern ending in / matches a directory and everything inside it, or a link
+to a directory.
 Matching is case-insensitive on Windows, case-sensitive elsewhere.
 
 Examples:

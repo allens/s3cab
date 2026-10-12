@@ -20,8 +20,7 @@ import { describe, it, mock } from "node:test";
  * A `Dirent` as an unknown-type filesystem hands it over: the name and parent
  * are there, and every one of the seven type predicates answers `false`. That is
  * not a contrivance — it is exactly what Node produces from a `DT_UNKNOWN`
- * directory entry, and the reason such an entry used to be recorded as an
- * unsupported type.
+ * directory entry.
  * @param {{ name: string, parentPath: string }} dirent
  * @returns {Dirent}
  */
@@ -41,14 +40,12 @@ const typeless = (dirent) =>
   );
 
 // A name `readdir` reports but that isn't on disk, so the fallback's `lstat`
-// throws — the vanished-mid-walk / unreadable case. Injected into one named
-// directory only, so the count below says which listing it came from.
+// throws ENOENT — an entry that vanished mid-walk. Injected into one named
+// directory only.
 const PHANTOM = "phantom.txt";
 
 /** @type {string} */
 let phantomIn = "";
-/** @type {string[]} Phantom names to add to `phantomIn`'s listing */
-let phantoms = [PHANTOM];
 
 // Everything `node:fs` really exports, bar `constants` — which is
 // non-configurable, so the module mocker throws trying to redefine it. The rest
@@ -72,10 +69,7 @@ mock.module("node:fs", {
         .readdirSync(dir, { withFileTypes: true })
         .map(typeless);
       return dir === phantomIn
-        ? [
-            ...entries,
-            ...phantoms.map((name) => typeless({ name, parentPath: dir })),
-          ]
+        ? [...entries, typeless({ name: PHANTOM, parentPath: dir })]
         : entries;
     },
   },
@@ -94,52 +88,25 @@ describe("walk on a filesystem that reports no entry types", () => {
     mkdirSync(join(root, "sub"));
     writeFileSync(join(root, "sub", "nested.txt"), "nested");
 
-    const { files, skipped } = walkDirs([root], []);
+    const { files, excluded, errors } = walkDirs([root], []);
 
-    // Both halves of the bug at once. `top.txt` proves a file is no longer
-    // written off as an unsupported type; `sub/nested.txt` proves `sub` was
-    // recognised as a directory and descended into — the worse half, since an
-    // unclassified directory took its entire subtree out of the backup with it.
+    // Both halves at once. `top.txt` proves a file is classified as one;
+    // `sub/nested.txt` proves `sub` was recognised as a directory and descended
+    // into — the worse half, since an unclassified directory would take its
+    // entire subtree out of the backup with it.
     assert.deepEqual(
       files.map((file) => relative(root, file).split("\\").join("/")).sort(),
       ["sub/nested.txt", "top.txt"],
     );
 
-    // The phantom is the only thing skipped: an entry the fallback couldn't
-    // stat keeps its unknown type and is reported, rather than throwing and
-    // taking the walk down with it.
-    assert.equal(skipped.length, 1);
-    const [only] = skipped;
-    assert.ok(only);
-    assert.equal(only.fileType, "Unknown File Type");
-    assert.equal(only.reason, "Unsupported file type");
-    assert.equal(only.path, join(root, PHANTOM));
-  });
-
-  // The skip notice is `walkDirs`' in general, but every other way to produce a
-  // skipped entry needs a file type that can't be created portably (a symlink
-  // wants Developer Mode on Windows; sockets and FIFOs aren't creatable at all),
-  // so it is asserted here where the mock guarantees one on every platform.
-  it("says on stderr what it left out, grouped and counted by type", async (t) => {
-    await using dir = await mkTmpDir();
-    const root = realFs.realpathSync.native(dir.path);
-    phantomIn = root;
-    phantoms = [PHANTOM, "phantom2.txt"];
-    t.after(() => (phantoms = [PHANTOM]));
-    writeFileSync(join(root, "kept.txt"), "kept");
-
-    const warn = t.mock.method(console, "warn", () => {});
-    walkDirs([root], []);
-
-    const notices = warn.mock.calls
-      .map(({ arguments: args }) => args.join(" "))
-      .filter((line) => line.startsWith("Skipped"));
-
-    // One line, naming the count and the type — not a silent `#SKIPPED` row in a
-    // compressed file. Both counts pluralize: every type the walk records is a
-    // regular noun, which is the whole reason `plural` can be let near it.
-    assert.deepEqual(notices, [
-      "Skipped 2 items that can't be backed up: 2 Unknown File Types",
-    ]);
+    // The phantom vanished between listing and checking, so it leaves no row
+    // of any kind (ADR-0099), and doesn't take the walk down with it.
+    assert.deepEqual(
+      { excluded, errors },
+      {
+        excluded: [],
+        errors: [],
+      },
+    );
   });
 });

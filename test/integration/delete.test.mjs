@@ -135,9 +135,14 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       // ── the record itself, through a real GET ───────────────────────────
       const text = await getText(uri);
       assert.ok(text, "the record is readable");
-      assert.match(text, /^#DELETED\t\t/, "the header names the format");
-      assert.ok(text.endsWith("#END\n"), "complete — the bare trailer");
-      const rows = parseDeletionRecord(text);
+      assert.match(text, /^@S3CAB\t/, "the heading row names the format");
+      assert.match(
+        text,
+        /\n@S3CAB\tEND +\t +\t\S+\t\n$/,
+        "complete — the last line is @S3CAB END",
+      );
+      const { rows, invalid } = parseDeletionRecord(text);
+      assert.equal(invalid, undefined, "the record it wrote is valid");
       assert.deepEqual(
         rows
           .map(({ hash, size }) => ({ hash, size }))
@@ -247,7 +252,7 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
     const T = "2099-01-01T00:00:00.000Z";
     const hashes = ["a", "b", "c"].map((c) => c.repeat(64));
     const contents = hashes.map((hash, i) =>
-      formatDeletionRecord(T, [
+      formatDeletionRecord([
         { hash, size: i + 1, instant: T, by: "it@integration" },
       ]),
     );
@@ -288,7 +293,8 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       for (const uri of written) {
         assert.equal(await objectExists(uri), false, "absorbed files deleted");
       }
-      const after = await readDeletionRecords(bucket);
+      const { deleted: after, invalid } = await readDeletionRecords(bucket);
+      assert.deepEqual(invalid, []);
       assert.deepEqual(after.get(hashes[0] ?? ""), { deletedOn: T });
       assert.equal(after.has(hashes[1] ?? ""), false);
       assert.equal(after.has(hashes[2] ?? ""), false);

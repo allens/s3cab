@@ -229,6 +229,20 @@ describe("verifySet", () => {
     assert.equal(setHasFindings(report), true);
   });
 
+  it("reports a row the reader refused as an invalid path, with why (ADR-0101)", () => {
+    const reason = "its size isn't a whole number of bytes";
+    const referenced = {
+      ...enumerated({ s1: { "/a.txt": ["aaa", 10] } }),
+      invalid: [{ snapshot: "s1", path: "/b.txt", reason }],
+    };
+    const report = verifySet("photos", referenced, store({ aaa: 10 }));
+
+    assert.deepEqual(report.problems, [
+      { path: "/b.txt", problem: "invalid", snapshots: ["s1"], reason },
+    ]);
+    assert.equal(setHasFindings(report), true);
+  });
+
   it("sorts problems by path for deterministic output", () => {
     const referenced = enumerated({
       s1: { "/c": ["h1", 1], "/a": ["h2", 1], "/b": ["h3", 1] },

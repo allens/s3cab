@@ -11,12 +11,12 @@ import { generateSnapshot } from "./snapshot.mjs";
 
 // The files a pass couldn't read, as the pass reports them. The backup report
 // names each one (ADR-0078), so the list has to be the pass's own and agree with
-// the `#ERROR` rows it wrote. Its own file (ADR-0049's dotted aspect) because the
+// the `#error` rows it wrote. Its own file (ADR-0049's dotted aspect) because the
 // failure has to be made real: the files are deleted after the walk found them,
 // from inside the pipeline, which is the only point between walk and hash.
 
 describe("a pass over files that vanish before they are read", () => {
-  it("returns each one with the reason its #ERROR row records", async (/** @type {TestContext} */ t) => {
+  it("returns each one with the reason its #error row records", async (/** @type {TestContext} */ t) => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = join(dir.path, "data");

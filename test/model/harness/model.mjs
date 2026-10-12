@@ -93,9 +93,10 @@ export function captureTree(dirs) {
 }
 
 /**
- * The model's own manifest parser, from the format spec: four tab-separated
- * fields per row (`hash size mtime path`, leading fields space-padded — trim),
- * lines whose first field starts with `#` are metadata. Anything the spec
+ * The model's own manifest parser, from the format spec: five tab-separated
+ * columns per row (the type unpadded, the next three space-padded — trim). A
+ * type starting `@` or `#` isn't a file, and only `@SET NAME`/`@SNAPSHOT NAME`
+ * are read from those; a `-` row is `hash size mtime path`. Anything the spec
  * says can't happen lands in `parseErrors`.
  * @param {string} key - The manifest's bucket key (names its set + snapshot)
  * @param {Buffer} bytes - The stored `.tsv.gz` content
@@ -133,38 +134,43 @@ export function parseManifest(key, bytes) {
       continue; // the trailing newline's empty split
     }
     const fields = line.split("\t");
-    const first = (fields[0] ?? "").trim();
-    if (first.startsWith("#")) {
-      if (first === "#SNAPSHOT") {
-        headerSet = fields[1]?.trim();
-        headerName = fields[3]?.trim().split(" ")[0];
-      }
-      continue;
-    }
-    if (fields.length < 4) {
+    if (fields.length !== 5) {
       parseErrors.push(`row with ${fields.length} fields: ${line}`);
       continue;
     }
-    const hash = first;
-    const size = Number((fields[1] ?? "").trim());
-    if (!/^[0-9a-f]{64}$/.test(hash) || !Number.isInteger(size)) {
+    const [type, col2, col3, col4, last] = fields.map((field, i) =>
+      i < 4 ? field.trim() : field,
+    );
+    if (type?.startsWith("@") || type?.startsWith("#")) {
+      if (type === "@SET" && col2 === "NAME") {
+        headerSet = last;
+      } else if (type === "@SNAPSHOT" && col2 === "NAME") {
+        headerName = last;
+      }
+      continue;
+    }
+    const size = Number(col3);
+    if (
+      type !== "-" ||
+      !/^[0-9a-f]{64}$/.test(col2 ?? "") ||
+      !Number.isInteger(size)
+    ) {
       parseErrors.push(`malformed row: ${line}`);
       continue;
     }
     rows.push({
-      hash,
+      hash: col2 ?? "",
       size,
-      mtime: (fields[2] ?? "").trim(),
-      path: fields.slice(3).join("\t"),
+      mtime: col4 ?? "",
+      path: last ?? "",
     });
   }
   return { key, set, name, rows, headerSet, headerName, parseErrors };
 }
 
 /**
- * Parse a deletion record (root-level `objects.deleted-<n>.tsv`): skip `#`
- * lines (the `#DELETED` header and `#END` trailer), first field of a row is
- * the deleted hash.
+ * Parse a deletion record (root-level `objects.deleted-<n>.tsv`): the second
+ * field of each `#deleted` row is the deleted hash; every other row is skipped.
  * @param {Buffer} bytes
  * @returns {Set<string>}
  */
@@ -172,12 +178,9 @@ export function parseDeletionRecord(bytes) {
   /** @type {Set<string>} */
   const hashes = new Set();
   for (const line of bytes.toString("utf8").split("\n")) {
-    if (line === "" || line.trimStart().startsWith("#")) {
-      continue;
-    }
-    const hash = (line.split("\t")[0] ?? "").trim();
-    if (hash !== "") {
-      hashes.add(hash);
+    const [type = "", hash = ""] = line.split("\t");
+    if (type.trim() === "#deleted" && hash.trim() !== "") {
+      hashes.add(hash.trim());
     }
   }
   return hashes;

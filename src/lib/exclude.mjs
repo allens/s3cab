@@ -17,7 +17,7 @@ import { globSource } from "./path-match.mjs";
  * - **A directory is matched with a trailing `/`**, so `build/` names only the
  *   directory and `build` only a file — a `**` reaches either.
  * - **The first matching pattern wins**, and is what the walk records as the
- *   entry's `#EXCLUDED` reason.
+ *   pattern on its `#excluded` row.
  *
  * Matching is case-insensitive on win32, case-sensitive elsewhere — the platform
  * is the right question here, unlike in `find`, because these patterns only ever

@@ -41,7 +41,7 @@ make the spec alone define the interface. The split also fits each room to its j
 - **The upload room gets inputs the harness controls.** It is handed snapshots rather than
   writing its own, so a build can stage what a single room never could: a file changed after
   its snapshot, which tests "every object stored is the bytes its key names" directly, and a
-  snapshot missing its `#END` trailer.
+  snapshot missing its `@S3CAB END` line.
 - **A failure names one program.** s3cab's snapshot uploaded by the clean-room upload, and the
   clean-room snapshot uploaded by `s3cab upload --snapshot`, each isolate one side.
 
@@ -86,10 +86,10 @@ it can't do something portably, that requirement has to be justified as *essenti
 becomes *optional* in the spec. A wider dependency rule would hide exactly these gaps. Expected
 first cases, both the snapshot room's:
 
-- the IANA time zone in the `#SNAPSHOT` header, which Python's standard library can't name for
+- the IANA time zone in `@SNAPSHOT START`, which Python's standard library can't name for
   the local machine on any platform, and can't resolve on Windows without the `tzdata` package;
-- whether `#SNAPSHOT`'s fields are commitments at all. `format.md` calls metadata payloads
-  "context", yet s3cab reads the header's start instant (ADR-0072, ADR-0094).
+- what a snapshot written with no bucket and no s3cab puts in `@SET BUCKET` and
+  `@S3CAB VERSION`, when `format.md` calls everything it describes a commitment.
 
 **Full exclude syntax is in scope.** Exclusion decides what a backup holds, and the syntax is
 small: four tokens and a trailing `/`. It also carries a trap: `*` matches one *or more*
@@ -156,17 +156,18 @@ agree, the fault is probably in the third, or in a sentence of the spec only it 
 
 What comparing two backups must allow for, because these aren't defects:
 
-- **Row order isn't specified**, so file rows are compared as a set. The spec should say order
-  is not significant.
-- **Metadata payloads are "context"**, so `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows are compared by
-  path, not wording.
+- **Row order isn't significant**: a reader goes by each row's type, so file rows are
+  compared as a set.
+- **Which pattern excluded a path**, when several match, and **how the system words an
+  error** aren't fixed by the spec, so `#excluded`/`#error` rows are compared by path.
 - **Timestamps and snapshot names** differ by run.
-- **An excluded directory** may be one `#EXCLUDED` row or a row for each file in it. The spec
+- **An excluded directory** may be one `#excluded` row or a row for each file in it. The spec
   doesn't say which, so until it does a difference of that kind is reported, not failed.
-- **The header's time zone** is reported, not failed, until the spec says whether the field is
-  a commitment (the first expected case above).
+- **`@SNAPSHOT START`'s time zone** is reported, not failed, until the spec says whether the
+  field is a commitment (the first expected case above).
 
-File rows (hash, size, mtime, path) and the excluded paths must otherwise match exactly.
+File rows (hash, size, mtime, path) and the excluded and unreadable paths must otherwise match
+exactly.
 
 ## Frozen, and timed to 1.0
 

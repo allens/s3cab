@@ -68,7 +68,6 @@ import {
  * @property {number} uploaded - Those actually transferred (the rest were already in the store)
  * @property {number} uploadedBytes - Bytes those transfers moved
  * @property {number} uploadMs - Milliseconds spent sending them
- * @property {number} skipped - Entries the walk left out by design (a symlink, a socket)
  * @property {CompareError[]} errors - Files that couldn't be read to be backed up, each with the OS's reason
  * @property {string[]} excludeSuggestions - An exclude pattern for each failed file the baseline had failed on too: trying again hasn't fixed it, so the report offers leaving it out instead
  * @property {string} excludePath - The set's exclude file, where those patterns would go
@@ -179,15 +178,14 @@ export async function backup(setName, options = {}) {
         })
       : null;
 
-  // Files the pass couldn't read became `#ERROR` rows: the snapshot is honest
+  // Files the pass couldn't read became `#error` rows: the snapshot is honest
   // about them and worth publishing (everything it *does* list is stored), but
   // the run must not signal clean — a scheduled backup runs on the exit code
   // alone (guide/output.md tells scripts to branch on it), and
   // `s3cab backup && notify-ok` recording success for a backup that silently
   // omitted files is the machine-readable half lying. Same pattern as `verify`
   // and `restore`: set `process.exitCode` rather than throw, so the publish
-  // above stands and the run report still prints. Skips stay exit 0 — they are
-  // a *choice* (an unsupported type), not a fault.
+  // above stands and the run report still prints.
   if (pass.errors.length > 0) {
     process.exitCode = 1;
   }
@@ -209,7 +207,6 @@ export async function backup(setName, options = {}) {
     uploaded,
     uploadedBytes,
     uploadMs: sendingMs,
-    skipped: pass.skipped,
     errors: pass.errors,
     // Recurrence, not the error code, is the signal: EBUSY is both a sync
     // client's lock file nobody wants and an Outlook .pst that only needs Outlook

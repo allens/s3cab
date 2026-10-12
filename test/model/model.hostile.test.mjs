@@ -29,7 +29,7 @@ import { backup, restore, writeSet } from "./harness/seam.mjs";
 // Hostile file trees (Windows-first, per the brief), driven through the Tier 1
 // seam. One oracle throughout: **faithful or loud** — every hostile feature
 // must either round-trip byte-identically or surface an explicit refusal (a
-// throw, a nonzero exit, or a counted error/skip in the run report). What is
+// throw, a nonzero exit, or a counted error in the run report). What is
 // never acceptable is silent divergence: a backup that reports clean success
 // while the restore differs from the tree.
 //
@@ -82,6 +82,17 @@ const makeSet = (root, dataDir) => {
 /** Advance the virtual clock a minute (for a second snapshot). */
 const nextMinute = () => clockHolder.current.advance(MINUTE_MS);
 
+/** The first backup's snapshot, in the bucket. */
+const MANIFEST_KEY = "snapshots/hostile/2026-01-05T0000.tsv.gz";
+
+/** The first backup's snapshot, decompressed. */
+const manifestText = async () =>
+  gunzipSync(
+    /** @type {Buffer} */ (
+      await backendHolder.current.getBytes(BUCKET, MANIFEST_KEY)
+    ),
+  ).toString("utf8");
+
 /**
  * Backup then restore to `<root>/out`, returning everything the oracle needs.
  * @param {string} root
@@ -120,7 +131,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
     const { result, restoredData } = await roundtrip(dir.path);
 
     // The honest outcomes per hostile file: stored-and-restored
-    // byte-identically, or counted as an error/skip in the run report.
+    // byte-identically, or counted as an error in the run report.
     const restored = captureTree([restoredData]);
     const hostileOnDisk = captureTree([data]);
     let faithful = 0;
@@ -131,11 +142,11 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
         faithful++;
       }
     }
-    const accounted = faithful + result.errors.length + result.skipped;
+    const accounted = faithful + result.errors.length;
     assert.ok(
       accounted >= hostileOnDisk.size,
       `every file must be restored or counted: ${faithful} faithful + ` +
-        `${result.errors.length} errors + ${result.skipped} skipped < ${hostileOnDisk.size} files`,
+        `${result.errors.length} errors < ${hostileOnDisk.size} files`,
     );
     // And the ordinary neighbour must never be collateral damage.
     assert.equal(restored.get("data/normal.txt")?.toString(), "plain");
@@ -175,7 +186,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
       assert.equal(buried.toString(), "deep content");
     } else {
       assert.ok(
-        result.errors.length + result.skipped > 0 || process.exitCode !== 0,
+        result.errors.length > 0 || process.exitCode !== 0,
         "deep file neither restored nor accounted for",
       );
     }
@@ -187,11 +198,13 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
 });
 
 describe("hostile trees: links", () => {
-  it("skips junctions and symlinks without following or restoring them", async (t) => {
+  it("never follows or restores a link, and makes one leading out an error", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = makeSet(dir.path);
     writeFileSync(join(data, "real.txt"), "the real file");
-    const sibling = join(dir.path, "outside");
+    // Absolute: a junction's relative target resolves against the link's own
+    // folder, which would leave it pointing nowhere.
+    const sibling = resolve(dir.path, "outside");
     mkdirSync(sibling);
     writeFileSync(join(sibling, "outside.txt"), "outside the set");
     const links = writeLinks(data, join(data, "real.txt"), sibling);
@@ -200,13 +213,30 @@ describe("hostile trees: links", () => {
       return;
     }
 
-    const { result, restoredData } = await roundtrip(dir.path);
+    const { backupExit, restoredData } = await roundtrip(dir.path);
 
     const restored = captureTree([restoredData]);
-    // The real file comes back; the links are recorded as skipped, are not
-    // followed into the outside directory, and are not recreated.
+    // The real file comes back; no link is followed or recreated (ADR-0103).
+    // The symlink leads inside the backup, so it has no row; the junction
+    // leads out of it, so it is an `#error` row and the backup exits nonzero.
     assert.equal(restored.get("data/real.txt")?.toString(), "the real file");
-    assert.ok(result.skipped > 0, "links must be counted as skipped");
+    const rows = (await manifestText()).split("\n");
+    const errorRows = rows.filter((line) => line.startsWith("#error\t"));
+    if (links.junction) {
+      assert.ok(
+        // A link to a folder ends with the separator, like any folder.
+        errorRows.some((row) => /junction-to-sibling[\\/]$/.test(row)),
+        `the junction must have an #error row, got:\n${errorRows.join("\n")}`,
+      );
+      assert.equal(backupExit, 1);
+    }
+    if (links.symlink) {
+      assert.equal(
+        rows.find((row) => row.includes("symlink-to-file")),
+        undefined,
+        "a link inside the backup has no row",
+      );
+    }
     assert.equal(
       [...restored.keys()].find((k) => k.includes("junction-to-sibling")),
       undefined,
@@ -324,27 +354,28 @@ describe("hostile trees: mixed-case collisions", () => {
     // nowhere, so it must come from the store rather than be copied from
     // whatever survivor that name resolves to.
     const fake = backendHolder.current;
-    const key = "snapshots/hostile/2026-01-05T0000.tsv.gz";
-    const manifestBytes = /** @type {Buffer} */ (
-      await fake.getBytes(BUCKET, key)
-    );
-    const original = gunzipSync(manifestBytes).toString("utf8");
     const altBytes = Buffer.from("UPPERCASE CONTENT!");
     const altHash = sha256(altBytes);
     await fake.putBytes(BUCKET, `objects/${altHash}`, altBytes);
-    const rows = original.trimEnd().split("\n");
+    const rows = (await manifestText()).trimEnd().split("\n");
     const fileRow = /** @type {string} */ (
-      rows.find((row) => row.includes("file.txt"))
+      rows.find((row) => row.startsWith("-\t") && row.endsWith("file.txt"))
     );
-    rows.push(
-      fileRow.replace(/^[0-9a-f]{64}/, altHash).replace("file.txt", "File.txt"),
+    /** @param {string} name */
+    const withHash = (name) =>
       fileRow
-        .replace(/^[0-9a-f]{64}/, altHash)
-        .replace("file.txt", "zzz-copy.txt"),
+        .replace(/^(-\t)[0-9a-f]{64}/, `$1${altHash}`)
+        .replace(/file\.txt$/, name);
+    // Before the trailer, which a whole snapshot ends with (ADR-0098).
+    rows.splice(
+      rows.findIndex((row) => row.startsWith("@SNAPSHOT\tFILES ")),
+      0,
+      withHash("File.txt"),
+      withHash("zzz-copy.txt"),
     );
     await fake.putBytes(
       BUCKET,
-      key,
+      MANIFEST_KEY,
       gzipSync(Buffer.from(rows.join("\n") + "\n")),
     );
 
@@ -398,7 +429,7 @@ describe("hostile trees: files changing mid-run", () => {
     assert.match(result.errors[0]?.path ?? "", /zzz-vanishes\.txt$/);
     // The machine-readable half must not lie: a backup that omitted files sets
     // a nonzero exit code (guide/output.md — scripts branch on it), while the
-    // snapshot still publishes honestly with its #ERROR row.
+    // snapshot still publishes honestly with its `#error` row.
     assert.equal(process.exitCode, 1);
 
     // The snapshot that landed is still complete for what it *does* list.

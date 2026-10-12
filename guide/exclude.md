@@ -39,7 +39,9 @@ too. A _segment_ is one directory or file name (the text between two separators)
 | `?`    | exactly one character                              |
 
 A pattern ending in `/` matches a directory (and everything inside it, since the
-walker doesn't descend into an excluded directory).
+walker doesn't descend into an excluded directory). It also matches a link whose
+target is a directory, unlike git, where `foo/` never matches a link. A broken link
+has no target, so only a pattern without the `/` matches it.
 
 Matching is case-insensitive on Windows and case-sensitive elsewhere.
 
