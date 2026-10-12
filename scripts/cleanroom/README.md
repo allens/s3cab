@@ -113,6 +113,28 @@ harvested backup program goes in `backup/<platform>/` here (`linux`, `windows`,
 `docs/format-spec-audit-<n>.md` numbering, its title naming the role and the
 platform.
 
+**Every real run uses one model at one effort**: Fable 5.1 at `xhigh`, for every
+room of a format revision, and each report names both. The effort is `xhigh`
+rather than `high` because too shallow a reading fails silently: an ambiguity the
+session never noticed looks like a spec without one, and no checker catches it.
+
+**A shakedown comes first**: the same rooms on a cheaper model, to catch harness
+faults and glaring spec errors before the real runs pay for them. Its snapshot room
+runs on both Opus 5.5 at `medium` and Sonnet 5.5 at `high`, and the other rooms on
+whichever did better, judged by report and token cost. Its output is throwaway:
+nothing is harvested, its report takes no audit number, and a quiet shakedown
+proves nothing about the spec. What it finds is fixed in the harness or the spec,
+and the real runs are then built from empty.
+It includes one restore room, the Linux C one, against a provisional seed made
+after the backup shakedowns; any spec or fixture fix after it changes the stamp,
+and the restore builds then refuse that seed until it is reseeded.
+
+**The snapshot room is also run on two or three models**, and their ambiguity
+lists diffed. An item only one model raised shows roughly how much a single run
+misses, which is what says whether one reading per room is enough. Judge them
+with the model names hidden. Every reader is still Claude, as was s3cab's author,
+so a gap they all fill the same way can still pass the byte-for-byte comparison.
+
 ## cleanroom.mjs
 
 Reads the one root every script here takes, and writes the clean room each
