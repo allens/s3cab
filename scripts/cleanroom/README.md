@@ -40,8 +40,8 @@ all three. Nothing here is distributed; it lives in the repo as evidence.
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
 maintained, and improved every run as findings come in: the seed script, the three
 build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
-`restore-bucket.mjs`), and the checkers, `compare-snapshot.mjs`, `check-upload.mjs`
-and `compare.py`.
+`restore-bucket.mjs`), and the checkers, `compare-snapshot.mjs`, `check-upload.mjs`,
+`compare.py` and `audit-transcript.mjs`.
 [restorers/](restorers/) is append-only and frozen — one program per run, never
 updated, because each one's value is being a fixed reading of the spec on a
 given date.
@@ -50,11 +50,13 @@ Two buckets, one per role
 ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
 `S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the **golden set** every restorer
 reads, and `S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is emptied for each clean-room
-upload's turn. The snapshot room has no bucket at all: a snapshot is a local file.
+upload's turn. A snapshot clean room has no bucket at all: a snapshot is a local file.
 
 The golden set is seeded **once per format or fixture change**, on Linux or WSL,
-since only a Linux filesystem holds every fixture. The root must be on that
-filesystem — `~`, not `/mnt/c`:
+apart from the runs, which only read it: only a Linux filesystem holds every
+fixture, so seeding is the one step a Windows or macOS run couldn't do
+([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)). The
+root must be on that filesystem — `~`, not `/mnt/c`:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <restore-bucket>
@@ -67,23 +69,26 @@ from empty and deleted once the run is harvested — create, run, harvest,
 destroy, then the next.
 
 ```text
-C:\s3cab.sandbox\
-  cleanroom\   the session opens here: spec, brief, credentials (not for
-               a snapshot), and sets\ (snapshot, upload) or reference\ (restore)
-  fixtures\    the trees it backs up (snapshot, upload)
-  .s3cab\      s3cab's home while the build runs it (upload, restore)
+~/s3cab.sandbox/
+  cleanroom/   the session opens here: spec, brief, credentials (not for
+               a snapshot), and sets/ (snapshot, upload) or reference/ (restore)
+  fixtures/    the trees it backs up (snapshot, upload)
+  .s3cab/      s3cab's home while the build runs it (upload, restore)
 ```
 
-A restorer run, end to end — the same commands on every OS:
+A restorer run, end to end — the same commands on every OS (`$HOME` expands in
+PowerShell and sh alike):
 
 ```powershell
 # create
-node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs C:\s3cab.sandbox
-# run: open a session in C:\s3cab.sandbox\cleanroom and say "go"
-# harvest: its program and report into the repo, and its restore compared
-python3 scripts/cleanroom/compare.py <its-restore-dir> C:\s3cab.sandbox\cleanroom\reference\<snapshot>
+node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3cab.sandbox
+# run: open a session in $HOME/s3cab.sandbox/cleanroom and say "go"
+# check: its restore compared, and its transcript audited
+python3 scripts/cleanroom/compare.py <its-restore-dir> $HOME/s3cab.sandbox/cleanroom/reference/<snapshot>
+node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox
+# harvest: its program and report into the repo
 # destroy
-Remove-Item -Recurse C:\s3cab.sandbox
+Remove-Item -Recurse $HOME/s3cab.sandbox
 ```
 
 The two halves of the backup are the same sequence with their own scripts, and
@@ -91,9 +96,10 @@ like a restorer, each is built and run on every OS. A snapshot run needs no
 bucket, and so no test environment:
 
 ```powershell
-node scripts/cleanroom/build-snapshot-cleanroom.mjs C:\s3cab.sandbox
-# run, then harvest: its program and report, and its snapshots checked
-node scripts/cleanroom/compare-snapshot.mjs C:\s3cab.sandbox
+node scripts/cleanroom/build-snapshot-cleanroom.mjs $HOME/s3cab.sandbox
+# run, then check: its snapshots compared, and its transcript audited
+node scripts/cleanroom/compare-snapshot.mjs $HOME/s3cab.sandbox
+node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox
 ```
 
 An upload run's turn starts from an empty bucket, which the build leaves for you
@@ -101,39 +107,37 @@ to empty:
 
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
-node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs C:\s3cab.sandbox
-# run, then harvest: its program and report, and the bucket it left checked
-node --env-file=.env.test scripts/cleanroom/check-upload.mjs C:\s3cab.sandbox
+node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs $HOME/s3cab.sandbox
+# run, then check: the bucket it left, and its transcript audited
+node --env-file=.env.test scripts/cleanroom/check-upload.mjs $HOME/s3cab.sandbox
+node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox
 ```
 
-Both checkers run before the sandbox is destroyed, on the machine that built it:
-they read its trees, and the upload checker reads what the room was handed. A
-harvested backup program goes in `backup/<platform>/` here (`linux`, `windows`,
-`macos`), beside [restorers/](restorers/), and each run's report continues the
-`docs/format-spec-audit-<n>.md` numbering, its title naming the role and the
-platform.
+The checkers run before the sandbox is destroyed, on the machine that built it:
+they read its trees, and the upload checker reads what the clean room was handed.
 
-**Every real run uses one model at one effort**: Fable 5.1 at `xhigh`, for every
-room of a format revision, and each report names both. The effort is `xhigh`
+**Every run is the same; whether it is recorded is decided at the end.** A run is
+recorded only if it used Fable 5.1 at `xhigh`, against the spec as it still stands,
+and its transcript audit came back clean. Its report then continues the
+`docs/format-spec-audit-<n>.md` numbering, its title naming the role and the
+platform, the model and the effort; a backup program goes in `backup/<platform>/`
+here (`linux`, `windows`, `macos`), beside [restorers/](restorers/). Any other
+run's findings are fixed in the harness or the spec, and the rest is thrown away.
+One model across the recorded series is the point: a weaker reader lists fewer
+ambiguities, which would read as a spec that improved. The effort is `xhigh`
 rather than `high` because too shallow a reading fails silently: an ambiguity the
 session never noticed looks like a spec without one, and no checker catches it.
 
-**A shakedown comes first**: the same rooms on a cheaper model, to catch harness
-faults and glaring spec errors before the real runs pay for them. Its snapshot room
-runs on both Opus 5.5 at `medium` and Sonnet 5.5 at `high`, and the other rooms on
-whichever did better, judged by report and token cost. Its output is throwaway:
-nothing is harvested, its report takes no audit number, and a quiet shakedown
-proves nothing about the spec. What it finds is fixed in the harness or the spec,
-and the real runs are then built from empty.
-It includes one restore room, the Linux C one, against a provisional seed made
-after the backup shakedowns; any spec or fixture fix after it changes the stamp,
-and the restore builds then refuse that seed until it is reseeded.
+**Start a revision on a cheaper model**, to catch harness faults and glaring spec
+errors before Fable pays for them: the snapshot role on both Opus 5.5 at `medium`
+and Sonnet 5.5 at `high`, then the other roles on whichever did better, judged by
+report and token cost. A quiet cheap run proves nothing about the spec.
 
-**The snapshot room is also run on two or three models**, and their ambiguity
-lists diffed. An item only one model raised shows roughly how much a single run
-misses, which is what says whether one reading per room is enough. Judge them
-with the model names hidden. Every reader is still Claude, as was s3cab's author,
-so a gap they all fill the same way can still pass the byte-for-byte comparison.
+**The same role on two or three models**, their ambiguity lists diffed, shows
+roughly how much a single run misses, which is what says whether one reading per
+role is enough. Keep those reports outside the repo and judge them with the model
+names hidden. Every reader is still Claude, as was s3cab's author, so a gap they
+all fill the same way can still pass the byte-for-byte comparison.
 
 ## cleanroom.mjs
 
@@ -159,6 +163,15 @@ shorter, which reads as a spec that has been fixed. Keep previous runs' reports
 out of the sandbox too: diffing the lists afterwards is the reader's job. They
 also refuse a sandbox that isn't empty, so nothing from the last run can
 ride along beside the new brief.
+
+Beyond that, the sandbox relies on the session doing as the brief says, and checks
+that it did. Nothing stops a session in `~/s3cab.sandbox` reading `~/.s3cab` (real
+snapshots) or `~/.claude` (the transcripts and memory of every session that worked
+on s3cab); `audit-transcript.mjs` lists every path it touched there, in temp or in
+the repo, and every time it ran s3cab or went to the web. Any of those voids the
+run. If runs keep straying, move the sandbox somewhere more isolated; until then,
+the repo is the one place ruled out outright, because what it leaks arrives before
+the session's first tool call, where no audit sees it.
 
 The brief is written as the clean room's own `CLAUDE.md`, so the run starts from
 a bare "go" instead of a pasted wall of text — and, because that file is
@@ -292,11 +305,11 @@ node scripts/cleanroom/build-snapshot-cleanroom.mjs <root>
 
 Builds an upload sandbox: the clean room, with each set's `dirs.txt`,
 `exclude.txt` and `snapshots\` in its `sets\`, the snapshots s3cab took of the
-trees in `fixtures\`. It is the one backup room handed s3cab's output, and on
+trees in `fixtures\`. It is the one backup clean room handed s3cab's output, and on
 purpose: an upload has to start from a snapshot, and s3cab's is the one the
 spec describes. It is input, not a target to converge on, the same as the
 snapshots every restorer reads; what it costs is that an encoding question the
-examples settle drops out of this room's report, which is the snapshot room's to
+examples settle drops out of this report, which is the snapshot clean room's to
 raise. s3cab snapshots offline once a set exists, so the build writes each set
 straight into `.s3cab\` rather than running `setup`, which would publish the
 `sets/` entry that is the session's to write. The session's upload is the first
@@ -318,7 +331,7 @@ node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs <root>
 
 ## compare-snapshot.mjs
 
-Checks a snapshot room's work: each set's latest snapshot in
+Checks a snapshot clean room's work: each set's latest snapshot in
 `cleanroom\sets\<set>\snapshots\` against `s3cab snapshot` of the same trees,
 taken there and then in a throwaway home, so s3cab's output never exists while
 the session could read it. It compares what ADR-0096 lists: file rows exact by
@@ -340,9 +353,9 @@ node scripts/cleanroom/compare-snapshot.mjs <root>
 
 ## check-upload.mjs
 
-Checks the bucket an upload room left. Restoring it can't stand in: no restore
-reads `dirs.txt` or `exclude.txt`, and a restore can't say whether the room
-refused the two snapshots it should have. So, in order:
+Checks the bucket an upload clean room left. Restoring it can't stand in: no
+restore reads `dirs.txt` or `exclude.txt`, and a restore can't say whether the
+session refused the two snapshots it should have. So, in order:
 
 - every key is in the layout the spec documents, with no deletion record;
 - every object hashes to its key, which means downloading every one;
@@ -365,8 +378,8 @@ node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
 ## seed-restore-cleanroom-bucket.mjs
 
 Seeds the restore bucket with the **golden set**: eight backup sets made by
-s3cab from the fixtures, then deliberately damaged. It runs only when
-`guide/format.md` changes, and only on Linux: Windows refuses the `[POSIX]`
+s3cab from the fixtures, then deliberately damaged. It runs only when the stamp
+below no longer matches, and only on Linux: Windows refuses the `[POSIX]`
 names, and macOS's APFS silently folds names that differ only in case or
 Unicode normalization. It builds the fixtures before touching the bucket and
 stops if any group was skipped, since a golden set missing one would be partial

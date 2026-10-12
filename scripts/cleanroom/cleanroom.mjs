@@ -68,7 +68,9 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
-const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
+export const repoRoot = realpathSync.native(
+  join(import.meta.dirname, "..", ".."),
+);
 
 /** One client for every script's own requests, through the standard credential chain. */
 export const client = new S3Client({});
