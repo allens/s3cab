@@ -2,14 +2,14 @@
  * Build a snapshot sandbox (ADR-0096): a clean room for the Python snapshot program, the
  * first half of the clean-room backup, and the trees it walks.
  *
- *   <root>/cleanroom/   the session's: spec, brief, and sets/ — each set's dirs.txt and
- *                       exclude.txt, the two files the spec says a set carries, pointing
- *                       into fixtures/. The session writes each set's snapshots beside
- *                       them.
+ *   <root>/cleanroom/   the session's: spec, brief, and sets/ — each set's dirs.txt,
+ *                       exclude.txt and env, the files the spec says a set carries,
+ *                       pointing into fixtures/. The session writes each set's snapshots
+ *                       beside them.
  *   <root>/fixtures/    the trees (fixtures.mjs)
  *
- * No network and nothing of s3cab's. A snapshot is a local file, so the room has no
- * bucket and no credentials: its rows are checked afterwards against `s3cab snapshot` of
+ * No network and nothing of s3cab's. A snapshot is a local file, so the clean room has a
+ * bucket name and no credentials: its rows are checked afterwards against `s3cab snapshot` of
  * the same trees, which is local too. The session runs neither s3cab setup nor anything
  * else that would write the set files, so they are written here. The trees stay outside
  * cleanroom/ although the session reads them, so the session's own files are never mixed
@@ -21,6 +21,7 @@
  * Usage:
  *   node scripts/cleanroom/build-snapshot-cleanroom.mjs <root>
  */
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { handover, readRoot, writeCleanroom } from "./cleanroom.mjs";
 import { buildFixtures, reportFixtures, writeSetFiles } from "./fixtures.mjs";
@@ -33,6 +34,11 @@ writeCleanroom(cleanroom, "snapshot");
 const { sets, skipped } = buildFixtures(fixtures);
 for (const [name, dirs] of sets) {
   writeSetFiles(join(cleanroom, "sets", name), name, dirs);
+  // A snapshot records its set's bucket, so the set names one; nothing is uploaded to it.
+  writeFileSync(
+    join(cleanroom, "sets", name, "env"),
+    "S3CAB_BUCKET=s3cab-cleanroom-snapshot\n",
+  );
 }
 reportFixtures(fixtures, sets, skipped);
 

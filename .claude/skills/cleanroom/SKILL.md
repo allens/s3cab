@@ -62,17 +62,18 @@ Report, and stop.
    `<root>/cleanroom`, set `/model` and `/effort`, check that `/effort` shows the
    level, and say "go". Then wait for them to say it's done.
 3. **Check** with the role's checker and `audit-transcript.mjs`, before anything is
-   moved or deleted. Show both outputs in full. A stray the audit lists voids the
-   run whatever the checker says; its token totals go in the step's report.
+   moved or deleted, each output saved into the clean room as the README shows. Show
+   both in full. A stray the audit lists voids the run whatever the checker says; its
+   token totals, and their cost at API rates, go in the step's report.
 4. **Harvest.** Check the model and effort in the audit's output, then:
    - *a real set's run with a clean audit is recorded*: the program and report go
      where the README says, the report under the next audit number, and its list
      diffed against the last set's. Its findings wait for the set's last run.
    - *anything else is an experiment*: nothing enters the repo. List what the report
-     found as harness faults and spec errors to fix. If the user is comparing runs,
-     first copy the report and its token totals to a place outside the repo that
-     they name.
-5. **Destroy** the sandbox, and stop.
+     found as harness faults and spec errors to fix.
+5. **Keep and destroy.** Either way, move the clean room, credentials deleted, to
+   `~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>/` (README), then
+   destroy the sandbox, and stop.
 
 Report each step as: *as planned*, *new*, *next*. Nothing is committed without the
 user's word.

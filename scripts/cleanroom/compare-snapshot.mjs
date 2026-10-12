@@ -37,7 +37,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +90,7 @@ const heading = laidOut([
 /**
  * @typedef {object} Snapshot
  * @property {string} set `@SET NAME`
+ * @property {string} bucket `@SET BUCKET`, or "" if it has none
  * @property {string} name `@SNAPSHOT NAME`
  * @property {string} zone `@SNAPSHOT START`'s time zone, or "" if it has none
  * @property {string[]} dirs the `@SET DIR` rows
@@ -136,6 +136,7 @@ function parse(gz, problems) {
   /** @type {Snapshot} */
   const snapshot = {
     set: "",
+    bucket: "",
     name: "",
     zone: "",
     dirs: [],
@@ -184,6 +185,8 @@ function parse(gz, problems) {
       const property = `${type} ${col2}`;
       if (property === "@SET NAME") {
         snapshot.set = last;
+      } else if (property === "@SET BUCKET") {
+        snapshot.bucket = last;
       } else if (property === "@SET DIR") {
         snapshot.dirs.push(last);
       } else if (property === "@SNAPSHOT NAME") {
@@ -328,18 +331,14 @@ try {
     /** @type {string[]} */
     const notes = [];
 
-    // s3cab's snapshot of the same trees, from the same two files the session was given.
+    // s3cab's snapshot of the same trees, from the same files the session was given.
     const homeSet = join(home, "sets", set);
     mkdirSync(homeSet, { recursive: true });
-    copyFileSync(join(roomSet, "dirs.txt"), join(homeSet, "dirs.txt"));
-    if (existsSync(join(roomSet, "exclude.txt"))) {
-      copyFileSync(join(roomSet, "exclude.txt"), join(homeSet, "exclude.txt"));
+    for (const file of ["dirs.txt", "exclude.txt", "env"]) {
+      if (existsSync(join(roomSet, file))) {
+        copyFileSync(join(roomSet, file), join(homeSet, file));
+      }
     }
-    // A local set has to name a bucket; `snapshot` never reaches it.
-    writeFileSync(
-      join(homeSet, "env"),
-      "S3CAB_BUCKET=s3cab-compare-snapshot\n",
-    );
     mustRun(["snapshot", set]);
     const [referenceName = ""] = snapshotsIn(join(homeSet, "snapshots"));
     /** @type {string[]} */
@@ -380,6 +379,11 @@ try {
         }
         if (ours.name !== name) {
           mismatches.push(`@SNAPSHOT NAME names the snapshot '${ours.name}'`);
+        }
+        if (ours.bucket !== reference.bucket) {
+          mismatches.push(
+            `@SET BUCKET is ${show(ours.bucket)}, where s3cab wrote ${show(reference.bucket)}`,
+          );
         }
         if (ours.zone !== reference.zone) {
           notes.push(

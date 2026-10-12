@@ -5,7 +5,8 @@
  * read past the brief gets caught rather than read as a spec with fewer ambiguities.
  *
  * A stray is any of:
- * - a tool that took a path in the home folder, temp or the repo, outside the root;
+ * - a tool that took a path in the home folder, temp or the repo, outside the root and
+ *   the session's own scratchpad and tool output;
  * - a shell command naming one of those, or running s3cab itself;
  * - any web search or fetch: the brief forbids looking the tool up, and no role needs
  *   the web to do its work.
@@ -65,6 +66,23 @@ if (transcripts.length === 0) {
   process.exit(2);
 }
 
+// The session's own scratchpad and saved tool output, both named for its session id, are
+// its to use. An earlier run's sit beside them under the same folder and are strays.
+// (Scratchpad path measured on Windows only.)
+const sessions = transcripts.map(
+  (file) =>
+    relative(projects, file)
+      .split(/[\\/]/)[1]
+      ?.replace(/\.jsonl$/, "") ?? "",
+);
+const own = folders.flatMap((folder) =>
+  sessions.flatMap((id) => [
+    join(projects, folder, id),
+    join(tmpdir(), "claude", folder, id),
+  ]),
+);
+const allowed = [root, ...own];
+
 const windows = process.platform === "win32";
 /** @param {string} path */
 const fold = (path) => (windows ? path.toLowerCase() : path);
@@ -76,16 +94,17 @@ const inside = (child, parent) => {
 const watched = [homedir(), tmpdir(), repoRoot];
 /** @param {string} path */
 const strayPath = (path) =>
-  !inside(path, root) && watched.some((place) => inside(path, place));
+  !allowed.some((place) => inside(path, place)) &&
+  watched.some((place) => inside(path, place));
 
-// A command can't be resolved the way a path can, so it is read as text: the root's
-// own spelling is taken out, then anything still naming a watched place is a stray.
+// A command can't be resolved the way a path can, so it is read as text: the allowed
+// places' spellings are taken out, then anything still naming a watched place is a stray.
 /** A path in either slash direction, as a regex source. @param {string} path */
 const spellings = (path) =>
   [path, path.replaceAll("\\", "/")]
     .map((spelling) => spelling.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
-const rootSpelled = new RegExp(spellings(root), "gi");
+const allowedSpelled = new RegExp(allowed.map(spellings).join("|"), "gi");
 const named = new RegExp(
   watched.map(spellings).join("|") +
     String.raw`|(^|[\s"'(=])~(?=[\\/\s"']|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
@@ -95,7 +114,7 @@ const runsS3cab =
   /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)])/im;
 /** @param {string} command */
 const strayCommand = (command) =>
-  named.test(command.replace(rootSpelled, "")) || runsS3cab.test(command);
+  named.test(command.replace(allowedSpelled, "")) || runsS3cab.test(command);
 
 const fields = {
   input: "input_tokens",

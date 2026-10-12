@@ -324,7 +324,7 @@ Correct covers everything the spec says a snapshot holds: its exact bytes, paddi
 exclude patterns in their full syntax; and a row for everything the spec says is recorded, what
 was left out included.
 
-Nothing here touches the network: there is no bucket, and uploading is the other program's job.
+Nothing here touches the network: uploading is the other program's job.
 Write each set's snapshot into that set's directory in \`sets/\`, laid out as the spec's local side
 describes, and check it by reading it back the way a stranger working from the spec would.
 
@@ -512,7 +512,8 @@ and finding your way around from it is part of what is being tested.
       }`
     : `# Environment
 
-There is no bucket and no network in this exercise.
+There is no network in this exercise. Each set's \`env\` names a bucket, which its snapshot
+records; nothing is uploaded to it.
 
 ${sets}`;
 
@@ -555,7 +556,7 @@ ${sets}`;
     "  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it",
   );
   console.log(
-    `  ENVIRONMENT.md  ${bucket ? `s3://${bucket}` : "the sets, and no bucket"}`,
+    `  ENVIRONMENT.md  ${bucket ? `s3://${bucket}` : "the sets, and no network"}`,
   );
   if (bucket) {
     console.log(
