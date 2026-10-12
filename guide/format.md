@@ -280,7 +280,8 @@ layout.
 tab-separated fields, each read trimmed but the last, the row types, the heading row first
 and `END` last. The padding, the unpadded column 1 and `SIZE`'s readable form are how s3cab
 writes the file so it reads well in an editor and works in a spreadsheet. Another writer
-should do the same, and a reader must not depend on them.
+should do the same, and a reader must not depend on them. Nor on what is written for
+people: an `#error` row's wording, `VERSION`, `HOME`, `BY` and `START`'s zone.
 
 **The first row is a heading**, the same in every snapshot: `@S3CAB FORMAT`, then the names
 of the size and time columns, then the address of this page, so a file found on its own
