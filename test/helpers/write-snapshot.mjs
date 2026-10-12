@@ -14,7 +14,7 @@ import {
 // objects, in the real `.tsv.gz` form (so a snapshot lister sees it when the
 // name is datestamped). It writes the heading, a `@SET DIR` row per filesystem
 // root the paths sit on — a reader refuses a path under none (ADR-0101) — then
-// the object rows and trailer; no other `@SET`/`@SNAPSHOT` rows, which is all the
+// the file rows and trailer; no other `@SET`/`@SNAPSHOT` rows, which is all the
 // compare/remote tests need. Production snapshots are written by `snapshot()`. On-disk paths go through the lib
 // `fileProps`; a `File` carries its own in-memory bytes, so it is hashed inline
 // here — production `fileProps`/`prop` are path-only, and synthesizing props

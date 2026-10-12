@@ -94,11 +94,10 @@ export function captureTree(dirs) {
 
 /**
  * The model's own manifest parser, from the format spec: five tab-separated
-
-
- * starting `#` is a row only people read bar `@SET NAME`/`@SNAPSHOT NAME`, and
- * an `object` row is `hash size mtime path`. Anything the spec says can't
- * happen lands in `parseErrors`.
+ * columns per row (the type unpadded, the next three space-padded — trim). A
+ * type starting `@` or `#` isn't a file, and only `@SET NAME`/`@SNAPSHOT NAME`
+ * are read from those; a `-` row is `hash size mtime path`. Anything the spec
+ * says can't happen lands in `parseErrors`.
  * @param {string} key - The manifest's bucket key (names its set + snapshot)
  * @param {Buffer} bytes - The stored `.tsv.gz` content
  * @returns {ParsedManifest}

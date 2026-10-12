@@ -712,7 +712,7 @@ commands → shared-machinery wiring.
 ### Slice 2 — Local engine moves to sets
 
 `snapshot`/`tree`/`list`/`compare` take `[<set>]`: multi-root walk; per-set
-`exclude.txt`; `#DIR` header lines; snapshots into the set directory; the same-minute
+`exclude.txt`; `@SET DIR` rows; snapshots into the set directory; the same-minute
 error (+ `S3CAB_DEBUG` overwrite). `<dir>/.s3cab/` retires — the biggest user-visible
 change, so README "How it works", guide/exclude.md, help topics, the repo's own dogfood
 config, and test fixtures all move in this PR.
@@ -745,7 +745,7 @@ fresh-machine adoption; `compare --remote`.
 `--snapshot <name>`, `paths…` prefix filters (`selectEntries`), per-object SHA-256
 verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
 mtime restoration; `setup` is now uniformly async. `--output` re-rooting **is now
-built** (`parseSnapshotStream` surfaces the `#DIR`/`@SNAPSHOT` headers it used to drop;
+built** (`parseSnapshotStream` surfaces the `@SET DIR`/`@SNAPSHOT` rows it used to drop;
 `readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
 under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
