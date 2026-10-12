@@ -196,6 +196,10 @@ content is still stored.
   A file with one is **not backed up**: the run stops and names it, so you can rename it, or
   exclude it with a pattern like `odd*name.jpg` and run again. Every other character —
   including control characters that are *not* those three — is stored as-is.
+- **Names that aren't valid Unicode**, so have no UTF-8 form: a lone surrogate on Windows,
+  bytes that aren't UTF-8 on Linux. The file is UTF-8, so such a name can't be written into
+  it faithfully, and it is refused the same way: the run stops and names it, and a pattern
+  gets past it, since `*` matches the characters that stand in for the undecodable part.
 - **File content, not the filesystem around it.** Snapshots record each file's content,
   size, and modification time — [no links](#links), no hardlink identity, no empty
   directories, no permissions or ACLs. Pipes, sockets and devices get no row at all. s3cab

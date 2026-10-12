@@ -2,8 +2,9 @@
 
 **Status:** accepted & implemented; partly superseded by
 [0100](0100-tab-cr-lf-refused-or-spelled-out.md): the refusal extends to links,
-`<TAB>`-style spelling becomes control pictures, and exclude patterns refuse a tab or CR. Closes the "open edge case"
-[0004](0004-tsv-snapshot-manifests.md) left for before release. Applies
+`<TAB>`-style spelling becomes control pictures, and exclude patterns refuse a tab or CR.
+Amended 2026-10-13: a name with no UTF-8 form is refused the same way (below). Closes the
+"open edge case" [0004](0004-tsv-snapshot-manifests.md) left for before release. Applies
 [0054](0054-missing-member-dir-aborts.md)'s fail-loudly stance and
 [0010](0010-cli-output-conventions.md)'s never-truncate rule.
 
@@ -87,6 +88,18 @@ odd*name.jpg
 
 excludes `odd<TAB>name.jpg`. The abort message points here. (`parseLines` trims each line, so a
 *leading or trailing* tab in a pattern would be stripped — immaterial, given `*` does the job.)
+
+## Names with no UTF-8 form (amendment)
+
+A lone UTF-16 surrogate on Windows, or bytes that aren't UTF-8 on Linux, can't be written into a
+UTF-8 snapshot faithfully either. Node reads such a name with U+FFFD in place of what it couldn't
+decode, a spelling no file has. Before this, that surfaced as an `#error` row saying the file
+didn't exist, and two in one folder decoded to the same string and aborted the run as a false
+"overlap". They are now refused like a tab, aborting rather than skipping for the reasons above,
+and the same pattern escape works, because `*` matches U+FFFD. The walk lists names as bytes to
+tell: a lone surrogate reads back as WTF-8, which `isUtf8` rejects, while a real U+FFFD in a name
+is valid and backs up. Not "U+FFFD that `lstat` can't find": a valid name spelled the same way
+answers for the bad one.
 
 ## Consequences
 
