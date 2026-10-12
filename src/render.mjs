@@ -962,8 +962,11 @@ export function renderBackup(result, { color = false } = {}) {
       lines.push(
         paint((text) => bold(red(text)))(row(["Errors", errors.length])),
       );
+      // A link's name and target may hold a tab, CR or LF (ADR-0103).
       for (const error of errors.slice(0, ERRORS_SHOWN)) {
-        lines.push(`    ${error.path}  (${errorReason(error)})`);
+        lines.push(
+          `    ${withVisibleControls(error.path)}  (${withVisibleControls(errorReason(error))})`,
+        );
       }
       if (errors.length > ERRORS_SHOWN) {
         lines.push(`    and ${formatCount(errors.length - ERRORS_SHOWN)} more`);

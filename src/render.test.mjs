@@ -1109,6 +1109,24 @@ describe("renderBackup", () => {
     assert.doesNotMatch(text, /To see the details|s3cab compare/);
   });
 
+  it("spells out a failed link's line endings, so its name and target can't split the report", () => {
+    const text = renderBackup(
+      run({
+        errors: [
+          {
+            path: under("a\nlink"),
+            reason: "link to a file outside the backup: /x\r/y",
+          },
+        ],
+      }),
+    );
+    assert.ok(
+      text.includes(
+        `    ${under("a\\x0alink")}  (link to a file outside the backup: /x\\x0d/y)\n`,
+      ),
+    );
+  });
+
   it("offers the exclude lines for files that failed last time too, after the retry", () => {
     // Beside the retry, not instead of it: a file locked on every run may still
     // be one the user wants once whatever holds it is closed. The caveat is

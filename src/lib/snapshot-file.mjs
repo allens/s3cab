@@ -860,7 +860,12 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   const errors = new Map();
   /** @type {SnapshotRefused} */
   const refused = new Map();
-  /** Every path a per-path row has named, so a second row refuses both. */
+  /**
+   * Every path a file row has named, so a second file row refuses both. Not
+   * `#error` rows: one repeating a file row's path changes nothing a restore
+   * writes, and refusing the file for it would part s3cab from a reader that
+   * skips `#` rows (ADR-0101).
+   */
   const seen = new Set();
   /** @type {string[]} */
   const dirs = [];
