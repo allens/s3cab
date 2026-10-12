@@ -647,6 +647,56 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
   );
 });
 
+/**
+ * Create a file whose name has no UTF-8 form, as `<prefix>?.txt`. The bytes are
+ * a lone surrogate written as WTF-8: Windows stores it as one in the UTF-16
+ * name, Linux and macOS as three bytes that aren't UTF-8. Either way `readdir`
+ * reads it back with U+FFFD in its place.
+ * @param {string} base
+ * @param {string} prefix
+ */
+function writeUnencodable(base, prefix) {
+  const name = Buffer.concat([
+    Buffer.from(join(base, prefix)),
+    Buffer.from([0xed, 0xa0, 0x80]),
+    Buffer.from(".txt"),
+  ]);
+  writeFileSync(name, "x");
+}
+
+describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
+  it("aborts, naming every offender, rather than recording it as missing", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "fine.txt");
+    // Two in one folder read back as the same string: once a false "overlap".
+    writeUnencodable(dir.path, "one");
+    writeUnencodable(dir.path, "two");
+    assert.throws(
+      () => walkDirs([dir.path], []),
+      (error) =>
+        error instanceof Error &&
+        /These 2 files can't be backed up/.test(error.message) &&
+        /one�+\.txt {2}\(not valid Unicode\)/.test(error.message) &&
+        /two�+\.txt {2}\(not valid Unicode\)/.test(error.message) &&
+        /exclude file/.test(error.message),
+    );
+  });
+
+  it("leaves it out when a pattern matches it", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "keep.txt");
+    writeUnencodable(dir.path, "odd");
+    const { files, excluded } = walkDirs([dir.path], ["odd*.txt"]);
+    assert.deepStrictEqual(relPaths(realpathSync.native(dir.path), files), [
+      "keep.txt",
+    ]);
+    assert.deepStrictEqual(
+      excluded.map(({ pattern, isDir }) => ({ pattern, isDir })),
+      [{ pattern: "odd*.txt", isDir: false }],
+    );
+  });
+});
+
 describe("walkSet requires absolute member directories (ADR-0071)", () => {
   it("refuses a relative entry, and says why a full path is needed", async () => {
     await using dir = await mkTmpDir();

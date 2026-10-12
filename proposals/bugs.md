@@ -117,15 +117,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **A filename that isn't valid UTF-8 is reported as missing, and two of them abort the run
-  with a false diagnosis.** `readdirSync` decodes such a name with U+FFFD replacements, so the
-  walk then asks for a file that isn't there. One such file becomes an `#ERROR` row reading
-  `ENOENT: no such file or directory` under the replacement spelling and is never backed up.
-  Two in one directory (`bad-\xff.txt`, `bad-\xfe.txt`) decode to the same string and abort the
-  whole run with "File found under more than one of the set's directories … The set's
-  directories overlap" — on a set with one directory. Reproduced on Linux at `bed5e19`; only
-  Linux filesystems hold such names. [guide/format.md](../guide/format.md) doesn't say what
-  happens to one.
 - **[guide/format.md](../guide/format.md) misstates how a deletion record is numbered.** It says
   each run "takes the lowest index not already in use"; `writeDeletionRecord`
   (`src/lib/deletion-record.mjs`) takes one past the highest, so after `cleanup` leaves only

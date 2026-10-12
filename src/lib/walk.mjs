@@ -313,7 +313,9 @@ export function walkDirs(dirs, patterns) {
       // pattern in exclude.txt keeps its match from ever being refused, which is
       // what makes exclude.txt the escape hatch (ADR-0073).
       if (UNREPRESENTABLE_IN_TSV.test(path)) {
-        found.unrepresentable.push(showControlChars(path));
+        found.unrepresentable.push(
+          `${showControlChars(path)}  (a tab or a line ending)`,
+        );
       }
       files.push(path);
     }
@@ -334,12 +336,12 @@ export function walkDirs(dirs, patterns) {
         ? "This file can't"
         : `These ${formatCount(unrepresentable.length)} files can't`;
     throw new Error(
-      `${count} be backed up, because the name contains a tab or a line ending:\n` +
+      `${count} be backed up, because the name can't be written into a snapshot:\n` +
         unrepresentable.map((p) => `  ${p}`).join("\n") +
-        `\nA snapshot is a table with one line per file and a tab between ` +
-        `columns, so a name using either can't be written into it. ` +
-        `Rename them, or leave them out by adding a pattern to the set's ` +
-        `exclude file:\n` +
+        `\nA snapshot is UTF-8 text with one line per file and a tab between ` +
+        `columns, so it can't hold a name containing a tab or a line ending, ` +
+        `or one that isn't valid Unicode. Rename them, or leave them out by ` +
+        `adding a pattern to the set's exclude file:\n` +
         `  odd*name.jpg`,
     );
   }
@@ -361,7 +363,7 @@ export function walkDirs(dirs, patterns) {
  * @typedef {Object} Found
  * @property {ExclusionRecord[]} excluded
  * @property {WalkError[]} errors
- * @property {string[]} unrepresentable - Entries the snapshot TSV cannot hold (ADR-0073), spelled out for the error. Collected rather than thrown on sight: the one person who ever hits this is the one whose script made hundreds of them, and fixing those an error at a time would be its own ordeal — the same reasoning as `assertWalkableDirs` listing every offender
+ * @property {string[]} unrepresentable - Entries the snapshot TSV cannot hold (ADR-0073), spelled out with the reason for the error. Collected rather than thrown on sight: the one person who ever hits this is the one whose script made hundreds of them, and fixing those an error at a time would be its own ordeal — the same reasoning as `assertWalkableDirs` listing every offender
  * @property {(path: string) => boolean} inBackup - Whether a canonical path is in or under a member directory
  */
 
@@ -383,6 +385,20 @@ function createWalkCallbackFn(baseDir, patterns, found) {
   const excludedBy = compileExcludePatterns(baseDir, patterns);
 
   return (path, fileType) => {
+    // A name with no UTF-8 form (a lone surrogate on Windows, stray bytes on
+    // Linux) arrives with U+FFFD in its place: a spelling no file has, so it
+    // would read as vanished, or as a link that can't be read. Refused like a
+    // tab (ADR-0073), unless a pattern leaves it out.
+    if (path.includes("�") && !lstatSync(path, { throwIfNoEntry: false })) {
+      const isDir = fileType === DIRECTORY;
+      const pattern = excludedBy(path, isDir);
+      if (pattern) {
+        found.excluded.push({ pattern, path, isDir });
+      } else {
+        found.unrepresentable.push(`${path}  (not valid Unicode)`);
+      }
+      return false;
+    }
     if (Error.isError(fileType)) {
       // Vanished between listing and checking: there is nothing to record.
       if (!isENOENT(fileType)) {
