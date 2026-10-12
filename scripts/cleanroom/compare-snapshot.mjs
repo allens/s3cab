@@ -9,17 +9,16 @@
  * destroyed: the trees are the sandbox's, and s3cab's snapshot of them is taken here, in a
  * throwaway home, so s3cab's output never exists while the session could read it.
  *
- * What has to match is ADR-0096's list. `object` rows are compared as a set, exact in
- * hash, size, mtime and path, and `link` rows exact in path and target. The excluded and
- * unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
+ * What has to match is ADR-0096's list. File rows are compared as a set, exact in hash,
+ * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
  * names or how an `#error` row's message is worded, so those rows are compared by path
  * only; snapshot names and instants differ by run. The brief asks for the snapshot's
  * exact bytes, so the session's file is also held to the five padded columns, LF endings,
- * the heading row, `#S3CAB END` last, and `FILES` and `SIZE` agreeing with its `object`
- * rows, as guide/format.md describes them.
+ * the heading row, `@S3CAB END` last, and `FILES` and `SIZE` agreeing with its file rows,
+ * as guide/format.md describes them.
  *
  * Two differences are reported as notes, not mismatches, because the spec doesn't decide
- * them yet: the time zone in `#SNAPSHOT START` (Python's standard library can't name the
+ * them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
  * local IANA zone, ADR-0096's first expected case), and an excluded directory written as
  * one row where the other side wrote a row per file in it, or the reverse
  * (proposals/cleanroom-fixtures.md). Either one is for the run's report to discuss.
@@ -68,13 +67,13 @@ const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const sha256 = /^[0-9a-f]{64}$/;
 
 /**
- * One line as s3cab lays it out: the type padded to 6, column 2 to 64, the size
+ * One line as s3cab lays it out: the type unpadded, column 2 padded to 64, the size
  * right-aligned in 12, the time padded to 24, the last column never padded.
  * @param {string[]} fields
  */
 const laidOut = ([type = "", col2 = "", size = "", time = "", last = ""]) =>
   [
-    type.trim().padEnd(6),
+    type.trim(),
     col2.trim().padEnd(64),
     size.trim().padStart(12),
     time.trim().padEnd(24),
@@ -82,8 +81,8 @@ const laidOut = ([type = "", col2 = "", size = "", time = "", last = ""]) =>
   ].join("\t");
 
 const heading = laidOut([
-  "#S3CAB",
-  "",
+  "@S3CAB",
+  "FORMAT",
   "size",
   "time",
   "https://s3cab.plantegral.com/guide/format",
@@ -91,13 +90,12 @@ const heading = laidOut([
 
 /**
  * @typedef {object} Snapshot
- * @property {string} set `#SET NAME`
- * @property {string} name `#SNAPSHOT NAME`
- * @property {string} zone `#SNAPSHOT START`'s time zone, or "" if it has none
- * @property {string[]} dirs the `#SET DIR` rows
+ * @property {string} set `@SET NAME`
+ * @property {string} name `@SNAPSHOT NAME`
+ * @property {string} zone `@SNAPSHOT START`'s time zone, or "" if it has none
+ * @property {string[]} dirs the `@SET DIR` rows
  * @property {Map<string, { hash: string, size: string, mtime: string }>} files the
- *   `object` rows, by path
- * @property {Map<string, string>} links the `link` rows' targets, by path
+ *   file rows, by path
  * @property {Map<string, Set<string>>} metadata paths by row type (`#excluded`, …)
  */
 
@@ -142,7 +140,6 @@ function parse(gz, problems) {
     zone: "",
     dirs: [],
     files: new Map(),
-    links: new Map(),
     metadata: new Map(),
   };
   /** @type {string[]} */
@@ -174,75 +171,73 @@ function parse(gz, problems) {
       }
       continue;
     }
-    if (type === "#S3CAB" && col2 === "END") {
+    if (type === "@S3CAB" && col2 === "END") {
       if (index !== lines.length - 1) {
-        problems.push(`#S3CAB END on line ${number} isn't the last line`);
+        problems.push(`@S3CAB END on line ${number} isn't the last line`);
       }
       if (!instant.test(time)) {
-        problems.push(`#S3CAB END's instant '${time}' is malformed`);
+        problems.push(`@S3CAB END's instant '${time}' is malformed`);
       }
       continue;
     }
-    if (type === "#SET" || type === "#SNAPSHOT" || type === "#S3CAB") {
+    if (type.startsWith("@")) {
       const property = `${type} ${col2}`;
-      if (property === "#SET NAME") {
+      if (property === "@SET NAME") {
         snapshot.set = last;
-      } else if (property === "#SET DIR") {
+      } else if (property === "@SET DIR") {
         snapshot.dirs.push(last);
-      } else if (property === "#SNAPSHOT NAME") {
+      } else if (property === "@SNAPSHOT NAME") {
         snapshot.name = last;
-      } else if (property === "#SNAPSHOT START") {
+      } else if (property === "@SNAPSHOT START") {
         if (!instant.test(time)) {
-          problems.push(`#SNAPSHOT START's instant '${time}' is malformed`);
+          problems.push(`@SNAPSHOT START's instant '${time}' is malformed`);
         }
         snapshot.zone = last;
       } else if (
-        property === "#SNAPSHOT FILES" ||
-        property === "#SNAPSHOT SIZE"
+        property === "@SNAPSHOT FILES" ||
+        property === "@SNAPSHOT SIZE"
       ) {
         declared[col2] = last;
       }
       continue;
     }
-    if (["object", "link", "#excluded", "#error"].includes(type)) {
+    if (["-", "#excluded", "#error"].includes(type)) {
       if (paths.has(last)) {
         problems.push(`${show(last)} is in a second row, on line ${number}`);
       }
       paths.add(last);
     }
-    if (type === "object") {
+    if (type === "-") {
       objects += 1;
       bytes += Number(size);
       if (!sha256.test(col2) || !/^\d+$/.test(size)) {
         problems.push(
-          `object row on line ${number} has a malformed hash or size`,
+          `file row on line ${number} has a malformed hash or size`,
         );
       }
       if (!instant.test(time)) {
-        problems.push(`object row on line ${number} has a malformed mtime`);
+        problems.push(`file row on line ${number} has a malformed mtime`);
       }
       snapshot.files.set(last, { hash: col2, size, mtime: time });
-    } else if (type === "link") {
-      snapshot.links.set(last, col2);
     } else if (type.startsWith("#")) {
       const rows = snapshot.metadata.get(type) ?? new Set();
       rows.add(last);
       snapshot.metadata.set(type, rows);
     } else {
       problems.push(
-        `line ${number} has the type '${type}', a lowercase type the spec doesn't name`,
+        `line ${number} has the type '${type}', starting with neither @ nor #, which the spec doesn't name`,
       );
     }
   }
   const [endType = "", endProperty = ""] = (lines.at(-1) ?? "").split("\t");
-  if (endType.trim() !== "#S3CAB" || endProperty.trim() !== "END") {
-    problems.push("has no #S3CAB END as its last line");
+  if (endType.trim() !== "@S3CAB" || endProperty.trim() !== "END") {
+    problems.push("has no @S3CAB END as its last line");
   }
   // Only when present, like every whole-snapshot row: what a snapshot room can write in
   // them is ADR-0096's open question, but the spec says these two are exact.
   if (declared.FILES !== undefined && declared.FILES !== String(objects)) {
     problems.push(
-      `#SNAPSHOT FILES says ${declared.FILES}, where there are ${objects} object rows`,
+      `@SNAPSHOT FILES says ${declared.FILES}, where there are ${objects} file rows`,
     );
   }
   if (
@@ -250,7 +245,7 @@ function parse(gz, problems) {
     declared.SIZE.split(" ")[0] !== String(bytes)
   ) {
     problems.push(
-      `#SNAPSHOT SIZE says ${declared.SIZE}, where the size column sums to ${bytes}`,
+      `@SNAPSHOT SIZE says ${declared.SIZE}, where the size column sums to ${bytes}`,
     );
   }
   if (unpadded.length > 0) {
@@ -381,14 +376,14 @@ try {
       if (ours) {
         const name = latest.slice(0, -".tsv.gz".length);
         if (ours.set !== set) {
-          mismatches.push(`#SET NAME names the set '${ours.set}'`);
+          mismatches.push(`@SET NAME names the set '${ours.set}'`);
         }
         if (ours.name !== name) {
-          mismatches.push(`#SNAPSHOT NAME names the snapshot '${ours.name}'`);
+          mismatches.push(`@SNAPSHOT NAME names the snapshot '${ours.name}'`);
         }
         if (ours.zone !== reference.zone) {
           notes.push(
-            `#SNAPSHOT START's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
+            `@SNAPSHOT START's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
           );
         }
 
@@ -400,7 +395,7 @@ try {
         );
         if (dirsOnlyOurs.length > 0 || dirsOnlyTheirs.length > 0) {
           mismatches.push(
-            `#SET DIR rows differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
+            `@SET DIR rows differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
           );
         }
 
@@ -431,29 +426,16 @@ try {
         );
         if (missing.length > 0) {
           mismatches.push(
-            `object rows s3cab wrote and this didn't:${some(missing.map(show))}`,
+            `file rows s3cab wrote and this didn't:${some(missing.map(show))}`,
           );
         }
         if (extra.length > 0) {
           mismatches.push(
-            `object rows this wrote and s3cab didn't:${some(extra.map(show))}`,
+            `file rows this wrote and s3cab didn't:${some(extra.map(show))}`,
           );
         }
         if (differing.length > 0) {
-          mismatches.push(`object rows that differ:${some(differing)}`);
-        }
-
-        const links = [
-          ...new Set([...ours.links.keys(), ...reference.links.keys()]),
-        ]
-          .filter((path) => ours.links.get(path) !== reference.links.get(path))
-          .map(
-            (path) =>
-              `${show(path)}: ${ours.links.has(path) ? `to ${show(ours.links.get(path) ?? "")}` : "no row"}, ` +
-              `s3cab ${reference.links.has(path) ? `to ${show(reference.links.get(path) ?? "")}` : "no row"}`,
-          );
-        if (links.length > 0) {
-          mismatches.push(`link rows that differ:${some(links)}`);
+          mismatches.push(`file rows that differ:${some(differing)}`);
         }
 
         const kinds = new Set([

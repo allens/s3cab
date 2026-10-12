@@ -21,9 +21,9 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 - **Hand-edited snapshots.** A new set whose `info`, `dirs.txt` and snapshots are published
   through the SDK, the way the seed already publishes the damaged `faults` snapshot. Its rows
   reuse hashes already in the bucket, and `restore --output` builds its reference on Linux.
-  - Windows `#SET DIR`s (`C:\…`, `\\nas\share\…`, `//nas/share/…`) with rows in a different
+  - Windows `@SET DIR`s (`C:\…`, `\\nas\share\…`, `//nas/share/…`) with rows in a different
     case or with `/` separators. Covers "Reading is more forgiving…" and the Windows half of
-    "How a `#SET DIR` matches a path". Nothing in the golden set is Windows-shaped today. Loud.
+    "How a `@SET DIR` matches a path". Nothing in the golden set is Windows-shaped today. Loud.
   - A row under `…\PhotosX\` where the only `DIR` is `…\Photos`. s3cab refuses the row, since
     it's under no `DIR`; a restorer comparing string prefixes lands it at `Photos/X/…`.
     **Silent.**
@@ -32,10 +32,10 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
     nothing. This makes F4 in `fixtures.mjs` (marked NOT TESTABLE) testable. **Silent.**
   - A row with a `..` segment. s3cab refuses the path; a restorer that joins it onto its output
     directory writes outside it. **Silent.**
-  - A POSIX `#SET DIR` in a different case from its rows. "Every other path is matched exactly",
+  - A POSIX `@SET DIR` in a different case from its rows. "Every other path is matched exactly",
     so a restorer that folds case everywhere restores files s3cab refuses. **Silent.**
   - A `DIR` with a trailing or doubled separator. Loud.
-  - A second snapshot whose last line is another `#S3CAB` row, `VERSION` say. A reader that
+  - A second snapshot whose last line is another `@S3CAB` row, `VERSION` say. A reader that
     checks only the type restores a cut-short snapshot. **Silent.**
 - **A backslash in a POSIX name**: `edge/back\slash.txt` and `edge/a\b/c.txt`. Covers
   "a Windows path splits on `/` *and* `\`, any other on `/` alone". A restorer splitting on both
@@ -63,18 +63,18 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   catches.
 - **Nested member directories separated by an exclude.** Use `dirs` set to
   `[nest/outer, nest/outer/inner]` with the pattern `inner/`. s3cab accepts this and writes
-  nested `#SET DIR`s, which exercises "the **longest wins**". A restorer that takes the first match
+  nested `@SET DIR`s, which exercises "the **longest wins**". A restorer that takes the first match
   lays the files out differently. **Silent**, though layout is the tool's own decision.
 - **mtimes before 1970 and after 2262**, for example `-86_400.25` and a date in 2300; ext4 holds
   1901–2446. For a negative time, rounding toward zero instead of flooring sets the restored
   mtime a second off. After 2262, a 64-bit nanosecond count overflows (Go's `UnixNano`, C++
   `chrono` nanoseconds). **Silent.**
-- **A directory symlink and a dangling symlink in `edge`.** `link-to-plain` covers only a symlink
-  to a file. A backup that follows the directory symlink backs up the target tree under the
-  link's name. **Silent.** The two also differ in shape: a folder link's path ends with a
-  separator and a dangling one's doesn't, since nothing says what it was. A dangling link fails
-  both `is_file()` and `is_dir()`, so a backup can drop its `link` row, or give it a separator
-  it shouldn't have; the harness catches either.
+- **A directory symlink, a dangling symlink and a link out of the set in `edge`.**
+  `link-to-plain` covers only a symlink to a file inside the set. A backup that follows the
+  directory symlink backs up the target tree under the link's name, which the harness catches. A
+  link out of the set is an `#error` row whose path ends with a separator if it leads to a folder;
+  a backup that follows it, drops it or gets the separator wrong is caught by path. The cost: s3cab
+  then exits 1 on `edge`, and the harness's `mustRun` throws on that.
 - **A gap in the deletion-record numbering.** Run `s3cab cleanup` after both deletes and before
   the torn object, the corrupt bytes and the damaged snapshot exist; cleanup refuses an
   unreadable snapshot, so it has to run first. That leaves a single `-3` record. A restorer that
@@ -87,7 +87,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   raw splits the row, and the second half reads as a malformed row. Loud.
 - **Hard links and a FIFO** (`linkSync`, `execFileSync("mkfifo")`). A backup that deduplicates by
   inode drops a path. **Silent.** A FIFO gets no row; a backup that opens it hangs. Loud.
-- **"Two snapshots of an unchanged set differ in `#SNAPSHOT NAME`, `START` and `#S3CAB END`,
+- **"Two snapshots of an unchanged set differ in `@SNAPSHOT NAME`, `START` and `@S3CAB END`,
   and nowhere else" costs no new fixture.** F5 already backs `edge` up twice without touching
   the tree; the harness only has to diff the two snapshots.
 

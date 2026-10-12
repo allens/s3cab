@@ -130,7 +130,7 @@ sentence — which names no version and no toolchain, leaving the session to fin
 The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
 anything, and that file discusses the snapshot's UTC start instant, the
-`#SET DIR` rows, the drive-letter normalisation and the TSV encoding. Those are
+`@SET DIR` rows, the drive-letter normalisation and the TSV encoding. Those are
 restore-correctness facts the exercise exists to make someone derive, and the
 contamination is invisible in the result — the ambiguity list simply comes back
 shorter, which reads as a spec that has been fixed. Keep previous runs' reports
@@ -225,7 +225,7 @@ recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor
 says what to do when it fails. And `faults` gets a second snapshot with its last
-line, `#S3CAB END`, removed and the rest recompressed: truncating the compressed
+line, `@S3CAB END`, removed and the rest recompressed: truncating the compressed
 bytes would test gunzip's own check instead, and that line's whole purpose is
 catching a backup killed mid-write.
 
@@ -285,7 +285,7 @@ under the same name. `corrupt`'s `b-corrupt.txt` is rewritten after its
 snapshot with its size and mtime kept, so only hashing the bytes uploaded
 notices: stored as it is, it is exactly the wrong-bytes object the seed plants
 by hand, made the way a real one gets made. And `faults` gets a second snapshot,
-a minute older, with its `#S3CAB END` cut off. s3cab publishes neither set's
+a minute older, with its `@S3CAB END` cut off. s3cab publishes neither set's
 damaged snapshot. The spec says a snapshot without that line is damaged goods, but
 says nothing of a file that changed since its snapshot, so what the session does
 with `corrupt` is a reading to report, not a rule to check.
@@ -299,15 +299,15 @@ node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs <root>
 Checks a snapshot room's work: each set's latest snapshot in
 `cleanroom\sets\<set>\snapshots\` against `s3cab snapshot` of the same trees,
 taken there and then in a throwaway home, so s3cab's output never exists while
-the session could read it. It compares what ADR-0096 lists: `object` and `link`
-rows exact by path, the `#SET DIR` rows, the `#excluded` and `#error` paths, and
+the session could read it. It compares what ADR-0096 lists: file rows exact by
+path, the `@SET DIR` rows, the `#excluded` and `#error` paths, and
 nothing of the names and instants that differ by run. And because the brief asks
 for the exact bytes, it holds the session's file to the five padded columns, LF
-endings, UTF-8 with no BOM, the heading row first, `#S3CAB END` last, and
-`FILES` and `SIZE` agreeing with the `object` rows where it writes them.
+endings, UTF-8 with no BOM, the heading row first, `@S3CAB END` last, and
+`FILES` and `SIZE` agreeing with the file rows where it writes them.
 
 Two differences come back as notes rather than mismatches, because the spec
-hasn't decided them: the time zone in `#SNAPSHOT START`, which Python's standard library
+hasn't decided them: the time zone in `@SNAPSHOT START`, which Python's standard library
 can't name, and an excluded directory written as one row where the other side
 wrote a row for each file in it. Paths print JSON-quoted, so a stray CR or one of
 the fixtures' control characters shows instead of printing as nothing.
@@ -325,7 +325,7 @@ refused the two snapshots it should have. So, in order:
 - every key is in the layout the spec documents, with no deletion record;
 - every object hashes to its key, which means downloading every one;
 - every published snapshot is byte-identical to the one handed over, none is
-  missing, and neither `corrupt`'s nor `faults`'s without `#S3CAB END` is published;
+  missing, and neither `corrupt`'s nor `faults`'s without `@S3CAB END` is published;
 - every object a published snapshot names is stored;
 - `sets\<set>\` holds `info` as `OWNER` then `CREATED`, `dirs.txt` as the parsed
   list with LF endings, and `exclude.txt` as a byte copy;
@@ -375,7 +375,7 @@ damage handling is the part a corpus most easily leaves untested. `faults` has
 an object torn out of the store through the SDK with **no** deletion record (the
 unexplained-damage case: report it, carry on, exit nonzero), one file deleted
 *with* a record (the explained one, skipped with its date), and a snapshot
-missing its `#S3CAB END`. `corrupt` has an object whose bytes don't hash to its key.
+missing its `@S3CAB END`. `corrupt` has an object whose bytes don't hash to its key.
 The damaged snapshot is backdated a minute so the intact one stays `faults`'s
 latest; it exists only in S3.
 
