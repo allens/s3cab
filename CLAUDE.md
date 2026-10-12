@@ -268,8 +268,9 @@ Four layout notes the README and code don't carry:
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
 
-**Vendored skills.** [`cli-design`](.claude/skills/cli-design/) and
-[`over-engineering`](.claude/skills/over-engineering/) travel with the repo. `/over-engineering`
+**Vendored skills.** [`cli-design`](.claude/skills/cli-design/),
+[`over-engineering`](.claude/skills/over-engineering/) and
+[`cleanroom`](.claude/skills/cleanroom/) travel with the repo. `/over-engineering`
 is the deliberate **antagonist** of `/improve-codebase-architecture`: that one *creates* seams,
 this one destroys ones that don't pay. Running both is the point; the tie-break when they collide
 is whether the seam has two or more **production** callers with different needs. It reads the code
