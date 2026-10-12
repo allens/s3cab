@@ -13,9 +13,10 @@
  * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
  * names or how an `#error` row's message is worded, so those rows are compared by path
  * only; snapshot names and instants differ by run. The session's file is also held to the
- * format's rules: five fields a line, LF endings, `@S3CAB END` last, and `FILES` and `SIZE`
- * agreeing with its file rows. The padding and the heading row are recommendations
- * (guide/format.md, "Rules and recommendations"), so a departure there is a note.
+ * format's rules: five fields a line, LF endings, the heading row first, `@S3CAB END` last,
+ * and `FILES` and `SIZE` agreeing with its file rows. The padding and `SIZE`'s readable
+ * form are recommendations (guide/format.md, "Rules and recommendations"), so a departure
+ * there is a note.
  *
  * Two more differences are reported as notes, not mismatches, because the spec doesn't
  * decide them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
@@ -93,6 +94,7 @@ const heading = laidOut([
  * @property {string} bucket `@SET BUCKET`, or "" if it has none
  * @property {string} name `@SNAPSHOT NAME`
  * @property {string} zone `@SNAPSHOT START`'s time zone, or "" if it has none
+ * @property {string} size `@SNAPSHOT SIZE`'s value, or "" if it has none
  * @property {string[]} dirs the `@SET DIR` rows
  * @property {Map<string, { hash: string, size: string, mtime: string }>} files the
  *   file rows, by path
@@ -102,7 +104,7 @@ const heading = laidOut([
 /**
  * Read a snapshot as guide/format.md describes it. Everything that breaks a rule of the
  * format is pushed onto `problems` rather than thrown, so one run reports them all; a
- * departure from a recommendation (the padding, the heading row) onto `notes`.
+ * departure from a recommendation (the padding) onto `notes`.
  * @param {Buffer} gz the `.tsv.gz` as stored
  * @param {string[]} problems
  * @param {string[]} notes
@@ -141,6 +143,7 @@ function parse(gz, problems, notes) {
     bucket: "",
     name: "",
     zone: "",
+    size: "",
     dirs: [],
     files: new Map(),
     metadata: new Map(),
@@ -168,10 +171,11 @@ function parse(gz, problems, notes) {
       .map((field) => field.trim());
     const last = fields[4] ?? "";
 
-    if (index === 0 && line !== heading) {
-      notes.push("doesn't open with s3cab's heading row");
-    }
-    if (type === "@S3CAB" && col2 === "FORMAT") {
+    if (index === 0) {
+      // A rule, read as s3cab's parser reads it: fields trimmed, the address exact.
+      if (laidOut(fields) !== heading) {
+        problems.push("doesn't open with the heading row");
+      }
       continue;
     }
     if (type === "@S3CAB" && col2 === "END") {
@@ -203,6 +207,9 @@ function parse(gz, problems, notes) {
         property === "@SNAPSHOT SIZE"
       ) {
         declared[col2] = last;
+        if (col2 === "SIZE") {
+          snapshot.size = last;
+        }
       }
       continue;
     }
@@ -387,6 +394,11 @@ try {
         if (ours.bucket !== reference.bucket) {
           mismatches.push(
             `@SET BUCKET is ${show(ours.bucket)}, where s3cab wrote ${show(reference.bucket)}`,
+          );
+        }
+        if (ours.size !== reference.size) {
+          notes.push(
+            `@SNAPSHOT SIZE is ${show(ours.size)}, where s3cab wrote ${show(reference.size)}`,
           );
         }
         if (ours.zone !== reference.zone) {

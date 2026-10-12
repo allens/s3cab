@@ -357,10 +357,11 @@ taken there and then in a throwaway home, so s3cab's output never exists while
 the session could read it. It compares what ADR-0096 lists: file rows exact by
 path, the `@SET DIR` rows, the `#excluded` and `#error` paths, and
 nothing of the names and instants that differ by run. It holds the session's file
-to the format's rules: five fields a line, LF endings, UTF-8 with no BOM,
-`@S3CAB END` last, and `FILES` and `SIZE` agreeing with the file rows where it
-writes them. The padding and the heading row are the format's recommendations,
-so a file that departs from them gets a note, not a mismatch.
+to the format's rules: five fields a line, LF endings, UTF-8 with no BOM, the
+heading row first, `@S3CAB END` last, and `FILES` and `SIZE` agreeing with the
+file rows where it writes them. The padding and `SIZE`'s readable form are the
+format's recommendations, so a file that departs from them gets a note, not a
+mismatch.
 
 Two more differences come back as notes, because the spec hasn't decided them: the time zone in `@SNAPSHOT START`, which Python's standard library
 can't name, and an excluded directory written as one row where the other side

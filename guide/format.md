@@ -273,8 +273,8 @@ error message can be wider than 64 — so these are *minimum* widths, not a fixe
 layout.
 
 **Rules and recommendations.** A reader relies only on the rules: UTF-8 lines of five
-tab-separated fields, each read trimmed but the last, the row types, and `END` last. The
-padding, the unpadded column 1, the heading row and `SIZE`'s readable form are how s3cab
+tab-separated fields, each read trimmed but the last, the row types, the heading row first
+and `END` last. The padding, the unpadded column 1 and `SIZE`'s readable form are how s3cab
 writes the file so it reads well in an editor and works in a spreadsheet. Another writer
 should do the same, and a reader must not depend on them.
 
