@@ -34,6 +34,13 @@ describe("formatByteValue", () => {
     assert.equal(formatByteValue(1_500_000_000), "1.5GB");
   });
 
+  it("steps up the unit when rounding reaches 1000, and never groups digits", () => {
+    assert.equal(formatByteValue(999_949), "999.9kB");
+    assert.equal(formatByteValue(999_950), "1.0MB");
+    assert.equal(formatByteValue(999_950_000), "1.0GB");
+    assert.equal(formatByteValue(1_234_600_000_000_000_000), "1234.6PB");
+  });
+
   // The same bug emitted a capitalised "KB"; SI is a lowercase "kB".
   it("uses SI casing 'kB', not 'KB'", () => {
     assert.equal(formatByteValue(1000), "1.0kB");
