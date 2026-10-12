@@ -1,7 +1,7 @@
 # Snapshots record content, size and mtime — regular files only
 
-**Status:** accepted. Once built, partly superseded by
-[0099](0099-links-recorded-never-followed.md) (proposed): `#SKIPPED` gives way to a `link` row
+**Status:** accepted; partly superseded by
+[0099](0099-links-recorded-never-followed.md): `#SKIPPED` gives way to a `link` row
 per link; "a symlink is never followed" stands. Makes deliberate what [guide/format.md](../../guide/format.md) already
 described, so the *why* is of record. Follows from
 [0001](0001-file-level-content-addressable-dedup.md) (content-addressable dedup) and

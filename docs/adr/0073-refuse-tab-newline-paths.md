@@ -1,7 +1,7 @@
 # Paths containing a tab or newline are refused, and abort the run
 
-**Status:** accepted & implemented. Once built, partly superseded by
-[0100](0100-tab-cr-lf-refused-or-spelled-out.md) (proposed): the refusal extends to links,
+**Status:** accepted & implemented; partly superseded by
+[0100](0100-tab-cr-lf-refused-or-spelled-out.md): the refusal extends to links,
 `<TAB>`-style spelling becomes control pictures, and exclude patterns refuse a tab or CR. Closes the "open edge case"
 [0004](0004-tsv-snapshot-manifests.md) left for before release. Applies
 [0054](0054-missing-member-dir-aborts.md)'s fail-loudly stance and

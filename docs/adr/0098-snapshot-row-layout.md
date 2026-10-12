@@ -1,6 +1,6 @@
 # The snapshot file: five columns, typed rows, one fact per row
 
-**Status:** proposed (2026-10-11; not built). Once built, partly supersedes
+**Status:** accepted & implemented (proposed 2026-10-11). Partly supersedes
 [0082](0082-snapshot-end-trailer.md) (the trailer's shape and its `COMPLETE`/`PARTIAL` status),
 [0072](0072-timestamps-utc-in-files-local-in-names.md)'s `#SNAPSHOT` line (the instant and zone it
 records stand) and [0092](0092-recover-the-interrupted-work-file.md)'s "costs a gracefully parked

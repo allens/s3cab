@@ -1,6 +1,6 @@
 # Every link gets a `link` row, is never followed, and is warned about if it leads out of the backup
 
-**Status:** proposed (2026-10-11; not built). Once built, partly supersedes
+**Status:** accepted & implemented (proposed 2026-10-11). Partly supersedes
 [0070](0070-snapshot-restore-fidelity.md) (its `#SKIPPED` recording; "a symlink is never
 followed" stands) and the skipped parts of [0078](0078-backup-run-report.md) (§3, and the
 `Skipped` count in §4's `Couldn't be backed up` block). The `link` row's layout is
