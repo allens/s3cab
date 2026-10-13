@@ -117,14 +117,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **`?` in an exclude or `find` pattern matches half of an emoji, not the whole of one.**
-  [guide/exclude.md](../guide/exclude.md) says `?` is "exactly one character", but
-  `globSource` (`src/lib/path-match.mjs`) turns it into `[^/]`, and `exclude.mjs` and `find.mjs`
-  compile without the `u` flag, so it matches one UTF-16 unit. A character outside the Basic
-  Multilingual Plane (an emoji, some CJK) needs `??`: `? emoji ?.txt` misses
-  `🎉 emoji 🎉.txt`, and the clean-room writer, counting code points, matches it. Measured under
-  node 26.10.0: the same regex matches with `u` and not without. Turning `u` on also makes `\`
-  escapes in the generated source strict, so `globSource`'s escaping needs checking with it.
 - **[guide/format.md](../guide/format.md) misstates how a deletion record is numbered.** It says
   each run "takes the lowest index not already in use"; `writeDeletionRecord`
   (`src/lib/deletion-record.mjs`) takes one past the highest, so after `cleanup` leaves only
