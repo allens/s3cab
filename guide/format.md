@@ -439,11 +439,16 @@ its key in the bucket from `BUCKET` and the
 [repository layout](#the-remote-repository-the-keystone), so none of them is recorded. The `exclude.txt` in the bucket is only the latest; the `EXCLUDE` rows say which
 patterns applied to this run.
 
-One omission is silent by design: a directory named `.s3cab`, all lowercase even on Windows,
-is never walked and gets no row — it is s3cab's own, and a member directory containing one
-would otherwise back up the tool's working files. An entry that vanishes between being
-listed and being checked gets no row either, since there is nothing left to record; a directory
-that can't be listed stops the backup.
+One directory is left out by design: a directory named `.s3cab`, all lowercase even on Windows,
+is never walked — it is s3cab's own, and a member directory containing one would otherwise
+back up the tool's working files.
+
+- It gets no row, unless an exclude pattern matches it; then it is `#excluded` like any
+  other directory.
+- Only a directory is skipped. A file or a link named `.s3cab` is treated like any other.
+
+An entry that vanishes between being listed and being checked gets no row either, since
+there is nothing left to record; a directory that can't be listed stops the backup.
 
 ### No row holds a tab or a line ending
 
@@ -759,9 +764,9 @@ For a restorer, or anything else that reads the files.
   describes: blank and `#` lines ignored, each line trimmed. A directory named in
   `dirs.txt` that is itself a link is followed, since you named it, and recorded as its
   [real path](#paths). Links found inside it are not.
-- Walk every member directory without following a link, never entering a directory named
-  `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
-  them.
+- Walk every member directory without following a link, and apply the patterns as the
+  [exclude guide](exclude.md) defines them. Then skip a directory named `.s3cab` in
+  lowercase that no pattern matched: it gets no row.
 - On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
   pairs, even on a drive or in a directory set up to be case-sensitive. Everywhere else
   they always pay attention to case, even on a drive that doesn't. On macOS an accented
