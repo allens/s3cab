@@ -215,7 +215,10 @@ content is still stored.
 - **Names that aren't valid Unicode**, so have no UTF-8 form: a lone surrogate on Windows,
   bytes that aren't UTF-8 on Linux. The file is UTF-8, so such a name can't be written into
   it faithfully, and it is refused the same way: the run stops and names it, and a pattern
-  gets past it, since `*` matches the characters that stand in for the undecodable part.
+  gets past it. Patterns see the name, and its `#excluded` row records it, with U+FFFD (�)
+  standing in for each part that doesn't decode, so `*` matches there. U+FFFD is Unicode's
+  own replacement character, which Python, Node and most other decoders already put in
+  place of bytes that don't decode.
 - **File content, not the filesystem around it.** Snapshots record each file's content,
   size, and modification time — [no links](#links), no hardlink identity, no empty
   directories, no permissions or ACLs. Pipes, sockets and devices get no row at all. s3cab
@@ -734,9 +737,9 @@ For a restorer, or anything else that reads the files.
 ### Writing a snapshot
 
 - Read the set's `dirs.txt` and `exclude.txt` as [the local side](#the-local-side-s3cab)
-  describes: blank and `#` lines ignored, each line trimmed. Member directories mustn't
-  overlap, unless an exclude pattern keeps the inner one out of the outer one's walk; one
-  that is a link is followed, and recorded as the path it resolves to.
+  describes: blank and `#` lines ignored, each line trimmed. A directory named in
+  `dirs.txt` that is itself a link is followed, since you named it, and recorded as the
+  path it leads to. Links found inside it are not.
 - Walk every member directory without following a link, never entering a directory named
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
@@ -755,9 +758,15 @@ For a restorer, or anything else that reads the files.
     being listed and being checked.
 - End a directory's path with a separator. Spell every path with the casing the filesystem
   reports, and a Windows drive letter in uppercase.
-- Stop without writing a snapshot, naming the cause, at a name holding a tab, CR or LF, a
-  name with no UTF-8 form, or a directory that can't be listed. Anywhere else, spell a tab, CR
-  or LF out as `␉`, `␍` or `␊`.
+- Stop without writing a snapshot, and say why, when:
+  - a name holds a tab, CR or LF;
+  - a name has no UTF-8 form;
+  - a directory can't be listed;
+  - the same file turns up under two member directories, because one is inside the other.
+    An exclude pattern that leaves the inner directory out of the outer one's walk avoids
+    this.
+- In an `#excluded` or `#error` row, where a name with a tab, CR or LF can still appear,
+  write those characters as `␉` (U+2409), `␍` (U+240D) or `␊` (U+240A).
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows); give
   each path at most one per-path row; end with `@S3CAB END`, its instant rounded up.
 - Five tab-separated fields on every line, UTF-8 with no BOM, LF endings, one gzip stream.
@@ -776,8 +785,12 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
   junction, recording what lies beyond it as if it were inside the member directory, and
   `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken
-  link doesn't fail the way it does elsewhere: a loop raises winerror 1921, not `ELOOP`, and
+  link doesn't fail the way it does elsewhere: a loop raises `EINVAL` (winerror 1921), not `ELOOP`, and
   a link through a file raises `FileNotFoundError`, like a missing target.
+- **Decoding a name with no UTF-8 form.** Python and Node give the same U+FFFDs: in Python,
+  `name.encode("utf-8", "surrogatepass").decode("utf-8", "replace")` on Windows and
+  `os.fsencode(name).decode("utf-8", "replace")` on Linux. A lone surrogate on Windows
+  becomes three U+FFFD, which matters to a `?` in a pattern.
 - **Two spellings of one name.** NTFS can hold `café.txt` spelled with one accented character
   and with a letter plus a combining accent side by side, as two files. Never normalize a
   name: the two rows would collapse into one path.
