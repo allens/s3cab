@@ -28,14 +28,21 @@ s3cab is built to hold (back up an export of it instead).
 
 ## Globbing
 
-Patterns are matched against the **whole** path of each file or directory,
-relative to **each** of the set's member directories (so one pattern applies the
-same way to every directory in the set). So `*.log` matches only a `.log` file at
-the top of a member directory; `**/*.log` matches one at any depth. A leading `/`,
-or several, changes nothing, and repeated `/` count as one. Write `/` between
-directories; on Windows `\` works too. A _segment_ is one directory or file name
-(the text between two separators). Only what is inside a member directory is
-matched, never the member directory itself.
+A pattern is matched against the **whole** path of a file or directory, relative
+to **each** of the set's member directories, so one pattern applies the same way
+to every directory in the set.
+
+**Paths**
+
+- `*.log` matches only a `.log` file at the top of a member directory; `**/*.log`
+  matches one at any depth.
+- Write `/` between directories; on Windows `\` works too.
+- A leading `/`, or several, changes nothing, and repeated `/` count as one.
+- A _segment_ is one directory or file name: the text between two separators.
+- Only what is inside a member directory is matched, never the member directory
+  itself.
+
+**Tokens**
 
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
@@ -44,32 +51,38 @@ matched, never the member directory itself.
 | `**`   | anything at all, across segments, or nothing       |
 | `?`    | exactly one character, within a single segment     |
 
-Every other character matches only itself: `[`, `]`, `{`, `}` and `!` mean nothing
-special. And `*` needs at least one character, so `*.log` doesn't match a file
-named just `.log`. `**` matches the same way wherever it stands, even inside a
-name (`a**b`). A "character" is one Unicode code point, so an accent stored as a
-separate mark counts as one more.
+- Every other character matches only itself: `[`, `]`, `{`, `}` and `!` mean
+  nothing special.
+- `*` needs at least one character, so `*.log` doesn't match a file named just
+  `.log`.
+- `**` matches the same way wherever it stands, even inside a name (`a**b`).
+- A "character" is one Unicode code point, so an accent stored as a separate mark
+  counts as one more.
+- If you know `.gitignore`, two things differ: there, `**` inside a name acts like
+  a single `*` and stays within one directory, and `*` can match nothing at all.
 
-If you know `.gitignore`, two things differ: there, `**` inside a name acts like a
-single `*` and stays within one directory, and `*` can match nothing at all.
+**Directories and links**
 
-A directory is matched as its path with a `/` on the end, so only a pattern ending
-in `/` or `**` can match one. A pattern ending in `/` matches a directory (and
-everything inside it, since the walker doesn't descend into an excluded
-directory), and `logs/**` matches the `logs` directory itself, since `**` can
-match nothing. A link whose target is a folder is matched like a folder, as its
-path with a `/` on the end (unlike git, where `foo/` never matches a link). A
-broken link, or one whose target can't be reached, is matched like a file, so only
-a pattern without the `/` matches it.
+- A directory is matched as its path with a `/` on the end, so only a pattern
+  ending in `/` or `**` can match one.
+- A pattern ending in `/` matches a directory and everything inside it, since the
+  walker doesn't descend into an excluded directory.
+- `logs/**` matches the `logs` directory itself, since `**` can match nothing.
+- A link whose target is a folder is matched like a folder, as its path with a `/`
+  on the end (unlike git, where `foo/` never matches a link).
+- A broken link, or one whose target can't be reached, is matched like a file, so
+  only a pattern without the `/` matches it.
 
-Case doesn't matter on Windows or macOS, and does everywhere else. On macOS an
-accented letter also matches however it is stored, as one character or as a
-letter and an accent mark: both sides are compared in the composed form (NFC).
-When several patterns match, the first in the file is the one recorded as
-leaving the path out.
+**Case, and other rules**
 
-A pattern can't contain a tab or a carriage return: s3cab stops and names it.
-Write `*` in place of the character, which still matches it.
+- Case doesn't matter on Windows or macOS, and does everywhere else.
+- On macOS an accented letter also matches however it is stored, as one character
+  or as a letter and an accent mark: both sides are compared in the composed form
+  (NFC).
+- When several patterns match, the first in the file is the one recorded as
+  leaving the path out.
+- A pattern can't contain a tab or a carriage return: s3cab stops and names it.
+  Write `*` in place of the character, which still matches it.
 
 ## Examples
 
