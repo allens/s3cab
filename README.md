@@ -436,10 +436,12 @@ looks, and what to do when the server rejects your credentials — is in
 access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
 session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and
-writes a CloudFormation template to `~/.s3cab/<bucket>.yaml`; after deploying it and capturing
-the ARNs (`--save --from-stack`), point a set at it with `s3cab setup --set … --roles-anywhere` or
-`s3cab provider --roles-anywhere <set>`. The durable secret never travels, only a ~1-hour token
-flows to AWS, and the trust anchor gives you central revocation. It's a best-effort win, not a
+writes CloudFormation templates for the bucket and for this machine's identity; after deploying
+them and capturing the ARNs (`--save --from-stack`), point a set at it with
+`s3cab setup --set … --roles-anywhere` or `s3cab provider --roles-anywhere <set>`. Each machine
+gets its own identity, so a second machine or a second bucket is the same steps again. The
+durable secret never travels, only a ~1-hour token flows to AWS, and the trust anchor gives you
+central revocation. It's a best-effort win, not a
 vault: a leaked `0600` key file is about as exposed as a leaked access key against file theft —
 the real backstop is the soft-delete-only policy, so even a stolen identity can't destroy backup
 history. The [cloud-bucket guide](guide/aws.md#--roles-anywhere--keyless-certificate-based-access)

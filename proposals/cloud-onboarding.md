@@ -19,8 +19,9 @@ left is onboarding follow-ups.)_
   [test/integration/roles-anywhere.test.mjs](../test/integration/roles-anywhere.test.mjs)'s live
   `CreateSession` + backup/restore round trip **has never actually run** — it skips without a
   deployed trust anchor and `S3CAB_TEST_RA_HOME`, which neither the dev box nor CI has. To close
-  it: run the Phase A-2 flow against the test bucket (`s3cab aws <bucket> --roles-anywhere` →
-  deploy → `--save --from-stack`), export `S3CAB_TEST_RA_HOME`, then `npm run test:integration`.
+  it: stand up the identity for the test bucket as
+  [docs/integration-testing.md](../docs/integration-testing.md) describes, then
+  `npm run test:integration`.
 - **Per-prefix IAM policy.** The natural future tightening of the security model
   ([ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md)) — append-only on
   `objects/`+`snapshots/`, delete confined to `sets/` — if identities split or versioning is

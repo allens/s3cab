@@ -159,7 +159,7 @@ ADR as a live constraint.
 - [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted & implemented — both setup and the runtime signer ship; beside 0055/0015; design in docs/design/roles-anywhere.md; one-trust-anchor model amended by 0105)*
 - [0058](0058-roles-anywhere-cert-generation.md) — Roles Anywhere certs: hand-rolled ASN.1 DER (zero-dep), client key stored as a 0600 PEM (pins the Phase B signer's key interface) *(accepted — cert generator validated by live spike; resolves 0057's open cert-gen/storage sub-decision)*
 - [0059](0059-aws-provisioning-boundary-static-imports.md) — AWS provisioning (CloudFormation/IAM) is quarantined to the `aws` command; data plane is S3-only, auth is the pluggable seam; placement (an aws-only module), not a lazy `import()`, keeps its heavy dep off the hot path — no blanket ban on dynamic imports *(accepted & implemented; extends 0015/0056/0057, applies 0006)*
-- [0105](0105-bucket-and-identity-stacks.md) — AWS onboarding splits into a bucket stack and one stack per identity (per machine, for Roles Anywhere); the access policy goes inline on each identity; Roles Anywhere addresses are stored per bucket *(accepted, being implemented; amends 0056/0057)*
+- [0105](0105-bucket-and-identity-stacks.md) — AWS onboarding splits into a bucket stack and one stack per identity (per machine, for Roles Anywhere); the access policy goes inline on each identity; Roles Anywhere addresses are stored per bucket *(accepted & implemented; amends 0056/0057)*
 
 ### Build, release & tooling
 

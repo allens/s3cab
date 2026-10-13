@@ -10,8 +10,10 @@ credential path, the `provider`/`setup --roles-anywhere` mode, and its two `cred
 all ship in [src/lib/roles-anywhere.mjs](../../src/lib/roles-anywhere.mjs) /
 [src/lib/auth.mjs](../../src/lib/auth.mjs).** Decisions:
 [ADR-0057](../adr/0057-roles-anywhere-credential-mode.md) (the credential mode + native signer),
-[ADR-0058](../adr/0058-roles-anywhere-cert-generation.md) (cert generation + key storage), and
-[ADR-0056](../adr/0056-onboarding-via-cloudformation.md) (the CloudFormation onboarding it rides on).
+[ADR-0058](../adr/0058-roles-anywhere-cert-generation.md) (cert generation + key storage),
+[ADR-0056](../adr/0056-onboarding-via-cloudformation.md) (the CloudFormation onboarding it rides on),
+and [ADR-0105](../adr/0105-bucket-and-identity-stacks.md) (a bucket stack plus one identity stack
+per machine; ARNs per bucket).
 This doc is the evolving *how*; the ADRs are the *why*.
 
 ## Purpose
@@ -25,15 +27,15 @@ the S3 API; the credential-mode entry in [auth.md](auth.md) covers where RA sits
 
 ## The machine RA identity
 
-One **machine-level** identity, shared by every set in RA mode the way sets share a machine-level
-`AWS_PROFILE` (a set stores only a *pointer/marker*, never the material). It is a cluster under
+One **machine-level** certificate, shared by every set in RA mode (a set stores only a
+*pointer/marker*, never the material), with one set of ARNs per bucket. It is a cluster under
 `~/.s3cab/roles-anywhere/` (`0700`, files `0600`):
 
 | File | What |
 | --- | --- |
 | `ca.pem` / `ca.key` | the self-signed CA (avoids AWS Private CA fees). `ca.key` is the *cold* key — only re-issues client certs; back it up. |
 | `client.pem` / `client.key` | the client certificate + key — the machine's identity; `client.key` is the runtime signing key, never sent to AWS. |
-| `env` | an env-format file (reusing `env-file.mjs`) with `S3CAB_RA_TRUST_ANCHOR_ARN` / `S3CAB_RA_PROFILE_ARN` / `S3CAB_RA_ROLE_ARN` / `AWS_REGION`. |
+| `<bucket>.env` | one per bucket, env-format (reusing `env-file.mjs`): `S3CAB_RA_TRUST_ANCHOR_ARN` / `S3CAB_RA_PROFILE_ARN` / `S3CAB_RA_ROLE_ARN` / `AWS_REGION`, and `S3CAB_RA_STACK` for the refused-session fix. The signer reads the file for the set's `S3CAB_BUCKET`. |
 
 **Long-lived cert (~10y), generate-and-forget** — no renew/rotate/revoke machinery; loss or
 compromise ⇒ regenerate (new CA → new trust anchor, same role/bucket). The cert's lifetime does not
@@ -47,12 +49,14 @@ long-lived *AWS* key.
 
 1. **Generate the CA + client cert locally** — the one active step, but no AWS call, no admin creds,
    no *AWS* secret, so squarely inside the generative posture ([ADR-0032](../adr/0032-generative-onboarding-not-active-provisioning.md)).
-2. **Emit a CloudFormation template** for the trust anchor (external-CA `CERTIFICATE_BUNDLE`, CA PEM
-   inline — public), the IAM role (RA trust policy + the managed `s3cab-<bucket>-policy`
-   policy), and the profile. The user applies it with one `aws cloudformation deploy … --capabilities
-   CAPABILITY_NAMED_IAM`.
-3. **Capture the ARNs** into the machine `env` with a read-only `describe-stacks`
-   (`s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>`, via `@aws-sdk/client-cloudformation`).
+2. **Emit two CloudFormation templates**: the bucket stack, shared by every identity, and this
+   machine's identity stack `s3cab-<bucket>-<fingerprint>` (the CA certificate's SHA-256, first eight
+   hex digits) — the trust anchor (external-CA `CERTIFICATE_BUNDLE`, CA PEM inline — public), the IAM
+   role (RA trust policy + the inline `s3cab-<bucket>-policy`), the profile, and a `Bucket` output.
+   The user deploys both with `aws cloudformation deploy`.
+3. **Capture the ARNs** into `<bucket>.env` with a read-only `describe-stacks`
+   (`s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>-<fingerprint>`, via
+   `@aws-sdk/client-cloudformation`); the `Bucket` output names the file.
 
 ### Cert-shape requirements (RA rejects the trust anchor / session otherwise)
 

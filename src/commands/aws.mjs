@@ -101,7 +101,7 @@ Wasabi, …), run:
     const stackName = options["from-stack"]?.trim();
     if (!stackName) {
       throw new ParseArgsError(
-        "--save needs --from-stack <stack> (the deployed onboarding stack, e.g. s3cab-<bucket>)",
+        "--save needs --from-stack <stack> (the deployed identity stack, s3cab-<bucket>-<fingerprint>)",
         { argName: "from-stack" },
       );
     }

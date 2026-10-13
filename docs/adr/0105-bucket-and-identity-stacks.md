@@ -1,6 +1,6 @@
 # AWS onboarding: one stack for the bucket, one per identity; Roles Anywhere addresses per bucket
 
-**Status:** accepted, being implemented. Amends [0056](0056-onboarding-via-cloudformation.md) —
+**Status:** accepted and implemented. Amends [0056](0056-onboarding-via-cloudformation.md) —
 its *Resources & names* (one stack per bucket, a shared managed policy) and its closing line
 calling `--roles-anywhere` recommended; and [0057](0057-roles-anywhere-credential-mode.md) — the
 identity model's "one trust anchor, one role/profile". Everything else in both stands: the

@@ -7,11 +7,11 @@ provider instead — Cloudflare R2, Backblaze B2, Wasabi, …? See
 [Non-AWS providers](#non-aws-providers) below: those have no IAM, so setup runs
 through the `provider` command, not this one.)
 
-It is **generative**: it _writes_ a CloudFormation template and _prints_ the
-handful of `aws` commands to deploy it, and makes no AWS calls itself (the one
+It is **generative**: it _writes_ CloudFormation templates and _prints_ the
+handful of `aws` commands to deploy them, and makes no AWS calls itself (the one
 exception is `--save`, a read-only lookup of an already-deployed stack). So it
 needs **no credentials to run** — you can read the whole plan (and the exact
-template) before you have any — and you can see exactly what will touch your
+templates) before you have any — and you can see exactly what will touch your
 account before anything happens.
 
 ```console
@@ -30,20 +30,32 @@ account before anything happens.
   and write its CloudFormation template (see [Identity options](#identity-options)).
   Combine with `--save --from-stack <stack>` to capture the deployed stack's ARNs.
 
-It writes a **CloudFormation template** — a single declarative file describing the
-bucket, its least-privilege policy, and the s3cab identity — to
-`~/.s3cab/<bucket>.yaml`, and prints the recipe to deploy it with one `aws
-cloudformation deploy`. Writing the file (rather than dumping YAML to the terminal
-for you to copy) means the deploy command just points `--template-file` at it.
-CloudFormation resolves every cross-resource reference itself, so there are no ARNs
-to copy from one command's output into the next, and the same command works
-identically on PowerShell and bash. The stack is updatable (change the lifecycle
-window, redeploy) and teardownable — though the bucket carries
-`DeletionPolicy: Retain`, so deleting the stack **never** destroys your backups.
+It writes two **CloudFormation templates** — declarative files that each become
+one stack — and prints the recipe to deploy them:
 
-The three steps that follow the template are **sequential and human-in-the-loop**,
-not one paste-all: minting the identity's access key is a deliberate manual step
-whose secret a later step consumes.
+| Template                              | Stack                        | Holds                                                   |
+| ------------------------------------- | ---------------------------- | ------------------------------------------------------- |
+| `~/.s3cab/<bucket>-bucket.yaml`       | `s3cab-<bucket>-bucket`      | the bucket and its protections — nothing else           |
+| `~/.s3cab/<bucket>-user.yaml`         | `s3cab-<bucket>-user`        | the IAM user, carrying the least-privilege policy       |
+| `~/.s3cab/<bucket>-<fingerprint>.yaml` | `s3cab-<bucket>-<fingerprint>` | with `--roles-anywhere`, instead: this machine's keyless identity |
+
+The bucket stack is the same for everyone, so deploying it again changes
+nothing — a second machine, or a switch between identities, runs every step as
+printed. **If the bucket already exists** and s3cab didn't create it, skip that
+step: the identity stack carries its own policy, so it works on any bucket
+(check the bucket against the table in [What it sets up](#what-it-sets-up)).
+
+Writing files (rather than dumping YAML to the terminal for you to copy) means
+each deploy command just points `--template-file` at one. CloudFormation resolves
+every cross-resource reference itself, so there are no ARNs to copy from one
+command's output into the next, and the same command works identically on
+PowerShell and bash. The stacks are updatable (change the lifecycle window,
+redeploy) and teardownable — though the bucket carries `DeletionPolicy: Retain`,
+so deleting its stack **never** destroys your backups.
+
+The steps are **sequential and human-in-the-loop**, not one paste-all: minting
+the identity's access key is a deliberate manual step whose secret a later step
+consumes.
 
 ## What it sets up
 
@@ -176,14 +188,14 @@ backstop that makes everyday soft-deletes safe.
 
 ## Identity options
 
-The bucket and the policy are the same for everyone; only _which identity gets the
-policy attached_ differs.
+The bucket and the policy are the same for everyone; only _which identity carries
+the policy_ differs.
 
 ### Default — a dedicated IAM user
 
-The CloudFormation template creates an IAM user (`s3cab-<bucket>-user`) with the
-managed policy attached. After you deploy it, the only manual step is minting that
-user's access key:
+The identity template creates an IAM user (`s3cab-<bucket>-user`) carrying the
+policy. After you deploy it, the only manual step is minting that user's access
+key:
 
 ```console
 > aws iam create-access-key --user-name s3cab-<bucket>-user
@@ -214,21 +226,25 @@ enterprise PKI.
 
 `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your
-machine) and writes a CloudFormation template to `~/.s3cab/<bucket>.yaml` that
-stands up the bucket plus the keyless identity — a trust anchor over the public
-CA, an IAM role carrying the same least-privilege policy, and a profile. Deploy
-it, then capture the stack's ARNs back into the local identity. s3cab prints the
-deploy command ready to paste, with `--template-file` pointing at the absolute
-path it just wrote (the `~/.s3cab/<bucket>.yaml` below is illustrative):
+machine). Beside the bucket template, it writes an identity template for this
+machine: a trust anchor over the public CA, an IAM role carrying the same
+least-privilege policy, and a profile. Its stack is named for the CA —
+`s3cab-<bucket>-<fingerprint>`, the first eight hex digits of the CA
+certificate's SHA-256 — so it belongs to this machine alone. Deploy both, then
+capture the identity stack's ARNs back to this machine. s3cab prints every
+command ready to paste, with the real paths and fingerprint; in outline:
 
 ```console
-> s3cab aws <bucket> --roles-anywhere          # generates certs + writes the template
-> aws cloudformation deploy --template-file ~/.s3cab/<bucket>.yaml --stack-name s3cab-<bucket> --capabilities CAPABILITY_NAMED_IAM
-> s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # read-only ARN capture
+> s3cab aws <bucket> --roles-anywhere          # generates certs + writes the templates
+> aws cloudformation deploy --template-file ~/.s3cab/<bucket>-bucket.yaml --stack-name s3cab-<bucket>-bucket --no-fail-on-empty-changeset
+> aws cloudformation deploy --template-file ~/.s3cab/<bucket>-<fingerprint>.yaml --stack-name s3cab-<bucket>-<fingerprint> --capabilities CAPABILITY_NAMED_IAM
+> s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>-<fingerprint>   # read-only ARN capture
 ```
 
-Re-running the first step reuses the existing identity (it never silently mints a
-new CA, which would orphan the deployed trust anchor).
+`--save` writes the ARNs to `~/.s3cab/roles-anywhere/<bucket>.env`, one file per
+bucket, so a set signs in with the identity for its own bucket. Re-running the
+first step reuses the existing certificate (it never silently mints a new CA,
+which would orphan the deployed trust anchor).
 
 Then point a backup set at the identity — either as you create it, or by switching
 an existing set:
@@ -243,6 +259,24 @@ short-lived AWS credentials, and refreshes them automatically before they expire
 so a backup runs with no long-lived key anywhere on disk. (Roles Anywhere is
 AWS-only, so it can't be combined with a custom `--endpoint`.)
 
+#### More buckets, more machines
+
+- **Another bucket on this machine:** run `s3cab aws <other-bucket> --roles-anywhere`
+  and its steps. The same certificate gets a trust anchor in that bucket's own
+  identity stack, and its ARNs go in that bucket's own file.
+- **Another machine on this bucket:** run the same steps on that machine. It
+  generates its own certificate, so its identity stack has a different name and
+  leaves this machine's alone; the bucket step finds nothing to change. Don't copy
+  `~/.s3cab/roles-anywhere/` across instead: that spreads the CA key, and you lose
+  the ability to cut off one machine without the other.
+- **Cutting off one machine:** delete its identity stack on each bucket it uses
+  (`aws cloudformation delete-stack --stack-name s3cab-<bucket>-<fingerprint>`).
+  The bucket and every other machine's identity are untouched.
+- **Switching a bucket from access keys to Roles Anywhere (or back):** the new
+  identity stack deploys beside the old one. Delete the one you no longer use; for
+  the IAM user, AWS requires its access key deleted first
+  (`aws iam delete-access-key --user-name s3cab-<bucket>-user --access-key-id <key-id>`).
+
 #### Why it's better than an access key — and the honest caveat
 
 The advantages are real, but none of them is "the local secret is better
@@ -255,7 +289,9 @@ protected" — so it's worth being precise about what you do and don't gain:
 - **What flows to AWS, logs, and process memory is a ~1-hour session token**, not a
   permanent key. A token scraped from a log is game-over for an hour, not forever.
 - **Central revocation.** Disable or delete the trust anchor and every session from
-  that CA dies immediately — nothing to rotate on the machine. Roles Anywhere also
+  that CA dies immediately — nothing to rotate on the machine. Each machine has its
+  own trust anchor on each bucket, so this cuts off one machine from one bucket and
+  nothing else. Roles Anywhere also
   supports importing a CRL to revoke one specific client certificate.
 - **AWS-side scoping** — session-duration caps, scoped session policies, and the
   certificate as the logged CloudTrail identity.
@@ -280,7 +316,7 @@ blast radius.
 There is no separate SSO onboarding path (and no `--sso` flag). If you already sign
 in through IAM Identity Center with a broadly-privileged role that can reach the
 bucket, just create the bucket — giving it the same versioning and lifecycle
-housekeeping as the stack's table above — and point s3cab at your SSO profile;
+housekeeping as the table above — and point s3cab at your SSO profile;
 SSO flows through the standard AWS credential chain, which s3cab uses unchanged:
 
 ```console
