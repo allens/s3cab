@@ -1,9 +1,9 @@
 # The format spec holds rules, recommendations and hints; a row file is valid or canonical
 
-**Status:** accepted (2026-10-13). Applied to [guide/format.md](../../guide/format.md); not
-yet to the clean-room brief. Completes the split #397 began, which separated what a reader relies on
-from how s3cab lays the file out but left the heading row on both sides and gave hints to
-restorers only.
+**Status:** accepted & implemented (2026-10-13), in [guide/format.md](../../guide/format.md)
+and the clean-room brief. Completes the split #397 began, which separated what a reader
+relies on from how s3cab lays the file out but left the heading row on both sides and gave
+hints to restorers only.
 
 Clean-room runs report three different things in one ranked list: real gaps in the rules,
 guesses about layout no reader depends on, and traps in a language or OS (`\\?\` on Windows,
@@ -70,5 +70,4 @@ aside, and the reader's checklist spells them out.
   rules too, though no clean room plays that part.
 - s3cab pads by UTF-16 units, so its own files are non-canonical where column 2 holds an
   emoji, until `formatLine` counts code points.
-- The brief in `scripts/cleanroom/cleanroom.mjs` asks for the three-way split.
-  `compare-snapshot.mjs`'s mismatch-or-note split already draws the valid/canonical line.
+- `compare-snapshot.mjs`'s mismatch-or-note split draws the valid/canonical line.
