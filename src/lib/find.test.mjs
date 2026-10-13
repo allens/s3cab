@@ -99,6 +99,9 @@ describe("compileFindPattern", () => {
     assert.equal(matches("*.jpg", "/home/me/photos/beach.jpeg"), false);
     assert.equal(matches("tax-201?.pdf", "/docs/tax-2019.pdf"), true);
     assert.equal(matches("tax-201?.pdf", "/docs/tax-19.pdf"), false);
+    // An emoji is one character, though JavaScript stores it as two.
+    const emoji = String.fromCodePoint(0x1f389);
+    assert.equal(matches("party?.jpg", `/docs/party${emoji}.jpg`), true);
     // `*` is one-or-more, not POSIX find's zero-or-more: the token grammar is
     // `exclude`'s (ADR-0088), and only the anchoring changed.
     assert.equal(matches("*secret1", "/home/me/copy-secret1"), true);
@@ -157,6 +160,10 @@ describe("compileFindPattern", () => {
     // A macOS path looks like a Linux one, and on a Mac case doesn't matter.
     assert.equal(matches("photos/", "/Users/me/Photos/beach.jpg"), true);
     assert.equal(matches("secret1", "/home/me/SECRET1"), true);
+    // A letter JavaScript stores as two units (Deseret capital and small I).
+    const upper = String.fromCodePoint(0x10400);
+    const lower = String.fromCodePoint(0x10428);
+    assert.equal(matches(upper, `/home/me/${lower}`), true);
   });
 
   it("matches an accent however it is spelled, on every OS", () => {

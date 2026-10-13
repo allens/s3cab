@@ -149,7 +149,7 @@ export function compileFindPattern(pattern) {
   // leaves the file in every backup, while an extra match only shows in the
   // report the user picks hashes from. Nor can a snapshot say whether they
   // mattered where it was taken: a macOS path looks just like a Linux one.
-  const regex = new RegExp(anchored, "i");
+  const regex = new RegExp(anchored, "iu");
 
   return {
     pattern,

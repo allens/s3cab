@@ -23,7 +23,10 @@ import { globSource } from "./path-match.mjs";
  * ignoring case on Windows and macOS, and on macOS ignoring how an accent is
  * spelled too (one character, or a letter and a combining mark: NFC/NFD). The
  * platform is the right question here, unlike in `find`, because these patterns
- * only ever meet paths from this machine's own walk.
+ * only ever meet paths from this machine's own walk. Case folds by Unicode's
+ * table, which joins a few rare letters NTFS keeps apart (the Kelvin sign and
+ * `k`): not the `i` flag alone, which matched NTFS on those, because only `u`
+ * makes `?` match a whole emoji.
  * @param {string} baseDir - The member directory the patterns are relative to
  * @param {string[]} patterns - Root-relative exclude globs, as the user wrote them
  * @returns {(path: string, isDirectory: boolean) => string | undefined} The
@@ -55,7 +58,7 @@ const FOLDS_ACCENTS = process.platform === "darwin";
 function compile(pattern) {
   return new RegExp(
     `^${globSource(posix.normalize(spell(pattern)))}$`,
-    FOLDS_CASE ? "i" : "",
+    FOLDS_CASE ? "iu" : "u",
   );
 }
 

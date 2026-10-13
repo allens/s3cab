@@ -74,6 +74,9 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy(p, "/root/file1.txt"), "file?.txt");
     assert.equal(excludedBy(p, "/root/file.txt"), undefined);
     assert.equal(excludedBy(p, "/root/file10.txt"), undefined);
+    // An emoji is one character, though JavaScript stores it as two.
+    const emoji = String.fromCodePoint(0x1f389);
+    assert.equal(excludedBy(p, `/root/file${emoji}.txt`), "file?.txt");
   });
 
   it("answers with the first matching pattern, in the order given", () => {
@@ -83,10 +86,16 @@ describe("compileExcludePatterns", () => {
   });
 
   it("ignores case on Windows and macOS, as their filesystems do, and not on Linux", () => {
+    const expected = (/** @type {string} */ pattern) =>
+      process.platform === "linux" ? undefined : pattern;
     assert.equal(
       excludedBy(["**/UPPER.txt"], "/root/upper.txt"),
-      process.platform === "linux" ? undefined : "**/UPPER.txt",
+      expected("**/UPPER.txt"),
     );
+    // A letter JavaScript stores as two units (Deseret capital and small I).
+    const upper = String.fromCodePoint(0x10400);
+    const lower = String.fromCodePoint(0x10428);
+    assert.equal(excludedBy([upper], `/root/${lower}`), expected(upper));
   });
 
   it("ignores how an accent is spelled on macOS, as APFS does, and nowhere else", () => {

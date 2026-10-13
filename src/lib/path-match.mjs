@@ -131,7 +131,8 @@ export function pathMatcher(folders) {
  * @param {string} pattern - A `/`-separated glob; converting the platform's own
  *   separator is the caller's job, because the per-segment tokens need one
  *   canonical separator to define a segment by
- * @returns {string} Regex source carrying no `^`/`$` of its own
+ * @returns {string} Regex source carrying no `^`/`$` of its own, for compiling
+ *   with the `u` flag: without it `?` matches half of an emoji
  */
 export function globSource(pattern) {
   // @ts-ignore - RegExp.escape exists in Node 24+
