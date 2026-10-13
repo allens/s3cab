@@ -142,6 +142,12 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   (`src/lib/snapshot-file.mjs`) pads with `padEnd(64)`, which counts UTF-16 units, so an
   `#excluded` pattern or `#error` message holding an emoji is padded one space short per emoji.
   The file stays valid; only its canonical form is off.
+- **A link into a `.s3cab` folder loses its target without a row.** `checkLink`
+  (`src/lib/walk.mjs`) asks only whether the resolved target is in a member directory, so such a
+  link gets no row, while the walk never enters `.s3cab`, so the target gets none either. Decided:
+  treat it as a link out of the backup, an `#error`. The same PR changes
+  [guide/format.md](../guide/format.md)'s Links table, whose "recorded where it lies" doesn't hold
+  for it.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

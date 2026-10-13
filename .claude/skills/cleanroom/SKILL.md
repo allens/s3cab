@@ -2,7 +2,7 @@
 name: cleanroom
 description: >-
   Drive s3cab's clean-room exercise (ADR-0096) from the repo session: plan the
-  runs, build a sandbox, hand it over, then check, harvest and destroy it. Use
+  runs, build a sandbox, run it headless, then check, harvest and destroy it. Use
   when asked to start, continue or plan clean-room work: "start clean room",
   "next clean room", "run the snapshot clean room on Windows". Not for
   changing the harness itself.
@@ -17,7 +17,8 @@ fix this file.
 
 **This session never is the clean room.** It sits in the repo and can read
 everything; the clean room's session must read nothing but what the build hands
-it. So every run has a stop in the middle, where the user opens that session.
+it. So the run is a separate, headless `claude` process that this session starts
+in the sandbox and waits for.
 
 ## A run is two choices
 
@@ -25,8 +26,8 @@ it. So every run has a stop in the middle, where the user opens that session.
 - **Platform**: the machine this session runs on. A sandbox is built, run, checked
   and destroyed on one machine.
 
-The user picks the model and effort when opening the clean room's session; whether
-the run is recorded is decided at the end (step 4). Ask for a role if none was
+The user picks the model and effort, and this session passes them to the run;
+whether the run is recorded is decided at the end (step 4). Ask for a role if none was
 given; given none, propose the next run and stop for a yes.
 
 ## Experiments, then a real set
@@ -58,9 +59,10 @@ Report, and stop.
 1. **Build** with the role's command from the README. An upload empties the backup
    bucket first. The sandbox root must not exist: if a stale one does, show what
    is in it and ask before deleting it.
-2. **Hand over, and stop.** Tell the user: open a new Claude Code session in
-   `<root>/cleanroom`, set `/model` and `/effort`, check that `/effort` shows the
-   level, and say "go". Then wait for them to say it's done.
+2. **Run.** Start the README's headless command in the background, from
+   `<root>/cleanroom`, with a fresh `--session-id` and the user's model and effort.
+   Give the user the tail command for that session's transcript, then wait for the
+   notification that it exited.
 3. **Check** with the role's checker and `audit-transcript.mjs`, before anything is
    moved or deleted, each output saved into the clean room as the README shows. Show
    both in full. A stray the audit lists voids the run whatever the checker says; its

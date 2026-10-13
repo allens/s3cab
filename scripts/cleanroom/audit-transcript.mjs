@@ -104,13 +104,35 @@ const spellings = (path) =>
   [path, path.replaceAll("\\", "/")]
     .map((spelling) => spelling.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
-const allowedSpelled = new RegExp(allowed.map(spellings).join("|"), "gi");
+// A session names its own scratchpad as `$env:TEMP\claude\…` as readily as by full path.
+// Only allowed places get these aliases, so a bare `$env:TEMP` still reads as temp.
+/** @type {[string, string[]][]} */
+const variables = [
+  [tmpdir(), ["$env:TEMP", "$env:TMP", "%TEMP%", "%TMP%", "$TMPDIR"]],
+  [homedir(), ["$env:USERPROFILE", "$env:HOME", "%USERPROFILE%", "$HOME", "~"]],
+];
+/** @param {string} path */
+const aliases = (path) => [
+  path,
+  ...variables.flatMap(([prefix, names]) =>
+    inside(path, prefix)
+      ? names.map((name) => name + path.slice(prefix.length))
+      : [],
+  ),
+];
+const allowedSpelled = new RegExp(
+  allowed.flatMap(aliases).map(spellings).join("|"),
+  "gi",
+);
 const named = new RegExp(
   watched.map(spellings).join("|") +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
     String.raw`|(^|[\s"'(=])~(?=[\\/\s]|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
+// Case-insensitive, since Windows runs `S3CAB` too, though it also flags a bare `S3CAB` in an
+// environment-variable filter (`-match '^(AWS_|S3CAB)'`). If that false alarm recurs, report
+// other-case matches as a note rather than going case-sensitive.
 const runsS3cab =
   /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)])/im;
 /** @param {string} command */

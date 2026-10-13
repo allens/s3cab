@@ -342,8 +342,8 @@ A row's first character says what it is: `@` a property of the whole file, `-` a
 A tool that drops `#` lines as comments keeps exactly what a restore reads: the properties
 and the files.
 
-**A path ending with a separator is a folder** (`C:\Users\me\Photos\cache\`): an excluded
-folder, a folder link leading out of the backup, a member directory.
+**A path ending with a separator is a directory** (`C:\Users\me\Photos\cache\`): an excluded
+directory, a directory link leading out of the backup, a member directory.
 
 **A reader skips an `@` or `#` type, or a property, that it doesn't know, and refuses a file
 holding any other type it doesn't know.** An unknown `@` or `#` row is something a newer
@@ -359,18 +359,22 @@ anywhere, including somewhere you never chose to back up.
 
 | Link | Row |
 | --- | --- |
-| To a file or folder inside a member directory | none; the target is recorded where it lies, saved or `#excluded` |
-| To a file or folder outside every member directory, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
+| Into the backup | none; the target is recorded where it lies, saved or `#excluded` |
+| Out of the backup, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
 | Broken, or to a pipe, socket or device | none |
 | Matched by an exclude pattern | `#excluded`, like any excluded entry |
 
+A link to a file or directory leads **into the backup** when the place it finally resolves
+to, through any further links, is a member directory or lies inside one, and **out of the
+backup** otherwise.
+
 A link out of the backup is an error because its content may look saved and isn't — a
-folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
+directory link can hide a whole tree. Add the target's directory to the set, or exclude the link.
 The snapshot is still written, as for any `#error`.
 
 A link is **broken** when nothing exists where it points: the target is missing, a path
-through it treats a file as a folder, or links lead round in a circle. Anything else that
-stops it being followed, such as a share that doesn't answer or a folder you can't read, is
+through it treats a file as a directory, or links lead round in a circle. Anything else that
+stops it being followed, such as a share that doesn't answer or a directory you can't read, is
 somewhere this computer can't resolve.
 
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
@@ -388,7 +392,7 @@ can go stale later without the row being wrong.
 | `@S3CAB HOME` | the [s3cab home](#the-local-side-s3cab) on that machine |
 | `@SET NAME` | the set's name |
 | `@SET BUCKET` | the bucket, as `s3://<bucket>`; every set has one (`S3CAB_BUCKET`) |
-| `@SET ENDPOINT` | the S3 endpoint (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`), only for a provider other than AWS, where a bucket name alone doesn't say where it is |
+| `@SET ENDPOINT` | the S3 endpoint, whenever the set has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`); an endpoint is how a set names a provider other than AWS, where a bucket name alone doesn't say where it is |
 | `@SET DIR` | a member directory, one row each, always ending in a separator |
 | `@SET EXCLUDE` | an exclude pattern in force for this run, one row each, including any that matched nothing |
 | `@SNAPSHOT NAME` | the snapshot's name |
@@ -415,7 +419,7 @@ rows above; every `#excluded` and `#error` row, so the answer to "why wasn't thi
 up?" is near the top; one `-` row per file (with an `#error` in among them for
 a file that failed while being read); then `FILES`, `SIZE` and `END`. A reader goes by each
 row's type, not its position — except for `END`, below. Within a block, rows come in the
-order the folders were listed, which differs between filesystems, so compare two snapshots
+order the directories were listed, which differs between filesystems, so compare two snapshots
 as sets of rows, not line by line.
 
 The set's directory and this snapshot's local path follow from `HOME` and the names, and
@@ -426,7 +430,7 @@ patterns applied to this run.
 One omission is silent by design: a directory named `.s3cab`, all lowercase even on Windows,
 is never walked and gets no row — it is s3cab's own, and a member directory containing one
 would otherwise back up the tool's working files. An entry that vanishes between being
-listed and being checked gets no row either, since there is nothing left to record; a folder
+listed and being checked gets no row either, since there is nothing left to record; a directory
 that can't be listed stops the backup.
 
 ### No row holds a tab or a line ending
@@ -447,7 +451,7 @@ So every line has exactly five fields.
 ### Paths
 
 **Paths are written with the casing the filesystem itself reports** — the spelling you see
-in File Explorer or Finder, not the spelling anything was typed in. If a folder is on disk
+in File Explorer or Finder, not the spelling anything was typed in. If a directory is on disk
 as `Photos` and the set's `dirs.txt` names it `PHOTOS`, the snapshot says `Photos`. The one
 exception is a **Windows drive letter, which is always uppercase**: a drive letter isn't a
 name on disk, it's an alias the operating system assigns to a volume, and Windows keeps no
@@ -703,6 +707,8 @@ For a restorer, or anything else that reads the files.
   break" helpers do much the same. Any of them can occur in a legal filename.
 - **Trimming the whole line.** `@S3CAB END`'s last field is empty, so stripping trailing
   whitespace from the line leaves four fields.
+- **The heading row's column 4.** It holds the word `time`, not an instant, so a reader that
+  checks column 4 of every `@` row as an instant refuses every file at its first line.
 - **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
   before reporting a cut-short file, which is why `END` matters. Python's `gzip.decompress`
   also joins several gzip streams into one without a word.
@@ -734,6 +740,10 @@ For a restorer, or anything else that reads the files.
 - Walk every member directory without following a link, never entering a directory named
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
+- On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
+  pairs, even on a drive or in a directory set up to be case-sensitive. On Linux they always
+  pay attention to case, even on a drive that doesn't. On macOS an accented letter also
+  matches however it is stored. `?` and `*` count whole characters.
 - Write a row per entry:
   - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,
     its size in bytes, its modification time rounded to the nearest millisecond (a tie to
@@ -743,10 +753,10 @@ For a restorer, or anything else that reads the files.
     out of the backup or somewhere this computer can't resolve;
   - no row for any other link, a pipe, socket or device, or an entry that vanished between
     being listed and being checked.
-- End a folder's path with a separator. Spell every path with the casing the filesystem
+- End a directory's path with a separator. Spell every path with the casing the filesystem
   reports, and a Windows drive letter in uppercase.
 - Stop without writing a snapshot, naming the cause, at a name holding a tab, CR or LF, a
-  name with no UTF-8 form, or a folder that can't be listed. Anywhere else, spell a tab, CR
+  name with no UTF-8 form, or a directory that can't be listed. Anywhere else, spell a tab, CR
   or LF out as `␉`, `␍` or `␊`.
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows); give
   each path at most one per-path row; end with `@S3CAB END`, its instant rounded up.
@@ -761,12 +771,32 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Windows paths: go through `\\?\`.** Opened by its plain path, a file named `notes ` or
   `notes.` is looked up as `notes` and not found, and so is anything past 260 characters. A
   writer that takes "not found" for an entry that vanished leaves the file out of the backup
-  without a word, and exits 0.
+  without a word, and exits 0. Python's `os.path.abspath` drops the dot or space too;
+  `os.path.normpath` keeps it.
+- **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
+  junction, recording what lies beyond it as if it were inside the member directory, and
+  `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken
+  link doesn't fail the way it does elsewhere: a loop raises winerror 1921, not `ELOOP`, and
+  a link through a file raises `FileNotFoundError`, like a missing target.
+- **Two spellings of one name.** NTFS can hold `café.txt` spelled with one accented character
+  and with a letter plus a combining accent side by side, as two files. Never normalize a
+  name: the two rows would collapse into one path.
+- **Not overwriting a snapshot.** Python's `os.rename` refuses an existing target on Windows
+  but silently replaces it on Linux and macOS. There, link the new name and remove the old
+  one instead.
+- **The gzip header.** Python's `gzip.open` writes the file's name and the current time into
+  the header, so a snapshot written under a temporary name carries that name. Use
+  `gzip.GzipFile(filename="", mtime=0, fileobj=…)`.
 - **Trimming in Python.** `str.strip()` is the wrong trim for `dirs.txt` and `exclude.txt`:
   it removes `\x1c` to `\x1f` and U+0085, which stay, and keeps a byte-order mark, which
   goes.
-- **Line endings.** Python's text mode writes CRLF on Windows. Write bytes, or open the file
-  with `newline="\n"`.
+- **Line endings and encoding.** Python's text mode on Windows writes CRLF, and before
+  Python 3.15 encodes as the locale's code page, often cp1252, which fails on a name like
+  `🎉.txt`. Write bytes, or open the file with `newline="\n"` and `encoding="utf-8"`.
+- **Case in patterns isn't Windows' own comparison.** Windows keeps the Kelvin sign and `k`,
+  `ẞ` and `ß`, and `ς` and `σ` apart; patterns match each to its partner. In Python,
+  `re.IGNORECASE` matches the way patterns do; `str.casefold()` goes further, so `straße`
+  matches `strasse`.
 - **Time zones.** Python's standard library can't name the local IANA zone, and on Windows
   has no zone data without the `tzdata` package. `START`'s zone is written for people, so
   write the best name you have.
@@ -779,6 +809,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Upload every object a snapshot names before the snapshot itself:
   [objects first, snapshot last](#the-invariant-objects-first-snapshot-last).
 - Store each object at `objects/<hash>`, holding exactly the bytes that hash to its key.
+  Hash the bytes as you send them: a file can change after the snapshot recorded it. If they
+  don't match, leave nothing stored under that key, and don't upload the snapshot, which
+  names an object the repository doesn't hold.
 - Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, never over an existing
   one, and never one without `@S3CAB END`.
 - Write [`sets/<set>/`](#the-remote-repository-the-keystone): `info` as `OWNER=user@machine`

@@ -82,7 +82,11 @@ PowerShell and sh alike):
 ```powershell
 # create
 node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3cab.sandbox
-# run: open a session in $HOME/s3cab.sandbox/cleanroom and say "go"
+# run: headless, from the clean room; follow its transcript (audit-transcript.mjs
+# says where it lands) with Get-Content -Wait -Tail 5
+cd $HOME/s3cab.sandbox/cleanroom
+claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
+cd -
 # check: its restore compared, and its transcript audited
 python3 scripts/cleanroom/compare.py <its-restore-dir> $HOME/s3cab.sandbox/cleanroom/reference/<snapshot> | tee $HOME/s3cab.sandbox/cleanroom/check.txt
 node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
@@ -193,10 +197,18 @@ run. If runs keep straying, move the sandbox somewhere more isolated; until then
 the repo is the one place ruled out outright, because what it leaks arrives before
 the session's first tool call, where no audit sees it.
 
-The brief is written as the clean room's own `CLAUDE.md`, so the run starts from
-a bare "go" instead of a pasted wall of text — and, because that file is
-re-injected as the context compacts, the rule that matters survives a run long
-enough to write a program, where an opening-turn instruction would scroll away.
+The run is headless (`claude -p`), started from the clean room so its transcript
+lands where the audit looks, and nobody sits in it. `--safe-mode` leaves out every
+`CLAUDE.md`, skill, plugin, hook and MCP server — the user's own included, which
+would otherwise steer the run: one that routes Windows work through WSL turns a
+Windows run into a Linux one without saying so. Safe mode drops the clean room's
+own `CLAUDE.md` too, so the brief comes in through `--append-system-prompt-file`.
+That puts it in the system prompt, so the run starts from a bare "go" and the brief
+survives a run long enough to write a program, where an opening-turn instruction
+would be compacted away. `--permission-mode auto` keeps the classifier reviewing
+each call; with nobody to ask, a blocked call is refused and the run carries on.
+`--session-id` fixes the transcript's name before the run starts, so it can be
+followed from the first line. `--max-budget-usd` caps the spend.
 
 `ENVIRONMENT.md` names **one** bucket. Copying `.env.test` across would be
 handier and is the wrong shape: it also names the crash and conformance buckets,
@@ -241,10 +253,8 @@ there and there is no package archive, so the toolchain sentence becomes
 in C# against the .NET Framework that ships with Windows, whose `GZipStream`
 decompresses gzip ([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)).
 The brief also tells the session to
-work natively, never through WSL: a user-level `CLAUDE.md` loads into every
-session, and one that routes Windows work through WSL would turn a Windows run
-into a Linux one without saying so. The credentials go over as `credentials.ps1`
-for the same reason.
+work natively, never through WSL, and the credentials go over as `credentials.ps1`,
+so that a Windows run stays one.
 
 ## fixtures.mjs
 
