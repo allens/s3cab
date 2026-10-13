@@ -19,11 +19,8 @@
  * shorter, which reads as "the spec is fixed". So the firewall is physical — a
  * directory outside the repo, holding the spec alone.
  *
- * The brief is written as the clean room's own CLAUDE.md for two reasons. It is
- * auto-loaded, so the run starts from a bare "go" rather than a pasted wall of text;
- * and it is re-injected as the context compacts, so the one rule that matters — read
- * nothing else about the format — survives a run long enough to write a program,
- * where a rule given once in the opening turn would scroll away.
+ * The brief is written to the clean room's CLAUDE.md, which the headless run takes in
+ * through `--append-system-prompt-file` (README.md says why).
  *
  * There are three roles, one per pillar of the format: snapshot, upload, restore. The
  * role fixes the language: the two halves of the backup are Python on every platform, a
@@ -556,9 +553,7 @@ ${sets}`;
   if (spec.includes("exclude.md")) {
     console.log("  exclude.md      the exclude-pattern spec, byte-for-byte");
   }
-  console.log(
-    "  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it",
-  );
+  console.log("  CLAUDE.md       the task, which the run's command passes in");
   console.log(
     `  ENVIRONMENT.md  ${bucket ? `s3://${bucket}` : "the sets, and no network"}`,
   );
@@ -578,8 +573,11 @@ export function handover(root, todo) {
   console.log(
     `\nStill to do before the run:\n` +
       todo.map((item) => `  - ${item}\n`).join("") +
-      `\nOpen the session in ${join(root, "cleanroom")} — not in the root beside it, and never\n` +
-      `in the repo — and keep the previous run's report out of it. Diffing the two\n` +
+      `\nRun it headless from ${join(root, "cleanroom")} — not the root beside it, and\n` +
+      `never the repo — with the README's command:\n` +
+      `    claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid> \\\n` +
+      `      --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go\n` +
+      `and keep the previous run's report out of it. Diffing the two\n` +
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
       `fix that didn't land.`,
   );
