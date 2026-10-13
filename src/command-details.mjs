@@ -81,21 +81,23 @@ On a terminal you confirm by typing the bucket name; scripts must pass
 --force (the prompt is never required).`;
 
 export const awsDetails = `It only PRINTS the steps — it never touches your account and needs no
-credentials to run, so you can read the whole plan first. It emits a
-CloudFormation template that stands up the bucket (versioning ON as your
-safety net, and Retain-protected so a stack delete can't destroy it) plus a
+credentials to run, so you can read the whole plan first. It emits two
+CloudFormation templates: one for the bucket (versioning ON as your safety
+net, and Retain-protected so a stack delete can't destroy it), one for a
 least-privilege identity that can never permanently destroy backup history.
-Deploy it, mint one access key, point s3cab at it.
+Deploy them, mint one access key, point s3cab at it. If the bucket already
+exists, skip the bucket template.
 
 Choosing an identity:
   (default)          a dedicated AWS IAM user with an access key
-  --roles-anywhere   keyless, certificate-based access (recommended)
+  --roles-anywhere   keyless, certificate-based access (advanced)
 
 With --roles-anywhere it generates a machine-level CA + client certificate
 under ~/.s3cab/roles-anywhere/ (the private key never leaves your machine),
-emits a template embedding the public CA as a trust anchor, then captures the
-deployed stack's ARNs back with:
-  s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>
+and the identity template embeds the public CA as a trust anchor. Its stack
+is this machine's alone, so another machine, or another bucket, runs the
+same steps. It prints the command that captures the deployed stack's ARNs:
+  s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>-<fingerprint>
 
 AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2,
 Wasabi, …), run 's3cab help provider' for the setup steps instead. Signing in

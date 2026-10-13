@@ -5,7 +5,7 @@ import { RolesAnywhereSessionError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
 import {
   createSession,
-  identityStackName,
+  identityEnvPath,
   isRolesAnywhereMode,
   machineIdentityDir,
   readSigningIdentity,
@@ -83,7 +83,10 @@ const isExpiredSignIn = (error) =>
  *   mode, and which half failed: this machine's certificate identity is absent or
  *   incomplete (`identity`), or it is whole and AWS refused it a session (`session`).
  * @property {string} [bucket] - The set's bucket, so a Roles Anywhere fix can name
- *   the stack (`S3CAB_BUCKET` from the loaded set's env).
+ *   it (`S3CAB_BUCKET` from the loaded set's env).
+ * @property {{ stack: string, region: string }} [saved] - In the `session` case,
+ *   the identity stack and region the bucket's ARNs were captured from, so the fix
+ *   can re-capture exactly that stack.
  */
 
 /**
@@ -107,34 +110,36 @@ const isExpiredSignIn = (error) =>
  * @returns {{ annotation: string, diagnosis?: string, source?: string, fix: string }}
  */
 const credentialCase = (set, ctx) => {
-  const { profile, knownProfiles, endpoint, rolesAnywhere, bucket } = ctx;
+  const { profile, knownProfiles, endpoint, rolesAnywhere, bucket, saved } =
+    ctx;
   if (rolesAnywhere === "identity") {
     return {
       annotation: "Roles Anywhere",
       diagnosis: `Set '${set.name}' uses Roles Anywhere (keyless), but this machine's
-certificate identity is missing, incomplete, or its ARNs were never captured.`,
+certificate identity is missing, incomplete, or its ARNs were never captured
+for bucket '${bucket ?? "<bucket>"}'.`,
       source: `your machine's Roles Anywhere identity
      (${tildeify(machineIdentityDir())})`,
-      fix: `To set it up (or repair it), generate the identity and emit its template:
+      fix: `To set it up (or repair it), generate the identity and emit its templates:
 ${setupSteps(bucket)}`,
     };
   }
   if (rolesAnywhere === "session") {
     // The identity is whole and the request was signed; AWS is what said no. The
     // usual reasons are all on the cloud side — the stack was torn down, was
-    // deployed in a region other than the one the identity's env names, or the
+    // deployed in a region other than the one the bucket's env file names, or the
     // ARNs captured are from an earlier deploy — so the fix leads with capturing
     // the live stack again and falls back to standing the identity up afresh.
+    const { stack, region } = saved ?? { stack: "<stack>", region: "<region>" };
     return {
       annotation: "Roles Anywhere",
       diagnosis: `Set '${set.name}' uses Roles Anywhere (keyless), and this machine's
 certificate identity is in place, but AWS would not exchange it for a session.`,
       source: `AWS Roles Anywhere, using the identity at
-     ${tildeify(machineIdentityDir())}`,
-      fix: `To fix it, check that the identity's stack is still deployed in the region its
-env file names (AWS_REGION in ${tildeify(machineIdentityDir())}/env), then capture
-its ARNs again:
-  ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`)}
+     ${tildeify(identityEnvPath(bucket ?? "<bucket>"))}`,
+      fix: `To fix it, check that stack '${stack}' is still deployed
+in ${region}, then capture its ARNs again:
+  ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${stack} --region ${region}`)}
 
 If the stack is gone, or the certificate no longer matches its trust anchor, set the
 identity up afresh:
@@ -671,7 +676,7 @@ export const isCredentialProviderError = (error) =>
 const resolveRolesAnywhereCredentials = async () => {
   const set = loadedSet();
   const bucket = process.env.S3CAB_BUCKET;
-  const identity = readSigningIdentity();
+  const identity = readSigningIdentity(bucket);
   if (!identity) {
     throw noCredentialsError(
       new Error(
@@ -690,6 +695,7 @@ const resolveRolesAnywhereCredentials = async () => {
         set,
         rolesAnywhere: "session",
         bucket,
+        saved: { stack: identity.stack, region: identity.region },
       });
     }
     throw error;

@@ -96,13 +96,17 @@ function loadRaSet(root) {
   return set;
 }
 
-/** A complete machine identity: the four files plus the captured ARNs. */
-function makeIdentity() {
+/**
+ * A complete machine identity: the four files plus a bucket's captured ARNs.
+ * @param {string} [bucket] - Whose ARNs to capture (default: the set's).
+ */
+function makeIdentity(bucket = "my-bucket") {
   ensureMachineIdentity();
   writeFileSync(
-    identityEnvPath(),
+    identityEnvPath(bucket),
     "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
-      "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+      "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n" +
+      `S3CAB_RA_STACK=s3cab-${bucket}-0a1b2c3d\n`,
   );
 }
 
@@ -126,7 +130,22 @@ describe("resolveCredentials in Roles Anywhere mode", () => {
     assert.match(error.message, /^No credentials found for set 'photos'\./);
     assert.match(error.message, /certificate identity is missing, incomplete/);
     assert.match(error.message, /s3cab aws my-bucket --roles-anywhere/);
-    assert.match(error.message, /--from-stack s3cab-my-bucket/);
+  });
+
+  it("treats another bucket's ARNs as no identity for this one (ADR-0105)", async () => {
+    await using dir = await mkTmpDir();
+    loadRaSet(dir.path);
+    // Captured for a different bucket only: signing in with that bucket's role
+    // would be denied on this one, so it must not be used.
+    makeIdentity("other-bucket");
+
+    const error = await rejectionOf();
+
+    assert.match(
+      error.message,
+      /ARNs were never captured\s+for bucket 'my-bucket'/,
+    );
+    assert.match(error.message, /s3cab aws my-bucket --roles-anywhere/);
   });
 
   it("frames a refused session the same way, quoting the endpoint's reason", async () => {
@@ -144,7 +163,11 @@ describe("resolveCredentials in Roles Anywhere mode", () => {
     assert.match(error.message, /^No credentials found for set 'photos'\./);
     assert.match(error.message, /AWS would not exchange it for a session/);
     assert.match(error.message, /HTTP 403.*Invalid or empty profile provided/);
-    assert.match(error.message, /--from-stack s3cab-my-bucket/);
+    // The fix re-captures exactly the stack and region the ARNs came from.
+    assert.match(
+      error.message,
+      /--save --from-stack s3cab-my-bucket-0a1b2c3d --region eu-west-1/,
+    );
     // The set's env file is step 1 of "looked in", as for every set-scoped error.
     assert.match(
       error.message,

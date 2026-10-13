@@ -1,6 +1,8 @@
 # Roles Anywhere: a fourth credential mode, set up generatively and signed natively
 
-**Status:** accepted and **implemented** (native signer validated by a live spike 2026-07-14;
+**Status:** accepted and **implemented**; the identity model's one trust anchor and one set of
+addresses per machine amended by [0105](0105-bucket-and-identity-stacks.md) (a trust anchor per
+machine, addresses per bucket). (Native signer validated by a live spike 2026-07-14;
 both phases — setup and the runtime signer — now shipped in
 [src/lib/roles-anywhere.mjs](../../src/lib/roles-anywhere.mjs) /
 [src/lib/auth.mjs](../../src/lib/auth.mjs)). Sits beside

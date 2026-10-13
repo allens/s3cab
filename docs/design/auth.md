@@ -160,8 +160,8 @@ command uses (`listProfiles`, [ADR-0031](../adr/0031-aws-profile-config-door.md)
 
 | Case | Diagnosis + fix |
 | --- | --- |
-| Roles Anywhere, **no complete identity** on this machine | *set 'photos' uses Roles Anywhere, but this machine's certificate identity is missing, incomplete, or its ARNs were never captured.* The three-step recipe (`s3cab aws <bucket> --roles-anywhere`, deploy, `--save --from-stack`), spelled for the set's bucket. |
-| Roles Anywhere, identity present, **session refused** | *…and this machine's certificate identity is in place, but AWS would not exchange it for a session*, quoting the endpoint. Check the stack is deployed in the region the identity's env names and re-capture its ARNs; failing that, the recipe. |
+| Roles Anywhere, **no complete identity** for the set's bucket | *set 'photos' uses Roles Anywhere, but this machine's certificate identity is missing, incomplete, or its ARNs were never captured for bucket 'b'.* `s3cab aws <bucket> --roles-anywhere`, spelled for the set's bucket, then the steps it prints. |
+| Roles Anywhere, identity present, **session refused** | *…and this machine's certificate identity is in place, but AWS would not exchange it for a session*, quoting the endpoint. Check the saved stack is still deployed in the saved region and re-capture its ARNs (both quoted from `<bucket>.env`); failing that, the recipe. |
 | Profile set, **absent** from `~/.aws` | The "aha": *set 'photos' uses profile 'x', but it isn't in your AWS config.* Create it (`aws configure --profile x`, or `aws configure sso`) or point the set elsewhere. |
 | Profile set, **present** (or `~/.aws` unreadable) | It produced nothing: sign in if SSO (`aws sso login --profile x`), else check the profile's keys. |
 | Custom **endpoint** (non-AWS), no keys | Save the provider's key pair: `s3cab provider --keys <set>`. |

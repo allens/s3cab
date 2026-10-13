@@ -56,16 +56,17 @@ const seedSetEnv = (/** @type {string} */ name, /** @type {string} */ body) =>
 
 /**
  * Stand up a *complete* machine Roles Anywhere identity under the temp home —
- * the four cert/key files plus the captured ARNs — which `--roles-anywhere`
- * requires before it will point a set at it (the readiness gate shared with
- * `setup`, lib/provider.mjs).
+ * the four cert/key files plus the ARNs captured for the set's bucket — which
+ * `--roles-anywhere` requires before it will point a set at it (the readiness
+ * gate shared with `setup`, lib/provider.mjs).
  */
 function makeIdentity() {
   ensureMachineIdentity();
   writeFileSync(
-    identityEnvPath(),
+    identityEnvPath("my-bucket"),
     "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
-      "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+      "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n" +
+      "S3CAB_RA_STACK=s3cab-my-bucket-0a1b2c3d\n",
   );
 }
 
@@ -441,7 +442,7 @@ describe("provider --roles-anywhere", () => {
     // spelled for the set's own bucket (the gate `setup` also runs).
     await assert.rejects(
       () => provider("photos", { "roles-anywhere": true }),
-      /no complete Roles Anywhere identity yet.*s3cab aws my-bucket --roles-anywhere.*--from-stack s3cab-my-bucket/s,
+      /no complete Roles Anywhere identity for bucket 'my-bucket' yet.*s3cab aws my-bucket --roles-anywhere/s,
     );
     assert.equal(setEnv().S3CAB_RA, undefined); // nothing written
   });
@@ -450,11 +451,11 @@ describe("provider --roles-anywhere", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
-    ensureMachineIdentity(); // the four files, but no env → not signable
+    ensureMachineIdentity(); // the four files, but no my-bucket.env → not signable
 
     await assert.rejects(
       () => provider("photos", { "roles-anywhere": true }),
-      /no complete Roles Anywhere identity yet/,
+      /no complete Roles Anywhere identity for bucket 'my-bucket' yet/,
     );
     assert.equal(setEnv().S3CAB_RA, undefined);
   });

@@ -600,7 +600,8 @@ the API**, and some of them you are expected to edit directly in a text editor:
       snapshots/
         2026-06-12T0915.tsv.gz    # same format as the bucket's copy, byte for byte
   roles-anywhere/        # only if the keyless identity is set up — see below
-  my-backup-bucket.yaml  # a CloudFormation template `s3cab aws` wrote, named per bucket
+  my-backup-bucket-bucket.yaml  # CloudFormation templates `s3cab aws` wrote: the bucket,
+  my-backup-bucket-user.yaml    #   and an identity (or my-backup-bucket-<fingerprint>.yaml)
 ```
 
 `~/.s3cab` is the default home; setting the **`S3CAB_HOME`** environment variable relocates
@@ -615,10 +616,12 @@ set it, and when not to, is in [backing up](backup.md#the-change-time-check).
 
 `roles-anywhere/` holds the machine's keyless identity, shared by every set in that mode:
 the self-signed CA (`ca.pem`/`ca.key`), the client certificate and its signing key
-(`client.pem`/`client.key` — the private keys never leave this directory), and an `env`
-file holding the three `S3CAB_RA_*_ARN` values plus `AWS_REGION`, captured from the deployed
-CloudFormation stack by `s3cab aws --roles-anywhere --save`. It is machine identity, not set
-config — leave it out of any backup you share.
+(`client.pem`/`client.key` — the private keys never leave this directory), and one
+`<bucket>.env` file per bucket, holding the three `S3CAB_RA_*_ARN` values, `AWS_REGION` and
+`S3CAB_RA_STACK` (the stack they came from), captured from the deployed CloudFormation stack
+by `s3cab aws --roles-anywhere --save`. A set in Roles Anywhere mode signs in with the file
+named for its bucket. It is machine identity, not set config — leave it out of any backup
+you share.
 
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
 dot, neither is ever uploaded, and both are safe to delete when nothing is running. Neither

@@ -412,21 +412,18 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     // Step 2 names the machine identity, not the AWS chain.
     assert.match(error.message, /your machine's Roles Anywhere identity/);
     assert.doesNotMatch(error.message, /standard AWS setup/);
-    // The exact, copy-pasteable setup + ARN-capture commands.
+    // The exact, copy-pasteable setup command.
     assert.match(error.message, /s3cab aws <bucket> --roles-anywhere/);
-    assert.match(error.message, /--save --from-stack s3cab-<bucket>/);
   });
 
   it("spells the Roles Anywhere recipe for the set's bucket when it is known", () => {
     const error = noCredentialsError(new Error("no identity"), {
       set,
       rolesAnywhere: "identity",
-      bucket: "s3cab-photos",
+      bucket: "photos",
     });
-    assert.match(error.message, /s3cab aws s3cab-photos --roles-anywhere/);
-    // The stack stem de-dupes the `s3cab-` prefix (ADR-0056's naming rule).
-    assert.match(error.message, /--from-stack s3cab-photos\b/);
-    assert.doesNotMatch(error.message, /s3cab-s3cab-/);
+    assert.match(error.message, /never captured\s+for bucket 'photos'/);
+    assert.match(error.message, /s3cab aws photos --roles-anywhere/);
   });
 
   it("quotes the endpoint's refusal and steers to re-capturing the stack when a session is refused", () => {
@@ -439,6 +436,7 @@ describe("noCredentialsError (set-scoped guidance)", () => {
       set,
       rolesAnywhere: "session",
       bucket: "my-bucket",
+      saved: { stack: "s3cab-my-bucket-0a1b2c3d", region: "eu-west-1" },
     });
     assert.equal(error.cause, refusal);
     assert.match(error.message, /^No credentials found for set 'photos'\./);
@@ -447,9 +445,17 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     assert.match(error.message, /AWS Roles Anywhere/);
     assert.match(error.message, /Invalid or empty profile provided/);
     assert.doesNotMatch(error.message, /standard AWS setup/);
-    // The fix leads with the region check + re-capture, for the set's bucket.
-    assert.match(error.message, /AWS_REGION in .*roles-anywhere[\\/]env/);
-    assert.match(error.message, /--save --from-stack s3cab-my-bucket/);
+    // The identity named is this bucket's, and the fix re-captures exactly the
+    // stack and region its ARNs came from.
+    assert.match(error.message, /roles-anywhere[\\/]my-bucket\.env/);
+    assert.match(
+      error.message,
+      /stack 's3cab-my-bucket-0a1b2c3d' is still deployed\s+in eu-west-1/,
+    );
+    assert.match(
+      error.message,
+      /--save --from-stack s3cab-my-bucket-0a1b2c3d --region eu-west-1/,
+    );
     // …and falls back to standing the identity up afresh.
     assert.match(error.message, /s3cab aws my-bucket --roles-anywhere/);
   });

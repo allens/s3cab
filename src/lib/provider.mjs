@@ -117,16 +117,18 @@ async function readKeys() {
 
 /**
  * The error `--roles-anywhere` raises when this machine has no complete Roles
- * Anywhere identity yet. RA is a *machine* identity stood up by `s3cab aws`
- * (ADR-0057); `setup`/`provider --roles-anywhere` only point a set at it, so
- * writing the marker with nothing behind it would make the very next cloud op
- * fail on a half-built identity. Point at the recipe instead (ADR-0030).
+ * Anywhere identity for the set's bucket yet. RA is a *machine* identity stood up
+ * by `s3cab aws`, with its ARNs captured per bucket (ADR-0057/0105);
+ * `setup`/`provider --roles-anywhere` only point a set at it, so writing the
+ * marker with nothing behind it would make the very next cloud op fail on a
+ * half-built identity. Point at the recipe instead (ADR-0030).
  * @param {string} [bucket] - The set's bucket, to spell the recipe for it.
  */
 const rolesAnywhereNotReadyError = (bucket) =>
   new Error(
     `Set up the keyless Roles Anywhere identity before pointing a set at it.
-This machine has no complete Roles Anywhere identity yet. Generate it and emit its template:
+This machine has no complete Roles Anywhere identity for bucket '${bucket ?? "<bucket>"}' yet.
+Generate it and emit its templates:
 ${setupSteps(bucket)}`,
   );
 
@@ -182,7 +184,7 @@ export async function gatherProviderConfig({
       "Roles Anywhere is AWS-only, so it can't be combined with a custom --endpoint (that's for non-AWS S3 providers).",
     );
   }
-  if (rolesAnywhere && !readSigningIdentity()) {
+  if (rolesAnywhere && !readSigningIdentity(bucket)) {
     throw rolesAnywhereNotReadyError(bucket);
   }
   /** @type {Record<string, string>} */

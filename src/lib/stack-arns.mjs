@@ -7,6 +7,7 @@ import { ValidationError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 import {
+  STACK_ENV,
   arnsFromOutputs,
   identityEnvPath,
   machineIdentityDir,
@@ -30,9 +31,11 @@ import {
 // only adds the CloudFormation read + the env-file write around them.
 
 /**
- * Read a deployed onboarding stack's three RA ARNs and persist them (plus the
- * region) into the machine identity's `env` file — the `--save --from-stack` step
- * (ADR-0056/0057). Read-only: a single `DescribeStacks` via
+ * Read a deployed identity stack's three RA ARNs and persist them (plus the region
+ * and the stack's name) into the env file of the bucket the stack serves — the
+ * `--save --from-stack` step (ADR-0056/0057/0105). The bucket comes from the
+ * stack's own `Bucket` output, so a second bucket's `--save` writes a second file
+ * and never overwrites the first's. Read-only: a single `DescribeStacks` via
  * `@aws-sdk/client-cloudformation`, authenticated by `profile` when given (the
  * same admin profile the recipe's step 1 deployed the stack with), else the
  * deployer's ambient credentials; it creates nothing.
@@ -42,7 +45,7 @@ import {
  * failure. Likewise a stack whose outputs are absent (wrong stack, or the IAM-user
  * template) points the user at the right command.
  * @param {{ stackName: string, region: string, profile?: string }} params
- * @returns {Promise<{ dir: string, arns: Record<string, string>, region: string }>}
+ * @returns {Promise<{ bucket: string, envPath: string }>}
  */
 export async function saveArnsFromStack({ stackName, region, profile }) {
   if (!machineIdentityExists()) {
@@ -57,17 +60,23 @@ export async function saveArnsFromStack({ stackName, region, profile }) {
   const response = await client.send(
     new DescribeStacksCommand({ StackName: stackName }),
   );
-  const { arns, missing } = arnsFromOutputs(
+  const { arns, bucket, missing } = arnsFromOutputs(
     response.Stacks?.[0]?.Outputs ?? [],
   );
-  if (missing.length > 0) {
+  if (!bucket || missing.length > 0) {
     throw new ValidationError(
       `Stack "${stackName}" is missing the Roles Anywhere outputs (${missing.join(", ")}).\n` +
         `Check the stack name, its region (--region ${region}), and that it was\n` +
-        `deployed from the --roles-anywhere template (not the IAM-user one).`,
+        `deployed from the --roles-anywhere identity template (not the bucket or\n` +
+        `IAM-user one).`,
     );
   }
 
-  updateEnvFile(identityEnvPath(), { ...arns, AWS_REGION: region });
-  return { dir: machineIdentityDir(), arns, region };
+  const envPath = identityEnvPath(bucket);
+  updateEnvFile(envPath, {
+    ...arns,
+    AWS_REGION: region,
+    [STACK_ENV]: stackName,
+  });
+  return { bucket, envPath };
 }

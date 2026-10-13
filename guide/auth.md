@@ -16,7 +16,7 @@ Each backup set signs in **one** way. Pick whichever fits:
 | ------------------- | ------------------------------------------------------------------- | ------------------------------ |
 | **Profile**         | a named profile in your existing AWS config                         | AWS users who already have one |
 | **Access keys**     | an access key ID + secret key, stored on the set                    | non-AWS providers              |
-| **Roles Anywhere**  | a certificate that mints short-lived credentials — no long-lived key | AWS, recommended               |
+| **Roles Anywhere**  | a certificate that mints short-lived credentials — no long-lived key | AWS, advanced setup            |
 | **Ambient**         | the set records nothing; your machine's AWS setup supplies it        | one obvious AWS identity       |
 
 Set them with `s3cab provider`, or on the set as you create it — `s3cab setup` takes the same
@@ -70,8 +70,9 @@ Your machine authenticates with a certificate and receives credentials that last
 hour, so no long-lived AWS key sits on disk. Set it up with `s3cab aws <bucket>
 --roles-anywhere`, then point a set at it. It's AWS-only, so it can't be combined with a
 custom endpoint. The certificate and its keys live in `~/.s3cab/roles-anywhere/`, shared by
-every set in this mode; a set opts in with the single marker `S3CAB_RA=1` in its `env` file —
-a pointer, never the key material. [The cloud-bucket guide](aws.md#--roles-anywhere--keyless-certificate-based-access)
+every set in this mode, beside one file per bucket holding that bucket's identity addresses;
+a set opts in with the single marker `S3CAB_RA=1` in its `env` file — a pointer, never the
+key material — and signs in with the identity for its own bucket. [The cloud-bucket guide](aws.md#--roles-anywhere--keyless-certificate-based-access)
 has the full model, including an honest account of what it does and doesn't protect against.
 
 ## Where s3cab looks

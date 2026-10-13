@@ -134,13 +134,14 @@ describe("setup provider knobs", () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberDir(dir.path);
     // The positive twin of setup.test.mjs's "refuses --roles-anywhere … no
-    // identity": with the four files *and* the captured ARNs in place, the
-    // readiness gate (shared with `provider`, lib/provider.mjs) lets it through.
+    // identity": with the four files *and* the bucket's captured ARNs in place,
+    // the readiness gate (shared with `provider`, lib/provider.mjs) lets it through.
     ensureMachineIdentity();
     writeFileSync(
-      identityEnvPath(),
+      identityEnvPath("my-bucket"),
       "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
-        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n" +
+        "S3CAB_RA_STACK=s3cab-my-bucket-0a1b2c3d\n",
     );
 
     await setup([photos], {
@@ -150,6 +151,8 @@ describe("setup provider knobs", () => {
     });
 
     assert.equal(envAtClaim?.S3CAB_RA, "1"); // the claim authenticated as RA
+    // …with the bucket in scope, which is how the signer picks its ARNs.
+    assert.equal(envAtClaim?.S3CAB_BUCKET, "my-bucket");
     assert.equal(parseEnvFile(readSet("photos").envPath).S3CAB_RA, "1");
   });
 

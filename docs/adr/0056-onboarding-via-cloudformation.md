@@ -1,6 +1,7 @@
 # Cloud onboarding emits CloudFormation templates; `--sso` retired
 
-**Status:** accepted. Amends
+**Status:** accepted; *Resources & names* and the `--roles-anywhere` "recommended" line amended
+by [0105](0105-bucket-and-identity-stacks.md) (a bucket stack plus one stack per identity). Amends
 [0032](0032-generative-onboarding-not-active-provisioning.md) — its generative principle stands,
 only the delivery form changes; carries [0033](0033-bucket-onboarding-security-model.md)'s
 protections into the template; amends [0035](0035-aws-profile-sets-command-rationalization.md) —

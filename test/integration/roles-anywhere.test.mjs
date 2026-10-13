@@ -37,11 +37,9 @@ import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 // and download all authenticate through the certificate).
 //
 // It needs the standard test bucket (the harness gate) PLUS a machine RA identity
-// with a *deployed* trust anchor — trivial to stand up via Phase A-2:
-//   s3cab aws <bucket> --roles-anywhere            # generate certs + template
-//   aws cloudformation deploy … --stack-name s3cab-<bucket>
-//   s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>
-// then point this suite at that s3cab home:
+// with its identity stack deployed *for the test bucket* — run
+//   s3cab aws <bucket> --roles-anywhere
+// and the steps it prints, then point this suite at that s3cab home:
 //   export S3CAB_TEST_RA_HOME="$HOME/.s3cab"        # holds roles-anywhere/
 // Absent that (identity not stood up), the RA cases skip with this reason rather
 // than hard-fail — the deployed trust anchor is an extra prerequisite beyond the
@@ -51,10 +49,10 @@ const RA_HOME = process.env.S3CAB_TEST_RA_HOME;
 const raReady =
   Boolean(RA_HOME) &&
   existsSync(join(String(RA_HOME), "roles-anywhere", "client.key")) &&
-  existsSync(join(String(RA_HOME), "roles-anywhere", "env"));
+  existsSync(join(String(RA_HOME), "roles-anywhere", `${bucket}.env`));
 const skip = raReady
   ? false
-  : "no Roles Anywhere identity — stand one up via the Phase A-2 flow (see this file's header comment for the three steps), then point S3CAB_TEST_RA_HOME at the s3cab home holding roles-anywhere/";
+  : `no Roles Anywhere identity for bucket ${bucket} — stand one up (see this file's header comment), then point S3CAB_TEST_RA_HOME at the s3cab home holding roles-anywhere/`;
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -96,7 +94,7 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
       await using dir = await mkTmpDir();
       useTempHomeWithRaIdentity(dir.path);
 
-      const identity = readSigningIdentity();
+      const identity = readSigningIdentity(bucket);
       assert.ok(identity, "the copied RA identity must be complete");
       const creds = await createSession(identity);
 
@@ -121,12 +119,16 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
       // Point the identity at a region its stack was never deployed in: the
       // signature is valid, and AWS answers 403 for the unknown profile ARN —
       // the failure a torn-down or moved stack produces (ADR-0075's session case).
-      const env = readFileSync(identityEnvPath(), "utf8");
+      const env = readFileSync(identityEnvPath(bucket), "utf8");
       const region = /AWS_REGION=(\S+)/.exec(env)?.[1];
-      assert.ok(region, "the identity's env must name its region");
+      const stack = /S3CAB_RA_STACK=(\S+)/.exec(env)?.[1];
+      assert.ok(
+        region && stack,
+        "the identity's env must name its region and stack",
+      );
       const elsewhere = region === "us-east-1" ? "eu-west-1" : "us-east-1";
       writeFileSync(
-        identityEnvPath(),
+        identityEnvPath(bucket),
         env.replace(/AWS_REGION=\S+/, `AWS_REGION=${elsewhere}`),
       );
       writeSet("photos", { dirs: [dir.path], bucket });
@@ -143,9 +145,8 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
       assert.match(error.message, /^No credentials found for set 'photos'\./);
       assert.match(error.message, /AWS would not exchange it for a session/);
       assert.match(error.message, /HTTP 403/);
-      assert.match(
-        error.message,
-        new RegExp(`--from-stack s3cab-${bucket.replace(/^s3cab-/, "")}`),
+      assert.ok(
+        error.message.includes(`--from-stack ${stack} --region ${elsewhere}`),
       );
     },
   );

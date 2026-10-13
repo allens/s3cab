@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { aws } from "./aws.mjs";
 import { s3cabDir } from "../lib/home.mjs";
+import { caFingerprint, machineIdentityDir } from "../lib/roles-anywhere.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the `aws` command: the *routing* (which recipe it returns, or the
@@ -57,26 +58,48 @@ describe("aws routing", () => {
     assert.match(out, /create-access-key --user-name s3cab-my-backups-user/);
   });
 
-  it("writes the template to ~/.s3cab/<bucket>.yaml and points the recipe at it", async () => {
+  it("writes the bucket and user templates under ~/.s3cab/ and points the recipe at them", async () => {
     const out = await aws("my-backups");
-    const path = join(s3cabDir(), "my-backups.yaml");
-    const template = readFileSync(path, "utf8");
-    // The YAML body is on disk (not in the recipe), and the deploy command names it.
-    assert.match(template, /AWSTemplateFormatVersion/);
-    assert.match(template, /Type: AWS::S3::Bucket/);
-    assert.match(out, /Wrote the CloudFormation template to/);
+    const bucketPath = join(s3cabDir(), "my-backups-bucket.yaml");
+    const userPath = join(s3cabDir(), "my-backups-user.yaml");
+    // The YAML bodies are on disk (not in the recipe), and the deploy commands name them.
+    assert.match(readFileSync(bucketPath, "utf8"), /Type: AWS::S3::Bucket/);
+    assert.match(readFileSync(userPath, "utf8"), /Type: AWS::IAM::User/);
     // Plain substring, not a RegExp — a Windows path has backslashes that would be
     // read as regex escapes.
-    assert.ok(out.includes(`--template-file "${path}"`));
+    assert.ok(out.includes(`--template-file "${bucketPath}"`));
+    assert.ok(out.includes(`--template-file "${userPath}"`));
     assert.doesNotMatch(out, /AWSTemplateFormatVersion/);
   });
 
-  it("generates the identity and writes the RA template with --roles-anywhere", async () => {
+  it("generates the identity and writes this machine's RA template, named by its CA", async () => {
     const out = await aws("my-backups", { "roles-anywhere": true });
-    const template = readFileSync(join(s3cabDir(), "my-backups.yaml"), "utf8");
+    const caPem = readFileSync(join(machineIdentityDir(), "ca.pem"), "utf8");
+    const fingerprint = caFingerprint(caPem);
+    const template = readFileSync(
+      join(s3cabDir(), `my-backups-${fingerprint}.yaml`),
+      "utf8",
+    );
     assert.match(template, /Type: AWS::RolesAnywhere::TrustAnchor/);
-    assert.match(template, /-----BEGIN CERTIFICATE-----/);
-    assert.match(out, /s3cab aws --roles-anywhere --save --from-stack/);
+    assert.ok(template.includes(caPem.trim().split("\n")[1] ?? "?"));
+    assert.ok(
+      out.includes(`--save --from-stack s3cab-my-backups-${fingerprint}`),
+    );
+  });
+
+  it("gives a second machine's CA a second identity stack, never the first one's", async () => {
+    const first = await aws("my-backups", { "roles-anywhere": true });
+    // Another machine: a fresh s3cab home, so a fresh CA.
+    useTempHome(mkdtempSync(join(tmpHomeRoot, "other-")));
+    const second = await aws("my-backups", { "roles-anywhere": true });
+    const stack = (/** @type {string} */ out) =>
+      /--save --from-stack (\S+)/.exec(out)?.[1];
+    assert.ok(stack(first));
+    assert.notEqual(stack(second), stack(first));
+    // Both share the one bucket stack.
+    const bucketStack = (/** @type {string} */ out) =>
+      /--stack-name (\S+-bucket) /.exec(out)?.[1];
+    assert.equal(bucketStack(second), bucketStack(first));
   });
 
   it("redirects to 'help provider' when a custom endpoint is set (not AWS)", async () => {
@@ -142,6 +165,14 @@ describe("aws validation", () => {
 
   it("rejects a malformed bucket name (a path, not a bare name)", async () => {
     await assert.rejects(aws("my/prefix"), { name: "ValidationError" });
+  });
+
+  it("caps a Roles Anywhere bucket name tighter than an access-key one (the role name is longer)", async () => {
+    const name = "b".repeat(50);
+    assert.match(await aws(name), /create-access-key/);
+    await assert.rejects(aws(name, { "roles-anywhere": true }), {
+      name: "ValidationError",
+    });
   });
 
   it("rejects an AWS-incompatible bucket name (dots break the stack name)", async () => {

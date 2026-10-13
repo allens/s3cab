@@ -324,10 +324,18 @@ Long-lived and generate-and-forget (ADR-0057).
 _Avoid_: key (the certificate is not the private key), token.
 
 **Machine RA identity**:
-The machine-level cluster a Roles Anywhere setup produces — the CA, the client certificate + key,
-and the trust-anchor / role / profile ARNs — stored once under `~/.s3cab/roles-anywhere/`. Every set
-in Roles Anywhere mode shares it, the way sets share a machine-level `AWS_PROFILE` (ADR-0057).
+The machine-level cluster a Roles Anywhere setup produces under `~/.s3cab/roles-anywhere/` — the CA
+and the client certificate + key, once per machine, and the trust-anchor / role / profile ARNs, once
+per bucket. Every set in Roles Anywhere mode shares the certificate and signs in with its own bucket's
+ARNs (ADR-0057/0105).
 _Avoid_: certificate store, PKI.
+
+**Bucket stack** / **Identity stack**:
+The two kinds of CloudFormation stack `s3cab aws` has you deploy (ADR-0105). The bucket stack holds
+only the bucket and its protections, the same for every identity and machine. An identity stack holds
+one identity and its access policy: the IAM user, or one machine's Roles Anywhere trust anchor, role and
+profile.
+_Avoid_: onboarding stack (there are two).
 
 ### Proving the format
 

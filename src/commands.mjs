@@ -236,7 +236,7 @@ export const commands = {
       "from-stack": {
         type: "string",
         description:
-          "The deployed CloudFormation stack to read Roles Anywhere ARNs from (e.g. s3cab-<bucket>)",
+          "The deployed identity stack to read Roles Anywhere ARNs from (s3cab-<bucket>-<fingerprint>)",
       },
       profile: {
         type: "string",

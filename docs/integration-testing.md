@@ -125,26 +125,18 @@ npm run test:integration
 A configured bucket gets you every suite but two. The **Roles Anywhere** cases
 ([test/integration/roles-anywhere.test.mjs](../test/integration/roles-anywhere.test.mjs)) report
 as *skipped* until this machine has a working RA identity, because they authenticate with a real
-certificate rather than the ambient chain. That needs two things beyond the bucket — a
-**deployed** trust anchor, and a pointer to the s3cab home holding the certificate:
+certificate rather than the ambient chain. That needs two things beyond the bucket — an
+identity stack **deployed** for the test bucket, and a pointer to the s3cab home holding the
+certificate. Run `s3cab aws <test-bucket> --roles-anywhere --region <test-bucket-region>` and
+the steps it prints, **skipping step 1**: the test bucket already exists, so its bucket stack
+would fail, and the identity stack carries its own policy without it. Then:
 
 ```sh
-s3cab aws <bucket> --roles-anywhere                        # writes ~/.s3cab/<bucket>.yaml + the CA/cert
-aws cloudformation deploy --template-file ~/.s3cab/<bucket>.yaml --stack-name s3cab-<bucket> \
-  --capabilities CAPABILITY_NAMED_IAM
-s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # captures the ARNs locally
-export S3CAB_TEST_RA_HOME="$HOME/.s3cab"                        # the home holding roles-anywhere/
+export S3CAB_TEST_RA_HOME="$HOME/.s3cab"   # the home holding roles-anywhere/<test-bucket>.env
 ```
 
-**The template creates the bucket, and the test bucket already exists**, so the deploy above
-fails as written against it (`<bucket> already exists`). Before deploying, delete the
-`AWS::S3::Bucket` resource from the generated `~/.s3cab/<bucket>.yaml` and replace the two
-`!Ref`/`!GetAtt` references to it in the policy with the literal bucket ARN
-(`arn:aws:s3:::<bucket>` and `arn:aws:s3:::<bucket>/*`); `aws cloudformation validate-template`
-confirms the edit before `deploy` runs it. The stack then holds only the identity (trust anchor,
-profile, role, policy). Deploy it in the **test bucket's region** — the ARNs `--save` captures are
-regional, and the suite's refused-session case deliberately mis-regions a copy of the identity to
-provoke the 403.
+Deploy in the **test bucket's region** — the ARNs `--save` captures are regional, and the
+suite's refused-session case deliberately mis-regions a copy of the identity to provoke the 403.
 
 Skipping them is not a hole in the safety net: the signer itself is pinned by a byte-for-byte
 parity unit test against a live-validated spike ([ADR-0058](adr/0058-roles-anywhere-cert-generation.md)),

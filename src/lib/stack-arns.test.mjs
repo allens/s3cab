@@ -45,6 +45,18 @@ const { saveArnsFromStack } = await import("./stack-arns.mjs");
 
 const mkTmpDir = () => mkdtempDisposable(join("test", ".tmp"));
 
+/**
+ * A Roles Anywhere identity stack's outputs for `bucket`.
+ * @param {string} bucket
+ * @returns {Output[]}
+ */
+const outputsFor = (bucket) => [
+  { OutputKey: "TrustAnchorArn", OutputValue: `arn:aws:ta/${bucket}` },
+  { OutputKey: "ProfileArn", OutputValue: `arn:aws:profile/${bucket}` },
+  { OutputKey: "RoleArn", OutputValue: `arn:aws:role/${bucket}` },
+  { OutputKey: "Bucket", OutputValue: bucket },
+];
+
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
 beforeEach(() => {
@@ -73,28 +85,64 @@ describe("saveArnsFromStack", () => {
 
   // The output→env-key mapping is unit-tested mock-free in `arnsFromOutputs`
   // (roles-anywhere.test.mjs); this covers only the wrapper's own I/O — that it
-  // persists what the mapping produced (plus the region) into the identity env file.
-  it("persists the mapped ARNs + region into the identity env file", async () => {
+  // persists what the mapping produced (plus the region and stack) into the env
+  // file of the bucket the stack names.
+  it("persists the mapped ARNs, region and stack into the bucket's env file", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     ensureMachineIdentity();
-    stackOutputs = [
-      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
-      { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
-      { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
-    ];
+    stackOutputs = outputsFor("photos");
 
-    await saveArnsFromStack({ stackName: "s3cab-foo", region: "eu-west-1" });
+    const result = await saveArnsFromStack({
+      stackName: "s3cab-photos-0a1b2c3d",
+      region: "eu-west-1",
+    });
 
-    const env = parseEnv(
-      readFileSync(join(machineIdentityDir(), "env"), "utf8"),
-    );
-    assert.equal(env.S3CAB_RA_TRUST_ANCHOR_ARN, "arn:aws:ta/1");
-    assert.equal(env.S3CAB_RA_PROFILE_ARN, "arn:aws:profile/2");
-    assert.equal(env.S3CAB_RA_ROLE_ARN, "arn:aws:role/3");
+    const envPath = join(machineIdentityDir(), "photos.env");
+    assert.deepEqual(result, { bucket: "photos", envPath });
+    const env = parseEnv(readFileSync(envPath, "utf8"));
+    assert.equal(env.S3CAB_RA_TRUST_ANCHOR_ARN, "arn:aws:ta/photos");
+    assert.equal(env.S3CAB_RA_PROFILE_ARN, "arn:aws:profile/photos");
+    assert.equal(env.S3CAB_RA_ROLE_ARN, "arn:aws:role/photos");
     assert.equal(env.AWS_REGION, "eu-west-1");
+    assert.equal(env.S3CAB_RA_STACK, "s3cab-photos-0a1b2c3d");
     // No --profile → the client runs on ambient credentials, not a stale profile.
     assert.deepEqual(clientConfig, { region: "eu-west-1", profile: undefined });
+  });
+
+  it("keeps each bucket's ARNs apart — a second bucket never overwrites the first's (ADR-0105)", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    stackOutputs = outputsFor("photos");
+    await saveArnsFromStack({
+      stackName: "s3cab-photos-x",
+      region: "eu-west-1",
+    });
+    stackOutputs = outputsFor("music");
+    await saveArnsFromStack({
+      stackName: "s3cab-music-x",
+      region: "us-east-1",
+    });
+
+    const role = (/** @type {string} */ bucket) =>
+      parseEnv(
+        readFileSync(join(machineIdentityDir(), `${bucket}.env`), "utf8"),
+      ).S3CAB_RA_ROLE_ARN;
+    assert.equal(role("photos"), "arn:aws:role/photos");
+    assert.equal(role("music"), "arn:aws:role/music");
+  });
+
+  it("refuses a Bucket output that isn't a plain bucket name — it becomes a file name", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    stackOutputs = outputsFor("../../escape");
+
+    await assert.rejects(
+      saveArnsFromStack({ stackName: "s3cab-x", region: "eu-west-1" }),
+      /not a single path segment/,
+    );
   });
 
   // The bug this guards against: `--save --from-stack … --profile <p>` used to
@@ -104,11 +152,7 @@ describe("saveArnsFromStack", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     ensureMachineIdentity();
-    stackOutputs = [
-      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
-      { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
-      { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
-    ];
+    stackOutputs = outputsFor("foo");
 
     await saveArnsFromStack({
       stackName: "s3cab-foo",

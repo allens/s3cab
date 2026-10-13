@@ -213,7 +213,7 @@ describe("setup (offline validation)", () => {
           bucket: "my-backups",
           "roles-anywhere": true,
         }),
-      /no complete Roles Anywhere identity yet.*s3cab aws my-backups --roles-anywhere/s,
+      /no complete Roles Anywhere identity for bucket 'my-backups' yet.*s3cab aws my-backups --roles-anywhere/s,
     );
   });
 
