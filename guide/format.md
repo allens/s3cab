@@ -392,7 +392,7 @@ can go stale later without the row being wrong.
 | `@S3CAB HOME` | the [s3cab home](#the-local-side-s3cab) on that machine |
 | `@SET NAME` | the set's name |
 | `@SET BUCKET` | the bucket, as `s3://<bucket>`; every set has one (`S3CAB_BUCKET`) |
-| `@SET ENDPOINT` | the S3 endpoint (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`), only for a provider other than AWS, where a bucket name alone doesn't say where it is |
+| `@SET ENDPOINT` | the S3 endpoint, whenever the set has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`); an endpoint is how a set names a provider other than AWS, where a bucket name alone doesn't say where it is |
 | `@SET DIR` | a member directory, one row each, always ending in a separator |
 | `@SET EXCLUDE` | an exclude pattern in force for this run, one row each, including any that matched nothing |
 | `@SNAPSHOT NAME` | the snapshot's name |

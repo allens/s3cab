@@ -516,8 +516,8 @@ and finding your way around from it is part of what is being tested.
       }`
     : `# Environment
 
-There is no network in this exercise. Each set's \`env\` names a bucket, which its snapshot
-records; nothing is uploaded to it.
+There is no network in this exercise. Each set's \`env\` names a bucket in a
+\`S3CAB_BUCKET=<bucket>\` line, which its snapshot records; nothing is uploaded to it.
 
 ${sets}`;
 
