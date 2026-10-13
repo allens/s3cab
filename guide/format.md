@@ -358,7 +358,9 @@ concretely: take the first tab-separated field and trim it, and compare it case-
 ### Links
 
 **A symbolic link or junction is never followed and never recorded** — a link can lead
-anywhere, including somewhere you never chose to back up.
+anywhere, including somewhere you never chose to back up. Those are the only links: other
+Windows reparse points, such as OneDrive's online-only files, are ordinary files and
+directories.
 
 | Link | Row |
 | --- | --- |
@@ -378,7 +380,9 @@ The snapshot is still written, as for any `#error`.
 A link is **broken** when nothing exists where it points: the target is missing, a path
 through it treats a file as a directory, or links lead round in a circle. Anything else that
 stops it being followed, such as a share that doesn't answer or a directory you can't read, is
-somewhere this computer can't resolve.
+somewhere this computer can't resolve. As a test: following a broken link fails as not
+found, not a directory, or too many links (`ENOENT`, `ENOTDIR`, `ELOOP`); any other failure
+is somewhere this computer can't resolve.
 
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
 so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
@@ -752,7 +756,8 @@ For a restorer, or anything else that reads the files.
     its size in bytes, its modification time rounded to the nearest millisecond (a tie to
     the later) in the 24-character form, and its absolute path;
   - `#excluded`, with the pattern, for an entry a pattern matched;
-  - `#error` for an entry that couldn't be checked or read, and for a [link](#links) leading
+  - `#error` for an entry whose type couldn't be determined, a file that couldn't be read,
+    and a [link](#links) leading
     out of the backup or somewhere this computer can't resolve;
   - no row for any other link, a pipe, socket or device, or an entry that vanished between
     being listed and being checked.
@@ -785,8 +790,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
   junction, recording what lies beyond it as if it were inside the member directory, and
   `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken
-  link doesn't fail the way it does elsewhere: a loop raises `EINVAL` (winerror 1921), not `ELOOP`, and
-  a link through a file raises `FileNotFoundError`, like a missing target.
+  link doesn't fail the way it does elsewhere: a missing target raises winerror 2, a link
+  through a file winerror 3 (both `FileNotFoundError`), and a loop `EINVAL` with winerror
+  1921, not `ELOOP`. Node reports these as `ENOENT` and `ELOOP`. Reading a OneDrive
+  online-only file downloads it.
 - **Decoding a name with no UTF-8 form.** Python and Node give the same U+FFFDs: in Python,
   `name.encode("utf-8", "surrogatepass").decode("utf-8", "replace")` on Windows and
   `os.fsencode(name).decode("utf-8", "replace")` on Linux. A lone surrogate on Windows
