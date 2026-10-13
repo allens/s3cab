@@ -345,8 +345,13 @@ A row's first character says what it is: `@` a property of the whole file, `-` a
 A tool that drops `#` lines as comments keeps exactly what a restore reads: the properties
 and the files.
 
-**A path ending with a separator is a directory** (`C:\Users\me\Photos\cache\`): an excluded
-directory, a directory link leading out of the backup, a member directory.
+**A path ending with a separator is a directory** (`C:\Users\me\Photos\cache\`):
+
+- a member directory;
+- an excluded directory;
+- a link whose target is a directory, in its `#excluded` or `#error` row.
+
+A broken link, or one whose target couldn't be checked, ends without one.
 
 **A reader skips an `@` or `#` type, or a property, that it doesn't know, and refuses a file
 holding any other type it doesn't know.** An unknown `@` or `#` row is something a newer
@@ -782,8 +787,9 @@ For a restorer, or anything else that reads the files.
     out of the backup or somewhere this computer can't resolve;
   - no row for any other link, a pipe, socket or device, or an entry that vanished between
     being listed and being checked.
-- End a directory's path with a separator. Spell every path with the casing the filesystem
-  reports, and a Windows drive letter in uppercase.
+- End a directory's path with a separator, and a link's when its target is a directory.
+  Spell every path with the casing the filesystem reports, and a Windows drive letter in
+  uppercase.
 - Stop without writing a snapshot, and say why, when:
   - a name holds a tab, CR or LF;
   - a name has no UTF-8 form;
