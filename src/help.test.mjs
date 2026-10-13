@@ -337,7 +337,7 @@ describe("helpTopics", () => {
     assert.match(exclude, /sets\/<set>\/exclude\.txt/);
     assert.match(exclude, /\*\*\/\s+zero or more/);
     assert.match(exclude, /one or more characters/);
-    assert.match(exclude, /case-insensitive on Windows/);
+    assert.match(exclude, /Case doesn't matter on Windows or macOS/);
     // Links the full online guide on our own domain, never a github.com URL:
     // a shipped binary freezes what it prints (CLAUDE.md, "Stable doc URLs").
     assert.match(exclude, /https:\/\/s3cab\.plantegral\.com\/guide\/exclude/);

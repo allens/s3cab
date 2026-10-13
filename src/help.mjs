@@ -52,7 +52,7 @@ member directories. Write / between directories; on Windows \\ works too.
 
 A pattern ending in / matches a directory and everything inside it, or a link
 to a directory.
-Matching is case-insensitive on Windows, case-sensitive elsewhere.
+Case doesn't matter on Windows or macOS, and does on Linux.
 
 Examples:
   **/node_modules/   every node_modules directory, wherever it appears

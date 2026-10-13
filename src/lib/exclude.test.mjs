@@ -82,10 +82,24 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy([], "/root/a.log"), undefined);
   });
 
-  it("matches case-insensitively on win32, case-sensitively elsewhere", () => {
+  it("ignores case on Windows and macOS, as their filesystems do, and not on Linux", () => {
     assert.equal(
       excludedBy(["**/UPPER.txt"], "/root/upper.txt"),
-      process.platform === "win32" ? "**/UPPER.txt" : undefined,
+      process.platform === "linux" ? undefined : "**/UPPER.txt",
+    );
+  });
+
+  it("ignores how an accent is spelled on macOS, as APFS does, and nowhere else", () => {
+    // Built with normalize(): typed out, the two spellings look identical.
+    const oneChar = "caf\u00e9.txt".normalize("NFC");
+    const withMark = "caf\u00e9.txt".normalize("NFD");
+    assert.notEqual(oneChar, withMark);
+    const expected = (/** @type {string} */ pattern) =>
+      process.platform === "darwin" ? pattern : undefined;
+    assert.equal(excludedBy([oneChar], `/root/${withMark}`), expected(oneChar));
+    assert.equal(
+      excludedBy([withMark], `/root/${oneChar}`),
+      expected(withMark),
     );
   });
 
