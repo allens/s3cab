@@ -335,6 +335,11 @@ A link out of the backup is an error because its content may look saved and isn'
 folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
 The snapshot is still written, as for any `#error`.
 
+A link is **broken** when nothing exists where it points: the target is missing, a path
+through it treats a file as a folder, or links lead round in a circle. Anything else that
+stops it being followed, such as a share that doesn't answer or a folder you can't read, is
+somewhere this computer can't resolve.
+
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
 so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
 
@@ -488,7 +493,10 @@ the same machine by the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START
 
 Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
-and the file is that name plus `.tsv.gz`. And a snapshot with **no file rows at all** is
+and the file is that name plus `.tsv.gz`. Names sort in time order except when the clock
+goes back (the end of daylight saving, or a move to another zone): a later snapshot can then
+sort before an earlier one, and s3cab, which takes the last name as the latest, warns when
+it writes one. `START` holds the true order. And a snapshot with **no file rows at all** is
 perfectly legal: an empty backup set, not a damaged file.
 
 ### Valid and invalid files
