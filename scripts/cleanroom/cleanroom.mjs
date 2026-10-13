@@ -215,6 +215,13 @@ export function writeCleanroom(dir, role, bucket, credentials) {
     role === "snapshot" ? ["format.md", "exclude.md"] : ["format.md"];
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 
+  const kinds = `The spec sorts what it says into rules, recommendations and hints. A rule that is missing or
+unclear is a gap, and goes in that ranked list. A hint that would have saved you time, a trap in
+your language or operating system the spec could have warned you about, goes in a separate list
+headed *Hints that would have helped*. A guess about a recommendation can't break anything, so it
+needn't be reported.
+`;
+
   const restoreBrief = `# Independent restorer for the s3cab storage format
 
 \`format.md\` in this directory is the complete specification you are working from, and the only
@@ -283,6 +290,7 @@ and what you guessed. Rank those by whether a wrong guess would corrupt a restor
 inconvenience the implementer. **That list is the real output; the code is the means of finding
 it.**
 
+${kinds}
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
@@ -317,10 +325,9 @@ asked for and what stood in the way. That is one of the things being tested.
 
 **Correct, not fast.** No caching between runs, no parallelism.
 
-Correct covers everything the spec says a snapshot holds: every rule, its recommendations too;
+Correct covers everything the spec says a snapshot holds: every rule, and its canonical form too;
 exclude patterns in their full syntax; and a row for everything the spec says is recorded, what
-was left out included. A guess about a recommendation can't break a reader, so it needn't be
-reported.
+was left out included.
 
 Nothing here touches the network: uploading is the other program's job.
 Write each set's snapshot into that set's directory in \`sets/\`, laid out as the spec's local side
@@ -337,6 +344,7 @@ what you guessed. Rank those by whether a wrong guess would write a snapshot tha
 restored correctly, or merely inconvenience the implementer. **That list matters as much as the
 code.**
 
+${kinds}
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
@@ -387,6 +395,7 @@ List every point where the spec was ambiguous, silent, or wrong — anywhere you
 what you guessed. Rank those by whether a wrong guess would leave a backup that can't be restored
 correctly, or merely inconvenience the implementer. **That list matters as much as the code.**
 
+${kinds}
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
