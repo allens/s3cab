@@ -50,7 +50,7 @@ the recourse ([ADR-0094](../docs/adr/0094-change-time-check-opt-in.md)).</sub>
 <sub>The model-based test suite itself (prompt #3, 2026-08-14) found three more, **all fixed
 2026-08-14**, each pinned by a test that now asserts the correct behaviour: a truncated stored
 manifest parsing as a valid empty snapshot while `verify` called the store healthy, by the
-`#END` trailer ([ADR-0082](../docs/adr/0082-snapshot-end-trailer.md)); case-colliding manifest
+end-of-file trailer ([ADR-0082](../docs/adr/0082-snapshot-end-trailer.md)); case-colliding manifest
 paths restoring to one silently-overwritten file with exit 0 — the same hazard APFS's
 unicode-normalisation folding poses for NFC/NFD neighbour paths — by keying collision detection
 on the filesystem's own equivalence rather than lowercasing

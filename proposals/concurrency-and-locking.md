@@ -168,8 +168,7 @@ pass.
 **Measured on the real 280,232-file OneDrive set**, after a backup died un-gracefully about 3h16m
 in (no handler ran, so nothing was parked): the leftover work file, then `.snapshot.tsv.zst`,
 decompressed **cleanly** to 50,328,875 bytes holding **271,909 whole file rows of 280,232** — 97% of the pass.
-The only damage was the final TSV line, torn mid-hash. There is no `#END`, so `parseSnapshotStream`
-asserts and nothing will read it — but the rows themselves were all there.
+The only damage was the final TSV line, torn mid-hash; the rows themselves were all there.
 
 That replaces the parenthetical this paragraph used to carry ("the work file dies mid-zstd-frame"),
 and it qualifies **§4's point 2**: the failure mode attributed there to plain text — *"complete
