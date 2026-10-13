@@ -748,9 +748,10 @@ For a restorer, or anything else that reads the files.
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
 - On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
-  pairs, even on a drive or in a directory set up to be case-sensitive. On Linux they always
-  pay attention to case, even on a drive that doesn't. On macOS an accented letter also
-  matches however it is stored. `?` and `*` count whole characters.
+  pairs, even on a drive or in a directory set up to be case-sensitive. Everywhere else
+  they always pay attention to case, even on a drive that doesn't. On macOS an accented
+  letter also matches however it is stored: both sides are compared in NFC. `?` and `*`
+  count code points.
 - Write a row per entry:
   - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,
     its size in bytes, its modification time rounded to the nearest millisecond (a tie to
