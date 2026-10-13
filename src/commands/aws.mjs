@@ -3,21 +3,27 @@ import { join } from "node:path";
 import { customEndpoint } from "../lib/env.mjs";
 import { ParseArgsError, requireArg } from "../lib/error.mjs";
 import {
-  awsCloudFormationTemplate,
+  awsBucketTemplate,
   awsIamPlan,
   awsRolesAnywherePlan,
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
+  awsUserTemplate,
   maxBucketNameLength,
 } from "../lib/aws.mjs";
-import { ensureMachineIdentity } from "../lib/roles-anywhere.mjs";
+import {
+  caFingerprint,
+  ensureMachineIdentity,
+} from "../lib/roles-anywhere.mjs";
 import { saveArnsFromStack } from "../lib/stack-arns.mjs";
 import { s3cabDir, tildeify } from "../lib/home.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
+import { userAtMachine } from "../lib/user-at-machine.mjs";
 
-// `s3cab aws` — the AWS-onboarding command. It **writes** a CloudFormation template
-// to `~/.s3cab/<bucket>.yaml` and prints the short recipe to deploy it — standing up
-// an S3 bucket as a backup destination and a least-privilege identity for s3cab. It
+// `s3cab aws` — the AWS-onboarding command. It **writes** two CloudFormation
+// templates under `~/.s3cab/` — the bucket, and one identity, each its own stack
+// (ADR-0105) — and prints the short recipe to deploy them, standing up an S3
+// bucket as a backup destination and a least-privilege identity for s3cab. It
 // makes no AWS calls and needs no credentials to run (generative, not active —
 // ADR-0032/0056: s3cab writes the file, the user applies it with their admin creds).
 // Provisioning is a rare, one-time, per-bucket bootstrap, so it is a separate
@@ -41,10 +47,11 @@ import { validateBucketName } from "../lib/sets.mjs";
 // module nothing but this command imports (ADR-0059 keeps provisioning here).
 
 /**
- * Set up an S3 bucket as an s3cab backup destination: write the CloudFormation
- * template to `~/.s3cab/<bucket>.yaml` and return the recipe pointing at it.
+ * Set up an S3 bucket as an s3cab backup destination: write the bucket and
+ * identity CloudFormation templates under `~/.s3cab/` and return the recipe
+ * pointing at them.
  * Local/offline — it reads `process.env` for region/endpoint defaults and writes
- * the template file, but calls no AWS API (ADR-0032/0056: s3cab writes the file,
+ * the template files, but calls no AWS API (ADR-0032/0056: s3cab writes the file,
  * the user deploys it). The recipe *is* the result (ADR-0043): the dispatcher
  * writes it to stdout (via `renderText`).
  *
@@ -102,59 +109,79 @@ Wasabi, …), run:
   }
 
   requireArg(name, "bucket");
+  const rolesAnywhere = Boolean(options["roles-anywhere"]);
   // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
   // it tightens the permissive global validator (ADR-0056): the CloudFormation
-  // stack name rejects dots, and the length is capped so the derived IAM user
-  // name (`s3cab-<bucket>-user`) fits AWS's 64-char cap. The cap is on the
-  // *derived* name, so a bucket that already starts with `s3cab-` (stripped, not
-  // doubled) isn't rejected for length it doesn't actually use.
+  // stack name rejects dots, and the length is capped so the derived IAM user or
+  // role name fits AWS's 64-char cap. The cap is on the *derived* name, so a
+  // bucket that already starts with `s3cab-` (stripped, not doubled) isn't
+  // rejected for length it doesn't actually use.
   validateBucketName(name, {
     allowDots: false,
-    maxLength: maxBucketNameLength(name),
+    maxLength: maxBucketNameLength(name, rolesAnywhere),
   });
+
+  const bucketTemplate = writeTemplate(
+    `${name}-bucket`,
+    awsBucketTemplate(name),
+  );
 
   // The keyless Roles Anywhere path (ADR-0057/0058): generate the machine identity
   // locally (once — reused on re-run so the CA never silently changes) and write
-  // the RA CloudFormation template embedding its public CA.
-  if (options["roles-anywhere"]) {
+  // this machine's identity template embedding its public CA, named by the CA's
+  // fingerprint so another machine's identity is another stack (ADR-0105).
+  if (rolesAnywhere) {
     const { caPem, created } = ensureMachineIdentity();
-    const templatePath = writeTemplate(
-      name,
-      awsRolesAnywhereTemplate(name, caPem),
+    const fingerprint = caFingerprint(caPem);
+    const identityTemplate = writeTemplate(
+      `${name}-${fingerprint}`,
+      awsRolesAnywhereTemplate({
+        bucket: name,
+        caPem,
+        fingerprint,
+        machine: userAtMachine(),
+      }),
     );
     return awsRolesAnywherePlan({
       bucket: name,
       region,
       created,
+      fingerprint,
       profile,
-      templatePath,
+      templatePaths: { bucket: bucketTemplate, identity: identityTemplate },
     });
   }
 
-  const templatePath = writeTemplate(name, awsCloudFormationTemplate(name));
-  return awsIamPlan({ bucket: name, region, profile, templatePath });
+  const identityTemplate = writeTemplate(`${name}-user`, awsUserTemplate(name));
+  return awsIamPlan({
+    bucket: name,
+    region,
+    profile,
+    templatePaths: { bucket: bucketTemplate, identity: identityTemplate },
+  });
 }
 
 /**
- * Write the onboarding CloudFormation template to `~/.s3cab/<bucket>.yaml` and
+ * Write an onboarding CloudFormation template to `~/.s3cab/<name>.yaml` and
  * return its absolute path — the file the recipe's `--template-file` points at
  * (ADR-0056: s3cab writes the file, the user deploys it). The template is
  * regenerable, so a re-run overwrites in place; no `s3cab-` prefix on the name
  * because it already lives under `~/.s3cab/`. The stack name keeps its `s3cab-`
  * prefix (an AWS-side identifier), so filename and stack name deliberately differ.
- * Not secret — the IAM template holds no key, the RA template embeds only the
- * public CA — but it sits in the owner-only home dir beside the RA identity. This
- * can be the first code to create `~/.s3cab`, so it makes the dir `0700` to match
- * that convention (the home tree holds secrets — ADR-0033, roles-anywhere.mjs's
+ * Not secret — the templates hold no key, the RA one embeds only the public CA —
+ * but it sits in the owner-only home dir beside the RA identity. This can be the
+ * first code to create `~/.s3cab`, so it makes the dir `0700` to match that
+ * convention (the home tree holds secrets — ADR-0033, roles-anywhere.mjs's
  * `DIR_MODE`), rather than leaving it group/other-readable at the umask's mercy.
- * @param {string} bucket - Already validated dot-free (safe as a path segment).
+ * @param {string} name - The bucket plus the stack's suffix; the bucket is
+ *   already validated dot-free (safe as a path segment).
  * @param {string} template - The template YAML to write.
  * @returns {string} The absolute path written.
  */
-function writeTemplate(bucket, template) {
+function writeTemplate(name, template) {
   const dir = s3cabDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const path = join(dir, `${bucket}.yaml`);
+  const path = join(dir, `${name}.yaml`);
   writeFileSync(path, template);
   return path;
 }

@@ -26,8 +26,12 @@ on that layout, none of them with an error at the moment it happens:
 
 | Stack | Holds | Name |
 | --- | --- | --- |
-| **Bucket stack** | the bucket and every [0033](0033-bucket-onboarding-security-model.md) protection — nothing else | `s3cab-<bucket>` |
+| **Bucket stack** | the bucket and every [0033](0033-bucket-onboarding-security-model.md) protection — nothing else | `s3cab-<bucket>-bucket` |
 | **Identity stack** | one identity and its access policy | keys: `s3cab-<bucket>-user`; Roles Anywhere: `s3cab-<bucket>-<fingerprint>` |
+
+Every name takes a suffix, the bucket stack's included: a bare `s3cab-<bucket>` for bucket
+`photos-user` would be the keys identity stack of bucket `photos`. With `bucket`, `user` and
+eight hex digits as the only suffixes, no stack of one bucket can take another's name.
 
 The bucket stack is the same for both paths and every machine, so deploying it again changes
 nothing. The recipe deploys it with `--no-fail-on-empty-changeset`, so a second machine (or a

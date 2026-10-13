@@ -290,6 +290,18 @@ function makeCertificate({
   return certPem(certificate);
 }
 
+/**
+ * The first eight hex digits of a CA certificate's SHA-256 fingerprint: the part
+ * of a Roles Anywhere identity stack's name that tells one machine's identity
+ * from another's on the same bucket (ADR-0105).
+ * @param {string} caPem
+ */
+export const caFingerprint = (caPem) =>
+  new X509Certificate(caPem).fingerprint256
+    .replaceAll(":", "")
+    .slice(0, 8)
+    .toLowerCase();
+
 /** Generate an ECDSA P-256 key pair (the curve RA and ADR-0058 require). */
 const generateP256 = () =>
   generateKeyPairSync("ec", { namedCurve: "prime256v1" });

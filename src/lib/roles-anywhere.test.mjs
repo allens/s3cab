@@ -14,6 +14,7 @@ import {
   arnsFromOutputs,
   buildIdentity,
   buildSignedRequest,
+  caFingerprint,
   ensureMachineIdentity,
   isRolesAnywhereMode,
   machineIdentityDir,
@@ -132,6 +133,22 @@ describe("buildIdentity", () => {
   it("exports both private keys as PKCS#8 PEM (the signer reads client.key)", () => {
     assert.match(id.clientKeyPem, /-----BEGIN PRIVATE KEY-----/);
     assert.match(id.caKeyPem, /-----BEGIN PRIVATE KEY-----/);
+  });
+});
+
+describe("caFingerprint", () => {
+  it("is the first eight hex digits of the CA certificate's SHA-256", () => {
+    const { caPem } = buildIdentity();
+    const der = new X509Certificate(caPem).raw;
+    const sha256 = createHash("sha256").update(der).digest("hex");
+    assert.equal(caFingerprint(caPem), sha256.slice(0, 8));
+  });
+
+  it("differs between two machines' CAs", () => {
+    assert.notEqual(
+      caFingerprint(buildIdentity().caPem),
+      caFingerprint(buildIdentity().caPem),
+    );
   });
 });
 
