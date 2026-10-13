@@ -7,11 +7,28 @@ This page writes the format down anyway, for two reasons: it makes recovery *muc
 and it keeps the project honest — a human-readable mirror of the true format that the code
 must always match.
 
-Everything on this page is a **commitment**, not an implementation detail. If a future
-s3cab needs to change any of it, that is a breaking format change, treated accordingly.
+Every rule and recommendation on this page is a **commitment**, not an implementation
+detail. If a future s3cab needs to change any of it, that is a breaking format change,
+treated accordingly.
 One exception, flagged again where it arises: a snapshot may gain new `@` and `#` row types
 and properties, and a reader skips the ones it doesn't know. What is committed is that
 skipping every `#` row leaves exactly what a restore reads: the properties and the files.
+
+## Rules, recommendations and hints
+
+The page holds three kinds of thing, for anyone writing their own tool against it:
+
+- **Rules.** Break one and another tool misreads your files or loses data. Every rule is in
+  one of the checklists under [writing your own tool](#writing-your-own-tool): reading,
+  writing a snapshot, uploading and deleting. The rest of the page explains them.
+- **Recommendations.** How s3cab lays a snapshot or deletion record out, so it reads as a
+  table in an editor and works in a spreadsheet: its [canonical form](#canonical-form).
+  Another writer should match it; no reader depends on it.
+- **Hints.** What trips people up when they meet these files from a particular language or
+  operating system. Never a requirement, and listed beside each checklist.
+
+So a snapshot or deletion record is **valid** when it meets the rules, which is all any
+reader needs, and **canonical** when it is also laid out exactly as s3cab would lay it out.
 
 ## Reading the text: four rules that hold everywhere
 
@@ -25,10 +42,8 @@ needs special handling.
   trying.
 - **Every file s3cab generates ends its lines with LF** (`\n`), never CRLF, and the last
   line is terminated like the rest — snapshots, deletion records, `dirs.txt`, `info`. Split
-  on LF *exactly*. Don't reach for a "split on any line break" helper: Python's
-  `str.splitlines()` and its equivalents also break on `\v`, `\f` and U+0085, every one of
-  which can occur in a legal filename, so such a parser cuts a path in half and never says
-  why. **`exclude.txt` is the one exception, and in the other direction**: it is *yours*, so
+  on LF *exactly*: a legal filename can hold other characters that some line splitters break
+  on, which cuts a path in half and never says why. **`exclude.txt` is the one exception, and in the other direction**: it is *yours*, so
   s3cab stores and mirrors it byte-for-byte as you wrote it — a Windows editor's CRLF, or a
   missing final newline, travels into the bucket intact. Harmless, because its lines (and
   `dirs.txt`'s) are trimmed when read: of tab, VT, FF, CR, LF, every Unicode space
@@ -39,7 +54,8 @@ needs special handling.
   anywhere else [they are spelled out](#no-row-holds-a-tab-or-a-line-ending)). Every other
   character, control characters included, is fair game in a path.
 - **Trim the leading fields; never trim the last.** The leading fields are padded with
-  spaces so the raw file reads as columns. The last field — a path, or a property's value —
+  spaces so the raw file reads as columns, and are trimmed of the same characters as
+  `exclude.txt`'s lines. The last field — a path, or a property's value —
   is never padded, and must be taken **verbatim** from the final tab to the end of the line.
   On Linux and macOS a filename may legitimately begin or end with a space, and a parser that
   strips every field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing
@@ -269,24 +285,41 @@ For a file row:
 - **path** — absolute, in the OS's native style, last on the line so the padded columns
   stay aligned and so it can hold spaces without ambiguity.
 
-Columns 2 to 4 are space-padded to their widths, and the columns are separated by tabs, so
-the file reads as a table in an editor and parses as clean TSV in a script. Column 1 is
-never padded, so a spreadsheet keeps a file row's type as exactly `-` and
-`=COUNTIF(A:A,"-")` counts them. A value longer than its column simply overflows it — an
-error message can be wider than 64 — so these are *minimum* widths, not a fixed-width record
-layout.
+The columns are separated by tabs, so the file parses as clean TSV in a script.
 
-**Rules and recommendations.** A reader relies only on the rules: UTF-8 lines of five
-tab-separated fields, each read trimmed but the last, the row types, the heading row first
-and `END` last. The padding, the unpadded column 1 and `SIZE`'s readable form are how s3cab
-writes the file so it reads well in an editor and works in a spreadsheet. Another writer
-should do the same, and a reader must not depend on them. Nor on what is written for
-people: an `#error` row's wording, `VERSION`, `HOME`, `BY` and `START`'s zone.
+**The first row is the heading row**, the same in every snapshot and deletion record. Its
+five fields, padding aside, are exactly:
 
-**The first row is a heading**, the same in every snapshot: `@S3CAB FORMAT`, then the names
-of the size and time columns, then the address of this page, so a file found on its own
-says where it is explained. Spreadsheets are why it names the columns: Excel's AutoFilter
-takes row 1 as its headings.
+| `@S3CAB` | `FORMAT` | `size` | `time` | `https://s3cab.plantegral.com/guide/format` |
+| --- | --- | --- | --- | --- |
+
+It names the size and time columns because Excel's AutoFilter takes row 1 as its headings,
+and ends with the address of this page, so a file found on its own says where it is
+explained.
+
+### Canonical form
+
+s3cab lays every row out the same way, so the file reads as a table in an editor and works in
+a spreadsheet. The layout is computed from the row's fields, so each row has exactly one
+canonical line:
+
+- **Column 1 is never padded**, so a spreadsheet keeps a file row's type as exactly `-` and
+  `=COUNTIF(A:A,"-")` counts them.
+- **Columns 2 to 4 are padded with spaces**, blank ones included: column 2 on the right to
+  64 characters, column 3 on the left to 12, column 4 on the right to 24. A character here
+  is a Unicode code point, so `🎉*.txt` is six.
+- **These are minimum widths.** A longer value, such as a long error message, overflows its
+  column and is never cut.
+- **The last column is never padded.**
+- **`@SNAPSHOT SIZE`'s readable form** follows the exact number in parentheses. Under 1000
+  bytes it is the whole number and `B` (`0B`, `999B`). Otherwise it is one decimal place,
+  rounded half up, in the smallest of kB, MB, GB, TB and PB that keeps it under 1000.0, or
+  in PB however large: 999,949 bytes is `999.9kB`, 999,950 is `1.0MB`. Units are powers of
+  1000, with no thousands separator.
+
+**Some values are written for people, and are free text**, outside the canonical form: an
+`#error` row's wording, `VERSION`, `HOME`, `BY` and `START`'s zone. No reader depends on
+them.
 
 ### Row types
 
@@ -362,7 +395,7 @@ can go stale later without the row being wrong.
 | `@SNAPSHOT BY` | who took it, as `user@machine` |
 | `@SNAPSHOT START` | the instant the run started (column 4), and the time zone the name was minted in |
 | `@SNAPSHOT FILES` | the number of file rows |
-| `@SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses |
+| `@SNAPSHOT SIZE` | the sum of the size column, then a [readable form](#canonical-form) in parentheses |
 | `@S3CAB END` | the instant the file was finished (column 4) |
 
 `START` carries the zone because snapshot names are local wall-clock time, so the zone is
@@ -409,9 +442,7 @@ spells them out:
   practice that is an error message, or the path in an `#excluded` row (excluding a file is
   how it gets past the refusal) or an `#error` row.
 
-So every line has exactly five fields. One thing still trips a parser that counts them
-after trimming the line: `@S3CAB END`'s last field is empty, so stripping trailing
-whitespace leaves four.
+So every line has exactly five fields.
 
 ### Paths
 
@@ -459,12 +490,7 @@ a different decision, not a misreading of the format.
 coarser than some filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds.
 Two consequences to build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
 tree compares clean against the snapshot it came from and re-backing it up re-uploads
-nothing — and compare at that resolution, not finer. A fraction of a second like `.674` has
-no exact representation in a floating-point count of seconds, which is how some platforms
-hand a timestamp to the operating system, so a restored file can land tens of nanoseconds off
-the row's value. s3cab's own restore does, where the filesystem keeps nanoseconds; it is
-exact on NTFS, where the error falls below one tick, and a restorer that sets the time
-through a nanosecond interface is exact everywhere. Below the millisecond the two can
+nothing — and compare at that resolution, not finer: below the millisecond two restores can
 disagree without either being wrong. But a restored file can also sit up to half a
 millisecond either side of a *surviving original*, which any mtime-sensitive tool will report
 as a difference.
@@ -527,7 +553,7 @@ of three things:
   restorer out of its output directory. A `#` row repeating a file row's path also makes
   the file invalid, but changes nothing a restore writes, so a reader that skips `#` rows
   needn't check for it. This is the same
-  ["restore everything you can, then report"](#if-you-are-writing-a-restorer) that governs a
+  ["restore everything you can, then report"](#reading) that governs a
   missing object: rows are independent lines, so one can't damage its neighbours.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count.
@@ -634,42 +660,139 @@ back down and syncs the snapshot history — whereas nothing can rebuild a lost 
 
 Or write a replacement tool in an afternoon — that is the point.
 
-### If you are writing a restorer
+## Writing your own tool
 
-Everything above tells you how to read the format. These are the things that only turn up
-once you try to restore from it.
+Each checklist below is everything a tool doing that job has to get right; the sections
+above explain every item. The hints after each are what tends to go wrong in practice.
 
-- **Restore everything you can, then report.** A missing object that a [deletion
-  record](#the-deletion-record) explains is *expected*: skip it, say so with the record's
-  date, and finish successfully. A missing object that nothing explains is an integrity
-  fault: report it, **carry on with the rest**, and exit nonzero at the end. A recovery tool
-  that stops dead at file 3 of 400 is materially worse than one that recovers 397 and tells
-  you which three it couldn't — so the graceful path is not a nicety, it is the requirement.
-- **Hash what you download, and treat a mismatch like unexplained damage.** The key *is* the
-  content's SHA-256, so verifying costs one hash per file and catches the worst failure a
-  restorer can have: an object whose bytes were corrupted in the bucket restores under a
-  clean exit, and nothing ever looks wrong again. A download that doesn't hash to its key is
-  an integrity fault exactly like a missing object nothing explains — report it, carry on
-  with the rest, exit nonzero. Whether the mismatched bytes are still worth writing (clearly
-  flagged) or better withheld is a choice your tool makes and states.
-- **Check each file and row as [valid and invalid files](#valid-and-invalid-files) sets
-  out.** Snapshots are editable text, and this spec tells people so; a restorer that trusts
-  every row will one day follow a hand-added `..` out of its output directory and overwrite
-  whatever it lands on.
-- **On Windows, go through the `\\?\` prefix.** Snapshot paths are absolute, so re-rooting
-  them under an output directory makes an already-deep tree deeper, and the 260-character
-  `MAX_PATH` limit arrives sooner than you would guess. It fails loudly rather than
-  corrupting anything, but it *will* happen on a real tree.
-- **Restoring across operating systems is your tool's problem, not the format's.** A
-  snapshot taken on Linux may hold two paths differing only in case, or characters NTFS
-  forbids outright; both collide or fail on a Windows target. The format records what was
-  there faithfully — deciding what to do on arrival is a choice your tool has to make and
-  should state.
-- **Keep `objects/` in a storage class you can actually GET.** Step 4 assumes a plain
-  download works. A bucket lifecycle rule that archives `objects/` to a cold tier breaks that
-  for every tool including s3cab, turning recovery into a restore-from-archive wait — worth
-  knowing before you set one, not after.
+### Reading
 
-And one thing that is deliberately **out of scope**: *where* a restored file lands — back at
-its original path, or re-rooted under an output directory — is a decision for the tool, not
-the format. The snapshot records the original absolute path; what you do with it is yours.
+For a restorer, or anything else that reads the files.
+
+- Read every text file by the [four reading rules](#reading-the-text-four-rules-that-hold-everywhere):
+  strict UTF-8, split on LF alone, nothing unescaped, the leading fields trimmed and the last
+  taken verbatim.
+- Decompress a snapshot as gzip.
+- Take a row's type from its first field, trimmed, compared case-sensitively.
+- Check every snapshot and deletion record as [valid and invalid files](#valid-and-invalid-files)
+  sets out: refuse the whole file, refuse one path and carry on, or ignore the row. A file
+  whose first line isn't the [heading row](#the-columns), all five fields, or whose last line
+  isn't `@S3CAB END`, is refused whole.
+- Place each file row under the `@SET DIR` it falls in, [matched by whole segments, the
+  longest winning](#paths). Where it lands from there is your tool's decision.
+- Fetch each file row's content from `objects/<hash>`, and check that what you downloaded
+  hashes to that key.
+- When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
+  read as one set. A hash a record lists was [deliberately deleted](#the-deletion-record);
+  any other miss is damage, and so is a download that doesn't hash to its key.
+- Restore everything you can, then report. Skip a deliberately deleted file and say so, with
+  its date. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
+  tool that stops dead at file 3 of 400 is materially worse than one that recovers 397 and
+  names the three.
+- Set each restored file's modification time to the stored one, [to the
+  millisecond](#paths).
+- Never write outside your destination, and never let a partial restore pass for a full one.
+
+**What trips people up:**
+
+- **Line splitters.** Python's `str.splitlines()` breaks on `\v`, `\f`, `\x1c`, `\x1d`,
+  `\x1e`, U+0085, U+2028 and U+2029 as well as LF, and other languages' "split on any line
+  break" helpers do much the same. Any of them can occur in a legal filename.
+- **Trimming the whole line.** `@S3CAB END`'s last field is empty, so stripping trailing
+  whitespace from the line leaves four fields.
+- **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
+  before reporting a cut-short file, which is why `END` matters. Python's `gzip.decompress`
+  also joins several gzip streams into one without a word.
+- **Windows paths: go through `\\?\`.** Prefixed with `\\?\`, an absolute path is taken
+  exactly as written. Without it, Windows drops a trailing space or dot from a name, so a
+  file restored as `notes.` lands as `notes` with no error, and a path past 260 characters
+  (`MAX_PATH`) fails. Re-rooting under an output directory makes a deep tree deeper.
+- **Setting a modification time.** A fraction like `.674` has no exact representation in a
+  floating-point count of seconds, which is how some platforms take a timestamp, so a
+  restored file can land tens of nanoseconds off its row. s3cab's own restore does, where the
+  filesystem keeps nanoseconds; setting the time through a nanosecond interface is exact.
+- **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
+  restorer that trusts every row will one day follow a hand-added `..` out of its output
+  directory and overwrite whatever it lands on.
+- **Restoring on another operating system.** A Linux snapshot can hold two paths differing
+  only in case, or characters Windows forbids, and both collide or fail on Windows. The
+  format records what was there; what to do on arrival is your tool's choice, worth stating.
+  So is whether a download that doesn't hash to its key is still worth writing, clearly
+  flagged, or better withheld.
+- **Storage class.** A bucket lifecycle rule that moves `objects/` to an archive tier breaks
+  a plain download for every tool, s3cab included.
+
+### Writing a snapshot
+
+- Read the set's `dirs.txt` and `exclude.txt` as [the local side](#the-local-side-s3cab)
+  describes: blank and `#` lines ignored, each line trimmed. Member directories mustn't
+  overlap, unless an exclude pattern keeps the inner one out of the outer one's walk; one
+  that is a link is followed, and recorded as the path it resolves to.
+- Walk every member directory without following a link, never entering a directory named
+  `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
+  them.
+- Write a row per entry:
+  - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,
+    its size in bytes, its modification time rounded to the nearest millisecond (a tie to
+    the later) in the 24-character form, and its absolute path;
+  - `#excluded`, with the pattern, for an entry a pattern matched;
+  - `#error` for an entry that couldn't be checked or read, and for a [link](#links) leading
+    out of the backup or somewhere this computer can't resolve;
+  - no row for any other link, a pipe, socket or device, or an entry that vanished between
+    being listed and being checked.
+- End a folder's path with a separator. Spell every path with the casing the filesystem
+  reports, and a Windows drive letter in uppercase.
+- Stop without writing a snapshot, naming the cause, at a name holding a tab, CR or LF, a
+  name with no UTF-8 form, or a folder that can't be listed. Anywhere else, spell a tab, CR
+  or LF out as `␉`, `␍` or `␊`.
+- Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows); give
+  each path at most one per-path row; end with `@S3CAB END`, its instant rounded up.
+- Five tab-separated fields on every line, UTF-8 with no BOM, LF endings, one gzip stream.
+- Name the file `YYYY-MM-DDTHHMM.tsv.gz` from the run's start in local time. Refuse a second
+  snapshot of the set in the same minute, and never overwrite one.
+
+Lay the rows out in [canonical form](#canonical-form) too, so the file reads as a table.
+
+**What trips people up:**
+
+- **Windows paths: go through `\\?\`.** Opened by its plain path, a file named `notes ` or
+  `notes.` is looked up as `notes` and not found, and so is anything past 260 characters. A
+  writer that takes "not found" for an entry that vanished leaves the file out of the backup
+  without a word, and exits 0.
+- **Trimming in Python.** `str.strip()` is the wrong trim for `dirs.txt` and `exclude.txt`:
+  it removes `\x1c` to `\x1f` and U+0085, which stay, and keeps a byte-order mark, which
+  goes.
+- **Line endings.** Python's text mode writes CRLF on Windows. Write bytes, or open the file
+  with `newline="\n"`.
+- **Time zones.** Python's standard library can't name the local IANA zone, and on Windows
+  has no zone data without the `tzdata` package. `START`'s zone is written for people, so
+  write the best name you have.
+- **Rounding a modification time.** A floating-point count of seconds can't hold every
+  NTFS tick, so rounding it to the millisecond can put a near-tie on the wrong side. Round
+  the integer nanosecond count.
+
+### Uploading
+
+- Upload every object a snapshot names before the snapshot itself:
+  [objects first, snapshot last](#the-invariant-objects-first-snapshot-last).
+- Store each object at `objects/<hash>`, holding exactly the bytes that hash to its key.
+- Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, never over an existing
+  one, and never one without `@S3CAB END`.
+- Write [`sets/<set>/`](#the-remote-repository-the-keystone): `info` as `OWNER=user@machine`
+  then `CREATED=` an instant; `dirs.txt` as the parsed list, one directory per line, LF
+  endings; `exclude.txt`, if the set has one, as a byte copy. Never upload the set's `env`.
+
+**What trips people up:**
+
+- **Line endings.** Python's text mode writes `dirs.txt` with CRLF on Windows.
+
+### Deleting
+
+- Write a [deletion record](#the-deletion-record) before deleting any object it lists, as
+  `objects.deleted-<n>.tsv` under an index not already in use, never over an existing record.
+- Give it the heading row, a `#deleted` row per object (hash, size, the UTC instant, and
+  `user@machine`), and `@S3CAB END` last.
+- Never delete an object younger than a generous grace window (s3cab's is 7 days), and don't
+  clean up while a backup is running.
+- To compact records, write the merged record before deleting the files it absorbs, and drop
+  only rows whose hash no snapshot references.

@@ -1,7 +1,7 @@
 # The format spec holds rules, recommendations and hints; a row file is valid or canonical
 
-**Status:** proposed (2026-10-13). Not yet applied to [guide/format.md](../../guide/format.md)
-or the clean-room brief. Completes the split #397 began, which separated what a reader relies on
+**Status:** accepted (2026-10-13). Applied to [guide/format.md](../../guide/format.md); not
+yet to the clean-room brief. Completes the split #397 began, which separated what a reader relies on
 from how s3cab lays the file out but left the heading row on both sides and gave hints to
 restorers only.
 
@@ -15,8 +15,8 @@ any of them but to say which is which.
 
 ### Three kinds of content, named once at the top of format.md
 
-- **Rules**, in a checklist per role: reader, snapshot writer, uploader. A rule is whatever is
-  in a checklist. Break one and another tool misreads the file or loses data.
+- **Rules**, in a checklist per job: reading, writing a snapshot, uploading, deleting. A rule
+  is whatever is in a checklist. Break one and another tool misreads the file or loses data.
 - **Recommendations**: what makes a valid row file canonical (below). Another writer should
   match them; no reader depends on them.
 - **Hints**, a "what trips you up" list per role: the traps a platform or library sets when it
@@ -38,8 +38,8 @@ The snapshot and the deletion record share the row layout
 ([0102](0102-deletion-record-takes-the-snapshot-layout.md)), and only they have a second grade:
 
 - **Valid**: meets the rules. Every reader handles it correctly.
-- **Canonical**: valid, and laid out exactly as s3cab writes it: the padding and its widths, the
-  unpadded column 1, `SIZE`'s readable form. The word is a formatter's (gofmt's canonical format)
+- **Canonical**: valid, and laid out exactly as s3cab writes it: the padding and its widths,
+  counted in code points as exclude.md's `?` is, the unpadded column 1, `SIZE`'s readable form. The word is a formatter's (gofmt's canonical format)
   and a canonicalization spec's: one byte form for given content.
 
 **The layout is a function of the rows**, defined fully enough to compute: given the rows,
@@ -65,13 +65,10 @@ aside, and the reader's checklist spells them out.
 
 ## Consequences
 
-- format.md is restructured in one pass, so the golden set is reseeded once:
-  - the reader's checklist is today's "Valid and invalid files";
-  - the snapshot writer's and the uploader's are gathered from the prose;
-  - "If you are writing a restorer" becomes the restorer's hints, beside new ones for the two
-    writers.
-- The layout section is tightened until canonical form is computable. Today `SIZE`'s readable
-  form is defined only by examples.
+- format.md's checklists sit together under "Writing your own tool", each followed by its
+  hints; deleting gets one because the grace window and the record-before-delete ordering are
+  rules too, though no clean room plays that part.
+- s3cab pads by UTF-16 units, so its own files are non-canonical where column 2 holds an
+  emoji, until `formatLine` counts code points.
 - The brief in `scripts/cleanroom/cleanroom.mjs` asks for the three-way split.
   `compare-snapshot.mjs`'s mismatch-or-note split already draws the valid/canonical line.
-- CONTEXT.md gains *valid* and *canonical*.

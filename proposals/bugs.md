@@ -137,6 +137,11 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   Only values within about one 100ns tick of a tie are affected, but a clean-room writer that
   rounds exactly disagrees with s3cab on them. Reading `{ bigint: true }` and rounding `mtimeNs`
   would be exact; its cost on the walk's hot path is unmeasured.
+- **Column 2 is padded by UTF-16 units, not code points.** [guide/format.md](../guide/format.md)'s
+  canonical form counts a character as a code point, as exclude.md's `?` does; `formatLine`
+  (`src/lib/snapshot-file.mjs`) pads with `padEnd(64)`, which counts UTF-16 units, so an
+  `#excluded` pattern or `#error` message holding an emoji is padded one space short per emoji.
+  The file stays valid; only its canonical form is off.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

@@ -136,6 +136,12 @@ refuses just its path, which `restore` and `verify` report as **invalid**. Not *
 that is an object whose bytes don't hash to its key.
 _Avoid_: malformed as the category (fine for what is wrong with a row), corrupt.
 
+**Canonical** (a snapshot or deletion record):
+Valid, and laid out exactly as s3cab lays it out: the padding and `SIZE`'s readable form, each
+computed from the row ([ADR-0104](docs/adr/0104-spec-rules-recommendations-hints.md)). A
+recommendation, not a rule: no reader depends on it.
+_Avoid_: formatted, pretty (both read as optional cosmetics with no single right answer).
+
 **Namespace**:
 The set name as the `snapshots/<set>/` path segment that isolates one set's snapshots from every
 other set sharing the repository. Equal to the set name; no `user@machine` prefix.
