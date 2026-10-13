@@ -359,7 +359,7 @@ anywhere, including somewhere you never chose to back up.
 
 | Link | Row |
 | --- | --- |
-| To a file or folder inside a member directory | none; the target is recorded where it lies, saved or `#excluded` |
+| To a file or folder inside a member directory, judged by where it finally resolves, through any further links | none; the target is recorded where it lies, saved or `#excluded` |
 | To a file or folder outside every member directory, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
 | Broken, or to a pipe, socket or device | none |
 | Matched by an exclude pattern | `#excluded`, like any excluded entry |
@@ -776,6 +776,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Upload every object a snapshot names before the snapshot itself:
   [objects first, snapshot last](#the-invariant-objects-first-snapshot-last).
 - Store each object at `objects/<hash>`, holding exactly the bytes that hash to its key.
+  Hash the bytes as you send them: a file can change after the snapshot recorded it. If they
+  don't match, leave nothing stored under that key, and don't upload the snapshot, which
+  names an object the repository doesn't hold.
 - Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, never over an existing
   one, and never one without `@S3CAB END`.
 - Write [`sets/<set>/`](#the-remote-repository-the-keystone): `info` as `OWNER=user@machine`
