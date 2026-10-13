@@ -89,7 +89,7 @@ Deploy it, mint one access key, point s3cab at it.
 
 Choosing an identity:
   (default)          a dedicated AWS IAM user with an access key
-  --roles-anywhere   keyless, certificate-based access (recommended)
+  --roles-anywhere   keyless, certificate-based access (advanced)
 
 With --roles-anywhere it generates a machine-level CA + client certificate
 under ~/.s3cab/roles-anywhere/ (the private key never leaves your machine),

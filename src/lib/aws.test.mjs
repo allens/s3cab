@@ -193,9 +193,8 @@ describe("awsIamPlan", () => {
     assert.doesNotMatch(plan(), /AWS::IAM::AccessKey/);
   });
 
-  it("advertises the keyless Roles Anywhere path as recommended", () => {
+  it("mentions the keyless Roles Anywhere alternative", () => {
     assert.match(plan(), /--roles-anywhere/);
-    assert.match(plan(), /recommended/);
   });
 
   it("points SSO users at the standard chain in one line, with no --sso path", () => {

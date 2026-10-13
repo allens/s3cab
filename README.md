@@ -432,7 +432,7 @@ where you can read or delete them. The full picture — the four sign-in modes, 
 looks, and what to do when the server rejects your credentials — is in
 [guide/auth.md](guide/auth.md); `s3cab help provider` has the same material in the terminal.
 
-**Keyless access with IAM Roles Anywhere (AWS, recommended).** Instead of a long-lived
+**Keyless access with IAM Roles Anywhere (AWS, advanced).** Instead of a long-lived
 access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
 session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and

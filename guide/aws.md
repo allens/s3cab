@@ -28,8 +28,7 @@ account before anything happens.
 - `--roles-anywhere` — use the keyless, certificate-based Roles Anywhere identity
   instead of the default IAM-user one: generate the local CA + client certificate
   and write its CloudFormation template (see [Identity options](#identity-options)).
-  Recommended. Combine with `--save --from-stack <stack>` to capture the deployed
-  stack's ARNs.
+  Combine with `--save --from-stack <stack>` to capture the deployed stack's ARNs.
 
 It writes a **CloudFormation template** — a single declarative file describing the
 bucket, its least-privilege policy, and the s3cab identity — to
@@ -201,16 +200,17 @@ initial-config door (`--keys` prompts for the key + secret, never taken as flags
 ```
 
 > AWS now steers even basic users toward short-lived credentials over standalone
-> access keys. The IAM-user path is the least moving parts today; if you'd rather
-> not hold a long-lived key, `--roles-anywhere` (below) is the recommended
-> alternative.
+> access keys. The IAM-user path has the fewest moving parts; if you'd rather not
+> hold a long-lived key, `--roles-anywhere` (below) is the alternative, at the
+> cost of more setup steps.
 
 ### `--roles-anywhere` — keyless, certificate-based access
 
-The recommended alternative to a long-lived access key. With IAM Roles Anywhere
-your machine authenticates using an X.509 client certificate and receives
-short-lived session credentials — no long-lived AWS key ever lives on disk. It is
-one level above access keys, deliberately not an enterprise PKI.
+An alternative to a long-lived access key, for those willing to do more setup.
+With IAM Roles Anywhere your machine authenticates using an X.509 client
+certificate and receives short-lived session credentials — no long-lived AWS key
+ever lives on disk. It is one level above access keys, deliberately not an
+enterprise PKI.
 
 `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your

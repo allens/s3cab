@@ -368,8 +368,8 @@ export function awsIamPlan({ bucket, region, profile, templatePath }) {
       `   key + secret from step 2 when prompted):\n` +
       `   s3cab setup --set <name> --bucket ${bucket} --keys <directory>...`,
 
-    `Prefer no long-lived key? Re-run with --roles-anywhere for keyless,\n` +
-      `certificate-based access (recommended).`,
+    `Rather not hold a long-lived key? Re-run with --roles-anywhere for keyless,\n` +
+      `certificate-based access (more setup steps).`,
 
     `Signing in with AWS IAM Identity Center (SSO)? It works through the\n` +
       `standard credential chain — run 's3cab help provider'.`,

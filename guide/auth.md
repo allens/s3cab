@@ -16,7 +16,7 @@ Each backup set signs in **one** way. Pick whichever fits:
 | ------------------- | ------------------------------------------------------------------- | ------------------------------ |
 | **Profile**         | a named profile in your existing AWS config                         | AWS users who already have one |
 | **Access keys**     | an access key ID + secret key, stored on the set                    | non-AWS providers              |
-| **Roles Anywhere**  | a certificate that mints short-lived credentials — no long-lived key | AWS, recommended               |
+| **Roles Anywhere**  | a certificate that mints short-lived credentials — no long-lived key | AWS, advanced setup            |
 | **Ambient**         | the set records nothing; your machine's AWS setup supplies it        | one obvious AWS identity       |
 
 Set them with `s3cab provider`, or on the set as you create it — `s3cab setup` takes the same
