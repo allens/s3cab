@@ -704,6 +704,8 @@ For a restorer, or anything else that reads the files.
   break" helpers do much the same. Any of them can occur in a legal filename.
 - **Trimming the whole line.** `@S3CAB END`'s last field is empty, so stripping trailing
   whitespace from the line leaves four fields.
+- **The heading row's column 4.** It holds the word `time`, not an instant, so a reader that
+  checks column 4 of every `@` row as an instant refuses every file at its first line.
 - **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
   before reporting a cut-short file, which is why `END` matters. Python's `gzip.decompress`
   also joins several gzip streams into one without a word.
@@ -766,12 +768,28 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Windows paths: go through `\\?\`.** Opened by its plain path, a file named `notes ` or
   `notes.` is looked up as `notes` and not found, and so is anything past 260 characters. A
   writer that takes "not found" for an entry that vanished leaves the file out of the backup
-  without a word, and exits 0.
+  without a word, and exits 0. Python's `os.path.abspath` drops the dot or space too;
+  `os.path.normpath` keeps it.
+- **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
+  junction, recording what lies beyond it as if it were inside the member directory, and
+  `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken
+  link doesn't fail the way it does elsewhere: a loop raises winerror 1921, not `ELOOP`, and
+  a link through a file raises `FileNotFoundError`, like a missing target.
+- **Two spellings of one name.** NTFS can hold `café.txt` spelled with one accented character
+  and with a letter plus a combining accent side by side, as two files. Never normalize a
+  name: the two rows would collapse into one path.
+- **Not overwriting a snapshot.** Python's `os.rename` refuses an existing target on Windows
+  but silently replaces it on Linux and macOS. There, link the new name and remove the old
+  one instead.
+- **The gzip header.** Python's `gzip.open` writes the file's name and the current time into
+  the header, so a snapshot written under a temporary name carries that name. Use
+  `gzip.GzipFile(filename="", mtime=0, fileobj=…)`.
 - **Trimming in Python.** `str.strip()` is the wrong trim for `dirs.txt` and `exclude.txt`:
   it removes `\x1c` to `\x1f` and U+0085, which stay, and keeps a byte-order mark, which
   goes.
-- **Line endings.** Python's text mode writes CRLF on Windows. Write bytes, or open the file
-  with `newline="\n"`.
+- **Line endings and encoding.** Python's text mode on Windows writes CRLF, and before
+  Python 3.15 encodes as the locale's code page, often cp1252, which fails on a name like
+  `🎉.txt`. Write bytes, or open the file with `newline="\n"` and `encoding="utf-8"`.
 - **Case in patterns isn't Windows' own comparison.** Windows keeps the Kelvin sign and `k`,
   `ẞ` and `ß`, and `ς` and `σ` apart; patterns match each to its partner. In Python,
   `re.IGNORECASE` matches the way patterns do; `str.casefold()` goes further, so `straße`
