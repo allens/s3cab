@@ -15,8 +15,8 @@
  * only; snapshot names and instants differ by run. The session's file is also held to the
  * format's rules: five fields a line, LF endings, the heading row first, `@S3CAB END` last,
  * and `FILES` and `SIZE` agreeing with its file rows. The padding and `SIZE`'s readable
- * form are recommendations (guide/format.md, "Rules and recommendations"), so a departure
- * there is a note.
+ * form are recommendations (guide/format.md, "Canonical form"), so a departure there is a
+ * note.
  *
  * Two more differences are reported as notes, not mismatches, because the spec doesn't
  * decide them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
@@ -68,13 +68,14 @@ const sha256 = /^[0-9a-f]{64}$/;
 
 /**
  * One line as s3cab lays it out: the type unpadded, column 2 padded to 64, the size
- * right-aligned in 12, the time padded to 24, the last column never padded.
+ * right-aligned in 12, the time padded to 24, the last column never padded. Widths count
+ * code points, where `padEnd` counts UTF-16 units.
  * @param {string[]} fields
  */
 const laidOut = ([type = "", col2 = "", size = "", time = "", last = ""]) =>
   [
     type.trim(),
-    col2.trim().padEnd(64),
+    col2.trim() + " ".repeat(Math.max(0, 64 - [...col2.trim()].length)),
     size.trim().padStart(12),
     time.trim().padEnd(24),
     last,
