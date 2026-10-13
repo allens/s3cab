@@ -772,11 +772,12 @@ For a restorer, or anything else that reads the files.
 - Walk every member directory without following a link, and apply the patterns as the
   [exclude guide](exclude.md) defines them. Then skip a directory named `.s3cab` in
   lowercase that no pattern matched: it gets no row.
-- On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
-  pairs, even on a drive or in a directory set up to be case-sensitive. Everywhere else
-  they always pay attention to case, even on a drive that doesn't. On macOS an accented
-  letter also matches however it is stored: both sides are compared in NFC. `?` and `*`
-  count code points.
+- On Windows and macOS, patterns ignore case using Unicode's simple case folding, one
+  character for one: `ẞ` matches `ß` but not `ss`, and the Turkish `ı` and `İ` match only
+  themselves. That holds even on a drive or in a directory set up to be case-sensitive.
+  Everywhere else they always pay attention to case, even on a drive that doesn't. On macOS
+  an accented letter also matches however it is stored: both sides are compared in NFC. `?`
+  and `*` count code points.
 - Write a row per entry:
   - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,
     its size in bytes, its modification time rounded to the nearest millisecond (a tie to
@@ -844,10 +845,13 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Line endings and encoding.** Python's text mode on Windows writes CRLF, and before
   Python 3.15 encodes as the locale's code page, often cp1252, which fails on a name like
   `🎉.txt`. Write bytes, or open the file with `newline="\n"` and `encoding="utf-8"`.
-- **Case in patterns isn't Windows' own comparison.** Windows keeps the Kelvin sign and `k`,
-  `ẞ` and `ß`, and `ς` and `σ` apart; patterns match each to its partner. In Python,
-  `re.IGNORECASE` matches the way patterns do; `str.casefold()` goes further, so `straße`
-  matches `strasse`.
+- **Case in patterns isn't Windows' own comparison, or quite Python's.**
+  - Windows keeps the Kelvin sign and `k`, `ẞ` and `ß`, and `ς` and `σ` apart; patterns
+    match each to its partner.
+  - Python's `re.IGNORECASE` also matches `i` and `I` with the Turkish `ı` and `İ`, which
+    patterns don't. Keep those four literal: write `i` or `I` as `(?-i:[iI])`, and `ı` or
+    `İ` as `(?-i:ı)` or `(?-i:İ)`. The rest of `re.IGNORECASE` matches the way patterns do.
+  - `str.casefold()` goes further still: `straße` matches `strasse`.
 - **Time zones.** Python's standard library can't name the local IANA zone, and on Windows
   has no zone data without the `tzdata` package. `START`'s zone is written for people, so
   write the best name you have.
