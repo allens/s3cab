@@ -153,6 +153,16 @@ describe("compileFindPattern", () => {
     assert.equal(matches("secret1", "/home/me/SECRET1"), true);
   });
 
+  it("matches an accent however it is spelled, on every OS", () => {
+    // Built with normalize(): typed out, the two spellings look identical.
+    const oneChar = "caf\u00e9".normalize("NFC");
+    const withMark = "caf\u00e9".normalize("NFD");
+    assert.notEqual(oneChar, withMark);
+    assert.equal(matches(oneChar, `/Users/me/${withMark}`), true);
+    assert.equal(matches(withMark, `/Users/me/${oneChar}`), true);
+    assert.equal(matches(`${oneChar}/`, `C:\\me\\${withMark}\\menu.txt`), true);
+  });
+
   it("rejects a pattern with nothing in it to match", () => {
     assert.throws(() => compileFindPattern(""), ValidationError);
     assert.throws(() => compileFindPattern("/"), ValidationError);

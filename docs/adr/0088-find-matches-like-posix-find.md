@@ -2,7 +2,8 @@
 
 **Status:** accepted — designed in a grilling session 2026-08-22, built the same day; amended
 2026-09-05 (the path-shape rule below now answers separators as well as case, and a UNC path
-is Windows-shaped); amended 2026-10-13 (case never matters, for any path). Joins the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
+is Windows-shaped); amended 2026-10-13 (neither case nor accent spelling matters, for any
+path). Joins the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
 follows [0062](0062-bulk-operands-positional-addressing-by-flag.md)'s operand/addressing split.
 The hash-operand `delete` that consumes its output is [0089](0089-hash-operand-delete.md); only
 `find` is decided here.
@@ -38,12 +39,14 @@ prevent.
   match the whole path, floating** — an implicit `**/` on the front, so `me/Documents/tax`
   matches at any depth but keeps its segment alignment. **A trailing separator → everything
   beneath that directory** (`secretsdir/`).
-- **Case never matters, for any path.** An exact-case miss is a guess lost right before a
+- **Neither case nor accent spelling matters, for any path.** Both sides are compared in NFC,
+  so `é` matches whether it was stored as one character or as `e` and a combining mark, as
+  macOS often stores it. An exact-case or exact-spelling miss is a guess lost right before a
   `delete`, leaving the file in every backup, while an extra match only appears in the report
-  the user picks hashes from. Case can't be judged per path either: a snapshot doesn't say
-  whether case mattered where it was taken, and a macOS path, where it doesn't, looks just like
-  a Linux one, where it does. (Not "fold only Windows-shaped paths", the rule this replaced: it
-  missed every wrong-case search of a Mac backup.)
+  the user picks hashes from. Neither can be judged per path: a snapshot doesn't say whether it
+  mattered where it was taken, and a macOS path, where neither does, looks just like a Linux
+  one, where both do. (Not "fold only Windows-shaped paths", the rule this replaced: it missed
+  every wrong-case search of a Mac backup.)
 - **Which characters separate a path's segments keys on the path's shape**, never
   `process.platform` (`preparePath`). A **drive-letter** or **UNC** root is Windows-shaped, and
   both separators count; anything else is POSIX, where `/` is the only separator and a backslash

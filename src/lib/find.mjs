@@ -138,25 +138,37 @@ export function compileFindPattern(pattern) {
 
   // A separator anywhere — including the trailing one just stripped — switches
   // from basename matching to a floating whole-path match.
-  const normalized = posix.normalize(body);
+  const normalized = oneSpelling(posix.normalize(body));
   const wholePath = directory || normalized.includes(posix.sep);
   const source = globSource(normalized);
   const anchored = wholePath
     ? `^(?:.*/)?${source}${directory ? "/.*" : ""}$`
     : `^${source}$`;
 
-  // Case never matters to a search. A miss here leaves the file in every
-  // backup, while an extra match only shows in the report the user picks hashes
-  // from. Nor can a snapshot say whether case mattered where it was taken: a
-  // macOS path looks just like a Linux one.
+  // Neither case nor how an accent is spelled matters to a search. A miss here
+  // leaves the file in every backup, while an extra match only shows in the
+  // report the user picks hashes from. Nor can a snapshot say whether they
+  // mattered where it was taken: a macOS path looks just like a Linux one.
   const regex = new RegExp(anchored, "i");
 
   return {
     pattern,
     test: (candidate) =>
-      regex.test(wholePath ? candidate.path : candidate.base),
+      regex.test(oneSpelling(wholePath ? candidate.path : candidate.base)),
   };
 }
+
+/** Anything past ASCII, the only text an accent can be spelled two ways in. */
+const NON_ASCII = /[\u0080-\uffff]/;
+
+/**
+ * Text with every accent in one spelling (NFC: `é` as one character, never `e`
+ * and a combining mark), leaving alone the plain-ASCII paths that are most of
+ * a history, since it runs on every row searched.
+ * @param {string} text
+ */
+const oneSpelling = (text) =>
+  NON_ASCII.test(text) ? text.normalize("NFC") : text;
 
 /**
  * Collapse one path+hash's snapshot occurrences into spans: a run of

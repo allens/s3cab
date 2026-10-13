@@ -68,9 +68,10 @@ both; `find` takes as many as you like:
 > s3cab find secret1 '*secret1'
 ```
 
-Case never matters: `photos/` also finds `Photos/`, on every system. A search
-that missed would leave the file in your backups, while an extra match only
-shows in the list you pick from.
+Case never matters: `photos/` also finds `Photos/`, on every system. Nor does
+how an accented letter is stored — as one character, or as a letter and an
+accent mark, as a Mac often stores it. A search that missed would leave the file
+in your backups, while an extra match only shows in the list you pick from.
 
 ## Reading the output
 
