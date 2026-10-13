@@ -55,7 +55,7 @@ The glob tokens are the same ones [exclude patterns](exclude.md#globbing) use:
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
-| `**/`  | zero or more whole segments                        |
+| `**/`  | zero or more whole segments, at the start or after a `/` |
 | `**`   | anything at all, across segments                   |
 | `?`    | exactly one character                              |
 
@@ -68,10 +68,10 @@ both; `find` takes as many as you like:
 > s3cab find secret1 '*secret1'
 ```
 
-Case is judged by the path being searched, not by the computer doing the
-searching: a Windows path in a snapshot — a drive letter or a network share
-(`\\nas\photos`) — matches case-insensitively even when you run `find` on
-Linux.
+Case never matters: `photos/` also finds `Photos/`, on every system. Nor does
+how an accented letter is stored — as one character, or as a letter and an
+accent mark, as a Mac often stores it. A search that missed would leave the file
+in your backups, while an extra match only shows in the list you pick from.
 
 ## Reading the output
 

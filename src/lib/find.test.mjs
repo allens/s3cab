@@ -16,9 +16,10 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 // answer different questions:
 //
 // - **Matching** is pure, so it is tested with literal Windows *and* POSIX paths
-//   on whatever machine runs the suite. That is the point: the case rule keys on
-//   the path's shape, so a Windows path must fold on Linux and a POSIX path must
-//   not fold on Windows, and only literal paths can assert both from one run.
+//   on whatever machine runs the suite. That is the point: the separator rule
+//   keys on the path's shape, so a Windows path must split on `\` on Linux and a
+//   POSIX path must not on Windows, and only literal paths can assert both from
+//   one run.
 // - **The scan** needs real `.tsv.gz` snapshots, so it writes them into a temp
 //   S3CAB_HOME. Its fixtures use paths this platform resolves, since what is
 //   under test there is spans, dedup and unreadable snapshots — not path shape.
@@ -98,6 +99,9 @@ describe("compileFindPattern", () => {
     assert.equal(matches("*.jpg", "/home/me/photos/beach.jpeg"), false);
     assert.equal(matches("tax-201?.pdf", "/docs/tax-2019.pdf"), true);
     assert.equal(matches("tax-201?.pdf", "/docs/tax-19.pdf"), false);
+    // An emoji is one character, though JavaScript stores it as two.
+    const emoji = String.fromCodePoint(0x1f389);
+    assert.equal(matches("party?.jpg", `/docs/party${emoji}.jpg`), true);
     // `*` is one-or-more, not POSIX find's zero-or-more: the token grammar is
     // `exclude`'s (ADR-0088), and only the anchoring changed.
     assert.equal(matches("*secret1", "/home/me/copy-secret1"), true);
@@ -133,6 +137,12 @@ describe("compileFindPattern", () => {
     assert.equal(matches("me/**/tax.pdf", "/home/me/tax.pdf"), true);
   });
 
+  it("`**/` stuck to a name is a plain `**`, which can't join the two", () => {
+    assert.equal(matches("photos**/raw", "/home/me/photos/raw"), true);
+    assert.equal(matches("photos**/raw", "/home/me/photos2024/a/raw"), true);
+    assert.equal(matches("photos**/raw", "/home/me/photosraw"), false);
+  });
+
   it("matches everything beneath a directory given a trailing separator", () => {
     assert.equal(matches("secretsdir/", "/home/me/secretsdir/secret1"), true);
     assert.equal(matches("secretsdir/", "/home/me/secretsdir/a/b/c.txt"), true);
@@ -142,15 +152,28 @@ describe("compileFindPattern", () => {
     assert.equal(matches("secretsdir/", "/home/me/secretsdirX/y"), false);
   });
 
-  it("folds case for a Windows path and not for a POSIX one", () => {
+  it("ignores case for every path, Windows or POSIX", () => {
     assert.equal(matches("SECRET1", "C:\\Users\\me\\secret1"), true);
     assert.equal(matches("secret1", "C:\\Users\\ME\\SECRET1"), true);
     assert.equal(matches("SECRETSDIR/", "C:\\me\\secretsdir\\a"), true);
-    // A network share is Windows-shaped too: the share never told the user
-    // which spelling it holds, so an exact-case miss would be a guess lost.
     assert.equal(matches("BEACH.JPG", "\\\\nas\\photos\\beach.jpg"), true);
-    assert.equal(matches("SECRET1", "/home/me/secret1"), false);
-    assert.equal(matches("secret1", "/home/me/SECRET1"), false);
+    // A macOS path looks like a Linux one, and on a Mac case doesn't matter.
+    assert.equal(matches("photos/", "/Users/me/Photos/beach.jpg"), true);
+    assert.equal(matches("secret1", "/home/me/SECRET1"), true);
+    // A letter JavaScript stores as two units (Deseret capital and small I).
+    const upper = String.fromCodePoint(0x10400);
+    const lower = String.fromCodePoint(0x10428);
+    assert.equal(matches(upper, `/home/me/${lower}`), true);
+  });
+
+  it("matches an accent however it is spelled, on every OS", () => {
+    // Built with normalize(): typed out, the two spellings look identical.
+    const oneChar = "caf\u00e9".normalize("NFC");
+    const withMark = "caf\u00e9".normalize("NFD");
+    assert.notEqual(oneChar, withMark);
+    assert.equal(matches(oneChar, `/Users/me/${withMark}`), true);
+    assert.equal(matches(withMark, `/Users/me/${oneChar}`), true);
+    assert.equal(matches(`${oneChar}/`, `C:\\me\\${withMark}\\menu.txt`), true);
   });
 
   it("rejects a pattern with nothing in it to match", () => {

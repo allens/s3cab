@@ -46,13 +46,13 @@ Patterns match each file or directory's path relative to each of the set's
 member directories. Write / between directories; on Windows \\ works too.
 
   *    one or more characters, within a single name
-  **/  zero or more whole directories
+  **/  zero or more whole directories, at the start or after a /
   **   anything at all, across directories
   ?    exactly one character
 
 A pattern ending in / matches a directory and everything inside it, or a link
 to a directory.
-Matching is case-insensitive on Windows, case-sensitive elsewhere.
+Case doesn't matter on Windows or macOS, and does on Linux.
 
 Examples:
   **/node_modules/   every node_modules directory, wherever it appears

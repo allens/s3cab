@@ -19,9 +19,14 @@ import { globSource } from "./path-match.mjs";
  * - **The first matching pattern wins**, and is what the walk records as the
  *   pattern on its `#excluded` row.
  *
- * Matching is case-insensitive on win32, case-sensitive elsewhere — the platform
- * is the right question here, unlike in `find`, because these patterns only ever
- * meet paths from this machine's own walk.
+ * Names compare the way this machine's filesystem compares them by default:
+ * ignoring case on Windows and macOS, and on macOS ignoring how an accent is
+ * spelled too (one character, or a letter and a combining mark: NFC/NFD). The
+ * platform is the right question here, unlike in `find`, because these patterns
+ * only ever meet paths from this machine's own walk. Case folds by Unicode's
+ * table, which joins a few rare letters NTFS keeps apart (the Kelvin sign and
+ * `k`): not the `i` flag alone, which matched NTFS on those, because only `u`
+ * makes `?` match a whole emoji.
  * @param {string} baseDir - The member directory the patterns are relative to
  * @param {string[]} patterns - Root-relative exclude globs, as the user wrote them
  * @returns {(path: string, isDirectory: boolean) => string | undefined} The
@@ -34,7 +39,7 @@ export function compileExcludePatterns(baseDir, patterns) {
   }));
 
   return (path, isDirectory) => {
-    let subject = toSlashes(path);
+    let subject = spell(path);
     if (isDirectory) {
       subject += posix.sep;
     }
@@ -42,16 +47,26 @@ export function compileExcludePatterns(baseDir, patterns) {
   };
 }
 
+const FOLDS_CASE =
+  process.platform === "win32" || process.platform === "darwin";
+const FOLDS_ACCENTS = process.platform === "darwin";
+
 /**
  * @param {string} pattern - Absolute exclude glob
  * @returns {RegExp}
  */
 function compile(pattern) {
   return new RegExp(
-    `^${globSource(posix.normalize(toSlashes(pattern)))}$`,
-    process.platform === "win32" ? "i" : "",
+    `^${globSource(posix.normalize(spell(pattern)))}$`,
+    FOLDS_CASE ? "iu" : "u",
   );
 }
 
-/** @param {string} path */
-const toSlashes = (path) => path.split(sep).join(posix.sep);
+/**
+ * A path or pattern with `/` separators, and on macOS in one accent spelling.
+ * @param {string} path
+ */
+function spell(path) {
+  const slashed = path.split(sep).join(posix.sep);
+  return FOLDS_ACCENTS ? slashed.normalize("NFC") : slashed;
+}

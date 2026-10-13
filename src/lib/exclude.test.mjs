@@ -32,6 +32,16 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy(p, "/root/catalog.txt"), undefined);
   });
 
+  it("`**/` stuck to a name is a plain `**`, which can't join the two", () => {
+    const p = ["photos**/raw"];
+    assert.equal(excludedBy(p, "/root/photos/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photos2024/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photos2024/a/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photosraw"), undefined);
+    // Two in a row each start a segment, so both may match nothing.
+    assert.equal(excludedBy(["a/**/**/b"], "/root/a/b"), "a/**/**/b");
+  });
+
   it("a `**` with no trailing separator spans segments", () => {
     // Regression: with only the `**/` rule, a trailing `**` fell through to the
     // single-`*` case twice and compiled to `[^/]+[^/]+` — "two or more
@@ -64,6 +74,9 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy(p, "/root/file1.txt"), "file?.txt");
     assert.equal(excludedBy(p, "/root/file.txt"), undefined);
     assert.equal(excludedBy(p, "/root/file10.txt"), undefined);
+    // An emoji is one character, though JavaScript stores it as two.
+    const emoji = String.fromCodePoint(0x1f389);
+    assert.equal(excludedBy(p, `/root/file${emoji}.txt`), "file?.txt");
   });
 
   it("answers with the first matching pattern, in the order given", () => {
@@ -72,10 +85,30 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy([], "/root/a.log"), undefined);
   });
 
-  it("matches case-insensitively on win32, case-sensitively elsewhere", () => {
+  it("ignores case on Windows and macOS, as their filesystems do, and not on Linux", () => {
+    const expected = (/** @type {string} */ pattern) =>
+      process.platform === "linux" ? undefined : pattern;
     assert.equal(
       excludedBy(["**/UPPER.txt"], "/root/upper.txt"),
-      process.platform === "win32" ? "**/UPPER.txt" : undefined,
+      expected("**/UPPER.txt"),
+    );
+    // A letter JavaScript stores as two units (Deseret capital and small I).
+    const upper = String.fromCodePoint(0x10400);
+    const lower = String.fromCodePoint(0x10428);
+    assert.equal(excludedBy([upper], `/root/${lower}`), expected(upper));
+  });
+
+  it("ignores how an accent is spelled on macOS, as APFS does, and nowhere else", () => {
+    // Built with normalize(): typed out, the two spellings look identical.
+    const oneChar = "caf\u00e9.txt".normalize("NFC");
+    const withMark = "caf\u00e9.txt".normalize("NFD");
+    assert.notEqual(oneChar, withMark);
+    const expected = (/** @type {string} */ pattern) =>
+      process.platform === "darwin" ? pattern : undefined;
+    assert.equal(excludedBy([oneChar], `/root/${withMark}`), expected(oneChar));
+    assert.equal(
+      excludedBy([withMark], `/root/${oneChar}`),
+      expected(withMark),
     );
   });
 

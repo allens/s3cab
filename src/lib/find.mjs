@@ -111,8 +111,8 @@ import { shellCommand } from "./style.mjs";
  *   have no directory rows, so this is the only way to name a subtree, and it
  *   matches paths — never the directory itself.
  *
- * **Separators in the *pattern* key on `process.platform`; separators and case
- * in the *path* key on the path's shape.** They are different questions with
+ * **Separators in the *pattern* key on `process.platform`; separators in the
+ * *path* key on the path's shape.** They are different questions with
  * different right answers: the pattern was typed at this machine's shell, so a
  * Windows user typing `secretsdir\secret1` means a separator; the path came out
  * of a snapshot that may have been taken on another OS entirely, so only its own
@@ -138,27 +138,37 @@ export function compileFindPattern(pattern) {
 
   // A separator anywhere — including the trailing one just stripped — switches
   // from basename matching to a floating whole-path match.
-  const normalized = posix.normalize(body);
+  const normalized = oneSpelling(posix.normalize(body));
   const wholePath = directory || normalized.includes(posix.sep);
   const source = globSource(normalized);
   const anchored = wholePath
     ? `^(?:.*/)?${source}${directory ? "/.*" : ""}$`
     : `^${source}$`;
 
-  // Two compilations of one source, chosen per path rather than per run: a
-  // machine can hold snapshots from both kinds of filesystem, so the fold is a
-  // property of the path being tested, not of this process.
-  const sensitive = new RegExp(anchored);
-  const folded = new RegExp(anchored, "i");
+  // Neither case nor how an accent is spelled matters to a search. A miss here
+  // leaves the file in every backup, while an extra match only shows in the
+  // report the user picks hashes from. Nor can a snapshot say whether they
+  // mattered where it was taken: a macOS path looks just like a Linux one.
+  const regex = new RegExp(anchored, "iu");
 
   return {
     pattern,
     test: (candidate) =>
-      (candidate.foldCase ? folded : sensitive).test(
-        wholePath ? candidate.path : candidate.base,
-      ),
+      regex.test(oneSpelling(wholePath ? candidate.path : candidate.base)),
   };
 }
+
+/** Anything past ASCII, the only text an accent can be spelled two ways in. */
+const NON_ASCII = /[\u0080-\uffff]/;
+
+/**
+ * Text with every accent in one spelling (NFC: `é` as one character, never `e`
+ * and a combining mark), leaving alone the plain-ASCII paths that are most of
+ * a history, since it runs on every row searched.
+ * @param {string} text
+ */
+const oneSpelling = (text) =>
+  NON_ASCII.test(text) ? text.normalize("NFC") : text;
 
 /**
  * Collapse one path+hash's snapshot occurrences into spans: a run of

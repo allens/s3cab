@@ -38,7 +38,7 @@ _segment_ is one directory or file name (the text between two separators).
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
-| `**/`  | zero or more whole segments                        |
+| `**/`  | zero or more whole segments, at the start or after a `/` |
 | `**`   | anything at all, across segments, or nothing       |
 | `?`    | exactly one character, within a single segment     |
 
@@ -54,7 +54,9 @@ match nothing. A pattern ending in `/` also matches a link whose target is a
 directory, unlike git, where `foo/` never matches a link. A broken link has no
 target, so only a pattern without the `/` matches it.
 
-Matching is case-insensitive on Windows and case-sensitive elsewhere. When
+Names compare the way your computer's own disk compares them: case doesn't matter
+on Windows or macOS, and does on Linux. On macOS an accented letter also matches
+however it is stored, as one character or as a letter and an accent mark. When
 several patterns match, the first in the file is the one recorded as leaving the
 path out.
 

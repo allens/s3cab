@@ -7,7 +7,8 @@ import { posix } from "node:path";
 // They live together because they are two halves of one answer: `globSource`
 // produces the pattern, and the spelling question decides what the pattern is
 // compared against and whether the comparison folds case. `exclude` uses the
-// first, `restore` the second (its path filters and `--output`), `find` both.
+// first, `restore` the second (its path filters and `--output`), `find` both,
+// though `find` folds case for every path.
 //
 // The spelling question is really two — **which characters separate segments**,
 // and **whether case matters** — and both are answered from the path's own
@@ -130,20 +131,24 @@ export function pathMatcher(folders) {
  * @param {string} pattern - A `/`-separated glob; converting the platform's own
  *   separator is the caller's job, because the per-segment tokens need one
  *   canonical separator to define a segment by
- * @returns {string} Regex source carrying no `^`/`$` of its own
+ * @returns {string} Regex source carrying no `^`/`$` of its own, for compiling
+ *   with the `u` flag: without it `?` matches half of an emoji
  */
 export function globSource(pattern) {
   // @ts-ignore - RegExp.escape exists in Node 24+
   return (
     RegExp.escape(pattern)
-      // **/ matches zero or more segments
-      .replace(/\\\*\\\*\\\//g, "(.*\\/)?")
-      // Any ** left over is one not followed by a separator — `build/**`, or a
-      // bare `**`. It spans segments like its `**/` sibling: without this rule it
-      // fell through to the single-`*` case *twice*, quietly compiling to two
-      // [^/]+ runs — "two or more characters, in one segment" — which is nobody's
-      // reading of `**`. Must run before that rule, which would otherwise consume
-      // the halves.
+      // **/ matches zero or more segments, where it starts one. Stuck to a name
+      // (`photos**/raw`) it is left to the next rule, so it can't join `photos`
+      // to `raw` as `photosraw`. A lookbehind, not a captured separator: that
+      // would consume the `/` a second `**/` in a row needs.
+      .replace(/(?<=^|\\\/)\\\*\\\*\\\//g, "(.*\\/)?")
+      // Any ** left over has no separator after it (`build/**`, a bare `**`,
+      // `**.log`) or doesn't start a segment (`photos**/raw`). It spans segments
+      // like its `**/` sibling: without this rule it fell through to the
+      // single-`*` case *twice*, quietly compiling to two [^/]+ runs — "two or
+      // more characters, in one segment" — which is nobody's reading of `**`.
+      // Must run before that rule, which would otherwise consume the halves.
       .replace(/\\\*\\\*/g, ".*")
       // * matches one or more chars in one segment
       .replace(/\\\*/g, "[^/]+")
