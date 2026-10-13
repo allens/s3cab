@@ -484,6 +484,7 @@ part of the path is resolved, not just the last:
 
 - a symbolic link or junction anywhere along it, to its target;
 - a drive made with `subst`, to the directory it stands for;
+- a mapped network drive, to the share's own path (`\\server\share\…`);
 - a Windows short name such as `PROGRA~1`, to the full name (`Program Files`);
 - each name's case, to the case on disk.
 
@@ -771,7 +772,8 @@ For a restorer, or anything else that reads the files.
   [real path](#paths). Links found inside it are not.
 - Walk every member directory without following a link, and apply the patterns as the
   [exclude guide](exclude.md) defines them. Then skip a directory named `.s3cab` in
-  lowercase that no pattern matched: it gets no row.
+  lowercase that no pattern matched: it gets no row. Hidden and system files are ordinary
+  files.
 - On Windows and macOS, patterns ignore case using Unicode's simple case folding, one
   character for one: `ẞ` matches `ß` but not `ss`, and the Turkish `ı` and `İ` match only
   themselves. That holds even on a drive or in a directory set up to be case-sensitive.
