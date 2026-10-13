@@ -50,9 +50,10 @@ A directory is matched as its path with a `/` on the end, so only a pattern endi
 in `/` or `**` can match one. A pattern ending in `/` matches a directory (and
 everything inside it, since the walker doesn't descend into an excluded
 directory), and `logs/**` matches the `logs` directory itself, since `**` can
-match nothing. A pattern ending in `/` also matches a link whose target is a
-directory, unlike git, where `foo/` never matches a link. A broken link has no
-target, so only a pattern without the `/` matches it.
+match nothing. A link whose target is a folder is matched like a folder, as its
+path with a `/` on the end (unlike git, where `foo/` never matches a link). A
+broken link, or one whose target can't be reached, is matched like a file, so only
+a pattern without the `/` matches it.
 
 Names compare the way your operating system compares them by default: case
 doesn't matter on Windows or macOS, and does on Linux. On macOS an accented letter

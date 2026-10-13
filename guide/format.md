@@ -359,10 +359,14 @@ anywhere, including somewhere you never chose to back up.
 
 | Link | Row |
 | --- | --- |
-| To a file or folder inside a member directory, judged by where it finally resolves, through any further links | none; the target is recorded where it lies, saved or `#excluded` |
-| To a file or folder outside every member directory, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
+| Into the backup | none; the target is recorded where it lies, saved or `#excluded` |
+| Out of the backup, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
 | Broken, or to a pipe, socket or device | none |
 | Matched by an exclude pattern | `#excluded`, like any excluded entry |
+
+A link to a file or directory leads **into the backup** when the place it finally resolves
+to, through any further links, is a member directory or lies inside one, and **out of the
+backup** otherwise.
 
 A link out of the backup is an error because its content may look saved and isn't — a
 folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
