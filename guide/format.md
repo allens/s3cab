@@ -342,8 +342,8 @@ A row's first character says what it is: `@` a property of the whole file, `-` a
 A tool that drops `#` lines as comments keeps exactly what a restore reads: the properties
 and the files.
 
-**A path ending with a separator is a folder** (`C:\Users\me\Photos\cache\`): an excluded
-folder, a folder link leading out of the backup, a member directory.
+**A path ending with a separator is a directory** (`C:\Users\me\Photos\cache\`): an excluded
+directory, a directory link leading out of the backup, a member directory.
 
 **A reader skips an `@` or `#` type, or a property, that it doesn't know, and refuses a file
 holding any other type it doesn't know.** An unknown `@` or `#` row is something a newer
@@ -369,12 +369,12 @@ to, through any further links, is a member directory or lies inside one, and **o
 backup** otherwise.
 
 A link out of the backup is an error because its content may look saved and isn't — a
-folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
+directory link can hide a whole tree. Add the target's directory to the set, or exclude the link.
 The snapshot is still written, as for any `#error`.
 
 A link is **broken** when nothing exists where it points: the target is missing, a path
-through it treats a file as a folder, or links lead round in a circle. Anything else that
-stops it being followed, such as a share that doesn't answer or a folder you can't read, is
+through it treats a file as a directory, or links lead round in a circle. Anything else that
+stops it being followed, such as a share that doesn't answer or a directory you can't read, is
 somewhere this computer can't resolve.
 
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
@@ -419,7 +419,7 @@ rows above; every `#excluded` and `#error` row, so the answer to "why wasn't thi
 up?" is near the top; one `-` row per file (with an `#error` in among them for
 a file that failed while being read); then `FILES`, `SIZE` and `END`. A reader goes by each
 row's type, not its position — except for `END`, below. Within a block, rows come in the
-order the folders were listed, which differs between filesystems, so compare two snapshots
+order the directories were listed, which differs between filesystems, so compare two snapshots
 as sets of rows, not line by line.
 
 The set's directory and this snapshot's local path follow from `HOME` and the names, and
@@ -430,7 +430,7 @@ patterns applied to this run.
 One omission is silent by design: a directory named `.s3cab`, all lowercase even on Windows,
 is never walked and gets no row — it is s3cab's own, and a member directory containing one
 would otherwise back up the tool's working files. An entry that vanishes between being
-listed and being checked gets no row either, since there is nothing left to record; a folder
+listed and being checked gets no row either, since there is nothing left to record; a directory
 that can't be listed stops the backup.
 
 ### No row holds a tab or a line ending
@@ -451,7 +451,7 @@ So every line has exactly five fields.
 ### Paths
 
 **Paths are written with the casing the filesystem itself reports** — the spelling you see
-in File Explorer or Finder, not the spelling anything was typed in. If a folder is on disk
+in File Explorer or Finder, not the spelling anything was typed in. If a directory is on disk
 as `Photos` and the set's `dirs.txt` names it `PHOTOS`, the snapshot says `Photos`. The one
 exception is a **Windows drive letter, which is always uppercase**: a drive letter isn't a
 name on disk, it's an alias the operating system assigns to a volume, and Windows keeps no
@@ -736,7 +736,7 @@ For a restorer, or anything else that reads the files.
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
 - On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
-  pairs, even on a drive or in a folder set up to be case-sensitive. On Linux they always
+  pairs, even on a drive or in a directory set up to be case-sensitive. On Linux they always
   pay attention to case, even on a drive that doesn't. On macOS an accented letter also
   matches however it is stored. `?` and `*` count whole characters.
 - Write a row per entry:
@@ -748,10 +748,10 @@ For a restorer, or anything else that reads the files.
     out of the backup or somewhere this computer can't resolve;
   - no row for any other link, a pipe, socket or device, or an entry that vanished between
     being listed and being checked.
-- End a folder's path with a separator. Spell every path with the casing the filesystem
+- End a directory's path with a separator. Spell every path with the casing the filesystem
   reports, and a Windows drive letter in uppercase.
 - Stop without writing a snapshot, naming the cause, at a name holding a tab, CR or LF, a
-  name with no UTF-8 form, or a folder that can't be listed. Anywhere else, spell a tab, CR
+  name with no UTF-8 form, or a directory that can't be listed. Anywhere else, spell a tab, CR
   or LF out as `␉`, `␍` or `␊`.
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows); give
   each path at most one per-path row; end with `@S3CAB END`, its instant rounded up.
