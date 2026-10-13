@@ -111,6 +111,9 @@ const named = new RegExp(
     String.raw`|(^|[\s"'(=])~(?=[\\/\s]|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
+// Case-insensitive, since Windows runs `S3CAB` too, though it also flags a bare `S3CAB` in an
+// environment-variable filter (`-match '^(AWS_|S3CAB)'`). If that false alarm recurs, report
+// other-case matches as a note rather than going case-sensitive.
 const runsS3cab =
   /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)])/im;
 /** @param {string} command */
