@@ -390,7 +390,7 @@ that doesn't answer) or 67 (no such share), say, though Python raises `FileNotFo
 for those too.
 
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
-so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
+so it is walked, and recorded in `@SET DIR` as its [real path](#paths).
 
 ### The whole-snapshot rows
 
@@ -468,6 +468,16 @@ as `Photos` and the set's `dirs.txt` names it `PHOTOS`, the snapshot says `Photo
 exception is a **Windows drive letter, which is always uppercase**: a drive letter isn't a
 name on disk, it's an alias the operating system assigns to a volume, and Windows keeps no
 canonical case for it. So `C:` is what you get, whichever way you wrote it.
+
+**A member directory is recorded as its real path**, however `dirs.txt` spells it. Every
+part of the path is resolved, not just the last:
+
+- a symbolic link or junction anywhere along it, to its target;
+- a drive made with `subst`, to the directory it stands for;
+- a Windows short name such as `PROGRA~1`, to the full name (`Program Files`);
+- each name's case, to the case on disk.
+
+In Python, `os.path.realpath(path, strict=True)` returns the same path.
 
 That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
 are yours to edit: on Windows paths (a drive letter, or a network share starting `\\` or
@@ -747,8 +757,8 @@ For a restorer, or anything else that reads the files.
 
 - Read the set's `dirs.txt` and `exclude.txt` as [the local side](#the-local-side-s3cab)
   describes: blank and `#` lines ignored, each line trimmed. A directory named in
-  `dirs.txt` that is itself a link is followed, since you named it, and recorded as the
-  path it leads to. Links found inside it are not.
+  `dirs.txt` that is itself a link is followed, since you named it, and recorded as its
+  [real path](#paths). Links found inside it are not.
 - Walk every member directory without following a link, never entering a directory named
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
