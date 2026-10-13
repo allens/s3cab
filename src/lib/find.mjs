@@ -111,8 +111,8 @@ import { shellCommand } from "./style.mjs";
  *   have no directory rows, so this is the only way to name a subtree, and it
  *   matches paths — never the directory itself.
  *
- * **Separators in the *pattern* key on `process.platform`; separators and case
- * in the *path* key on the path's shape.** They are different questions with
+ * **Separators in the *pattern* key on `process.platform`; separators in the
+ * *path* key on the path's shape.** They are different questions with
  * different right answers: the pattern was typed at this machine's shell, so a
  * Windows user typing `secretsdir\secret1` means a separator; the path came out
  * of a snapshot that may have been taken on another OS entirely, so only its own
@@ -145,18 +145,16 @@ export function compileFindPattern(pattern) {
     ? `^(?:.*/)?${source}${directory ? "/.*" : ""}$`
     : `^${source}$`;
 
-  // Two compilations of one source, chosen per path rather than per run: a
-  // machine can hold snapshots from both kinds of filesystem, so the fold is a
-  // property of the path being tested, not of this process.
-  const sensitive = new RegExp(anchored);
-  const folded = new RegExp(anchored, "i");
+  // Case never matters to a search. A miss here leaves the file in every
+  // backup, while an extra match only shows in the report the user picks hashes
+  // from. Nor can a snapshot say whether case mattered where it was taken: a
+  // macOS path looks just like a Linux one.
+  const regex = new RegExp(anchored, "i");
 
   return {
     pattern,
     test: (candidate) =>
-      (candidate.foldCase ? folded : sensitive).test(
-        wholePath ? candidate.path : candidate.base,
-      ),
+      regex.test(wholePath ? candidate.path : candidate.base),
   };
 }
 

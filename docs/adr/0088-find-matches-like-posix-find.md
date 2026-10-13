@@ -2,8 +2,7 @@
 
 **Status:** accepted — designed in a grilling session 2026-08-22, built the same day; amended
 2026-09-05 (the path-shape rule below now answers separators as well as case, and a UNC path
-is Windows-shaped). Joins
-the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
+is Windows-shaped); amended 2026-10-13 (case never matters, for any path). Joins the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
 follows [0062](0062-bulk-operands-positional-addressing-by-flag.md)'s operand/addressing split.
 The hash-operand `delete` that consumes its output is [0089](0089-hash-operand-delete.md); only
 `find` is decided here.
@@ -39,20 +38,19 @@ prevent.
   match the whole path, floating** — an implicit `**/` on the front, so `me/Documents/tax`
   matches at any depth but keeps its segment alignment. **A trailing separator → everything
   beneath that directory** (`secretsdir/`).
-- **How the path is spelled keys on the shape of the path being tested**, never
-  `process.platform`. That is two questions — which characters separate its segments, and
-  whether its case matters — and both are answered from one read of the path (`preparePath`),
-  because answering one from the other's predicate is how a UNC path was once unfindable: it has
-  no drive letter, so the drive-letter test left its backslashes in place against a
-  `/`-normalized pattern, and no pattern could match. Three shapes: a **drive-letter** root and a
-  **UNC** root are Windows-shaped (both separators, case folds); anything else is POSIX (`/`
-  only, a backslash is an ordinary character, case is significant). A UNC path folds because it
-  only ever originates from a Windows client, whose lookup is case-insensitive against every
-  Windows server and the usual NAS defaults, and because it is what a mapped drive resolves to
-  — so it is every backup of a NAS, and an exact-case miss there is a guess lost right before a
-  `delete`. Separators in the *pattern* still key on `process.platform`, because the pattern was
-  typed at this machine's shell while the path came out of a snapshot possibly taken on another
-  OS.
+- **Case never matters, for any path.** An exact-case miss is a guess lost right before a
+  `delete`, leaving the file in every backup, while an extra match only appears in the report
+  the user picks hashes from. Case can't be judged per path either: a snapshot doesn't say
+  whether case mattered where it was taken, and a macOS path, where it doesn't, looks just like
+  a Linux one, where it does. (Not "fold only Windows-shaped paths", the rule this replaced: it
+  missed every wrong-case search of a Mac backup.)
+- **Which characters separate a path's segments keys on the path's shape**, never
+  `process.platform` (`preparePath`). A **drive-letter** or **UNC** root is Windows-shaped, and
+  both separators count; anything else is POSIX, where `/` is the only separator and a backslash
+  is an ordinary character. A UNC path has no drive letter, so a drive-letter test alone once
+  left its backslashes against a `/`-normalized pattern and made it unfindable. Separators in
+  the *pattern* key on `process.platform`, because the pattern was typed at this machine's shell
+  while the path came out of a snapshot possibly taken on another OS.
 - **Local snapshots only, no `--remote`, no `--bucket`.** ADR-0027 settled that `reattach` pulls
   a set's entire history precisely so browse commands stay local; `find` joins them and costs
   zero S3 calls. It searches every attached set, `--set` narrows.

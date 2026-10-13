@@ -16,9 +16,10 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 // answer different questions:
 //
 // - **Matching** is pure, so it is tested with literal Windows *and* POSIX paths
-//   on whatever machine runs the suite. That is the point: the case rule keys on
-//   the path's shape, so a Windows path must fold on Linux and a POSIX path must
-//   not fold on Windows, and only literal paths can assert both from one run.
+//   on whatever machine runs the suite. That is the point: the separator rule
+//   keys on the path's shape, so a Windows path must split on `\` on Linux and a
+//   POSIX path must not on Windows, and only literal paths can assert both from
+//   one run.
 // - **The scan** needs real `.tsv.gz` snapshots, so it writes them into a temp
 //   S3CAB_HOME. Its fixtures use paths this platform resolves, since what is
 //   under test there is spans, dedup and unreadable snapshots — not path shape.
@@ -142,15 +143,14 @@ describe("compileFindPattern", () => {
     assert.equal(matches("secretsdir/", "/home/me/secretsdirX/y"), false);
   });
 
-  it("folds case for a Windows path and not for a POSIX one", () => {
+  it("ignores case for every path, Windows or POSIX", () => {
     assert.equal(matches("SECRET1", "C:\\Users\\me\\secret1"), true);
     assert.equal(matches("secret1", "C:\\Users\\ME\\SECRET1"), true);
     assert.equal(matches("SECRETSDIR/", "C:\\me\\secretsdir\\a"), true);
-    // A network share is Windows-shaped too: the share never told the user
-    // which spelling it holds, so an exact-case miss would be a guess lost.
     assert.equal(matches("BEACH.JPG", "\\\\nas\\photos\\beach.jpg"), true);
-    assert.equal(matches("SECRET1", "/home/me/secret1"), false);
-    assert.equal(matches("secret1", "/home/me/SECRET1"), false);
+    // A macOS path looks like a Linux one, and on a Mac case doesn't matter.
+    assert.equal(matches("photos/", "/Users/me/Photos/beach.jpg"), true);
+    assert.equal(matches("secret1", "/home/me/SECRET1"), true);
   });
 
   it("rejects a pattern with nothing in it to match", () => {

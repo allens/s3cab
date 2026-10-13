@@ -68,10 +68,9 @@ both; `find` takes as many as you like:
 > s3cab find secret1 '*secret1'
 ```
 
-Case is judged by the path being searched, not by the computer doing the
-searching: a Windows path in a snapshot — a drive letter or a network share
-(`\\nas\photos`) — matches case-insensitively even when you run `find` on
-Linux.
+Case never matters: `photos/` also finds `Photos/`, on every system. A search
+that missed would leave the file in your backups, while an extra match only
+shows in the list you pick from.
 
 ## Reading the output
 
