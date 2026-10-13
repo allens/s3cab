@@ -428,23 +428,24 @@ describe("awsRolesAnywherePlan", () => {
 
 describe("awsSaveConfirmation", () => {
   const out = awsSaveConfirmation({
-    stackName: "s3cab-my-backups",
+    stackName: "s3cab-my-backups-0a1b2c3d",
     region: "eu-west-1",
-    dir: "~/.s3cab/roles-anywhere",
+    bucket: "my-backups",
+    envPath: "~/.s3cab/roles-anywhere/my-backups.env",
   });
 
-  it("names the stack, region, and the identity env file it wrote", () => {
+  it("names the stack, region, bucket, and the env file it wrote", () => {
     assert.match(
       out,
-      /Saved the Roles Anywhere ARNs from stack "s3cab-my-backups" \(region eu-west-1\)/,
+      /Saved the Roles Anywhere ARNs from stack "s3cab-my-backups-0a1b2c3d" \(region eu-west-1\)\nfor bucket "my-backups"/,
     );
-    assert.match(out, /~\/\.s3cab\/roles-anywhere\/env/);
+    assert.match(out, /~\/\.s3cab\/roles-anywhere\/my-backups\.env/);
   });
 
   it("points a backup set at the now-complete identity (create and switch)", () => {
     assert.match(
       out,
-      /s3cab setup --set <name> --bucket <bucket> --roles-anywhere <directory>\.\.\./,
+      /s3cab setup --set <name> --bucket my-backups --roles-anywhere <directory>\.\.\./,
     );
     assert.match(out, /s3cab provider --roles-anywhere <set>/);
     assert.match(out, /short-lived AWS\n?credentials for every backup/);

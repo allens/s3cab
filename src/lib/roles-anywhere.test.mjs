@@ -210,35 +210,39 @@ describe("ensureMachineIdentity", () => {
 });
 
 describe("arnsFromOutputs", () => {
-  it("maps the three stack outputs onto their env keys, nothing missing", () => {
-    const { arns, missing } = arnsFromOutputs([
+  it("maps the three ARN outputs onto their env keys and picks out the bucket", () => {
+    const { arns, bucket, missing } = arnsFromOutputs([
       { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
       { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
       { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
+      { OutputKey: "Bucket", OutputValue: "photos" },
     ]);
     assert.deepEqual(arns, {
       S3CAB_RA_TRUST_ANCHOR_ARN: "arn:aws:ta/1",
       S3CAB_RA_PROFILE_ARN: "arn:aws:profile/2",
       S3CAB_RA_ROLE_ARN: "arn:aws:role/3",
     });
+    assert.equal(bucket, "photos");
     assert.deepEqual(missing, []);
   });
 
-  it("reports the env keys no output supplied (the --save precondition)", () => {
+  it("names the outputs the stack lacks (the --save precondition)", () => {
     const { arns, missing } = arnsFromOutputs([
       { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
     ]);
     assert.deepEqual(arns, { S3CAB_RA_TRUST_ANCHOR_ARN: "arn:aws:ta/1" });
-    assert.deepEqual(missing, ["S3CAB_RA_PROFILE_ARN", "S3CAB_RA_ROLE_ARN"]);
+    assert.deepEqual(missing, ["ProfileArn", "RoleArn", "Bucket"]);
   });
 
-  it("treats an empty output list as all three missing", () => {
-    const { arns, missing } = arnsFromOutputs([]);
+  it("treats an empty output list as all four missing", () => {
+    const { arns, bucket, missing } = arnsFromOutputs([]);
     assert.deepEqual(arns, {});
+    assert.equal(bucket, undefined);
     assert.deepEqual(missing, [
-      "S3CAB_RA_TRUST_ANCHOR_ARN",
-      "S3CAB_RA_PROFILE_ARN",
-      "S3CAB_RA_ROLE_ARN",
+      "TrustAnchorArn",
+      "ProfileArn",
+      "RoleArn",
+      "Bucket",
     ]);
   });
 
@@ -247,6 +251,7 @@ describe("arnsFromOutputs", () => {
       { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
       { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
       { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
+      { OutputKey: "Bucket", OutputValue: "photos" },
       { OutputKey: "Ignored", OutputValue: "nope" },
       { OutputKey: "RoleArn", OutputValue: undefined },
     ]);
@@ -483,35 +488,47 @@ describe("isRolesAnywhereMode / readSigningIdentity", () => {
     assert.equal(isRolesAnywhereMode({ S3CAB_RA: "0" }), false);
   });
 
+  const SAVED =
+    "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
+    "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n" +
+    "S3CAB_RA_STACK=s3cab-photos-0a1b2c3d\n";
+
   it("returns undefined when no identity has been generated", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    assert.equal(readSigningIdentity(), undefined);
+    assert.equal(readSigningIdentity("photos"), undefined);
   });
 
   it("returns undefined when the identity exists but its ARNs weren't saved", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    ensureMachineIdentity(); // certs exist, but no `env` file yet (no --save)
-    assert.equal(readSigningIdentity(), undefined);
+    ensureMachineIdentity(); // certs exist, but no env file yet (no --save)
+    assert.equal(readSigningIdentity("photos"), undefined);
   });
 
-  it("reads the cert, key, ARNs and region once the identity is complete", async () => {
+  it("returns undefined for a bucket whose ARNs weren't saved, though another's were", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     ensureMachineIdentity();
-    writeFileSync(
-      join(machineIdentityDir(), "env"),
-      "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
-        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
-    );
+    writeFileSync(join(machineIdentityDir(), "photos.env"), SAVED);
+    assert.ok(readSigningIdentity("photos"));
+    assert.equal(readSigningIdentity("music"), undefined);
+    assert.equal(readSigningIdentity(undefined), undefined);
+  });
 
-    const identity = readSigningIdentity();
+  it("reads the cert, key, ARNs, region and stack once the identity is complete", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    writeFileSync(join(machineIdentityDir(), "photos.env"), SAVED);
+
+    const identity = readSigningIdentity("photos");
     assert.ok(identity);
     assert.equal(identity.region, "eu-west-1");
     assert.equal(identity.trustAnchorArn, "arn:ta");
     assert.equal(identity.profileArn, "arn:profile");
     assert.equal(identity.roleArn, "arn:role");
+    assert.equal(identity.stack, "s3cab-photos-0a1b2c3d");
     assert.match(identity.certPem, /-----BEGIN CERTIFICATE-----/);
     assert.match(identity.keyPem, /-----BEGIN PRIVATE KEY-----/);
     // The identity really can sign — end-to-end through buildSignedRequest.
@@ -527,21 +544,17 @@ describe("isRolesAnywhereMode / readSigningIdentity", () => {
     useTempHome(dir.path);
     ensureMachineIdentity();
     writeFileSync(
-      join(machineIdentityDir(), "env"),
+      join(machineIdentityDir(), "photos.env"),
       "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nAWS_REGION=eu-west-1\n", // no profile/role
     );
-    assert.equal(readSigningIdentity(), undefined);
+    assert.equal(readSigningIdentity("photos"), undefined);
   });
 
   it("returns undefined (not a throw) when a present file is unreadable/corrupt", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     ensureMachineIdentity();
-    writeFileSync(
-      join(machineIdentityDir(), "env"),
-      "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
-        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
-    );
+    writeFileSync(join(machineIdentityDir(), "photos.env"), SAVED);
     // Replace client.key with a *directory* — it still "exists" (so the identity
     // reads as complete), but reading it throws EISDIR. A cross-platform stand-in
     // for any unreadable/corrupt file; the caller must get undefined, not a crash.
@@ -549,7 +562,7 @@ describe("isRolesAnywhereMode / readSigningIdentity", () => {
     unlinkSync(clientKey);
     mkdirSync(clientKey);
     assert.equal(machineIdentityExists(), true); // all four paths still present
-    assert.doesNotThrow(() => readSigningIdentity());
-    assert.equal(readSigningIdentity(), undefined);
+    assert.doesNotThrow(() => readSigningIdentity("photos"));
+    assert.equal(readSigningIdentity("photos"), undefined);
   });
 });

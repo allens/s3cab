@@ -197,6 +197,15 @@ function writeTemplate(name, template) {
  * @returns {Promise<string>}
  */
 async function saveRolesAnywhere(stackName, region, profile) {
-  const { dir } = await saveArnsFromStack({ stackName, region, profile });
-  return awsSaveConfirmation({ stackName, region, dir: tildeify(dir) });
+  const { bucket, envPath } = await saveArnsFromStack({
+    stackName,
+    region,
+    profile,
+  });
+  return awsSaveConfirmation({
+    stackName,
+    region,
+    bucket,
+    envPath: tildeify(envPath),
+  });
 }

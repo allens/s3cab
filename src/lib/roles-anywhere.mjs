@@ -28,8 +28,10 @@ import { shellCommand } from "./style.mjs";
 //                           is the *cold* key — only re-issues client certs.
 //   client.pem / client.key the machine's identity; client.key is the runtime
 //                           signing key (Phase B), NEVER sent to AWS.
-//   env                     KEY=value: the three RA ARNs + AWS_REGION, captured
-//                           from the deployed CloudFormation stack (--save).
+//   <bucket>.env            KEY=value, one per bucket: the three RA ARNs, the
+//                           region and the identity stack they were captured
+//                           from (--save). The certificate is the machine's; the
+//                           trust anchor, role and profile are a bucket's (ADR-0105).
 //
 // This module owns cert **generation** and **storage** (Phase A-2) and the
 // runtime **SigV4-X509 signer** (Phase B, at the foot of the file): it reads
@@ -392,33 +394,28 @@ export const machineIdentityDir = () => join(s3cabDir(), "roles-anywhere");
 /** Path of a file inside the identity dir. @param {string} file */
 const identityPath = (file) => join(machineIdentityDir(), file);
 
-/** The identity's env file (the ARNs + region), an env-file.mjs KEY=value file. */
-export const identityEnvPath = () => identityPath("env");
+/**
+ * A bucket's env file (its ARNs, region and stack), an env-file.mjs KEY=value
+ * file. One per bucket, so `--save` for a second bucket never overwrites the
+ * first's (ADR-0105).
+ * @param {string} bucket
+ */
+export const identityEnvPath = (bucket) => identityPath(`${bucket}.env`);
 
 /**
- * The three commands that stand a machine identity up for a bucket — generate,
- * deploy, capture — as the indented fix block every "identity missing" message
- * ends with (ADR-0030: the exact fix, copy-pasteable). One home for the recipe
- * because three messages print it: the `provider`/`setup` readiness gate
- * (lib/provider.mjs) and the two Roles Anywhere cases of `credentialCase`
- * (lib/auth.mjs).
+ * How a machine identity is stood up for a bucket, as the indented fix block
+ * every "identity missing" message ends with (ADR-0030: the exact fix,
+ * copy-pasteable). Only the first command can be spelled out ahead: the stack
+ * the later steps name carries the CA's fingerprint, which doesn't exist until
+ * that command has run. One home for the recipe because three messages print it:
+ * the `provider`/`setup` readiness gate (lib/provider.mjs) and the two Roles
+ * Anywhere cases of `credentialCase` (lib/auth.mjs).
  * @param {string} [bucket] - The set's bucket, or `<bucket>` when unknown.
  */
 export const setupSteps = (bucket = "<bucket>") =>
   `  ${shellCommand(`s3cab aws ${bucket} --roles-anywhere`)}
-then deploy the printed template, and capture its ARNs into the identity:
-  ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`)}`;
-
-/**
- * The name of the CloudFormation stack `s3cab aws <bucket> --roles-anywhere`
- * deploys, for the `--from-stack` operand a fix prints. Spelled out here rather
- * than taken from lib/aws.mjs's `stackName`: that module imports s3.mjs, which
- * imports auth.mjs, which imports this one, so the import would be a cycle. The
- * `s3cab-` de-dup it mirrors is ADR-0056's one naming rule.
- * @param {string} [bucket] - The set's bucket, or `<bucket>` when unknown.
- */
-export const identityStackName = (bucket = "<bucket>") =>
-  `s3cab-${bucket.replace(/^s3cab-/, "")}`;
+then run the steps it prints: deploy the two templates, and capture the
+identity's ARNs with the --save command it gives.`;
 
 /** The four files that together make up a complete machine identity. */
 const IDENTITY_FILES = ["ca.pem", "ca.key", "client.pem", "client.key"];
@@ -481,7 +478,7 @@ export function ensureMachineIdentity() {
 
 /**
  * The single source of the Roles Anywhere ARN contract: each CloudFormation stack
- * **output name** paired with the identity `env` **key** it lands in (design doc +
+ * **output name** paired with the bucket env file **key** it lands in (design doc +
  * auth.md). Every side of the round-trip reads it, so the three names can't drift:
  * {@link arnsFromOutputs} maps outputs → env keys through it, {@link readSigningIdentity}
  * reads the identity's ARNs back through its values, and an `aws.test.mjs`
@@ -495,30 +492,52 @@ export const ARN_ENV = {
 };
 
 /**
+ * The output naming the bucket an identity stack serves — which env file
+ * `--save` writes (ADR-0105). Not part of {@link ARN_ENV}: it picks the file, it
+ * isn't stored in it.
+ */
+export const BUCKET_OUTPUT = "Bucket";
+
+/** The env key recording which stack a bucket's ARNs were captured from. */
+export const STACK_ENV = "S3CAB_RA_STACK";
+
+/**
  * Map a deployed stack's `Outputs` onto the RA identity's ARN env record, pairing
- * each output with its `S3CAB_RA_*` key via {@link ARN_ENV}. Pure — no I/O, no SDK
- * client — so the mapping and the "which outputs are absent" check are unit-testable
- * against a plain array. Returns the populated `arns` (keyed by env key) and the
- * `missing` env keys ({@link ARN_ENV} values no output supplied); the actionable
- * throw stays with the I/O caller (`saveArnsFromStack` in stack-arns.mjs, the
- * aws-only CloudFormation boundary — ADR-0059), which alone has the stack/region
- * context ADR-0030's message needs. `Output` is a structural type, so a
- * plain `{ OutputKey, OutputValue }[]` (what the tests pass) satisfies it too.
+ * each output with its `S3CAB_RA_*` key via {@link ARN_ENV}, and pick out the
+ * bucket it serves ({@link BUCKET_OUTPUT}). Pure — no I/O, no SDK client — so the
+ * mapping and the "which outputs are absent" check are unit-testable against a
+ * plain array. `missing` names every expected output absent from the stack; the
+ * actionable throw stays with the I/O caller (`saveArnsFromStack` in
+ * stack-arns.mjs, the aws-only CloudFormation boundary — ADR-0059), which alone
+ * has the stack/region context ADR-0030's message needs. `Output` is a structural
+ * type, so a plain `{ OutputKey, OutputValue }[]` (what the tests pass) satisfies
+ * it too.
  * @param {Output[]} outputs
- * @returns {{ arns: Record<string, string>, missing: string[] }}
+ * @returns {{ arns: Record<string, string>, bucket: string | undefined, missing: string[] }}
  */
 export function arnsFromOutputs(outputs) {
   /** @type {Record<string, string>} */
   const arns = {};
+  let bucket;
   for (const { OutputKey, OutputValue } of outputs) {
-    const envKey =
-      OutputKey && ARN_ENV[/** @type {keyof typeof ARN_ENV} */ (OutputKey)];
-    if (envKey && OutputValue) {
+    if (!OutputKey || !OutputValue) {
+      continue;
+    }
+    if (OutputKey === BUCKET_OUTPUT) {
+      bucket = OutputValue;
+    }
+    const envKey = ARN_ENV[/** @type {keyof typeof ARN_ENV} */ (OutputKey)];
+    if (envKey) {
       arns[envKey] = OutputValue;
     }
   }
-  const missing = Object.values(ARN_ENV).filter((key) => !arns[key]);
-  return { arns, missing };
+  const missing = Object.entries(ARN_ENV)
+    .filter(([, envKey]) => !arns[envKey])
+    .map(([output]) => output);
+  if (!bucket) {
+    missing.push(BUCKET_OUTPUT);
+  }
+  return { arns, bucket, missing };
 }
 
 // ── The set marker + the machine signing identity (Phase B) ───────────────────
@@ -544,8 +563,9 @@ export const isRolesAnywhereMode = (env = process.env) =>
   env[RA_MARKER] === "1";
 
 /**
- * The machine RA identity the signer needs, read off disk: the client cert + key
- * PEMs and the ARNs + region captured into its env file by `--save`.
+ * The machine RA identity the signer needs for one bucket, read off disk: the
+ * client cert + key PEMs and the ARNs + region `--save` captured into that
+ * bucket's env file, plus the stack they came from (for a fix that re-captures it).
  * @typedef {Object} SigningIdentity
  * @property {string} region - The region hosting the trust anchor/profile.
  * @property {string} certPem - The client certificate (PEM), sent in X-Amz-X509.
@@ -553,27 +573,29 @@ export const isRolesAnywhereMode = (env = process.env) =>
  * @property {string} trustAnchorArn
  * @property {string} profileArn
  * @property {string} roleArn
+ * @property {string} stack - The identity stack `--save` read the ARNs from.
  */
 
 /**
- * Read the machine RA identity the signer signs with, or `undefined` when it is
- * absent, incomplete, **or unreadable/corrupt** — no identity files, the env file
- * missing an ARN or the region (a set in RA mode whose `--save` step never ran), or
- * a file that exists but can't be read/parsed (EACCES, a malformed `env`). The
- * signer's inputs come from the **machine identity**, not the set (the set carries
- * only the marker): the two certs/keys live beside the `env` file under
- * `~/.s3cab/roles-anywhere/`. Returning `undefined` in every "not usable" case (not
- * throwing) lets the credential layer raise the actionable "RA identity
- * missing/broken" error (auth.mjs, ADR-0030) — whose remedy, regenerate, fits a
- * corrupt identity too — rather than an opaque read/parse failure here.
+ * Read the machine RA identity the signer signs with for `bucket`, or `undefined`
+ * when it is absent, incomplete, **or unreadable/corrupt** — no identity files, no
+ * env file for this bucket or one missing an ARN, the region or the stack (a set in
+ * RA mode whose `--save` step never ran for its bucket), or a file that exists but
+ * can't be read/parsed (EACCES, a malformed env file). The certs/keys are the
+ * **machine's**; the ARNs are the **bucket's** (ADR-0105); the set carries only
+ * the marker. Returning `undefined` in every "not usable" case (not throwing) lets
+ * the credential layer raise the actionable "RA identity missing/broken" error
+ * (auth.mjs, ADR-0030) — whose remedy, set it up, fits a corrupt identity too —
+ * rather than an opaque read/parse failure here.
+ * @param {string | undefined} bucket - The set's bucket.
  * @returns {SigningIdentity | undefined}
  */
-export function readSigningIdentity() {
-  if (!machineIdentityExists()) {
+export function readSigningIdentity(bucket) {
+  if (!bucket || !machineIdentityExists()) {
     return undefined;
   }
   try {
-    const env = parseEnvFile(identityEnvPath());
+    const env = parseEnvFile(identityEnvPath(bucket));
     // Read the ARNs through the same {@link ARN_ENV} keys `--save` wrote them under,
     // so the env-key spelling lives in exactly one place. AWS_REGION is a standard
     // AWS key, not part of the ARN contract, so it stays literal.
@@ -581,7 +603,8 @@ export function readSigningIdentity() {
     const profileArn = env[ARN_ENV.ProfileArn];
     const roleArn = env[ARN_ENV.RoleArn];
     const region = env.AWS_REGION;
-    if (!trustAnchorArn || !profileArn || !roleArn || !region) {
+    const stack = env[STACK_ENV];
+    if (!trustAnchorArn || !profileArn || !roleArn || !region || !stack) {
       return undefined;
     }
     return {
@@ -591,6 +614,7 @@ export function readSigningIdentity() {
       trustAnchorArn,
       profileArn,
       roleArn,
+      stack,
     };
   } catch {
     // Present-but-unreadable/corrupt (EACCES, a directory where a file should be,
