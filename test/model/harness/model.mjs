@@ -94,7 +94,8 @@ export function captureTree(dirs) {
 
 /**
  * The model's own manifest parser, from the format spec: five tab-separated
- * columns per row (the type unpadded, the next three space-padded — trim). A
+ * columns per row (the type unpadded, the next three space-padded — trim),
+ * then the closing `.`. A
  * type starting `@` or `#` isn't a file, and only `@SET NAME`/`@SNAPSHOT NAME`
  * are read from those; a `-` row is `hash size mtime path`. Anything the spec
  * says can't happen lands in `parseErrors`.
@@ -132,6 +133,9 @@ export function parseManifest(key, bytes) {
   for (const line of text.split("\n")) {
     if (line === "") {
       continue; // the trailing newline's empty split
+    }
+    if (line === ".") {
+      continue; // the terminator, the one line with neither five fields nor a type
     }
     const fields = line.split("\t");
     if (fields.length !== 5) {

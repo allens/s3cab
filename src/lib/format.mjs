@@ -1,7 +1,7 @@
 import assert from "node:assert";
 
 // Besides the formatters, this module is the **clock seam**: every instant an
-// artifact *records* — a snapshot's name, `START` and `END`, a
+// artifact *records* — a snapshot's name, `START` and `FINISH`, a
 // deletion record's or forget audit's stamp, a set marker's CREATED — is read
 // here, by `localMoment` or `completionInstant`, and nowhere else. The model
 // harness mocks this module to run every command on a virtual clock
@@ -305,20 +305,12 @@ export function localMoment(smallestUnit) {
 }
 
 /**
- * The instant that vouches for everything written before it — a snapshot's
- * `@S3CAB END` row ([ADR-0082](../../docs/adr/0082-snapshot-end-trailer.md)),
- * which the ctime cross-check weighs a file against on the next pass
- * ([ADR-0085](../../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)). UTC at
+ * The instant a snapshot's last row was written — its `@SNAPSHOT FINISH` row
+ * ([ADR-0106](../../docs/adr/0106-a-lone-dot-ends-every-file.md)). UTC at
  * millisecond precision like `localMoment`'s `instant`, but **rounded up, not
- * truncated**: the column holds milliseconds and the clock has more digits, so
- * one direction has to be chosen and the default (`trunc`) is the wrong one. A
- * truncated value claims a moment up to a millisecond *earlier* than the write
- * really ended, so a file whose ctime landed inside that last millisecond reads
- * as touched afterwards and is distrusted for ever — the exact failure the
- * trailer exists to end. Rounding up can over-vouch by under a millisecond
- * instead: a rewrite completing between the true last row and the recorded
- * instant. A far better trade, and `ctimeMs` carries sub-millisecond precision
- * on every filesystem here, so the comparison stays meaningful.
+ * truncated**, so it is never earlier than the last row: the column holds
+ * milliseconds and the clock has more digits, and a truncated value claims a
+ * moment up to a millisecond before the write really ended.
  * @returns {string}
  */
 export const completionInstant = () =>

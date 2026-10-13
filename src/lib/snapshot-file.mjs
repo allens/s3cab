@@ -18,6 +18,7 @@ import {
   completionInstant,
   formatByteValue,
   localMoment,
+  shortDuration,
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
@@ -37,7 +38,7 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // know the grammar; `writeSnapshot` writes all of it. On read,
 // `parseSnapshotStream` surfaces only what code reads (ADR-0098's table): `-`
 // rows into `entries`, `#error` into `errors`, `@SET DIR` into `dirs`,
-// `@SNAPSHOT START`'s instant, and `@S3CAB END` as the completeness check — and
+// `@SNAPSHOT START`'s instant, and the closing `.` as the completeness check — and
 // refuses what ADR-0101 calls invalid, the whole file or one path. Every other
 // `@` or `#` row is for people and is skipped. `#excluded` is one of those
 // deliberately: "what are my patterns dropping?" is answered by `tree
@@ -57,7 +58,6 @@ const SNAPSHOT = "@SNAPSHOT";
 const FORMAT = "FORMAT";
 const DIR = "DIR";
 const START = "START";
-const END = "END";
 const HEADING_URL = "https://s3cab.plantegral.com/guide/format";
 
 /**
@@ -66,6 +66,13 @@ const HEADING_URL = "https://s3cab.plantegral.com/guide/format";
  * every stored file, so it must keep resolving (CLAUDE.md, printed URLs).
  */
 export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
+
+/**
+ * The last line of every whole s3cab file, and its completeness check
+ * (ADR-0082, ADR-0106). A terminator, not a row: the one line with neither five
+ * fields nor a type.
+ */
+export const TERMINATOR = ".";
 
 /**
  * The properties a snapshot records for one file — its content `hash`, `size`,
@@ -369,7 +376,7 @@ export async function withSnapshotFile(
  * uses it as the change-time check's boundary for a set with no previous
  * snapshot to take one from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
- * which a snapshot never is: a parked file has no `@S3CAB END`, whether its run
+ * which a snapshot never is: a parked file has no closing `.`, whether its run
  * was stopped or killed, and a killed run's last row is torn. Every parked file
  * has its `@SNAPSHOT START` row, written before any object, so `instant` is
  * there either way.
@@ -495,7 +502,7 @@ const inProgressError = (tmpPath) => {
  * pattern-matched entries, `#error` rows for entries the walk couldn't check,
  * then a `-` row per kept file — each hashed via the
  * injected `getProps`, with an `#error` row for any that fails — and the
- * `FILES`/`SIZE`/`END` trailer, all gzip-compressed and atomically renamed into
+ * `FILES`/`SIZE`/`FINISH` trailer and closing `.`, all gzip-compressed and atomically renamed into
  * place (`withSnapshotFile`). This is the single production seam for "files →
  * snapshot file"; the grammar never leaves this module.
  *
@@ -595,7 +602,12 @@ export async function writeSnapshot(
         // The signal reaches the trailer the same way it reaches `propsRows`:
         // handed in, not read from a module global. It is what tells a finished
         // file from one the user stopped, and only this scope holds it.
-        (produced) => stringifySnapshot(produced, { preamble, signal }),
+        (produced) =>
+          stringifySnapshot(produced, {
+            start: moment.instant,
+            preamble,
+            signal,
+          }),
         writeStream,
       );
     },
@@ -811,8 +823,8 @@ export async function parseCompressedSnapshotStream(
     );
   } catch (error) {
     // gunzip rejects a stream that ends before its own trailer, before the
-    // parser can miss its `END` — so for a *compressed* snapshot this is where
-    // truncation is caught, and `END` covers what gzip's check can't see
+    // parser can miss its closing `.` — so for a *compressed* snapshot this is
+    // where truncation is caught, and the `.` covers what gzip's check can't see
     // (ADR-0082 amendment 3). Same damage, so the same AssertionError.
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "Z_BUF_ERROR") {
       assert.fail(
@@ -839,7 +851,7 @@ export async function parseCompressedSnapshotStream(
  * from a newer s3cab, and is skipped.
  *
  * Validity is ADR-0101's. The whole file is refused when it isn't UTF-8,
- * doesn't open with the heading row, doesn't end with `END`, or holds a type
+ * doesn't open with the heading row, doesn't end with `.`, or holds a type
  * this version doesn't know that starts with neither `@` nor `#` — content a
  * restore would miss (ADR-0103). One path is refused, and the rest still read,
  * for a malformed `-` row, a path that isn't absolute, holds a tab, a CR or a
@@ -847,7 +859,7 @@ export async function parseCompressedSnapshotStream(
  * both are refused, so no reader guesses between them.
  * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without `@S3CAB END`, and drop the final line unless it is that row — a row torn mid-write can look perfectly well-formed, so nothing but `END` vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage `END` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the closing `.`, and drop the final line unless it is that `.` — a row torn mid-write can look perfectly well-formed, so nothing but the `.` vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage the `.` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
  * @returns {Promise<Snapshot>}
  * @throws {AssertionError} When the whole file is refused — truncation
  *   (ADR-0082) among the rest — which `isCorruptSnapshotError` classifies as
@@ -910,13 +922,12 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     if (line.trim() === "") {
       return;
     }
-    // An END that isn't last no longer proves the file whole (ADR-0101).
-    assert(
-      !complete,
-      "Damaged snapshot: rows follow the closing @S3CAB END row",
-    );
+    // A `.` that isn't last no longer proves the file whole (ADR-0101).
+    assert(!complete, 'Damaged snapshot: rows follow the closing "." line');
 
-    if (type === FILE) {
+    if (line === TERMINATOR) {
+      complete = true;
+    } else if (type === FILE) {
       // A per-path row refuses its own path and nothing else (ADR-0101): rows
       // are independent lines, so the rest of the file still reads.
       const path = col5;
@@ -941,8 +952,6 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
       dirs.push(col5);
     } else if (type === SNAPSHOT && property === START) {
       instant = col4.trim() || undefined;
-    } else if (type === S3CAB && property === END) {
-      complete = true;
     } else {
       assert(
         type.startsWith("@") || type.startsWith("#"),
@@ -960,8 +969,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // filename that stops short, which would file a real hash under a prefix of a
   // real path, and a live file matching that prefix's size and mtime would then
   // have the wrong content's hash reused for it. So the final line is taken on
-  // `END`'s word rather than on its own looks. A gracefully parked file has no
-  // `END` either (ADR-0098), so it too loses its last row: one file re-hashed.
+  // the `.`'s word rather than on its own looks. A gracefully parked file has no
+  // `.` either (ADR-0098), so it too loses its last row: one file re-hashed.
   /** @type {string | undefined} */
   let held;
 
@@ -976,16 +985,17 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     held = line;
   }
 
-  // `END` is the one line that vouches for itself: a torn write can leave a
-  // prefix of a *row*, but `END` is the last thing written, so nothing follows
-  // it to be cut. Any other held line is dropped unread.
-  if (held !== undefined && isEndLine(held)) {
+  // The `.` is the one line that vouches for itself: a torn write can leave a
+  // prefix of a *row*, but a one-byte line can't be torn, and no prefix of a
+  // row is `.` — every row starts with `-`, `@` or `#`. Any other held line is
+  // dropped unread.
+  if (held === TERMINATOR) {
     parseLine(held);
   }
 
-  // The completeness check (ADR-0082): `@S3CAB END` is what makes truncation
+  // The completeness check (ADR-0082): the closing `.` is what makes truncation
   // loud, because completeness is a property of the *content* — any cut that
-  // loses a row loses `END` with it. gunzip rejects a cut-short
+  // loses a row loses the `.` with it. gunzip rejects a cut-short
   // stream on its own, and parseCompressedSnapshotStream folds that into
   // this same AssertionError, but it can't stand in for this check: an
   // uncompressed `.tsv` has no gzip trailer at all, and the `tolerant` read below
@@ -996,12 +1006,12 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.
   // `tolerant` exempts a work file, and only a work file: it is *expected* to
-  // have no `END`, because the run that was writing it never reached one
+  // have no `.`, because the run that was writing it never reached one
   // (ADR-0092). Every other reader stays strict, which is what keeps this
   // assert the truncation detector ADR-0082 built it to be.
   assert(
     complete || tolerant,
-    "Truncated snapshot: the closing @S3CAB END row is missing, so the file was cut short",
+    'Truncated snapshot: the closing "." line is missing, so the file was cut short',
   );
 
   // After the read, not per row: only a whole file says which `@SET DIR` rows
@@ -1096,15 +1106,6 @@ async function* utf8Lines(input) {
 }
 
 /**
- * Whether `line` is the `@S3CAB END` row. The deletion record's reader too.
- * @param {string} line
- */
-export const isEndLine = (line) => {
-  const [type = "", property = ""] = line.split("\t");
-  return type.trim() === S3CAB && property.trim() === END;
-};
-
-/**
  * Whether `line` is the {@link HEADING} row, padding aside — every s3cab file's
  * first line (ADR-0101).
  * @param {string} line
@@ -1189,20 +1190,21 @@ function propsRows(getProps, signal) {
 /**
  * Convert snapshot data to TSV lines: the heading row and `preamble` first, then
  * a `-` row per file (an `#error` row for one that couldn't be hashed), then
- * `@SNAPSHOT FILES` and `SIZE` and `@S3CAB END` (ADR-0098). Every snapshot
- * body ends here, so the row that proves the file wasn't cut short is emitted in
- * exactly one place.
+ * `@SNAPSHOT FILES`, `SIZE` and `FINISH` and the closing `.` (ADR-0098,
+ * ADR-0106). Every snapshot body ends here, so the line that proves the file
+ * wasn't cut short is emitted in exactly one place.
  *
  * `signal` is the same park-on-interrupt signal `propsRows` reads, handed one
  * link further down the pipeline. Aborted, the file stops after its last
- * `-` row with no trailer at all: `END` means the file is complete, and a
+ * `-` row with no trailer at all: the `.` means the file is complete, and a
  * parked one isn't (ADR-0067).
  *
  * `FILES` and `SIZE` are counted here, from the rows as they pass, so they are
- * exact. `END`'s instant is minted here too, when the last row landed: beside
- * `START` it is the only record of how long a run took.
+ * exact. `FINISH`'s instant is minted here too, when the last row landed, with
+ * the run's duration since `start` beside it for people.
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
- * @param {object} [options]
+ * @param {object} options
+ * @param {string} options.start - The run's `@SNAPSHOT START` instant, which `FINISH`'s duration counts from
  * @param {string} [options.preamble] - Rows that go before the objects, already formatted
  * @param {AbortSignal} [options.signal] - The park-on-interrupt signal; aborted means this file stops part-way
  * @yields {string} TSV line
@@ -1210,7 +1212,7 @@ function propsRows(getProps, signal) {
  */
 export async function* stringifySnapshot(
   snapshot,
-  { preamble = "", signal } = {},
+  { start, preamble = "", signal },
 ) {
   yield HEADING + preamble;
   let files = 0;
@@ -1227,9 +1229,16 @@ export async function* stringifySnapshot(
   if (signal?.aborted) {
     return;
   }
+  const finish = completionInstant();
   yield property(SNAPSHOT, "FILES", String(files)) +
     property(SNAPSHOT, "SIZE", `${size} (${formatByteValue(size)})`) +
-    endRow();
+    property(
+      SNAPSHOT,
+      "FINISH",
+      shortDuration(Date.parse(finish) - Date.parse(start)),
+      finish,
+    ) +
+    `${TERMINATOR}\n`;
 }
 
 /**
@@ -1241,12 +1250,6 @@ export async function* stringifySnapshot(
 export const versionAndHome = () =>
   property(S3CAB, "VERSION", pkg.version) +
   property(S3CAB, "HOME", asFolder(s3cabDir()));
-
-/**
- * The `@S3CAB END` row, the last line of every whole s3cab file, stamped now.
- * @returns {string}
- */
-export const endRow = () => property(S3CAB, END, "", completionInstant());
 
 /**
  * Format one TSV line at the fixed column widths (ADR-0098): the type unpadded

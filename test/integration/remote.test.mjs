@@ -209,7 +209,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
         `-\t${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`,
       );
     }
-    rows.push("@S3CAB\tEND\t\t2025-05-05T06:01:00.000Z\t");
+    rows.push(".");
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),

@@ -68,6 +68,12 @@ export async function writeSnapshot(
     .map((root) => formatLine("@SET", "DIR", "", "", root))
     .join("");
   return withSnapshotFile(snapshotDir, name, (stream) =>
-    pipeline(stringifySnapshot(snapshot, { preamble }), stream),
+    pipeline(
+      stringifySnapshot(snapshot, {
+        start: new Date().toISOString(),
+        preamble,
+      }),
+      stream,
+    ),
   );
 }

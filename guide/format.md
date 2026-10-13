@@ -155,7 +155,7 @@ whom.
 
 A record is plain, uncompressed text in a snapshot's [five columns](#the-columns): the same
 heading row and `@S3CAB` rows first, then one `#deleted` row per deleted object, and
-`@S3CAB END` last:
+[the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
@@ -163,7 +163,7 @@ heading row and `@S3CAB` rows first, then one `#deleted` row per deleted object,
 @S3CAB    HOME                                                        C:\Users\me\.s3cab\
 #deleted  a3f9…c60d                   1204  2026-08-14T09:31:07.412Z  me@DESKTOP
 #deleted  5e21…ac93                    892  2026-08-19T22:10:41.006Z  me@LAPTOP
-@S3CAB    END                               2026-10-10T09:12:00.000Z
+.
 ```
 
 That example lines up and narrows the columns the way the [snapshot example](#snapshot-files)
@@ -172,7 +172,7 @@ does.
 Rules for a reader: each `#deleted` row is one deleted object. Its second field is the
 object's hash — 64 lowercase hex characters, its old key under `objects/` — the third its
 stored size in bytes, the fourth the UTC instant the delete ran, and the last who ran it, as
-`user@machine`. Skip every other `@` or `#` row. `@S3CAB END` says the file is whole, as it does for
+`user@machine`. Skip every other `@` or `#` row. The `.` says the file is whole, as it does for
 a snapshot, and [valid and invalid files](#valid-and-invalid-files) covers a record that
 isn't. A record has no `@SET` or `@SNAPSHOT` rows: it belongs to the bucket, not to one
 set or one backup run.
@@ -236,7 +236,8 @@ The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) appl
 full — encoding, LF splitting, no escaping, and never trimming the last field. This section
 adds only what is specific to snapshots.
 
-Every line has the same five columns, and the first says what kind of row it is. The file
+Every line but [the last](#the-last-line) has the same five columns, and the first says what
+kind of row it is. The file
 says where it came from before it lists anything, so it is self-describing even found alone
 in a bucket:
 
@@ -259,7 +260,8 @@ in a bucket:
 -         e3b0…b855                      0  2024-01-01T00:00:00.000Z  D:\Pics\empty.txt
 @SNAPSHOT FILES                                                       2
 @SNAPSHOT SIZE                                                        4915200 (4.9MB)
-@S3CAB    END                               2026-06-12T08:15:40.871Z
+@SNAPSHOT FINISH                            2026-06-12T08:15:40.871Z  9s
+.
 ```
 
 That example lines up the first column and narrows the others to stay readable;
@@ -321,8 +323,8 @@ canonical line:
   1000, with no thousands separator.
 
 **Some values are written for people, and are free text**, outside the canonical form: an
-`#error` row's wording, `VERSION`, `HOME`, `BY` and `START`'s zone. No reader depends on
-them.
+`#error` row's wording, `VERSION`, `HOME`, `BY`, `START`'s zone and `FINISH`'s duration. No
+reader depends on them. The exact duration is `FINISH` minus `START`.
 
 ### Row types
 
@@ -417,7 +419,7 @@ can go stale later without the row being wrong.
 | `@SNAPSHOT START` | the instant the run started (column 4), and the time zone the name was minted in |
 | `@SNAPSHOT FILES` | the number of file rows |
 | `@SNAPSHOT SIZE` | the sum of the size column, then a [readable form](#canonical-form) in parentheses |
-| `@S3CAB END` | the instant the file was finished (column 4) |
+| `@SNAPSHOT FINISH` | the instant the run finished (column 4), and how long it took (`9s`, `12m 21s`, `3h 04m`) |
 
 `START` carries the zone because snapshot names are local wall-clock time, so the zone is
 what makes one resolvable to an instant: `0915` in London in June is `08:15Z`. Naming the
@@ -434,8 +436,9 @@ read either back: a hand edit can change them, so a mismatch isn't damage.
 s3cab writes the rows in this order: the heading; the `@S3CAB`, `@SET` and `@SNAPSHOT`
 rows above; every `#excluded` and `#error` row, so the answer to "why wasn't this backed
 up?" is near the top; one `-` row per file (with an `#error` in among them for
-a file that failed while being read); then `FILES`, `SIZE` and `END`. A reader goes by each
-row's type, not its position — except for `END`, below. Within a block, rows come in the
+a file that failed while being read); then `FILES`, `SIZE` and `FINISH`, and the `.`. A
+reader goes by each row's type, not its position — except for the `.`, [below](#the-last-line).
+Within a block, rows come in the
 order the directories were listed, which differs between filesystems, so compare two snapshots
 as sets of rows, not line by line.
 
@@ -468,7 +471,7 @@ spells them out:
   practice that is an error message, or the path in an `#excluded` row (excluding a file is
   how it gets past the refusal) or an `#error` row.
 
-So every line has exactly five fields.
+So every line has exactly five fields, bar [the last](#the-last-line).
 
 ### Paths
 
@@ -532,27 +535,29 @@ disagree without either being wrong. But a restored file can also sit up to half
 millisecond either side of a *surviving original*, which any mtime-sensitive tool will report
 as a difference.
 
-### The last line: `@S3CAB END`
+### The last line
 
-**`@S3CAB END` is the last line of every snapshot, and it means the file is complete.** A
-file without it was cut short, whatever the cause, so one check catches every kind. gzip
+**The last line of every snapshot and deletion record is exactly `.`, and it means the file
+is complete.** A file without it was cut short, whatever the cause, so one check catches
+every kind. It is a terminator, not a row: the one line without five fields, and whose first
+field isn't a type. Like every line it ends with LF. gzip
 does notice a cut-short file, but only at the end: `gunzip -c` and Python's `gzip` module
 both hand over every line they can decompress *before* reporting the cut, so a reader that
 processes rows as they arrive has already seen a byte *prefix* of the original, which would
-otherwise read as a valid, smaller snapshot. A snapshot without `END` is damaged goods —
+otherwise read as a valid, smaller snapshot. A snapshot without the `.` is damaged goods —
 treat it as truncated, not as complete. Concretely: **don't restore from it**. The rows that
 survive a cut are a valid-looking prefix, so restoring them produces a tree that looks
 finished and silently isn't; refuse the snapshot, say why, and let the reader reach for an
 intact one. (A reader that only wants the file rows can still skip every other line;
-checking for `END` first is what tells it the rows it read are all of them.)
+checking for the `.` first is what tells it the rows it read are all of them.)
 
-Its instant is when the file was finished — for a snapshot, when the run finished. s3cab
-itself doesn't read it back. It's there for you: with `START`'s instant, it's the only
-record of how long the run took. Read it as an upper bound: the column holds milliseconds
-and the clock is finer, so the figure is rounded **up** — everything in the file was written
-at or before the moment it names, never after. Two snapshots of an unchanged set, taken on
-the same machine by the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START` and
-`@S3CAB END`, and nowhere else.
+The line before it, in a snapshot, is `@SNAPSHOT FINISH`. Its instant is when the run
+finished, and s3cab itself doesn't read it back. It's there for you, with the run's duration
+beside it. Read the instant as an upper bound: the column holds milliseconds and the clock is
+finer, so the figure is rounded **up** — everything in the file was written at or before the
+moment it names, never after. Two snapshots of an unchanged set, taken on the same machine by
+the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START` and `FINISH`, and nowhere else.
+A deletion record has no finish instant: each `#deleted` row has its own.
 
 Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
@@ -567,7 +572,7 @@ perfectly legal: an empty backup set, not a damaged file.
 A valid file is what s3cab writes, and that goes for a [deletion record](#the-deletion-record)
 as much as a snapshot:
 
-- UTF-8 with LF endings, the heading row first and `@S3CAB END` last;
+- UTF-8 with LF endings, the heading row first and the `.` last;
 - only types this version knows, other than `@` and `#` ones;
 - every per-path row's path absolute, with no `.` or `..` segment and no tab, CR or LF, under
   a `@SET DIR`;
@@ -579,7 +584,7 @@ A reader meets files that aren't, since these are text files anyone can edit, an
 of three things:
 
 - **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
-  end with `END`, has rows after `END`, or holds an unknown type starting with neither `@`
+  end with the `.`, has rows after the `.`, or holds an unknown type starting with neither `@`
   nor `#`. Each means the file isn't what it claims, was cut short, or comes from a newer
   s3cab, and restoring part of it would pass for a full restore.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, a path
@@ -615,7 +620,7 @@ promise is that a valid but edited file is true: a hash changed to another store
 restores the wrong content, faithfully.
 
 Whole-file integrity is gzip's CRC-32 and length check, which decompressing a snapshot
-verifies; the uncompressed deletion record has only its `END`. The store's ETag is no
+verifies; the uncompressed deletion record has only its `.`. The store's ETag is no
 substitute: it is a content hash only for single-part uploads to AWS.
 
 ## The local side (`~/.s3cab/`)
@@ -658,7 +663,7 @@ you share.
 
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
 dot, neither is ever uploaded, and both are safe to delete when nothing is running. Neither
-ends with `@S3CAB END`, so neither can pass for a finished snapshot; s3cab reads each only
+ends with the `.`, so neither can pass for a finished snapshot; s3cab reads each only
 for its file hashes, and drops its last line unread, since nothing vouches that the line is
 whole. That costs one file hashed again.
 
@@ -669,7 +674,7 @@ whole. That costs one file hashed again.
   before it instead of reading all those files again.
 - `.snapshot.lookup.tsv.gz` — the file hashes from a snapshot you stopped with Ctrl+C,
   kept so the next run doesn't have to work them out again. Structurally it is a snapshot
-  that stops after its last file row, with no `FILES`, `SIZE` or `END`. Every hash in it
+  that stops after its last file row, with no `FILES`, `SIZE`, `FINISH` or `.`. Every hash in it
   is re-checked against the file's current size and modification time before being trusted,
   and it is deleted as soon as a snapshot completes.
 
@@ -717,7 +722,7 @@ For a restorer, or anything else that reads the files.
 - Check every snapshot and deletion record as [valid and invalid files](#valid-and-invalid-files)
   sets out: refuse the whole file, refuse one path and carry on, or ignore the row. A file
   whose first line isn't the [heading row](#the-columns), all five fields, or whose last line
-  isn't `@S3CAB END`, is refused whole.
+  isn't the `.`, is refused whole.
 - Place each file row under the `@SET DIR` it falls in, [matched by whole segments, the
   longest winning](#paths). Where it lands from there is your tool's decision.
 - Fetch each file row's content from `objects/<hash>`, and check that what you downloaded
@@ -738,12 +743,10 @@ For a restorer, or anything else that reads the files.
 - **Line splitters.** Python's `str.splitlines()` breaks on `\v`, `\f`, `\x1c`, `\x1d`,
   `\x1e`, U+0085, U+2028 and U+2029 as well as LF, and other languages' "split on any line
   break" helpers do much the same. Any of them can occur in a legal filename.
-- **Trimming the whole line.** `@S3CAB END`'s last field is empty, so stripping trailing
-  whitespace from the line leaves four fields.
 - **The heading row's column 4.** It holds the word `time`, not an instant, so a reader that
   checks column 4 of every `@` row as an instant refuses every file at its first line.
 - **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
-  before reporting a cut-short file, which is why `END` matters. Python's `gzip.decompress`
+  before reporting a cut-short file, which is why the `.` matters. Python's `gzip.decompress`
   also joins several gzip streams into one without a word.
 - **Windows paths: go through `\\?\`.** Prefixed with `\\?\`, an absolute path is taken
   exactly as written. Without it, Windows drops a trailing space or dot from a name, so a
@@ -803,8 +806,10 @@ For a restorer, or anything else that reads the files.
 - In an `#excluded` or `#error` row, where a name with a tab, CR or LF can still appear,
   write those characters as `␉` (U+2409), `␍` (U+240D) or `␊` (U+240A).
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows); give
-  each path at most one per-path row; end with `@S3CAB END`, its instant rounded up.
-- Five tab-separated fields on every line, UTF-8 with no BOM, LF endings, one gzip stream.
+  each path at most one per-path row; end with `@SNAPSHOT FINISH`, its instant rounded up,
+  then the `.`.
+- Five tab-separated fields on every line but the `.`, UTF-8 with no BOM, LF endings, one gzip
+  stream.
 - Name the file `YYYY-MM-DDTHHMM.tsv.gz` from the run's start in local time. Refuse a second
   snapshot of the set in the same minute, and never overwrite one.
 
@@ -870,7 +875,7 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   don't match, leave nothing stored under that key, and don't upload the snapshot, which
   names an object the repository doesn't hold.
 - Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, never over an existing
-  one, and never one without `@S3CAB END`.
+  one, and never one without its closing `.`.
 - Write [`sets/<set>/`](#the-remote-repository-the-keystone): `info` as `OWNER=user@machine`
   then `CREATED=` an instant; `dirs.txt` as the parsed list, one directory per line, LF
   endings; `exclude.txt`, if the set has one, as a byte copy. Never upload the set's `env`.
@@ -884,7 +889,7 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Write a [deletion record](#the-deletion-record) before deleting any object it lists, as
   `objects.deleted-<n>.tsv` under an index not already in use, never over an existing record.
 - Give it the heading row, a `#deleted` row per object (hash, size, the UTC instant, and
-  `user@machine`), and `@S3CAB END` last.
+  `user@machine`), and the `.` last.
 - Never delete an object younger than a generous grace window (s3cab's is 7 days), and don't
   clean up while a backup is running.
 - To compact records, write the merged record before deleting the files it absorbs, and drop

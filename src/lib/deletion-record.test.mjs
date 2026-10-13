@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
-/** @import { TestContext } from "node:test" */
-
 // The deletion-record module against a mocked s3.mjs seam (docs/design/testing.md:
 // mock at s3.mjs, not the SDK): the slot allocator's write discipline
 // (conditional PUT at the next free index, walking upward past a lost race),
@@ -65,20 +63,6 @@ const HASH_C = "c".repeat(64);
 
 const T1 = "2026-08-14T09:31:07.412Z";
 const T2 = "2026-08-19T22:10:41.006Z";
-const T3 = "2026-08-22T11:04:55.120Z";
-
-/**
- * Pins the clock seam's one read (format.mjs), so the instant a merge stamps on
- * its `@S3CAB END` is `instant` — the only way to steer it, as for every
- * recorded instant. Pinned in a zone that is not UTC, so an `END` that leaked
- * local time would show.
- * @param {TestContext} t
- * @param {string} instant
- */
-const pinClock = (t, instant) =>
-  t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
-    Temporal.Instant.from(instant).toZonedDateTimeISO("Europe/London"),
-  );
 
 /**
  * A hand-built `#deleted` row, unpadded: a reader trims the leading fields, so
@@ -91,11 +75,11 @@ const deletedRow = (
   /** @type {string} */ by,
 ) => `#deleted\t${hash}\t${size}\t${instant}\t${by}\n`;
 
-/** A record file around hand-built `rows`: the heading first, END last. */
+/** A record file around hand-built `rows`: the heading first, `.` last. */
 const fileOf = (/** @type {string[]} */ ...rows) =>
   "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
   rows.join("") +
-  `@S3CAB\tEND\t\t${T3}\t\n`;
+  ".\n";
 
 const puts = () => ops.filter((o) => o.op === "put");
 const deletes = () => ops.filter((o) => o.op === "delete");
@@ -120,8 +104,7 @@ describe("formatDeletionRecord", () => {
     { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
   ];
 
-  it("writes the snapshot's heading and @S3CAB rows, a padded #deleted row per object, and @S3CAB END", (t) => {
-    pinClock(t, T3);
+  it("writes the snapshot's heading and @S3CAB rows, a padded #deleted row per object, and the closing .", () => {
     const lines = formatDeletionRecord(rows).split("\n");
     assert.match(
       lines[0] ?? "",
@@ -138,10 +121,8 @@ describe("formatDeletionRecord", () => {
       lines[4],
       `#deleted\t${HASH_B}\t         892\t${T2}\tallen@LAPTOP`,
     );
-    assert.equal(
-      lines[5],
-      `@S3CAB\t${"END".padEnd(64)}\t${" ".repeat(12)}\t${T3}\t`,
-    );
+    // No finish instant: each row has its own.
+    assert.equal(lines[5], ".");
     assert.equal(lines[6], "", "ends with a newline");
     assert.equal(lines.length, 7);
   });
@@ -226,12 +207,12 @@ describe("parseDeletionRecord", () => {
       /heading/,
     ],
     [
-      "has no END",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
-      /END row is missing/,
+      "has no closing .",
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/\.\n$/, ""),
+      /closing "\." line is missing/,
     ],
     [
-      "has rows after END",
+      "has rows after the closing .",
       fileOf() + deletedRow(HASH_A, 1, T1, "x"),
       /rows follow/,
     ],
@@ -313,10 +294,7 @@ describe("readDeletionRecords", () => {
 
   it("names each invalid file, and still counts its well-formed rows", async () => {
     record(1, fileOf(deletedRow(HASH_A, 1, T1, "x")));
-    record(
-      2,
-      fileOf(deletedRow(HASH_B, 1, T2, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
-    );
+    record(2, fileOf(deletedRow(HASH_B, 1, T2, "x")).replace(/\.\n$/, ""));
 
     const { deleted, invalid } = await readDeletionRecords("b");
 
@@ -324,7 +302,7 @@ describe("readDeletionRecords", () => {
     assert.deepEqual(invalid, [
       {
         uri: "s3://b/objects.deleted-2.tsv",
-        reason: "the closing @S3CAB END row is missing",
+        reason: 'the closing "." line is missing',
       },
     ]);
   });
@@ -392,8 +370,7 @@ describe("compactDeletionRecords", () => {
     assert.deepEqual(ops, [], "no churn: nothing written, nothing deleted");
   });
 
-  it("merges several files to a fresh index, then deletes the absorbed ones", async (t) => {
-    pinClock(t, T3);
+  it("merges several files to a fresh index, then deletes the absorbed ones", async () => {
     record(
       1,
       formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
@@ -431,8 +408,7 @@ describe("compactDeletionRecords", () => {
     );
   });
 
-  it("drops rows whose hash no snapshot references — and keeps a referenced row even when its object is long gone", async (t) => {
-    pinClock(t, T3);
+  it("drops rows whose hash no snapshot references — and keeps a referenced row even when its object is long gone", async () => {
     // The trimming invariant (ADR-0090): `referenced` is snapshot references,
     // *not* stored objects. HASH_A is referenced (its row is what verify and
     // restore will read — a deleted object's row is load-bearing precisely
@@ -457,8 +433,7 @@ describe("compactDeletionRecords", () => {
     );
   });
 
-  it("collapses identical rows duplicated across files (a crashed earlier merge)", async (t) => {
-    pinClock(t, T3);
+  it("collapses identical rows duplicated across files (a crashed earlier merge)", async () => {
     const row = { hash: HASH_A, size: 1, instant: T1, by: "x" };
     record(1, formatDeletionRecord([row]));
     record(2, formatDeletionRecord([row]));

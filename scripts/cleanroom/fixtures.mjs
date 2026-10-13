@@ -43,10 +43,10 @@
  *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket
  *   F16 small legalities     `hollow` — a set with no files, so a legal snapshot with
- *                            whole-snapshot rows, `@S3CAB END` and zero file rows
+ *                            whole-snapshot rows, the closing `.` and zero file rows
  *
  * And two things run 1 never met, because it ran against a local moto server rather
- * than real S3: the last line, `@S3CAB END` (new since the audit), and `bulk`, which pushes
+ * than real S3: the last line, the closing `.` (new since the audit), and `bulk`, which pushes
  * `objects/` past 1000 keys. That last is not required by the spec's recovery recipe,
  * which only ever lists `snapshots/<set>/` — but materialising the store listing is a
  * natural implementation choice (s3cab itself does it, ADR-0069) and `ListObjectsV2`
@@ -65,7 +65,7 @@
  *   `corrupt`  an object present under the right key with the wrong bytes — the case
  *              where the spec neither requires re-hashing a download nor says what to
  *              do when it fails. Its files are ordered so the divergence is visible.
- *   damaged    a snapshot with its `@S3CAB END` line removed and the rest recompressed,
+ *   damaged    a snapshot with its closing `.` line removed and the rest recompressed,
  *              published under `faults`. That line's whole purpose is detecting a
  *              backup killed mid-write, and no corpus had ever staged one missing.
  *
@@ -429,7 +429,7 @@ export function reportFixtures(dir, sets, skipped) {
 }
 
 /**
- * A snapshot with its last line, `@S3CAB END`, cut off: the damage a backup killed
+ * A snapshot with its last line, the closing `.`, cut off: the damage a backup killed
  * mid-write leaves. Truncating the *compressed* bytes would test gunzip's own check
  * instead, so this decompresses, drops the last line, and recompresses — a well-formed
  * gzip stream missing its last line, which is precisely what a reader has to notice. The

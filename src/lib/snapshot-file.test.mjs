@@ -40,7 +40,7 @@ const HEADING =
   "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format";
 const DIR = "@SET\tDIR\t\t\t/home/me/";
 const START = "@SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
-const END = "@S3CAB\tEND\t\t2026-06-12T08:20:44.500Z\t";
+const TERMINATOR = ".";
 
 /**
  * A `-` row, a file's.
@@ -58,7 +58,7 @@ const dirRow = (/** @type {string} */ dir) =>
 
 /** A snapshot whose files are all under `/home/me/`, around `rows`. */
 const snapshotOf = (/** @type {string[]} */ ...rows) =>
-  [HEADING, DIR, START, ...rows, END].join("\n");
+  [HEADING, DIR, START, ...rows, TERMINATOR].join("\n");
 
 describe("parseSnapshotStream", () => {
   it("parses - rows, @SET DIR and @SNAPSHOT START's instant", async () => {
@@ -69,7 +69,7 @@ describe("parseSnapshotStream", () => {
       START,
       fileRow(hashA, 12, "C:\\Users\\me\\Photos\\beach.jpg"),
       fileRow(hashB, 34, "D:\\Pics\\ski.jpg"),
-      END,
+      TERMINATOR,
     ].join("\n");
 
     const { entries, dirs, instant, refused } = await parse(text);
@@ -144,7 +144,7 @@ describe("parseSnapshotStream", () => {
         fileRow(hashA, 5, "/home/me/a.txt"),
         "",
         fileRow(hashB, 7, "/home/me/b.txt"),
-        END,
+        TERMINATOR,
         "",
       ].join("\n"),
     );
@@ -164,7 +164,7 @@ describe("parseSnapshotStream", () => {
 
     it("when it doesn't open with the heading row", async () => {
       await refuses(
-        [DIR, fileRow(hashA, 12, "/home/me/a.txt"), END].join("\n"),
+        [DIR, fileRow(hashA, 12, "/home/me/a.txt"), TERMINATOR].join("\n"),
         /first line isn't the @S3CAB FORMAT heading row/,
       );
       // Not even after a blank line: the heading is the first line.
@@ -193,10 +193,10 @@ describe("parseSnapshotStream", () => {
       await refuses(bytes, /isn't UTF-8/);
     });
 
-    it("when it ends without @S3CAB END, as truncated", async () => {
+    it("when it ends without the closing ., as truncated", async () => {
       // ADR-0082: this parser takes an already-decompressed stream, so it has no
       // gzip trailer to lean on — for an uncompressed `.tsv` there is none, and
-      // `END` is the only thing standing between a destroyed manifest and a
+      // the `.` is the only thing standing between a destroyed manifest and a
       // clean parse. An AssertionError on purpose — isCorruptSnapshotError
       // classifies it as snapshot damage, so verify records the finding instead
       // of vouching for the wreck.
@@ -206,13 +206,12 @@ describe("parseSnapshotStream", () => {
       );
     });
 
-    it("when rows follow @S3CAB END, which then no longer proves it whole", async () => {
+    it("when rows follow the closing ., which then no longer proves it whole", async () => {
       await refuses(
         `${snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))}\n${fileRow(hashB, 7, "/home/me/b.txt")}`,
-        /rows follow the closing @S3CAB END row/,
+        /rows follow the closing "\." line/,
       );
     });
-
     it("when it holds a type starting with neither @ nor #, which may be content a restore would miss", async () => {
       await refuses(
         snapshotOf("xattr\tuser.tag\t\t\t/home/me/a.txt"),
@@ -335,7 +334,7 @@ describe("parseSnapshotStream", () => {
   });
 
   it("reads a work file's whole rows, dropping the one it died mid-write", async () => {
-    // ADR-0092: a hard-killed run's file has no `END` — it never reached one —
+    // ADR-0092: a hard-killed run's file has no `.` — it never reached one —
     // and its last row is a prefix, cut between the compressor's last flushed
     // block and the end of the line. Both are the *expected* state here, where
     // for a snapshot they are damage. The torn row is the shape measured on a
@@ -360,12 +359,12 @@ describe("parseSnapshotStream", () => {
   });
 
   it("drops a last row torn inside the path, which looks whole but isn't", async () => {
-    // The dangerous tear, and the reason the last line is taken on `END`'s word
+    // The dangerous tear, and the reason the last line is taken on the `.`'s word
     // rather than on its own looks: cut inside the path and all five columns
     // are populated, so the row parses — filing a real hash under a *prefix* of
     // the real path. A live file matching that prefix whose size and mtime
     // agree with the row would then be stored under another file's content
-    // hash. The cost of the rule is visible here too: with no `END`, a final
+    // hash. The cost of the rule is visible here too: with no `.`, a final
     // row that *was* whole is dropped as well — which is every parked file's.
     const text = [
       HEADING,
@@ -382,16 +381,16 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
   });
 
-  it("keeps a work file's last row when @S3CAB END follows it", async () => {
-    // A run killed after writing `END` but before the rename that lands the
-    // snapshot. `END` is the one line nothing can follow, so it vouches for
+  it("keeps a work file's last row when the closing . follows it", async () => {
+    // A run killed after writing the `.` but before the rename that lands the
+    // snapshot. The `.` is the one line that can't be torn, so it vouches for
     // itself and for the row before it.
     const text = [
       HEADING,
       DIR,
       fileRow(hashA, 12, "/home/me/a.txt"),
       fileRow(hashB, 34, "/home/me/b.txt"),
-      END,
+      TERMINATOR,
     ].join("\n");
 
     const { entries } = await parseSnapshotStream(
@@ -435,7 +434,7 @@ describe("parseCompressedSnapshotStream", () => {
     { timeout: 5000 },
     async () => {
       // gunzip rejects the cut stream itself (`Z_BUF_ERROR`) where the parser
-      // would otherwise have missed `@S3CAB END` — measured on 26.11 at every cut
+      // would otherwise have missed the closing `.` — measured on 26.11 at every cut
       // point of a small snapshot, the empty stream included. Either way it must surface as the same
       // AssertionError, the one isCorruptSnapshotError files as damage
       // (ADR-0082 amendments 2 and 3).
@@ -723,9 +722,10 @@ describe("writeSnapshot", () => {
   });
 
   it("lays the rows out as ADR-0098 does, closed by a trailer it counts and times itself", async (t) => {
-    // `END` times *itself*, through format.mjs's clock seam — the one door the
-    // model harness mocks — so pinning that clock pins it, rounded up to the
-    // millisecond (`completionInstant`'s rule, pinned in format.test.mjs).
+    // `FINISH` times *itself*, through format.mjs's clock seam — the one door
+    // the model harness mocks — so pinning that clock pins it, rounded up to the
+    // millisecond so it is never before the last row was written
+    // (`completionInstant`'s rule, pinned in format.test.mjs).
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.Instant.from(
         "2026-06-23T10:30:00.123456789Z",
@@ -755,7 +755,7 @@ describe("writeSnapshot", () => {
 
     const rows = rowsOf(path);
     assert.deepEqual(
-      rows.map(([type, col2]) => `${type} ${col2}`),
+      rows.map((row) => row.slice(0, 2).join(" ")),
       [
         "@S3CAB FORMAT",
         "@S3CAB VERSION",
@@ -774,11 +774,14 @@ describe("writeSnapshot", () => {
         `- ${hashA}`,
         "@SNAPSHOT FILES",
         "@SNAPSHOT SIZE",
-        "@S3CAB END",
+        "@SNAPSHOT FINISH",
+        ".",
       ],
     );
+    // The terminator is the one line with neither five fields nor a type.
+    assert.deepEqual(rows.at(-1), ["."]);
     assert.ok(
-      rows.every((row) => row.length === 5),
+      rows.slice(0, -1).every((row) => row.length === 5),
       "five columns on every row",
     );
 
@@ -820,11 +823,15 @@ describe("writeSnapshot", () => {
     ]);
     assert.deepEqual(tail("@SNAPSHOT FILES"), [["", "2"]]);
     assert.match(tail("@SNAPSHOT SIZE")[0]?.[1] ?? "", /^15463758039 \(.+\)$/);
-    assert.deepEqual(tail("@S3CAB END"), [["2026-06-23T10:30:00.124Z", ""]]);
+    // Column 5 is the run's duration since `START`, in the closing report's form.
+    assert.deepEqual(tail("@SNAPSHOT FINISH"), [
+      ["2026-06-23T10:30:00.124Z", "1h 30m"],
+    ]);
 
     // Column 1 is unpadded (ADR-0103), so a file row's type cell is exactly
     // `-` and the row carries no padding but its size's.
     const text = gunzipSync(readFileSync(path)).toString("utf8");
+    assert.ok(text.endsWith("\n.\n"), "the last line is exactly .");
     assert.ok(
       text.includes(
         `\n-\t${hashA}\t           3\t2026-06-23T10:00:00.000Z\t${a}\n`,
@@ -873,7 +880,7 @@ describe("writeSnapshot", () => {
   it("passes rows through `through` and writes the identical file (the fusion seam)", async (t) => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the
-    // snapshot says — so the two files must be byte-identical. `@S3CAB END`
+    // snapshot says — so the two files must be byte-identical. `FINISH`
     // times itself, so the clock is pinned for both writes; nothing else in the
     // file can differ.
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
@@ -1138,7 +1145,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // The rows hashed before the stop, less the last: a parked file has no
-    // `@S3CAB END` to vouch for its final row, so the tolerant read drops it
+    // closing `.` to vouch for its final row, so the tolerant read drops it
     // (ADR-0098) — one file re-hashed, as after a hard kill.
     const parked = await readParkedLookup(dir.path);
     assert.ok(parked);
@@ -1158,8 +1165,8 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // A clean `end()` flushes whole writes only, so the last byte is the
-    // newline of the last complete row. No `FILES`, `SIZE` or `END`: `END`
-    // means the file is complete, and a parked one isn't (ADR-0098).
+    // newline of the last complete row. No `FILES`, `SIZE`, `FINISH` or `.`:
+    // the `.` means the file is complete, and a parked one isn't (ADR-0098).
     const text = gunzipSync(readFileSync(parkedPath(dir.path))).toString(
       "utf8",
     );
@@ -1168,7 +1175,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     assert.match(lines.at(-1) ?? "", /^-\t/);
     for (const line of lines) {
       assert.equal(line.split("\t").length, 5, `whole row expected: ${line}`);
-      assert.doesNotMatch(line, /^(@S3CAB\tEND|@SNAPSHOT\t(FILES|SIZE))\s/);
+      assert.doesNotMatch(line, /^@SNAPSHOT\t(FILES|SIZE|FINISH)\s/);
     }
   });
 
@@ -1367,7 +1374,7 @@ describe("recoverWorkFile", () => {
    * whole file rows, then a row cut off mid-write. Built as bytes rather than
    * by killing a real write, so the artifact under test is pinned to the shape
    * measured on a real 280,277-file set — 272,692 whole rows, one torn line, no
-   * `@S3CAB END`.
+   * closing `.`.
    * @param {string} dir
    * @param {string[]} files
    */

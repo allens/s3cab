@@ -250,7 +250,7 @@ await client.send(
   }),
 );
 
-// A snapshot with its last line, `@S3CAB END`, cut off. That line is the format's answer
+// A snapshot with its last line, the closing `.`, cut off. That line is the format's answer
 // to a backup killed mid-write, and it has only ever been staged *present* — so
 // nothing has tested the one thing it exists for, and run 2 could only note that its
 // own completeness check went unexercised. It is published under `faults` as a second
@@ -264,7 +264,7 @@ const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
 const damagedName = oneMinuteBefore(
   /** @type {string} */ (wholeName).replace(/\.tsv\.gz$/, ""),
 );
-console.log(`publishing snapshots/faults/${damagedName} with no @S3CAB END`);
+console.log(`publishing snapshots/faults/${damagedName} with no closing .`);
 const whole = await client.send(
   new GetObjectCommand({
     Bucket: bucket,

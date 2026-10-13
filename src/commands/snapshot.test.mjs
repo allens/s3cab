@@ -296,8 +296,8 @@ const SENTINEL_HASH = "f".repeat(64);
 /** A snapshot row's hash, behind its type. */
 const HASH = /^(-\t)[0-9a-f]{64}/gm;
 
-/** The rows only a finished run writes: `@SNAPSHOT FILES`, `SIZE`, `@S3CAB END`. */
-const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE)|@S3CAB\tEND) .*\n?/gm;
+/** The lines only a finished run writes: `@SNAPSHOT FILES`, `SIZE`, `FINISH` and the closing `.`. */
+const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE|FINISH) .*|\.)\n?/gm;
 
 /**
  * Turn the set's newest snapshot into a parked lookup holding sentinel hashes,
@@ -361,7 +361,7 @@ function killSentinelRun(snapshotsDir) {
  * @param {string} snapshotsDir
  * @param {object} [options]
  * @param {string} [options.hash] - The sentinel to plant, when a test needs to tell this source from the parked one
- * @param {string} [options.finished] - An instant to restamp the `@S3CAB END` row with
+ * @param {string} [options.finished] - An instant to restamp the `@SNAPSHOT FINISH` row with
  */
 function plantSentinelSnapshot(
   snapshotsDir,
@@ -374,7 +374,7 @@ function plantSentinelSnapshot(
     .toString("utf8")
     .replace(HASH, `$1${hash}`);
   if (finished) {
-    text = text.replace(/^(@S3CAB\tEND *\t *\t)\S+/m, `$1${finished}`);
+    text = text.replace(/^(@SNAPSHOT\tFINISH *\t *\t)\S+/m, `$1${finished}`);
   }
   writeFileSync(path, gzipSync(Buffer.from(text, "utf8")));
 }
@@ -458,7 +458,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     // Every unchanged file took its hash from the parked lookup rather than
     // being read again — the whole point of parking — bar the last row, which
-    // no `@S3CAB END` vouches for (ADR-0098).
+    // no closing `.` vouches for (ADR-0098).
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
     assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
@@ -551,7 +551,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges by when the previous run started, not when it finished", async (t) => {
     // A file edited mid-run, after it was hashed: its ctime falls between the
-    // run's `@SNAPSHOT START` and `@S3CAB END`, and only the start can veto it.
+    // run's `@SNAPSHOT START` and `FINISH`, and only the start can veto it.
     const { snapshotsDir, workDir, tick } = setUp(t);
     process.env.S3CAB_CHECK_CHANGE_TIME = "1";
 

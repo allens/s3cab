@@ -2,7 +2,8 @@
 
 **Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
 [0103](0103-row-marks-and-unrecorded-links.md): the type names, and an unknown `@` or `#` type is
-skipped while any other refuses the file. Supersedes
+skipped while any other refuses the file; and by [0106](0106-a-lone-dot-ends-every-file.md): a
+valid file ends with a lone `.` line where it ended with `END`. Supersedes
 [0082](0082-snapshot-end-trailer.md) point 3 (content after the trailer is parsed normally) and
 s3cab's last-wins reading of a repeated path. The rules once scattered through
 [guide/format.md](../../guide/format.md) ("at most once", the restorer's `..` bullet, "ignore
