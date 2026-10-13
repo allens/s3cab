@@ -335,6 +335,11 @@ A link out of the backup is an error because its content may look saved and isn'
 folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
 The snapshot is still written, as for any `#error`.
 
+A link is **broken** when nothing exists where it points: the target is missing, a path
+through it treats a file as a folder, or links lead round in a circle. Anything else that
+stops it being followed, such as a share that doesn't answer or a folder you can't read, is
+somewhere this computer can't resolve.
+
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
 so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
 
