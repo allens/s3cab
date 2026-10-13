@@ -731,6 +731,10 @@ For a restorer, or anything else that reads the files.
 - Walk every member directory without following a link, never entering a directory named
   `.s3cab` in lowercase, and apply the patterns as the [exclude guide](exclude.md) defines
   them.
+- On Windows and macOS, patterns ignore case using Unicode's standard upper- and lowercase
+  pairs, even on a drive or in a folder set up to be case-sensitive. On Linux they always
+  pay attention to case, even on a drive that doesn't. On macOS an accented letter also
+  matches however it is stored. `?` and `*` count whole characters.
 - Write a row per entry:
   - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,
     its size in bytes, its modification time rounded to the nearest millisecond (a tie to
@@ -764,6 +768,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   goes.
 - **Line endings.** Python's text mode writes CRLF on Windows. Write bytes, or open the file
   with `newline="\n"`.
+- **Case in patterns isn't Windows' own comparison.** Windows keeps the Kelvin sign and `k`,
+  `ẞ` and `ß`, and `ς` and `σ` apart; patterns match each to its partner. In Python,
+  `re.IGNORECASE` matches the way patterns do; `str.casefold()` goes further, so `straße`
+  matches `strasse`.
 - **Time zones.** Python's standard library can't name the local IANA zone, and on Windows
   has no zone data without the `tzdata` package. `START`'s zone is written for people, so
   write the best name you have.

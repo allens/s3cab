@@ -54,11 +54,11 @@ match nothing. A pattern ending in `/` also matches a link whose target is a
 directory, unlike git, where `foo/` never matches a link. A broken link has no
 target, so only a pattern without the `/` matches it.
 
-Names compare the way your computer's own disk compares them: case doesn't matter
-on Windows or macOS, and does on Linux. On macOS an accented letter also matches
-however it is stored, as one character or as a letter and an accent mark. When
-several patterns match, the first in the file is the one recorded as leaving the
-path out.
+Names compare the way your operating system compares them by default: case
+doesn't matter on Windows or macOS, and does on Linux. On macOS an accented letter
+also matches however it is stored, as one character or as a letter and an accent
+mark. When several patterns match, the first in the file is the one recorded as
+leaving the path out.
 
 A pattern can't contain a tab or a carriage return: s3cab stops and names it.
 Write `*` in place of the character, which still matches it.
