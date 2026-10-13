@@ -488,7 +488,10 @@ the same machine by the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START
 
 Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
-and the file is that name plus `.tsv.gz`. And a snapshot with **no file rows at all** is
+and the file is that name plus `.tsv.gz`. Names sort in time order except when the clock
+goes back (the end of daylight saving, or a move to another zone): a later snapshot can then
+sort before an earlier one, and s3cab, which takes the last name as the latest, warns when
+it writes one. `START` holds the true order. And a snapshot with **no file rows at all** is
 perfectly legal: an empty backup set, not a damaged file.
 
 ### Valid and invalid files
