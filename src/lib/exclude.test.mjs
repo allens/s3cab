@@ -32,6 +32,16 @@ describe("compileExcludePatterns", () => {
     assert.equal(excludedBy(p, "/root/catalog.txt"), undefined);
   });
 
+  it("`**/` stuck to a name is a plain `**`, which can't join the two", () => {
+    const p = ["photos**/raw"];
+    assert.equal(excludedBy(p, "/root/photos/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photos2024/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photos2024/a/raw"), "photos**/raw");
+    assert.equal(excludedBy(p, "/root/photosraw"), undefined);
+    // Two in a row each start a segment, so both may match nothing.
+    assert.equal(excludedBy(["a/**/**/b"], "/root/a/b"), "a/**/**/b");
+  });
+
   it("a `**` with no trailing separator spans segments", () => {
     // Regression: with only the `**/` rule, a trailing `**` fell through to the
     // single-`*` case twice and compiled to `[^/]+[^/]+` — "two or more

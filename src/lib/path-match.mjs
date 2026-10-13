@@ -136,10 +136,13 @@ export function globSource(pattern) {
   // @ts-ignore - RegExp.escape exists in Node 24+
   return (
     RegExp.escape(pattern)
-      // **/ matches zero or more segments
-      .replace(/\\\*\\\*\\\//g, "(.*\\/)?")
-      // Any ** left over is one not followed by a separator — `build/**`, or a
-      // bare `**`. It spans segments like its `**/` sibling: without this rule it
+      // **/ matches zero or more segments, where it starts one. Stuck to a name
+      // (`photos**/raw`) it is left to the next rule, so it can't join `photos`
+      // to `raw` as `photosraw`. A lookbehind, not a captured separator: that
+      // would consume the `/` a second `**/` in a row needs.
+      .replace(/(?<=^|\\\/)\\\*\\\*\\\//g, "(.*\\/)?")
+      // Any ** left over is not a whole segment — `build/**`, a bare `**`, or
+      // `**.log`. It spans segments like its `**/` sibling: without this rule it
       // fell through to the single-`*` case *twice*, quietly compiling to two
       // [^/]+ runs — "two or more characters, in one segment" — which is nobody's
       // reading of `**`. Must run before that rule, which would otherwise consume

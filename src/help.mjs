@@ -46,7 +46,7 @@ Patterns match each file or directory's path relative to each of the set's
 member directories. Write / between directories; on Windows \\ works too.
 
   *    one or more characters, within a single name
-  **/  zero or more whole directories
+  **/  zero or more whole directories, at the start or after a /
   **   anything at all, across directories
   ?    exactly one character
 

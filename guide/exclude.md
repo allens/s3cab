@@ -38,7 +38,7 @@ _segment_ is one directory or file name (the text between two separators).
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
-| `**/`  | zero or more whole segments                        |
+| `**/`  | zero or more whole segments, at the start or after a `/` |
 | `**`   | anything at all, across segments, or nothing       |
 | `?`    | exactly one character, within a single segment     |
 

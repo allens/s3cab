@@ -55,7 +55,7 @@ The glob tokens are the same ones [exclude patterns](exclude.md#globbing) use:
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
-| `**/`  | zero or more whole segments                        |
+| `**/`  | zero or more whole segments, at the start or after a `/` |
 | `**`   | anything at all, across segments                   |
 | `?`    | exactly one character                              |
 
