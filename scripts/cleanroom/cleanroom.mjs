@@ -330,7 +330,7 @@ Nothing here touches the network: uploading is the other program's job.
 Write each set's snapshot into that set's directory in \`sets/\`, laid out as the spec's local side
 describes, and check it by reading it back the way a stranger working from the spec would.
 
-Snapshot every set \`ENVIRONMENT.md\` lists.
+Snapshot every set in \`sets/\`.
 
 ## Deliverable
 

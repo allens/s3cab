@@ -380,9 +380,14 @@ The snapshot is still written, as for any `#error`.
 A link is **broken** when nothing exists where it points: the target is missing, a path
 through it treats a file as a directory, or links lead round in a circle. Anything else that
 stops it being followed, such as a share that doesn't answer or a directory you can't read, is
-somewhere this computer can't resolve. As a test: following a broken link fails as not
-found, not a directory, or too many links (`ENOENT`, `ENOTDIR`, `ELOOP`); any other failure
-is somewhere this computer can't resolve.
+somewhere this computer can't resolve. As a test, following a broken link fails as:
+
+- not found, not a directory, or too many links (`ENOENT`, `ENOTDIR`, `ELOOP`);
+- on Windows, winerror 2 or 3 (not found) or 1921 (a loop).
+
+Any other failure is somewhere this computer can't resolve: on Windows, winerror 53 (a host
+that doesn't answer) or 67 (no such share), say, though Python raises `FileNotFoundError`
+for those too.
 
 The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
 so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
@@ -784,10 +789,14 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 **What trips people up:**
 
 - **Windows paths: go through `\\?\`.** Opened by its plain path, a file named `notes ` or
-  `notes.` is looked up as `notes` and not found, and so is anything past 260 characters. A
-  writer that takes "not found" for an entry that vanished leaves the file out of the backup
-  without a word, and exits 0. Python's `os.path.abspath` drops the dot or space too;
-  `os.path.normpath` keeps it.
+  `notes.` is looked up as `notes`:
+  - with no `notes` beside it, it isn't found, and nor is anything past 260 characters. A
+    writer that takes "not found" for an entry that vanished leaves the file out of the
+    backup without a word, and exits 0;
+  - with a `notes` beside it, that file's bytes are read instead: a wrong hash under the
+    right name, with no error at all.
+
+  Python's `os.path.abspath` drops the dot or space too; `os.path.normpath` keeps it.
 - **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
   junction, recording what lies beyond it as if it were inside the member directory, and
   `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken
