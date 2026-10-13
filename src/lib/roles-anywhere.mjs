@@ -16,7 +16,7 @@ import {
 } from "@smithy/signature-v4";
 import { parseEnvFile } from "./env.mjs";
 import { RolesAnywhereSessionError, ValidationError } from "./error.mjs";
-import { s3cabDir, tildeify } from "./home.mjs";
+import { assertPathSegment, s3cabDir, tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 
 // The machine-level IAM Roles Anywhere identity (ADR-0057/0058): one self-signed
@@ -400,7 +400,8 @@ const identityPath = (file) => join(machineIdentityDir(), file);
  * first's (ADR-0105).
  * @param {string} bucket
  */
-export const identityEnvPath = (bucket) => identityPath(`${bucket}.env`);
+export const identityEnvPath = (bucket) =>
+  identityPath(`${assertPathSegment(bucket, "bucket name")}.env`);
 
 /**
  * How a machine identity is stood up for a bucket, as the indented fix block

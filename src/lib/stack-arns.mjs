@@ -5,7 +5,6 @@ import {
 import { updateEnvFile } from "./env-file.mjs";
 import { ValidationError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
-import { validateBucketName } from "./sets.mjs";
 import { shellCommand } from "./style.mjs";
 import {
   STACK_ENV,
@@ -73,8 +72,6 @@ export async function saveArnsFromStack({ stackName, region, profile }) {
     );
   }
 
-  // The output becomes a file name, so a hand-edited stack must not name a path.
-  validateBucketName(bucket);
   const envPath = identityEnvPath(bucket);
   updateEnvFile(envPath, {
     ...arns,

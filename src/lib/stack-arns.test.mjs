@@ -141,7 +141,7 @@ describe("saveArnsFromStack", () => {
 
     await assert.rejects(
       saveArnsFromStack({ stackName: "s3cab-x", region: "eu-west-1" }),
-      { name: "ValidationError" },
+      /not a single path segment/,
     );
   });
 

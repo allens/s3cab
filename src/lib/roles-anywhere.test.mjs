@@ -516,6 +516,16 @@ describe("isRolesAnywhereMode / readSigningIdentity", () => {
     assert.equal(readSigningIdentity(undefined), undefined);
   });
 
+  it("never reads ARNs from outside roles-anywhere/, whatever the set's bucket says", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    // A complete identity file one level up: a hand-edited S3CAB_BUCKET of
+    // "../outside" would otherwise sign in with it.
+    writeFileSync(join(machineIdentityDir(), "..", "outside.env"), SAVED);
+    assert.equal(readSigningIdentity("../outside"), undefined);
+  });
+
   it("reads the cert, key, ARNs, region and stack once the identity is complete", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
