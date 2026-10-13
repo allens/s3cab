@@ -134,6 +134,12 @@ describe("compileFindPattern", () => {
     assert.equal(matches("me/**/tax.pdf", "/home/me/tax.pdf"), true);
   });
 
+  it("`**/` stuck to a name is a plain `**`, which can't join the two", () => {
+    assert.equal(matches("photos**/raw", "/home/me/photos/raw"), true);
+    assert.equal(matches("photos**/raw", "/home/me/photos2024/a/raw"), true);
+    assert.equal(matches("photos**/raw", "/home/me/photosraw"), false);
+  });
+
   it("matches everything beneath a directory given a trailing separator", () => {
     assert.equal(matches("secretsdir/", "/home/me/secretsdir/secret1"), true);
     assert.equal(matches("secretsdir/", "/home/me/secretsdir/a/b/c.txt"), true);

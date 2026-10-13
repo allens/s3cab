@@ -142,12 +142,12 @@ export function globSource(pattern) {
       // to `raw` as `photosraw`. A lookbehind, not a captured separator: that
       // would consume the `/` a second `**/` in a row needs.
       .replace(/(?<=^|\\\/)\\\*\\\*\\\//g, "(.*\\/)?")
-      // Any ** left over is not a whole segment — `build/**`, a bare `**`, or
-      // `**.log`. It spans segments like its `**/` sibling: without this rule it
-      // fell through to the single-`*` case *twice*, quietly compiling to two
-      // [^/]+ runs — "two or more characters, in one segment" — which is nobody's
-      // reading of `**`. Must run before that rule, which would otherwise consume
-      // the halves.
+      // Any ** left over has no separator after it (`build/**`, a bare `**`,
+      // `**.log`) or doesn't start a segment (`photos**/raw`). It spans segments
+      // like its `**/` sibling: without this rule it fell through to the
+      // single-`*` case *twice*, quietly compiling to two [^/]+ runs — "two or
+      // more characters, in one segment" — which is nobody's reading of `**`.
+      // Must run before that rule, which would otherwise consume the halves.
       .replace(/\\\*\\\*/g, ".*")
       // * matches one or more chars in one segment
       .replace(/\\\*/g, "[^/]+")
