@@ -2,8 +2,8 @@
 
 **Status:** accepted (2026-10-12); partly superseded by
 [0107](0107-the-spec-is-the-public-repository-format.md): every file opens with `@S3CAB SPEC`
-and the `@CLIENT` rows, in place of `@S3CAB VERSION` and `HOME`. Partly supersedes [0098](0098-snapshot-row-layout.md) (its
-row types, the heading row's blank column 2, column 1's width and the reader rule), most of
+and the `@CLIENT` rows, in place of `@S3CAB VERSION` and `HOME`. Partly supersedes
+[0098](0098-snapshot-row-layout.md) (its row types, the heading row's blank column 2, column 1's width and the reader rule), most of
 [0099](0099-links-recorded-never-followed.md) (the `link` row, and the warning for a link leading
 out of the backup; "never followed", the check and the profile junctions stand),
 [0100](0100-tab-cr-lf-refused-or-spelled-out.md)'s refusal of a tab, CR or LF in a link's path and

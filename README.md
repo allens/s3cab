@@ -300,8 +300,8 @@ templates `s3cab aws` writes ([guide/aws.md](guide/aws.md)).
 
 Each snapshot records a few of these settings for whoever reads it later. Its `@CLIENT HOME`
 row is the home it was taken from, so the set's directory and the snapshot's own path follow
-from it and the names. `@SET BUCKET` is the set's `S3CAB_BUCKET`, and `@SET ENDPOINT` its endpoint, when it
-has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`).
+from it and the names. `@SET BUCKET` is the set's `S3CAB_BUCKET`, and `@SET ENDPOINT` its
+endpoint, when it has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`).
 
 Each snapshot file is a tab-separated table with one `-` row per file — its `hash`,
 `size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with

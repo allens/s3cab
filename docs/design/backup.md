@@ -334,9 +334,9 @@ snapshots need no command: the files are the API — delete the file.)
 
 ## Snapshot files
 
-The file grammar — the five columns, the row types, the `@S3CAB`/`@SET`/`@SNAPSHOT`
-properties — is the format spec's to state ([guide/format.md](../../guide/format.md)). The decisions
-behind it:
+The file grammar — the five columns, the row types, the `@S3CAB`/`@CLIENT`/`@SET`/`@SNAPSHOT`
+properties — is the format spec's to state ([guide/format.md](../../guide/format.md)). The
+decisions behind it:
 
 **One snapshot per set per run** — all member directories in a single TSV (the line
 format is multi-root-safe: paths are absolute). This buys cross-directory move/dedup

@@ -195,8 +195,9 @@ one, which is documented of course, but that doesn't mean anyone else has to use
     as it does `FILES` disagreeing with the row count: only people read them.
   - s3cab writes them straight after the heading row.
 - **`@S3CAB SPEC` dates the spec a file follows**: the date format.md states. It changes with the
-  format, not its wording, and a unit test holds s3cab's constant to format.md's date. Readers never refuse a file over it; it is for people, and for wording a
-  refusal ("written to the format of …"). Deletion records carry it too.
+  format, not its wording, and a unit test holds s3cab's constant to format.md's date. Readers
+  never refuse a file over it; it is for people, and for wording a refusal ("written to the
+  format of …"). Deletion records carry it too.
   - No version number: additive changes need none, and a breaking change changes the heading row,
     which every reader already matches exactly.
   - Not in the heading row's `time` cell: that cell names the column for Excel's AutoFilter, and
