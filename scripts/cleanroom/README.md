@@ -391,6 +391,7 @@ session refused the two snapshots it should have. So, in order:
 - every published snapshot is byte-identical to the one handed over, none is
   missing, and neither `corrupt`'s nor `faults`'s without its closing `.` is published;
 - every object a published snapshot names is stored;
+- no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
 - `sets\<set>\` holds `info` as `OWNER` then `CREATED`, `dirs.txt` as the parsed
   list with LF endings, and `exclude.txt` as a byte copy;
 - s3cab reattaches every set and restores every published snapshot.
