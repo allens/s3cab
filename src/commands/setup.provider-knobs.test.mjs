@@ -22,16 +22,22 @@ let claimWins = true;
 let envAtClaim;
 mock.module("../lib/set-marker.mjs", {
   exports: {
+    freshInfo: () => ({ owner: "me@here", claimed: "c", created: "c" }),
     claimRemoteSet: async () => {
       envAtClaim = { ...process.env };
       return claimWins;
     },
     readRemoteInfo: async () => ({
       owner: "someone-else",
+      claimed: "2026-01-01T0000",
       created: "2026-01-01T0000",
     }),
+    writeClaim: () => {},
     pushSetConfig: async () => {},
   },
+});
+mock.module("../lib/remote.mjs", {
+  exports: { listRemoteSnapshots: async () => [] },
 });
 
 /** @type {string[]} Queued replies for the mocked key prompts. */
@@ -171,7 +177,7 @@ describe("setup provider knobs", () => {
           endpoint: "https://acct.r2.cloudflarestorage.com",
           keys: true,
         }),
-      /already set up in bucket/,
+      /already exists in bucket/,
     );
     // The claim ran with the gathered creds, but nothing was written locally.
     assert.equal(envAtClaim?.AWS_ACCESS_KEY_ID, "AKIAEXAMPLE");

@@ -39,8 +39,9 @@ reader needs, and **canonical** when it is also laid out exactly as s3cab would 
 
 ## Reading the text: four rules that hold everywhere
 
-These come first because they govern **every** text file in the format — snapshots,
-deletion records, `info`. Get them right and nothing else below needs special handling.
+These come first because they govern **every** snapshot and deletion record. Get them right
+and nothing else below needs special handling. (A set's `.info` file has
+[a simpler rule of its own](#who-holds-a-set).)
 
 - **UTF-8, no BOM**, always, whatever machine wrote the file. A path is stored as its UTF-8
   bytes even on Windows, where the operating system itself holds names as UTF-16. Decode
@@ -73,11 +74,9 @@ prefix, so anything (s3cab, another tool, or you by hand) can find everything:
 s3://my-backup-bucket/
   objects/<sha256>                  # every backed-up file, stored once, named by content hash
   snapshots/<set>/<name>.tsv.gz     # each backup set's snapshot files
-  sets/<set>/                       # each set's ownership marker, and s3cab's copy of its config
-    info                            # owner (user@machine) + created date (the name-claim marker)
-    dirs.txt                        # s3cab's: the set's member directories
-    exclude.txt                     # s3cab's: the set's exclude patterns (if it has any)
+  snapshots/<set>.info              # which machine holds the set
   objects.deleted-<n>.tsv           # deliberate-deletion records (only if `delete` has run)
+  .<name>/                          # a client's own folder (s3cab's is .s3cab/)
 ```
 
 - **`objects/`** is the content-addressed store: one object per unique file content, keyed
@@ -90,25 +89,19 @@ s3://my-backup-bucket/
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
   local timestamp (`2026-06-12T0915.tsv.gz`). A remote snapshot file is **byte-identical**
   to its local counterpart — uploaded as-is, one format everywhere.
-- **`sets/<set>/`** marks the set's existence (a set with no snapshots yet would otherwise
-  be invisible) and records which machine holds it, in `info`. s3cab also keeps its copy
-  of the set's `dirs.txt` and `exclude.txt` there, so a fresh machine can adopt the set
-  (`s3cab reattach <set>`); those two are s3cab's own config, not part of the format, and
-  the [README](../README.md#cloud-repositories) describes them. `info` is two `KEY=value`
-  lines, in this order:
-
-  ```
-  OWNER=allen@DESKTOP
-  CREATED=2026-06-12T08:15:32.123Z
-  ```
-
-  `OWNER` is the user and machine the set is attached to, as `user@machine` — stamped at
-  creation and re-stamped by `s3cab reattach`, so it names the current holder, not
-  necessarily the creator; `CREATED` is a UTC instant in the same form as a snapshot row's
-  `mtime`, and is preserved across reattaches.
-- **`objects.deleted-<n>.tsv`** — the repository's only root-level keys — are its
+- **A set's name** is lowercase letters, digits and hyphens. With no dot in a name,
+  `<set>.info` can't be mistaken for a set, nor collide with a set's folder in a bucket
+  copied to disk.
+- **`snapshots/<set>.info`** records which machine [holds the set](#who-holds-a-set): the
+  one that backs it up.
+- **`objects.deleted-<n>.tsv`** — the format's only root-level keys — are its
   [deletion records](#the-deletion-record): small plain-text files marking content as
   *deliberately* removed. A repository where `delete` has never run simply has none.
+- **A top-level folder named `.<name>`** belongs to the client called `<name>`, which keeps
+  its own files there: s3cab's is `.s3cab/`, described in its
+  [README](../README.md#cloud-repositories). Nothing a restore needs lives in one. A reader
+  ignores every key under a `.` prefix; a writer touches only the layout above and its own
+  folder. There is no registry of names.
 
 ### The invariant: objects first, snapshot last
 
@@ -131,6 +124,53 @@ Two rules follow for **any** tool that deletes from a repository:
 A snapshot, once written, is never overwritten or modified — locally or remotely. A second
 snapshot of the same set in the same minute is an error, not an overwrite, so an accidental
 double-run can never destroy history.
+
+### Who holds a set
+
+One machine at a time backs a set up: its **holder**. Two machines backing up one set would
+interleave their trees, so the latest snapshot could be either machine's. The set's
+`snapshots/<set>.info` names the holder, one `KEY=value` line each:
+
+```
+OWNER=allen@DESKTOP
+CLAIMED=2026-10-14T08:15:32.000Z
+CREATED=2026-06-12T08:15:32.000Z
+```
+
+- `OWNER` is the holder, as `user@machine`.
+- `CLAIMED` is when the holder claimed the set or took it over.
+- `CREATED` is when the set was first claimed. It never changes.
+- Both instants are UTC, in the same form as a snapshot row's `mtime`.
+
+Read it line by line: UTF-8, split on LF, strip one trailing CR, split each line at its
+first `=` with the rest as the value, and skip a line with no `=` and keys you don't know.
+A value may hold `=` or `#`.
+
+The rules for writers:
+
+- **Claiming a new set** is a conditional PUT of `<set>.info`, made only while
+  `snapshots/<set>/` is empty. A set with snapshots and no `.info` already exists.
+- **Publishing a snapshot** checks the holder immediately before the snapshot's upload:
+  read `<set>.info`, and refuse unless its `OWNER` and `CLAIMED` each match, as text, the
+  pair you wrote when you claimed. Never work the pair out again: a renamed machine would
+  lock its own holder out.
+- **Taking a set over** rewrites `OWNER` and `CLAIMED` and keeps `CREATED`. A set with no
+  `.info` is taken over by creating one with a conditional PUT, `CREATED` equal to
+  `CLAIMED`.
+- **Reading needs no `.info`**: nothing a restore needs is in it.
+
+Three gaps are known, and left open:
+
+- A takeover landing between the check and the upload lets the old holder publish one more
+  snapshot. S3 can't make one key's upload conditional on another's.
+- For the same reason, a snapshot uploaded between a new claim's check that
+  `snapshots/<set>/` is empty and its PUT leaves a `.info` claiming a set that already has
+  history, its `CREATED` later than its first snapshot.
+- The pair is a token, so it travels with copied state: a machine cloned after the claim,
+  or a home folder restored onto a new machine. Both copies pass the check.
+
+This is a rule for tools that follow this spec, not a lock: anyone holding the bucket's
+write keys can ignore it.
 
 ### The deletion record
 
@@ -668,7 +708,9 @@ above explain every item. The hints after each are what tends to go wrong in pra
 
 For a restorer, or anything else that reads the files.
 
-- Read every text file by the [four reading rules](#reading-the-text-four-rules-that-hold-everywhere):
+- Ignore every key under a `.`-prefixed top-level folder, and every `snapshots/<set>.info`:
+  nothing a restore needs is in either.
+- Read every snapshot and deletion record by the [four reading rules](#reading-the-text-four-rules-that-hold-everywhere):
   strict UTF-8, split on LF alone, nothing unescaped, the leading fields trimmed and the last
   taken verbatim.
 - Decompress a snapshot as gzip.
@@ -828,12 +870,19 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   set it belongs to and `<name>` is its file name without `.tsv.gz`. Never upload over an
   existing one. One already there with the same bytes is already uploaded; one with
   different bytes is a conflict, refused.
-- Write [`sets/<set>/info`](#the-remote-repository-the-keystone) as `OWNER=user@machine`
-  then `CREATED=` an instant, LF endings.
+- Claim a new set by creating [`snapshots/<set>.info`](#who-holds-a-set) with a conditional
+  PUT, only while `snapshots/<set>/` is empty, and refuse the name otherwise. Write its
+  `OWNER`, `CLAIMED` and `CREATED` lines with LF endings, and keep the `OWNER` and `CLAIMED`
+  you wrote.
+- Immediately before uploading a snapshot, read `snapshots/<set>.info`, and refuse unless
+  its `OWNER` and `CLAIMED` match, as text, the pair you kept.
+- Take a set over only when asked: rewrite `OWNER` and `CLAIMED` and keep `CREATED`, or,
+  with no `.info`, create one with a conditional PUT.
+- Write nothing outside the layout and your own `.<name>/` folder.
 
 **What trips people up:**
 
-- **Line endings.** Python's text mode writes `info` with CRLF on Windows.
+- **Line endings.** Python's text mode writes `.info` with CRLF on Windows.
 - **Windows paths: go through `\\?\`.** An uploader opens every recorded path, so the
   [writer's trap](#writing-a-snapshot) applies here too: a trailing space or dot, or a path
   past 260 characters, finds the wrong file or none.

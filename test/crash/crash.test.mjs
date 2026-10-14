@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   bucket,
   bucketViolations,
+  claimSet,
   inspector,
   makeTree,
   nextZone,
@@ -27,15 +28,18 @@ import { REQUESTS_IN_FLIGHT } from "../../src/lib/objects.mjs";
 // "<n>:<METHOD>:<pathRegex>" against the S3 data plane), derived from the
 // audited request schedule of each command:
 //
-//   backup (first): LIST objects/ → PUT objects/<hash> ×N → PUT
-//     snapshots/<set>/<name>.tsv.gz (commit point) → PUT sets/<set>/dirs.txt
-//     → DELETE sets/<set>/exclude.txt (config push, best-effort)
+//   backup (first): GET snapshots/<set>.info (holder check) → LIST objects/ →
+//     PUT objects/<hash> ×N → GET snapshots/<set>.info (holder check) → PUT
+//     snapshots/<set>/<name>.tsv.gz (commit point) → PUT
+//     .s3cab/sets/<set>/dirs.txt → DELETE .s3cab/sets/<set>/exclude.txt
+//     (config push, best-effort)
 //   multipart object: HEAD objects/<hash> → POST ?uploads → PUT ?partNumber=N
 //     ×parts → POST ?uploadId= (complete)
 //   cleanup: GET listings + manifests → DELETE objects/<hash> ×orphans,
 //     REQUESTS_IN_FLIGHT at a time
-//   forget: GET listing → GET manifests (unrestorable scan; skipped by
-//     --force) → DELETE snapshots/... ×named
+//   forget: GET snapshots/<set>.info (holder check) → GET listing → GET
+//     manifests (unrestorable scan; skipped by --force) → DELETE
+//     snapshots/... ×named
 //
 // Each case wipes the sole-owner bucket, builds fresh homes/trees, runs, and
 // checks the bucket through the independent inspector + parser only.
@@ -97,6 +101,7 @@ describe("interruption: backup", () => {
       mkdirSync(home, { recursive: true });
       makeTree(data, SMALL_TREE);
       seedSet(home, "s", [data]);
+      await claimSet(home, "s");
       const expected = captureTree([data]);
 
       const killed = s3cab(["backup", "s"], {
@@ -114,7 +119,7 @@ describe("interruption: backup", () => {
       assert.deepEqual(await bucketViolations(), []);
 
       const manifests = (await inspector.listAll(bucket)).filter(({ key }) =>
-        key.startsWith("snapshots/"),
+        key.endsWith(".tsv.gz"),
       );
       assert.equal(
         manifests.length,
@@ -187,7 +192,7 @@ describe("interruption: backup", () => {
   });
   tornBackupCase({
     name: "kill after the commit point, before the config push",
-    kill: "1:PUT:^/sets/",
+    kill: "1:PUT:^/\\.s3cab/",
     expectLockLeft: false,
     expectManifest: true,
   });
@@ -212,6 +217,7 @@ describe("interruption: multipart", () => {
       mkdirSync(home, { recursive: true });
       makeTree(data, MULTIPART_TREE);
       seedSet(home, "mp", [data]);
+      await claimSet(home, "mp");
       const expected = captureTree([data]);
 
       const killed = s3cab(["backup", "mp"], {
@@ -229,7 +235,7 @@ describe("interruption: multipart", () => {
       assert.deepEqual(await bucketViolations(), []);
       const keys = (await inspector.listAll(bucket)).map(({ key }) => key);
       assert.ok(
-        !keys.some((key) => key.startsWith("snapshots/")),
+        !keys.some((key) => key.endsWith(".tsv.gz")),
         `no manifest may exist after ${name} (got ${keys.join(", ")})`,
       );
       const stranded = await inspector.listMultipartUploads(bucket);
@@ -301,6 +307,7 @@ describe("interruption: cleanup and forget", () => {
       ),
     );
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     // Manufacture genuine crash orphans: a backup killed at the commit
     // boundary leaves every object uploaded and no manifest.
@@ -365,6 +372,7 @@ describe("interruption: cleanup and forget", () => {
     mkdirSync(home, { recursive: true });
     makeTree(data, SMALL_TREE);
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);

@@ -11,6 +11,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { holdSet } from "../helpers/hold-set.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
 import { FakeS3, backendHolder } from "./harness/fake-s3.mjs";
@@ -70,12 +71,13 @@ afterEach(() => {
  * @param {string} root - The disposable test root
  * @param {string} [dataDir] - Defaults to `<root>/data` (created)
  */
-const makeSet = (root, dataDir) => {
+const makeSet = async (root, dataDir) => {
   const data = dataDir ?? join(root, "data");
   mkdirSync(data, { recursive: true });
   useTempHome(root);
   const dir = realpathSync.native(data);
-  writeSet("hostile", { dirs: [dir], bucket: BUCKET });
+  const { claimPath } = writeSet("hostile", { dirs: [dir], bucket: BUCKET });
+  await holdSet(BUCKET, "hostile", claimPath);
   return dir;
 };
 
@@ -116,7 +118,7 @@ const roundtrip = async (root) => {
 describe("hostile trees: names only the verbatim layer can spell", () => {
   it("handles reserved device names and trailing dots/spaces honestly", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "normal.txt"), "plain");
     const created = [
       writeVerbatim(data, "CON", "reserved device name"),
@@ -154,7 +156,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
 
   it("round-trips paths far beyond MAX_PATH, or refuses loudly", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     const deep = deepDirectory(data);
     if (deep === null) {
       t.skip("host cannot create paths past MAX_PATH");
@@ -200,7 +202,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
 describe("hostile trees: links", () => {
   it("never follows or restores a link, and makes one leading out an error", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "real.txt"), "the real file");
     // Absolute: a junction's relative target resolves against the link's own
     // folder, which would leave it pointing nowhere.
@@ -251,7 +253,7 @@ describe("hostile trees: links", () => {
 
   it("stores a hardlink pair once and restores two independent files", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     if (!writeHardlinkPair(data, "shared bytes")) {
       t.skip("host cannot create hardlinks");
       return;
@@ -276,7 +278,7 @@ describe("hostile trees: links", () => {
 describe("hostile trees: contents and timestamps", () => {
   it("round-trips unicode normalisation neighbours as distinct files", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     // APFS folds normalisation (the case-collision hazard's unicode twin —
     // a foreign manifest with both spellings restores last-wins there), so
     // the pair only exists as two files on NTFS/ext4.
@@ -294,7 +296,7 @@ describe("hostile trees: contents and timestamps", () => {
 
   it("round-trips zero-byte files and content above the multipart threshold", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "empty.dat"), Buffer.alloc(0));
     // partSize is 16MB — one byte past it exercises the multipart branch of
     // the real putFile (the fake stores it whole; Tier 2 covers real
@@ -316,7 +318,7 @@ describe("hostile trees: contents and timestamps", () => {
 
   it("round-trips implausible timestamps without mangling content", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeImplausibleTimestamps(data);
 
     const { result, restoredData } = await roundtrip(dir.path);
@@ -343,7 +345,7 @@ describe("hostile trees: mixed-case collisions", () => {
       t.skip("filesystem is case-sensitive");
       return;
     }
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "file.txt"), "lowercase content");
     process.exitCode = 0;
     await backup("hostile");
@@ -410,7 +412,7 @@ describe("hostile trees: mixed-case collisions", () => {
 describe("hostile trees: files changing mid-run", () => {
   it("counts a file vanishing mid-scan as an error, not silence — and exits 1 (bugs.md exit-code fix)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "aaa-first.txt"), "uploads first");
     writeFileSync(join(data, "zzz-vanishes.txt"), "gone before its turn");
 
@@ -447,7 +449,7 @@ describe("hostile trees: files changing mid-run", () => {
 
   it("a file mutating mid-transfer is refused loudly — the store never keeps wrong bytes (bugs.md C1, fixed)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = makeSet(dir.path);
+    const data = await makeSet(dir.path);
     writeFileSync(join(data, "victim.txt"), "original bytes");
 
     // Rewrite the file inside the putFile window: after hashing named the

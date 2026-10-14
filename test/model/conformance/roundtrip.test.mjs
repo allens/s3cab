@@ -8,6 +8,7 @@ import { backup } from "../../../src/commands/backup.mjs";
 import { restore } from "../../../src/commands/restore.mjs";
 import { verify } from "../../../src/commands/verify.mjs";
 import { writeSet } from "../../../src/lib/sets.mjs";
+import { holdSet } from "../../helpers/hold-set.mjs";
 import { useTempHome } from "../../helpers/temp-home.mjs";
 import { checkStore } from "../harness/invariants.mjs";
 import { RepoModel, captureTree, sha256 } from "../harness/model.mjs";
@@ -66,7 +67,8 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       writeFileSync(join(data, "small.txt"), "small file contents");
       writeFileSync(join(data, "sub", "nested.txt"), "nested contents");
       writeFileSync(join(data, "empty.dat"), Buffer.alloc(0));
-      writeSet("conf", { dirs: [data], bucket });
+      const { claimPath } = writeSet("conf", { dirs: [data], bucket });
+      await holdSet(bucket, "conf", claimPath);
 
       process.exitCode = 0;
       const result = await backup("conf");
@@ -128,7 +130,8 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       const data = realpathSync.native(join(root, "data"));
       writeFileSync(join(data, "kept.txt"), "unchanged across snapshots");
       writeFileSync(join(data, "mutating.txt"), "first version");
-      writeSet("conf", { dirs: [data], bucket });
+      const { claimPath } = writeSet("conf", { dirs: [data], bucket });
+      await holdSet(bucket, "conf", claimPath);
 
       const first = await backup("conf");
       assert.deepEqual(first.errors, []);

@@ -113,6 +113,15 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     ]);
   });
 
+  it("skips a set's `<set>.info` marker, which sits beside its folder, not in it", async () => {
+    snapshotKeys = ["snapshots/s.info", key("s", "2025-06-01T0800")];
+    onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
+
+    const bySet = await referencedObjects(BUCKET);
+    assert.deepEqual([...bySet.keys()], ["s"]);
+    assert.equal(bySet.get("s")?.snapshotsChecked, 1);
+  });
+
   it("still rethrows an operational error (aborts the scan)", async () => {
     snapshotKeys = [key("s", "2025-04-01T1200")];
     onGetStream = async () => {

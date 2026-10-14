@@ -205,6 +205,20 @@ export function seedSet(home, name, dirs) {
 }
 
 /**
+ * Make a seeded set's machine its holder (ADR-0108), as `setup` or `takeover`
+ * would: the same marker text in the bucket, through the inspector, and in the
+ * home's `claim` file. Claiming from a second home is a takeover.
+ * @param {string} home - The child's S3CAB_HOME, already seeded with the set
+ * @param {string} name - The set name
+ */
+export async function claimSet(home, name) {
+  const now = new Date().toISOString();
+  const info = `OWNER=crash@${basenameOf(home)}\nCLAIMED=${now}\nCREATED=${now}\n`;
+  await inspector.putBytes(bucket, `snapshots/${name}.info`, Buffer.from(info));
+  writeFileSync(join(home, "sets", name, "claim"), info);
+}
+
+/**
  * Write a file tree. Values are file contents; a number means "that many
  * pseudo-random bytes" (for multipart-sized files).
  * @param {string} root

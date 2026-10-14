@@ -3,7 +3,9 @@
 **Status:** accepted (2026-07-12) — **implemented** (2026-07-12). **Resolves
 [0036](0036-setup-mutates-list-shows-drop-sets.md)'s deferred "`--inherit` stays a flag" item**
 and follows on from [0052](0052-retire-setup-update-mode.md) (which left `setup` as
-create-or-inherit). `setup` is now create-only.
+create-or-inherit). `setup` is now create-only. Partly superseded by
+[0108](0108-set-ownership.md): `reattach` attaches read-only and no longer re-stamps `OWNER`;
+making this machine the one that backs a set up is `takeover`.
 
 ## Context
 

@@ -11,17 +11,25 @@ import {
 } from "../../src/lib/set-marker.mjs";
 import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
-// The remote `sets/<set>/` marker's S3 behaviour (ADR-0024), against a real
-// bucket. Each test uses a unique set name so the shared bucket stays isolated,
-// and deletes its marker files on teardown. The gate/harness lives in the shared
-// integration helper.
+// The `snapshots/<set>.info` marker and `.s3cab/sets/<set>/` config's S3
+// behaviour (ADR-0108), against a real bucket. Each test uses a unique set name
+// so the shared bucket stays isolated, and deletes its marker files on teardown.
+// The gate/harness lives in the shared integration helper.
 
 describe("set marker (real bucket)", () => {
   it("claimRemoteSet is atomic: the first writer wins, the second loses", async () => {
     const name = `sm-claim-${Date.now()}`;
     try {
-      const first = { owner: "machine-a", created: "2026-01-01T00:00" };
-      const second = { owner: "machine-b", created: "2026-02-02T00:00" };
+      const first = {
+        owner: "machine-a",
+        claimed: "2026-01-01T00:00:00Z",
+        created: "2026-01-01T00:00:00Z",
+      };
+      const second = {
+        owner: "machine-b",
+        claimed: "2026-02-02T00:00:00Z",
+        created: "2026-02-02T00:00:00Z",
+      };
 
       assert.equal(await claimRemoteSet(bucket, name, first), true);
       assert.equal(await claimRemoteSet(bucket, name, second), false);
@@ -40,22 +48,21 @@ describe("set marker (real bucket)", () => {
     );
   });
 
-  it("writeRemoteInfo re-stamps the marker (the reattach takeover)", async () => {
+  it("writeRemoteInfo overwrites the marker (a takeover)", async () => {
     const name = `sm-restamp-${Date.now()}`;
     try {
       await claimRemoteSet(bucket, name, {
         owner: "machine-a",
-        created: "2026-01-01T00:00",
+        claimed: "2026-01-01T00:00:00Z",
+        created: "2026-01-01T00:00:00Z",
       });
-      // Re-stamp OWNER, preserve CREATED (what reattach does).
-      await writeRemoteInfo(bucket, name, {
+      const takeover = {
         owner: "machine-b",
-        created: "2026-01-01T00:00",
-      });
-      assert.deepEqual(await readRemoteInfo(bucket, name), {
-        owner: "machine-b",
-        created: "2026-01-01T00:00",
-      });
+        claimed: "2026-03-03T00:00:00Z",
+        created: "2026-01-01T00:00:00Z",
+      };
+      await writeRemoteInfo(bucket, name, takeover);
+      assert.deepEqual(await readRemoteInfo(bucket, name), takeover);
     } finally {
       await cleanupSetMarker(name);
     }
@@ -75,7 +82,7 @@ describe("set marker (real bucket)", () => {
       });
 
       // Re-pushing the same set with no exclude DELETES the stale remote one
-      // (mirror local), so reattach can't resurrect a removed exclude.txt.
+      // (mirror local), so takeover can't resurrect a removed exclude.txt.
       await pushSetConfig(bucket, withExclude, { dirs: ["C:\\Photos"] });
       assert.deepEqual(await readSetConfig(bucket, withExclude), {
         dirs: ["C:\\Photos"],
@@ -93,7 +100,7 @@ describe("set marker (real bucket)", () => {
         exclude: "",
       });
       assert.equal(
-        await getText(`s3://${bucket}/sets/${withExclude}/exclude.txt`),
+        await getText(`s3://${bucket}/.s3cab/sets/${withExclude}/exclude.txt`),
         undefined,
       );
 
@@ -114,7 +121,8 @@ describe("set marker (real bucket)", () => {
     try {
       await claimRemoteSet(bucket, name, {
         owner: "machine-a",
-        created: "2026-01-01T00:00",
+        claimed: "2026-01-01T00:00:00Z",
+        created: "2026-01-01T00:00:00Z",
       });
       const found = await listRemoteSets(bucket);
       assert.ok(

@@ -2,7 +2,7 @@ import { isAbsolute, relative, sep } from "node:path";
 
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
-import { pushSetConfig } from "../lib/set-marker.mjs";
+import { assertHeld, pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
 import { shellCommand } from "../lib/style.mjs";
@@ -75,9 +75,14 @@ import {
  *
  * With no update mode ([ADR-0052](../../docs/adr/0052-retire-setup-update-mode.md)),
  * a set's `dirs.txt`/`exclude.txt` are edited by hand, so `backup` is where those
- * edits re-sync to the remote `sets/<name>/` marker (which a later `reattach`
+ * edits re-sync to the bucket's `.s3cab/sets/<name>/` (which a later `takeover`
  * reads). It's best-effort metadata: a failure there must not fail a backup whose
  * objects + snapshot are already safely up — the next backup re-publishes.
+ *
+ * Only the machine holding the set backs it up
+ * ([ADR-0108](../../docs/adr/0108-set-ownership.md)). `uploadSnapshotFile`
+ * checks just before publishing, as the format requires; `backup` checks first
+ * too, so a refusal costs seconds rather than a whole pass.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
  * @param {{ debug?: boolean, rehash?: boolean, resume?: boolean }} [options]
@@ -87,6 +92,7 @@ export async function backup(setName, options = {}) {
   // Resolve the set and apply its env layer (its bucket's auth) over the ambient
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
+  await assertHeld(set.bucket, set.name, set.claimPath);
 
   const baseline = await readBaseline(set, {
     rehash: options.rehash,
@@ -139,11 +145,12 @@ export async function backup(setName, options = {}) {
     set: set.name,
     snapshotDir: set.snapshotsDir,
     name,
+    claimPath: set.claimPath,
   });
 
-  // Re-sync the set's published config to the remote marker (ADR-0052): the
-  // objects + snapshot are already up, so this is best-effort metadata — a hiccup
-  // here leaves the marker stale until the next backup, never a failed backup.
+  // Re-sync the set's published config (ADR-0052): the objects + snapshot are
+  // already up, so this is best-effort metadata — a hiccup here leaves the copy
+  // stale until the next backup, never a failed backup.
   try {
     await pushSetConfig(set.bucket, set.name, {
       dirs: set.dirs,

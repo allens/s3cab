@@ -1,6 +1,8 @@
 # One s3cab repository == one bucket, fixed layout
 
-**Status:** partly superseded by [0024](0024-set-name-is-the-whole-identity.md)
+**Status:** partly superseded by [0024](0024-set-name-is-the-whole-identity.md), and by
+[0108](0108-set-ownership.md): `sets/<set>/` leaves the layout for `snapshots/<set>.info`, and
+`.`-prefixed client folders join it.
 
 > **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (accepted): the
 > snapshot namespace flattened from `snapshots/<user>@<machine>/<set>/` to `snapshots/<set>/`,

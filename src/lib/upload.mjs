@@ -10,6 +10,7 @@ import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
 import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
+import { assertHeld } from "./set-marker.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
@@ -490,14 +491,25 @@ export async function fileChange(path, recorded) {
  * run's own first attempt as a 412 — refusing there turned an upload that
  * *worked* into a reported failure. Byte-identity tells the two apart exactly.
  * Called by `uploadSnapshot` and by `backup`, each once its own objects are up.
+ *
+ * Refused unless this machine holds the set, checked immediately before the
+ * PUT (ADR-0108): the format's rule for publishing a snapshot.
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
  * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
+ * @param {string} args.claimPath - The set's `claim` file, this machine's proof it holds the set
  * @returns {Promise<void>}
  */
-export async function uploadSnapshotFile({ bucket, set, snapshotDir, name }) {
+export async function uploadSnapshotFile({
+  bucket,
+  set,
+  snapshotDir,
+  name,
+  claimPath,
+}) {
+  await assertHeld(bucket, set, claimPath);
   const snapshotUri = remoteSnapshotUri(bucket, set, name);
   const snapshotPath = join(snapshotDir, snapshotFileName(name));
   const wrote = await putFile(snapshotPath, snapshotUri, { noClobber: true });
@@ -523,16 +535,11 @@ export async function uploadSnapshotFile({ bucket, set, snapshotDir, name }) {
  * whether or not it has since been deleted. Two factories here would be two
  * wordings for one user action.
  *
- * **A supported configuration, so this message is the whole product surface for
- * it.** Two live machines on one set is discouraged-but-tolerated and explicitly
- * never locked out ([ADR-0024](../../docs/adr/0024-set-name-is-the-whole-identity.md)
- * — the OneDrive-synced-directory case), so a colliding minute is an expected
- * event on a supported path, not a misuse to be terse about. `reattach` says the
- * same thing in advance, naming the other machine
- * ([reattach.mjs](../commands/reattach.mjs)); this has to stand alone anyway,
- * since that may have been months ago. What is *not* tolerated is two machines
- * claiming the name in the first place — `setup`'s first-person-wins claim,
- * settled and hard.
+ * **Rare, but not a misuse.** The holder check just before the PUT
+ * ([ADR-0108](../../docs/adr/0108-set-ownership.md)) leaves two ways in: a
+ * takeover landing between that check and the PUT, and a holder whose `claim`
+ * travelled with copied state (a cloned VM, a restored `~/.s3cab`). Either way
+ * the user did nothing wrong, so this message is the whole explanation they get.
  *
  * Worded against what the user is actually left with, because the message this
  * replaced — "Snapshot '<name>' is already backed up" — was true of the *name*
@@ -577,6 +584,7 @@ const nameTakenError = (set, name, uri) =>
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead
+ * @param {string} args.claimPath - The set's `claim` file (see `uploadSnapshotFile`)
  * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}
  *   `candidates` = objects considered for upload; `uploaded` = those actually
  *   transferred (the rest were no-ops the conditional PUT found already present).
@@ -587,6 +595,7 @@ export async function uploadSnapshot({
   snapshotDir,
   name,
   since,
+  claimPath,
 }) {
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
@@ -618,7 +627,7 @@ export async function uploadSnapshot({
     throw fileChangedError(drifted, set);
   }
 
-  await uploadSnapshotFile({ bucket, set, snapshotDir, name });
+  await uploadSnapshotFile({ bucket, set, snapshotDir, name, claimPath });
 
   return { name, candidates, uploaded };
 }

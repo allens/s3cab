@@ -142,12 +142,12 @@ s3://my-bucket/
   - `reattach` attaches the set read-only, or refreshes one already attached: it pulls the
     snapshots this machine lacks, and nothing else. No config comes down and `<set>.info` isn't
     written.
-  - The takeover command refreshes, pulls `dirs.txt` and `exclude.txt` from `.s3cab/` wherever no
+  - `s3cab takeover` refreshes, pulls `dirs.txt` and `exclude.txt` from `.s3cab/` wherever no
     local file exists, then claims.
-  - `restore`, `list`, `find` and `compare` work on a read-only set; `list` shows who holds it in
-    place of its directories.
+  - `restore`, `list`, `find` and `compare` work on a read-only set; `list` shows who last backed
+    it up in place of its directories.
   - `backup`, `upload --snapshot` and `forget` on a set this machine doesn't hold are refused,
-    naming the takeover command. `backup` also checks when it starts, so a refusal costs seconds
+    naming `s3cab takeover`. `backup` also checks when it starts, so a refusal costs seconds
     rather than a whole pass.
   - `setup` refuses a name whose `snapshots/<set>/` isn't empty, pointing at `reattach`.
   - Not config on a read-only attach: `dirs.txt` and `exclude.txt` describe the holder's disk, and
@@ -193,7 +193,7 @@ one, which is documented of course, but that doesn't mean anyone else has to use
     characters. `@CLIENT VERSION` is free text.
   - A valid file has exactly one of each. A reader that finds one missing or repeated ignores it,
     as it does `FILES` disagreeing with the row count: only people read them.
-  - s3cab writes them straight after the heading row.
+  - s3cab writes them straight after `@S3CAB SPEC`.
 - **`@S3CAB SPEC` dates the spec a file follows**: the date format.md states. It changes with the
   format, not its wording, and a unit test holds s3cab's constant to format.md's date. Readers
   never refuse a file over it; it is for people, and for wording a refusal ("written to the
@@ -214,25 +214,10 @@ one, which is documented of course, but that doesn't mean anyone else has to use
 
 ## Still to plan
 
-- **Recorded** as [ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md),
-  implemented bar the client folders, and [ADR-0108](../docs/adr/0108-set-ownership.md),
-  proposed; the takeover command, the date row's name and the local `claim` file are settled
-  there.
-- **ADRs:** when 0108 lands, accept it, mark 0107's client folders done, and mark what 0108
-  supersedes in 0013, 0024, 0052, 0053 and 0098, status lines and index entries both.
+- **Recorded** as [ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md) and
+  [ADR-0108](../docs/adr/0108-set-ownership.md), both accepted and implemented.
 - **The spec date:** move format.md's date and `SPEC_DATE` in snapshot-file.mjs to the day the
-  ownership change lands.
-- **Docs:** CONTEXT.md, where "owner" and "take-over" are `_Avoid_` words that become terms, and
-  "Unique within a bucket (first-come)" changes meaning; design/backup.md's `reattach` and
-  layout sections, and its argument against a check at backup time; repository-protocol.md; the
-  README's bucket layout.
-- **Code:** set-marker.mjs (the new keys, its own `.info` reader, listing sets from
-  `snapshots/`); `setup`; `reattach` (refresh; its two-machines warning goes); the takeover
-  command; the checks in `backup`, `upload --snapshot` and `forget`.
-- **Tests:** a helper that gives a test machine the set's pair, for every test that builds a set
-  with `writeSet` and backs up; a takeover step in the model harness, which also reads
-  `sets/<set>/info` directly; the ADR-0084 two-machine test getting past the check; integration
-  cleanup of the new keys; a test that `referencedObjects` skips `snapshots/<set>.info`.
+  ownership change lands, if that isn't 2026-10-14.
 - **Clean room:** the seed's "is this bucket mine?" check reads `snapshots/<set>.info` as a
   foreign set and `.s3cab/` keys as strays; then a reseed.
 - **Live buckets:** run `s3cab takeover` for each real set on the machine its latest

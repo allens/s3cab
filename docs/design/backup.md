@@ -18,8 +18,10 @@ identity, flattened `snapshots/<set>/`, the `setup` collision check + `reattach`
 `sets/<set>/` marker, bucket-required set creation, and the single-tier set resolver) —
 [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md),
 [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md), and
-[ADR-0026](../adr/0026-bucket-required-at-setup.md). The detail sections below describe that
-landed model.
+[ADR-0026](../adr/0026-bucket-required-at-setup.md). Set ownership then replaced the marker
+and made `reattach` read-only, beside a new `takeover`
+([ADR-0108](../adr/0108-set-ownership.md)). The detail sections below describe that landed
+model.
 
 > **History:** the first cut of this design (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
@@ -55,17 +57,17 @@ the operand of every porcelain command.
 
 A set's **name** is its entire identity (e.g. `photos`) — one user-chosen `[a-z0-9-]+`
 label that is at once the local handle, the local directory name under `~/.s3cab/sets/`, and
-the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` component
+the remote namespace under `snapshots/`. There is no `user@machine` component
 ([ADR-0024](../adr/0024-set-name-is-the-whole-identity.md)).
 
 - The anchor is **"a user and their data,"** not a machine. Machine isn't how a person
   thinks about their backup, and baking it into the identity would fork the history on a
   host rename or replacement. Renaming a machine or moving a member directory edits `dirs.txt`
   — it never touches identity.
-- **Bucket-wide uniqueness is "first person wins,"** enforced by a setup-time collision
-  check against the remote `sets/<name>/` marker (see "Remote repository layout"). The
-  marker carries an advisory "created-on `<machine>`" field, surfaced only in the collision
-  error to help a human choose rename-vs-`reattach` — advisory, never part of the identity.
+- **Bucket-wide uniqueness is "first person wins":** `setup` claims the name by creating
+  `snapshots/<name>.info` with a conditional PUT, and refuses a name the bucket already has,
+  pointing at `reattach` (see "Remote repository layout"). The marker's `OWNER` names the
+  set's **holder** ([ADR-0108](../adr/0108-set-ownership.md)), never part of the identity.
 - **Charset (decided):** a name is lowercase `a-z`, `0-9`, and `-` — nothing else, so
   nothing downstream ever needs escaping. `validateSetName` is the keystone guard: it
   rejects a non-conforming name with the rule and a suggested kebab-case form (the name is
@@ -84,6 +86,7 @@ diagram is repeated here because the design points below lean on it.)
 ~/.s3cab/
   sets/
     photos/
+      claim              # the OWNER + CLAIMED this machine wrote; present = it holds the set
       dirs.txt           # member directories, one absolute path per line
       env                # S3CAB_BUCKET=… + how to reach it (profile or keys)
       exclude.txt        # optional; patterns applied relative to each member dir
@@ -134,44 +137,44 @@ s3cab setup --set <set> --bucket <bucket> <dir>...
 **`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
 bound to its bucket at creation, and creating a set always touches S3 to run the collision
 check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`/`list`
-still work after a one-time online set-up; only creating a set — or `reattach` — needs
-connectivity.)
+still work after a one-time online set-up; only creating, attaching or taking over a set
+needs connectivity.)
 
-`setup <name> <dir>... --bucket <b>` collision-checks the remote `sets/<name>/` marker; if it
-already exists, it errors naming the owner and suggesting `reattach`; otherwise it claims
-the marker (a conditional PUT — first writer wins), writes the local set, and publishes its
-`dirs.txt`/`exclude.txt` to the marker.
+`setup --set <name> --bucket <b> <dir>...` refuses a name the bucket already has (a marker, or
+snapshots without one), naming its holder and suggesting `reattach`. Otherwise it claims the
+name by creating `snapshots/<name>.info` with a conditional PUT (first writer wins), writes
+the local set with its `claim`, and publishes its `dirs.txt`/`exclude.txt` to
+`.s3cab/sets/<name>/`.
 
-### `reattach` — adopt an existing set (succession)
+### `reattach` and `takeover` — an existing set on this machine
 
-`s3cab reattach <set> --bucket <bucket>` ([ADR-0053](../adr/0053-reattach-command.md)) is the
-path for a **replacement or recovery machine** — it adopts a set that already exists remotely.
-Requires `sets/<name>/` to exist in the bucket; pulls its `dirs.txt`/`exclude.txt` **and its
-snapshot history** down, recreates the local set, and re-stamps `OWNER` as this `user@machine`.
-Takes no directories (they come from the remote). It does **not** download the backed-up file
-contents — that is `restore`; only the config + snapshot manifests come down, which is what lets
-`list`/`compare` run offline afterwards ([ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)).
+A set has one **holder**, the machine that backs it up, named by the `OWNER` in the bucket's
+`snapshots/<set>.info` ([ADR-0108](../adr/0108-set-ownership.md)). Two machines backing up one
+set would interleave their trees, so the latest snapshot could be either machine's.
 
-Split out of the old `setup --inherit` ([ADR-0053](../adr/0053-reattach-command.md)): `setup`
-creates, `reattach` adopts — near-opposite acts (a free name vs. an existing one) no longer
-multiplexed behind one flag. Two live machines on one set is a discouraged-but-tolerated
-power-user case (e.g. a OneDrive-synced directory, where both hold the same content so the
-interleaving is benign): `reattach` never disables the prior machine — re-stamping the owner is
-its only remote change. An interactive wizard may later wrap this one-shot form; it is not part
-of v1.
+`s3cab reattach <set> [--bucket <bucket>]` attaches a set that already exists in the bucket,
+**read-only**, or refreshes one already attached: it pulls the snapshots this machine lacks and
+nothing else, writing neither config nor `.info`. `--bucket` is needed only the first time.
+Needing neither `.s3cab/` config nor `.info`, it attaches a set another client wrote. It does
+**not** download the backed-up file contents (that is `restore`); the snapshot files are what
+let `list`/`compare` run offline afterwards
+([ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)).
 
-**Where "discouraged" is actually said.** `reattach` names the prior `OWNER` and warns that
-reattaching doesn't stop that machine — the one moment a human is present with a stated intent,
-and the only one where the marker's outgoing owner is still readable. Both facts are already in
-memory there (the marker was read to validate the set; the snapshot history has just been
-pulled), so it costs no extra request, where a backup-time check would cost a marker GET per run.
-It stays **advisory**: from the bucket a retired machine and a dormant one are indistinguishable —
-recency is the only signal and a weekly backup looks dead by day three — and succession is the
-dominant case, so a gate would make the common path pay for the rare one. A prompt was rejected
-for a different reason: both answers are permitted, so it would collect an intent and then act
-identically. The later name collision keeps its own self-contained message
-(`uploadSnapshotFile`), since the reattach may have been months earlier.
+`s3cab takeover <set> [--bucket <bucket>]` makes this machine the holder: machine
+**succession**. It attaches the set if needed, refreshes it, pulls `dirs.txt` and `exclude.txt`
+from `.s3cab/sets/<set>/` wherever this machine has no file of its own, then rewrites `OWNER`
+and `CLAIMED`, keeping `CREATED`, or creates the marker if the set has none. No prompt: it
+deletes nothing, the old holder can take the set back the same way, and the output names the
+machine it took over from. On a set it already holds it does nothing.
 
+This machine keeps the `OWNER` and `CLAIMED` it wrote in `~/.s3cab/sets/<set>/claim`. `backup`,
+`upload --snapshot` and `forget` refuse a set whose marker no longer matches it, naming
+`takeover`, and delete the stale `claim`. `backup` checks when it starts as well as immediately
+before publishing, so a refusal costs seconds rather than a hashing pass. The pair is compared
+as text and never recomputed, so a renamed machine never locks its holder out.
+
+Two machines on one synced folder (the OneDrive case ADR-0024 tolerated) get a set each,
+losing only `compare` across them.
 ### `list` — show sets and their snapshots
 
 `s3cab list` is the **read** counterpart ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)) —
@@ -362,25 +365,26 @@ writer may overwrite — re-running within a minute while debugging is otherwise
 
 ## Remote repository layout
 
-The layout itself — `objects/<sha256>`, `snapshots/<set>/`, `sets/<set>/` and what each
-holds — is the format spec's to state ([guide/format.md](../../guide/format.md)). The
-decisions behind its shape:
+The layout itself — `objects/<sha256>`, `snapshots/<set>/`, `snapshots/<set>.info`, the
+`.`-prefixed client folders and what each holds — is the format spec's to state
+([guide/format.md](../../guide/format.md)). The decisions behind its shape:
 
 One repository is one bucket, holding **multiple sets** (from any number of users and
 machines). `objects/` is shared — content-addressing dedups across everything in the
-bucket. Each set name is a path level under `snapshots/` (its snapshots) and `sets/` (its
-config + ownership marker), so browsing groups by set.
+bucket. Each set name is a path level under `snapshots/`, beside its `<set>.info` marker, so
+browsing groups by set.
 
 Snapshots are **directory-per-set** (`snapshots/<set>/…`), not a flat
 `snapshots/<set>-<timestamp>` — a `-`-bearing key can't be split back into (set, timestamp)
 and would prefix-collide with another set (`work-laptop` vs `work-laptop-backup`). The set
 name is a single `[a-z0-9-]+` segment, so it needs no escaping anywhere in these keys.
 
-The `sets/<set>/` marker is written when a set is created: `info` (the atomic claim token + advisory
-owner/created fields) doubles as the collision-registration marker — a set with no snapshots
-yet would otherwise be invisible — and `dirs.txt`/`exclude.txt` are pushed for the
-**full-DR** story (point a fresh machine at the bucket, `reattach`, and the set config comes
-back; only credentials need re-entering). The set's `env` is **never** pushed (it holds
+The `<set>.info` marker is written when a set is created: the conditional PUT that claims the
+name doubles as the record of the set's holder, and makes a set with no snapshots yet visible.
+s3cab's copy of the set's `dirs.txt`/`exclude.txt` goes to its own client folder,
+`.s3cab/sets/<set>/` ([ADR-0107](../adr/0107-the-spec-is-the-public-repository-format.md)),
+for the **full-DR** story (point a fresh machine at the bucket, `takeover`, and the set config
+comes back; only credentials need re-entering). The set's `env` is **never** pushed (it holds
 credentials); the bucket name is not stored (redundant once in the bucket).
 
 **Remote snapshot files are byte-identical local snapshot files** — the `.tsv.gz` uploaded as-is.
@@ -422,9 +426,9 @@ it is hashed** rather than of a whole snapshot file at once — but the rule is 
 already stored (`storedHashes`) is settled up front, before any hashing:
 
 1. **Baseline = the set's previous *local* snapshot.** The set-ownership model makes local
-   history authoritative: a set is owned by exactly one machine (the `sets/<name>/` marker;
-   `reattach` *re-stamps* the owner, it never shares), so there is no other machine whose
-   uploads the local history wouldn't already know about. Its objects were stored when it
+   history authoritative: a set has exactly one holder, checked before every publish
+   ([ADR-0108](../adr/0108-set-ownership.md)), so there is no other machine whose uploads the
+   local history wouldn't already know about. Its objects were stored when it
    was uploaded (the snapshot-last invariant), so anything it references can be skipped with
    **no per-object network read** — one read of the baseline's remote copy first confirms it
    is byte-identical to the local file

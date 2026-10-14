@@ -115,9 +115,10 @@ export const TERMINATOR = ".";
  * (`entries`), paths with no usable row (`errors`: the `#error` rows mapped to
  * their message, and every refused path to its reason), the refused paths alone
  * (`refused`, for `restore` and `verify`, which report them as damage), the
- * member directories captured at snapshot time (`dirs`, from `@SET DIR`), and
- * the moment the run started (`instant`, from `@SNAPSHOT START`).
- * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, refused: SnapshotRefused, dirs: string[], instant?: string }} Snapshot
+ * member directories captured at snapshot time (`dirs`, from `@SET DIR`), the
+ * moment the run started (`instant`, from `@SNAPSHOT START`), and who took it
+ * (`by`, from `@SNAPSHOT BY`, which `list` shows as a read-only set's holder).
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, refused: SnapshotRefused, dirs: string[], instant?: string, by?: string }} Snapshot
  */
 /**
  * What a snapshot records about its set and the run's configuration — the
@@ -855,8 +856,8 @@ export async function parseCompressedSnapshotStream(
  * Only what code reads is parsed (ADR-0098): `-` rows into `entries`, `#error`
  * rows into `errors` (so `compare` reports the path rather than mistaking it
  * for deleted), `@SET DIR` into `dirs` (what `restore --output` re-roots by),
- * and `@SNAPSHOT START`'s instant. Every other `@` or `#` row is for people, or
- * from a newer s3cab, and is skipped.
+ * `@SNAPSHOT START`'s instant and `@SNAPSHOT BY`. Every other `@` or `#` row is
+ * for people, or from a newer s3cab, and is skipped.
  *
  * Validity is ADR-0101's. The whole file is refused when it isn't UTF-8,
  * doesn't open with the heading row, doesn't end with `.`, or holds a type
@@ -891,6 +892,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   const dirs = [];
   /** @type {string | undefined} */
   let instant;
+  /** @type {string | undefined} */
+  let by;
   let headed = false;
   let complete = false;
 
@@ -964,6 +967,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
       dirs.push(col5);
     } else if (type === SNAPSHOT && property === START) {
       instant = col4.trim() || undefined;
+    } else if (type === SNAPSHOT && property === "BY") {
+      by = col5 || undefined;
     } else {
       assert(
         type.startsWith("@") || type.startsWith("#"),
@@ -1032,7 +1037,7 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     errors.set(path, reason);
   }
 
-  return { entries, errors, refused, dirs, instant };
+  return { entries, errors, refused, dirs, instant, by };
 }
 
 /**

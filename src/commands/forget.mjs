@@ -14,6 +14,7 @@ import {
   planUnrestorable,
 } from "../lib/unrestorable.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
+import { assertHeld } from "../lib/set-marker.mjs";
 import {
   deleteRemoteSnapshot,
   listRemoteSnapshots,
@@ -131,6 +132,9 @@ export async function forget(snapshots = [], options = {}) {
   // Resolve the set and apply its env layer (its bucket + auth) over the ambient
   // shell (ADR-0022/0055 — the one s3cab layer).
   const set = loadSet(options.set);
+  // Only the holder forgets (ADR-0108): a machine that is only browsing the set
+  // must not delete the holder's history.
+  await assertHeld(set.bucket, set.name, set.claimPath);
 
   // The non-interactive gate, up front — before the whole-bucket scan. Forgetting
   // is destructive; with no terminal to confirm on, the intent must be explicit.

@@ -101,6 +101,20 @@ mock.module("./deletion-record.mjs", {
     },
   },
 });
+/** @type {Error | undefined} what the holder check refuses with, if it does */
+let notHeld;
+// The holder check is set-marker.mjs's, unit-tested there; what matters here is
+// that the manifest PUT waits on it.
+mock.module("./set-marker.mjs", {
+  exports: {
+    assertHeld: async () => {
+      callOrder.push("assertHeld");
+      if (notHeld) {
+        throw notHeld;
+      }
+    },
+  },
+});
 /** @type {Set<string>} paths rewritten the instant hashing finishes. */
 let driftAfterHash = new Set();
 /**
@@ -572,6 +586,7 @@ const oneFileFixture = async (dirPath) => {
       snapshotDir,
       name: target,
       since: baseline,
+      claimPath: join(snapshotDir, "claim"),
     },
   };
 };
@@ -738,6 +753,30 @@ describe("uploadSnapshot baseline trust", () => {
 // and the retry then meets the first attempt's success as a 412. Refusing there
 // reported a backup that *worked* as failed. Different bytes under the name stay
 // the immutability error — that really is someone else's snapshot.
+describe("uploadSnapshotFile holder check", () => {
+  it("checks this machine holds the set immediately before the PUT", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+
+    await uploadSnapshotFile(args);
+
+    assert.deepEqual(callOrder, ["assertHeld", `put:${args.name}.tsv.gz`]);
+  });
+
+  it("publishes nothing on a set this machine doesn't hold", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+    notHeld = new Error("not held");
+
+    try {
+      await assert.rejects(() => uploadSnapshotFile(args), /not held/);
+    } finally {
+      notHeld = undefined;
+    }
+    assert.deepEqual(putFiles, []);
+  });
+});
+
 describe("uploadSnapshotFile manifest idempotence", () => {
   it("succeeds quietly when the remote manifest is byte-identical — its own earlier PUT landed", async () => {
     await using dir = await mkTmpDir();
@@ -891,6 +930,7 @@ describe("uploadSnapshot drift guard", () => {
         snapshotDir,
         name: target,
         since: baseline,
+        claimPath: join(snapshotDir, "claim"),
       },
     };
   };
