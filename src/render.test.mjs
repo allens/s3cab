@@ -591,27 +591,34 @@ describe("renderList", () => {
     assert.match(text, /\nremote snapshots:\n {2}\(none yet\)$/);
   });
 
-  it("shows a read-only set's holder in place of its config, which is the holder's", () => {
+  it("shows a read-only set's last backer in place of its config, which is the holder's", () => {
     const detailSet = {
       ...set("docs", "my-bucket", []),
       dirsPath: "/d.txt",
       excludePath: "/e.txt",
     };
-    const text = renderList({
-      mode: "detail",
-      set: detailSet,
-      overrides: { rolesAnywhere: false },
-      snapshots: [],
-      remote: false,
-      held: false,
-      holder: "bob@laptop",
-    });
+    /** @param {string} [lastBackedUpBy] */
+    const render = (lastBackedUpBy) =>
+      renderList({
+        mode: "detail",
+        set: detailSet,
+        overrides: { rolesAnywhere: false },
+        snapshots: [],
+        remote: false,
+        held: false,
+        lastBackedUpBy,
+      });
 
+    const text = render("bob@laptop");
     assert.match(
       text,
-      /bucket: my-bucket\nheld by: bob@laptop \(read-only on this machine\)\nsnapshots:/,
+      /bucket: my-bucket\nread-only on this machine; last backed up by bob@laptop\nsnapshots:/,
     );
     assert.doesNotMatch(text, /dirs|exclude file/);
+    assert.match(
+      render(),
+      /bucket: my-bucket\nread-only on this machine\nsnapshots:/,
+    );
   });
 });
 

@@ -30,9 +30,12 @@ The format:
 2. **`<set>.info` holds `OWNER` (the holder, as `user@machine`), `CLAIMED` (when the holder
    claimed or took over the set) and `CREATED` (when the set was first claimed; never changes).**
    It is read line by line: UTF-8, split on LF, one trailing CR stripped, each line split at its
-   first `=` with the rest as the value, unknown keys skipped.
+   first `=` with the rest as the value, lines with no `=` and unknown keys skipped.
 3. **A claim is a conditional PUT of `<set>.info`, and a new set is claimed only while
-   `snapshots/<set>/` is empty.** One with snapshots and no `.info` already exists.
+   `snapshots/<set>/` is empty.** One with snapshots and no `.info` already exists. The check
+   and the PUT are on different keys, a gap stated rather than closed: a snapshot uploaded
+   between them leaves a `.info` claiming a set with history, its `CREATED` later than its
+   first snapshot.
 4. **Publishing a snapshot checks ownership** immediately before the snapshot's upload: the writer
    reads `<set>.info` and refuses unless its `OWNER` and `CLAIMED` each match, as text, the pair
    the writer stored when it claimed. The pair is never recomputed, so a renamed machine or a
@@ -64,7 +67,8 @@ s3cab:
 10. **`backup`, `upload --snapshot` and `forget` refuse on a set this machine doesn't hold**, naming
     `takeover`; `backup` checks when it starts too, so a refusal costs seconds rather than a pass.
     `setup` refuses a name whose `snapshots/<set>/` isn't empty, pointing at `reattach`. `list`
-    names a read-only set's holder from its latest snapshot's `@SNAPSHOT BY`.
+    stays offline, so for a read-only set it names who last backed it up, from its latest
+    snapshot's `@SNAPSHOT BY`; `reattach` reads the holder from `.info`.
 
 ## Considered and rejected
 

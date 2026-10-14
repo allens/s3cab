@@ -72,9 +72,9 @@ const formatInfo = ({ owner, claimed, created }) =>
 
 /**
  * Read `.info` text by the spec's rule (guide/format.md): split on LF, strip one
- * trailing CR, split each line at its first `=`, skip unknown keys. Not
- * `parseEnv`: `#` starts a comment there, which would cut short a user name
- * holding one.
+ * trailing CR, split each line at its first `=`, skip a line with no `=` and
+ * unknown keys. Not `parseEnv`: `#` starts a comment there, which would cut
+ * short a user name holding one.
  * @param {string} text
  * @returns {SetInfo}
  */

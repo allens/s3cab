@@ -143,8 +143,8 @@ CREATED=2026-06-12T08:15:32.000Z
 - Both instants are UTC, in the same form as a snapshot row's `mtime`.
 
 Read it line by line: UTF-8, split on LF, strip one trailing CR, split each line at its
-first `=` with the rest as the value, and skip keys you don't know. A value may hold `=` or
-`#`.
+first `=` with the rest as the value, and skip a line with no `=` and keys you don't know.
+A value may hold `=` or `#`.
 
 The rules for writers:
 
@@ -159,10 +159,13 @@ The rules for writers:
   `CLAIMED`.
 - **Reading needs no `.info`**: nothing a restore needs is in it.
 
-Two gaps are known, and left open:
+Three gaps are known, and left open:
 
 - A takeover landing between the check and the upload lets the old holder publish one more
   snapshot. S3 can't make one key's upload conditional on another's.
+- For the same reason, a snapshot uploaded between a new claim's check that
+  `snapshots/<set>/` is empty and its PUT leaves a `.info` claiming a set that already has
+  history, its `CREATED` later than its first snapshot.
 - The pair is a token, so it travels with copied state: a machine cloned after the claim,
   or a home folder restored onto a new machine. Both copies pass the check.
 

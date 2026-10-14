@@ -135,7 +135,7 @@ describe("list", () => {
     });
   });
 
-  it("names a read-only set's holder from its latest snapshot's @SNAPSHOT BY", async () => {
+  it("names who last backed up a read-only set from its latest snapshot's @SNAPSHOT BY", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = writeSet("docs", { bucket: "b" }); // attached, never claimed
@@ -152,7 +152,7 @@ describe("list", () => {
 
     assert(result.mode === "detail");
     assert.equal(result.held, false);
-    assert.equal(result.holder, "bob@laptop");
+    assert.equal(result.lastBackedUpBy, "bob@laptop");
   });
 
   it("surfaces the set's provider overrides, never the secret", async () => {

@@ -409,7 +409,7 @@ function summaryLine(result, renamedCount, movedCount) {
  * set's config — name, bucket, member directories with the `dirs.txt` path, the
  * exclude-file path — then its snapshots; the config paths teach where to edit a
  * set ("the files are the API", ADR-0002). A set this machine doesn't hold shows
- * its holder instead of the config, which is the holder's. **`summary`** (all sets) lists each
+ * who last backed it up instead of the config, which is the holder's. **`summary`** (all sets) lists each
  * set's name then its snapshot times, collapsing to the "create one" guidance
  * when there are no sets yet (a legitimate result on stdout, not a stderr
  * warning — ADR-0043).
@@ -418,7 +418,7 @@ function summaryLine(result, renamedCount, movedCount) {
  */
 export function renderList(result) {
   if (result.mode === "detail") {
-    const { set, overrides, snapshots, remote, held, holder } = result;
+    const { set, overrides, snapshots, remote, held, lastBackedUpBy } = result;
     return [
       `name: ${set.name}`,
       `bucket: ${set.bucket}`,
@@ -431,7 +431,10 @@ export function renderList(result) {
               : ["  (none)"]),
             `exclude file: ${set.excludePath}`,
           ]
-        : [`held by: ${holder ?? "unknown"} (read-only on this machine)`]),
+        : [
+            "read-only on this machine" +
+              (lastBackedUpBy ? `; last backed up by ${lastBackedUpBy}` : ""),
+          ]),
       `${remote ? "remote snapshots" : "snapshots"}:`,
       indentSnapshots(snapshots),
     ].join("\n");

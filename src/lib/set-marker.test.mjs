@@ -45,6 +45,14 @@ describe("parseInfo", () => {
     assert.equal(parseInfo("OWNER=dev#2@pc\n").owner, "dev#2@pc");
   });
 
+  it("skips a line with no '=', such as the empty one after the final LF", () => {
+    assert.deepEqual(parseInfo("OWNER=me@pc\njunk\n\nCLAIMED=c\nCREATED=d\n"), {
+      owner: "me@pc",
+      claimed: "c",
+      created: "d",
+    });
+  });
+
   it("strips one trailing CR, so a file saved with CRLF reads the same", () => {
     assert.deepEqual(parseInfo("OWNER=me@pc\r\nCLAIMED=c\r\nCREATED=d\r\n"), {
       owner: "me@pc",

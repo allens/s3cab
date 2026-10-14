@@ -249,9 +249,10 @@ a description of the protocol rather than a running defect list:
   [ADR-0083](../adr/0083-streamed-digest-upload-guard.md)'s streamed-digest check on the PUT and
   [ADR-0084](../adr/0084-snapshot-identity-byte-equality.md)'s byte-identity comparison
   respectively. Kept named here because the transitions above cite them.
-- A takeover between a backup's holder check and its manifest PUT, and a `claim` copied with
-  the rest of a home — the two gaps [guide/format.md](../../guide/format.md#who-holds-a-set)
-  states ([ADR-0108](../adr/0108-set-ownership.md)).
+- A takeover between a backup's holder check and its manifest PUT, a snapshot uploaded between
+  `setup`'s LIST of `snapshots/<set>/` and its claim, and a `claim` copied with the rest of a
+  home — the three gaps [guide/format.md](../../guide/format.md#who-holds-a-set) states
+  ([ADR-0108](../adr/0108-set-ownership.md)).
 - The `cleanup`-vs-backup and `delete`-vs-backup races —
   [proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md) §1 and §3.
 - The conditional-write backstop off-AWS — [s3-provider-compatibility.md](s3-provider-compatibility.md),
