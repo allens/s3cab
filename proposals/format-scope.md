@@ -1,6 +1,10 @@
-# Format scope and the clean rooms
+# Format scope
 
 I'm having a big rethink about the clean room, and about what constitutes the "format".
+
+This file is the format half, and lands first. The clean-room half, built against it, is
+[cleanroom-harness.md](cleanroom-harness.md); running clean rooms in CI is
+[cleanroom-ci.md](cleanroom-ci.md).
 
 ## Client config leaves the format
 
@@ -134,74 +138,3 @@ one, which is documented of course, but that doesn't mean anyone else has to use
 - The spec recommends (not rules) that a client keep its config as plain UTF-8 text, one entry
   per line, in its own folder. Only a recommendation: what a client keeps there, SQLite or
   anything else, is its own business.
-
-## Clean rooms: back to backup and restore
-
-For the clean rooms, I think we should go back to backup and restore, i.e. roll snapshot and
-upload back together. There was a nice 1-to-1 with the s3cab CLI, but the clean room isn't about
-recreating the s3cab CLI from scratch (another reason the exclude rules sit outside). It's about
-proving that you can take a collection of files on disk and replicate them properly to S3 — where
-"properly" means s3cab, or any other spec-adherent client, can work with the result. So "backup"
-is the fundamental step, even if the s3cab CLI has smaller pieces that can be used for it. It is
-also (more importantly) about restoring an s3cab bucket from S3 back onto a disk correctly.
-
-So I'd suggest the clean rooms build a `backup` and a `restore` script. As mentioned above, these
-don't need to concern themselves with set config the way the s3cab CLI does. They just need to
-use a set as a label, and get or put the data in the right place in the bucket. So I'd make their
-arguments as simple as:
-
-```
-s3cab-backup <dir> <bucket> <set>
-s3cab-restore <bucket> <set> <dir>
-```
-
-(or perhaps the `<bucket>/<set>` form).
-
-**Decided: fuse.** One `s3cab-backup` program per platform replaces the snapshot and upload clean
-rooms (standard library plus boto3). The clean room validates the format, and measured against
-that, what the split's staged inputs tested moves to where it belongs:
-
-| What | Where it's tested |
-|---|---|
-| Stored objects hash to their keys (format) | `check-upload`, every object, every run |
-| What makes a file valid (format) | restorers, against the golden set's torn `faults` snapshot |
-| Hashing the bytes as they're sent (implementation) | the harvest review of the program's code; s3cab's own tests for its upload |
-| Refusing a torn snapshot handed in (implementation) | s3cab's tests for `upload`; the Uploading checklist keeps the rule |
-
-- **Gained:** no s3cab output reaches any clean room (the upload room's exception goes); the
-  questions that fell between the two halves get asked (a file whose bytes don't match while
-  sending: re-hash, `#error` and carry on, or fail?); six runs a real set instead of nine.
-- **Changes to the checks:** the published snapshot is downloaded and given `compare-snapshot`'s
-  row checks against `s3cab snapshot` of the same trees, replacing "byte-identical to the one
-  handed over"; `sets/` checks become `snapshots/<set>.info`. The comparison runs s3cab with no
-  patterns and allows for s3cab skipping `.s3cab` folders. `spread`'s patterns and `edge`'s CRLF
-  `exclude.txt` stay for s3cab's seed only.
-- **The cost to watch: a shallower reading.** One session now covers both the "Writing a snapshot"
-  and "Uploading" checklists. The first fused experiment's guesses against each are compared with
-  the last split runs' (30 snapshot, 33 upload); clearly fewer argues for splitting again.
-- Becomes ADR-0096's amendment when this lands.
-
-### One directory or several?
-
-The s3cab CLI handles multiple directories, of course. I'm just wondering whether that's of much
-value here — wouldn't you just be showing you know how to loop over a list of directories in
-Python or whatever, doing the same thing you'd do to one? However, if you think it's important to
-test a multi-directory setup, we can allow multiple directories on the command lines above.
-
-**Decided: several directories, last on the command line.**
-
-```
-s3cab-backup <bucket> <set> <dir>...
-s3cab-restore <bucket> <set> <dir> [<snapshot>]
-```
-
-- Several directories is more than a loop: one snapshot spans them all as `@SET DIR` rows;
-  placement takes the longest whole-segment match, which only bites when one is a prefix of
-  another (`C:\Photos\`, `C:\Photos-2024\`); overlapping directories stop the backup; and `spread`,
-  the only multi-directory set, is what makes the restore layout question answerable.
-- `<snapshot>` is optional, latest by default: the golden set's torn `faults` snapshot is
-  restored by name.
-- Not the `<bucket>/<set>` form: it makes every program split a string and gives the spec nothing
-  to check.
-- The spec leaves the restore layout for several `@SET DIR`s to the tool, so the brief fixes it to
-  s3cab's `--output` layout (`<dir>/<root-basename>/…`), as today, for `compare.py` to compare.
