@@ -130,12 +130,20 @@ export function parseManifest(key, bytes) {
       parseErrors: [`gunzip failed: ${String(error)}`],
     };
   }
-  for (const line of text.split("\n")) {
-    if (line === "") {
-      continue; // the trailing newline's empty split
+  if (!text.endsWith("\n.\n")) {
+    parseErrors.push('the closing "." line is missing');
+  }
+  // Drop the empty split after the last LF; the closing `.` is the one line
+  // with neither five fields nor a type, and nothing may follow it.
+  const lines = text.split("\n").slice(0, -1);
+  const terminator = lines.indexOf(".");
+  for (const [index, line] of lines.entries()) {
+    if (index === terminator) {
+      continue;
     }
-    if (line === ".") {
-      continue; // the terminator, the one line with neither five fields nor a type
+    if (terminator !== -1 && index > terminator) {
+      parseErrors.push(`row after the closing ".": ${line}`);
+      continue;
     }
     const fields = line.split("\t");
     if (fields.length !== 5) {

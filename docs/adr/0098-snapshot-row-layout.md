@@ -3,8 +3,9 @@
 **Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
 [0103](0103-row-marks-and-unrecorded-links.md): the row types, the heading row's column 2 and the
 reader's rule for unknown types; the five columns and one fact per row stand. Partly superseded
-by [0106](0106-a-lone-dot-ends-every-file.md): a lone `.` replaces `END` as the last line, and
-`END`'s instant moves to `#SNAPSHOT FINISH`. Partly supersedes
+by [0106](0106-a-lone-dot-ends-every-file.md): a lone `.` replaces `END` as the last line,
+`END`'s instant moves to `@SNAPSHOT FINISH`, and the tolerant read keeps a parked file's last row,
+so a graceful stop costs nothing again. Partly supersedes
 [0082](0082-snapshot-end-trailer.md) (the trailer's shape and its `COMPLETE`/`PARTIAL` status),
 [0072](0072-timestamps-utc-in-files-local-in-names.md)'s `#SNAPSHOT` line (the instant and zone it
 records stand) and [0092](0092-recover-the-interrupted-work-file.md)'s "costs a gracefully parked

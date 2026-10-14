@@ -377,7 +377,7 @@ export async function withSnapshotFile(
  * snapshot to take one from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
  * which a snapshot never is: a parked file has no closing `.`, whether its run
- * was stopped or killed, and a killed run's last row is torn. Every parked file
+ * was stopped or killed, and a killed run's last row is torn, with no LF. Every parked file
  * has its `@SNAPSHOT START` row, written before any object, so `instant` is
  * there either way.
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
@@ -859,7 +859,7 @@ export async function parseCompressedSnapshotStream(
  * both are refused, so no reader guesses between them.
  * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the closing `.`, and drop the final line unless it is that `.` — a row torn mid-write can look perfectly well-formed, so nothing but the `.` vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage the `.` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the closing `.`, and drop a final line with no LF after it — a row torn mid-write can look perfectly well-formed, so only its LF vouches for it. Off everywhere else, because for a *snapshot* both are the damage the `.` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
  * @returns {Promise<Snapshot>}
  * @throws {AssertionError} When the whole file is refused — truncation
  *   (ADR-0082) among the rest — which `isCorruptSnapshotError` classifies as
@@ -893,8 +893,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   };
 
   /**
-   * Parse one line into the state above. Split from the read loop because
-   * `tolerant` feeds it the line *behind* the one just read (see the loop).
+   * Parse one line into the state above. Split from the read loop because the
+   * loop feeds it the line *behind* the one just read (see the loop).
    * @param {string} line
    */
   const parseLine = (line) => {
@@ -927,6 +927,10 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
 
     if (line === TERMINATOR) {
       complete = true;
+    } else if (type === TERMINATOR) {
+      // Not an unknown type from a newer s3cab, which is what the last branch
+      // would say: the closing line has been edited.
+      assert.fail(`Damaged snapshot: its closing line isn't exactly "."`);
     } else if (type === FILE) {
       // A per-path row refuses its own path and nothing else (ADR-0101): rows
       // are independent lines, so the rest of the file still reads.
@@ -961,35 +965,27 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     }
   };
 
-  // Under `tolerant` the last line is held back and parsed only once a further
-  // line proves it whole, because a work file's final line is a *prefix* of a
-  // row: the run died between the compressor's last flushed block and the end
-  // of the row it was writing (ADR-0092). A tear is not detectable from the
+  // The last piece `utf8Lines` yields has no LF after it, so it is held back:
+  // it is "" when the file ends with one, and otherwise a line cut short. Only
+  // its LF proves a line whole (ADR-0106). A tear is not detectable from the
   // line itself — one inside the path column leaves four populated fields and a
   // filename that stops short, which would file a real hash under a prefix of a
   // real path, and a live file matching that prefix's size and mtime would then
-  // have the wrong content's hash reused for it. So the final line is taken on
-  // the `.`'s word rather than on its own looks. A gracefully parked file has no
-  // `.` either (ADR-0098), so it too loses its last row: one file re-hashed.
+  // have the wrong content's hash reused for it.
   /** @type {string | undefined} */
   let held;
 
   for await (const line of utf8Lines(input)) {
-    if (!tolerant) {
-      parseLine(line);
-      continue;
-    }
     if (held !== undefined) {
       parseLine(held);
     }
     held = line;
   }
 
-  // The `.` is the one line that vouches for itself: a torn write can leave a
-  // prefix of a *row*, but a one-byte line can't be torn, and no prefix of a
-  // row is `.` — every row starts with `-`, `@` or `#`. Any other held line is
-  // dropped unread.
-  if (held === TERMINATOR) {
+  // A `tolerant` read drops it unread: a killed run's work file ends mid-row
+  // (ADR-0092). A strict one reads it, so a row after the `.` still refuses the
+  // file, but never as the `.`: one without its LF doesn't prove the file whole.
+  if (!tolerant && held && held !== TERMINATOR) {
     parseLine(held);
   }
 
@@ -1079,7 +1075,8 @@ export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
  * A byte stream's lines, split on LF alone and decoded as strict UTF-8 — a CR
  * stays in its line, where it refuses the row (ADR-0101). Bytes that aren't
  * UTF-8 refuse the file with the parser's AssertionError, so
- * `isCorruptSnapshotError` reads them as damage.
+ * `isCorruptSnapshotError` reads them as damage. The last piece is whatever
+ * follows the final LF: "" when the stream ends with one.
  * @param {AsyncIterable<Uint8Array>} input
  * @returns {AsyncGenerator<string>}
  */
@@ -1099,10 +1096,7 @@ async function* utf8Lines(input) {
     rest = lines.pop() ?? "";
     yield* lines;
   }
-  rest += decode();
-  if (rest) {
-    yield rest;
-  }
+  yield rest + decode();
 }
 
 /**

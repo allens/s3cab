@@ -35,7 +35,7 @@
  *   publishes no snapshot for the set. The spec defines a key as its content's hash
  *   and says nothing of a file that changed since its snapshot, so what the session
  *   does here is a reading of the spec, not a test against a stated rule.
- * - `faults` gets a second snapshot with no closing `.`, backdated a minute. The spec
+ * - `faults` gets a second snapshot cut off after its last file row, backdated a minute. The spec
  *   calls such a snapshot damaged goods, and s3cab refuses to upload one; publishing it
  *   would put a truncated record in the bucket.
  *
@@ -63,7 +63,7 @@ import {
   buildFixtures,
   oneMinuteBefore,
   reportFixtures,
-  withoutEnd,
+  withoutTrailer,
   writeSetFiles,
 } from "./fixtures.mjs";
 
@@ -124,9 +124,11 @@ const [intact = ""] = readdirSync(snapshotsOf("faults")).filter(
 const damaged = `${oneMinuteBefore(intact.slice(0, -".tsv.gz".length))}.tsv.gz`;
 writeFileSync(
   join(cleanroom, "sets", "faults", "snapshots", damaged),
-  withoutEnd(readFileSync(join(snapshotsOf("faults"), intact))),
+  withoutTrailer(readFileSync(join(snapshotsOf("faults"), intact))),
 );
-console.log(`added faults/${damaged} beside ${intact}, with no closing .`);
+console.log(
+  `added faults/${damaged} beside ${intact}, cut off after its last file row`,
+);
 
 handover(root, [
   "empty the bucket: the upload's turn starts from nothing.",

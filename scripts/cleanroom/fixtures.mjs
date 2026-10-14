@@ -429,18 +429,18 @@ export function reportFixtures(dir, sets, skipped) {
 }
 
 /**
- * A snapshot with its last line, the closing `.`, cut off: the damage a backup killed
- * mid-write leaves. Truncating the *compressed* bytes would test gunzip's own check
- * instead, so this decompresses, drops the last line, and recompresses — a well-formed
- * gzip stream missing its last line, which is precisely what a reader has to notice. The
- * seed publishes one for every restorer to refuse; the upload build hands one to the
- * upload room, whose program should refuse to publish it.
+ * A snapshot cut off after its last file row, trailer and closing `.` gone: the damage a
+ * backup killed mid-write leaves, since the trailer is written last. Truncating the
+ * *compressed* bytes would test gunzip's own check instead, so this decompresses, cuts,
+ * and recompresses — a well-formed gzip stream that simply stops, which is precisely
+ * what a reader has to notice. The seed publishes one for every restorer to refuse; the
+ * upload build hands one to the upload room, whose program should refuse to publish it.
  * @param {Uint8Array} snapshot a whole `.tsv.gz`
  */
-export function withoutEnd(snapshot) {
+export function withoutTrailer(snapshot) {
   const text = gunzipSync(snapshot).toString("utf8");
-  const lastLine = text.lastIndexOf("\n", text.length - 2) + 1;
-  return gzipSync(Buffer.from(text.slice(0, lastLine), "utf8"));
+  const trailer = text.lastIndexOf("\n@SNAPSHOT\tFILES") + 1;
+  return gzipSync(Buffer.from(text.slice(0, trailer), "utf8"));
 }
 
 /**

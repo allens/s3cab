@@ -664,8 +664,8 @@ you share.
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
 dot, neither is ever uploaded, and both are safe to delete when nothing is running. Neither
 ends with the `.`, so neither can pass for a finished snapshot; s3cab reads each only
-for its file hashes, and drops its last line unread, since nothing vouches that the line is
-whole. That costs one file hashed again.
+for its file hashes, and drops a last line with no LF after it, since only the LF shows the
+line is whole.
 
 - `.snapshot.tsv.gz` — the snapshot being written right now. It becomes the finished
   snapshot when the run completes. One left behind means a run was killed part-way; s3cab

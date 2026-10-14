@@ -40,7 +40,8 @@ const HEADING =
   "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format";
 const DIR = "@SET\tDIR\t\t\t/home/me/";
 const START = "@SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
-const TERMINATOR = ".";
+/** The closing line with its LF, which is part of it (ADR-0106). */
+const TERMINATOR = ".\n";
 
 /**
  * A `-` row, a file's.
@@ -212,6 +213,24 @@ describe("parseSnapshotStream", () => {
         /rows follow the closing "\." line/,
       );
     });
+
+    it("when the closing . has no LF, as a write cut just after it", async () => {
+      await refuses(
+        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).slice(0, -1),
+        /Truncated snapshot/,
+      );
+    });
+
+    it("when the closing line is more than ., saying so rather than blaming a newer s3cab", async () => {
+      await refuses(
+        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
+          /\.\n$/,
+          ". \n",
+        ),
+        /its closing line isn't exactly "\."/,
+      );
+    });
+
     it("when it holds a type starting with neither @ nor #, which may be content a restore would miss", async () => {
       await refuses(
         snapshotOf("xattr\tuser.tag\t\t\t/home/me/a.txt"),
@@ -359,13 +378,12 @@ describe("parseSnapshotStream", () => {
   });
 
   it("drops a last row torn inside the path, which looks whole but isn't", async () => {
-    // The dangerous tear, and the reason the last line is taken on the `.`'s word
+    // The dangerous tear, and the reason the last line is taken on its LF's word
     // rather than on its own looks: cut inside the path and all five columns
     // are populated, so the row parses — filing a real hash under a *prefix* of
     // the real path. A live file matching that prefix whose size and mtime
     // agree with the row would then be stored under another file's content
-    // hash. The cost of the rule is visible here too: with no `.`, a final
-    // row that *was* whole is dropped as well — which is every parked file's.
+    // hash.
     const text = [
       HEADING,
       DIR,
@@ -381,16 +399,14 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
   });
 
-  it("keeps a work file's last row when the closing . follows it", async () => {
-    // A run killed after writing the `.` but before the rename that lands the
-    // snapshot. The `.` is the one line that can't be torn, so it vouches for
-    // itself and for the row before it.
+  it("keeps a work file's last row once its LF is written", async () => {
+    // A gracefully parked file stops after a whole row and its LF, with no `.`.
     const text = [
       HEADING,
       DIR,
       fileRow(hashA, 12, "/home/me/a.txt"),
       fileRow(hashB, 34, "/home/me/b.txt"),
-      TERMINATOR,
+      "",
     ].join("\n");
 
     const { entries } = await parseSnapshotStream(
@@ -1144,12 +1160,11 @@ describe("withSnapshotFile (park on interrupt)", () => {
       "the hashes computed so far must be parked",
     );
 
-    // The rows hashed before the stop, less the last: a parked file has no
-    // closing `.` to vouch for its final row, so the tolerant read drops it
-    // (ADR-0098) — one file re-hashed, as after a hard kill.
+    // Every row hashed before the stop: a graceful stop ends on a whole row and
+    // its LF, so the tolerant read keeps them all (ADR-0106).
     const parked = await readParkedLookup(dir.path);
     assert.ok(parked);
-    assert.deepEqual([...parked.entries.keys()], files.slice(0, 1));
+    assert.deepEqual([...parked.entries.keys()], files.slice(0, 2));
     assert.equal(parked.entries.get(files[0] ?? "")?.hash, hashA);
     // The stopped run's start comes back with them — the change-time boundary
     // when there is no previous snapshot (ADR-0094).
@@ -1223,7 +1238,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       InterruptedError,
     );
     const first = await readParkedLookup(dir.path);
-    assert.equal(first?.entries.size, 1);
+    assert.equal(first?.entries.size, 2);
 
     // The resumed run re-records the reused rows into its own work file, so its
     // parked file is a superset — and replacing must work on Windows too, where
@@ -1233,7 +1248,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       InterruptedError,
     );
     const second = await readParkedLookup(dir.path);
-    assert.deepEqual([...(second?.entries.keys() ?? [])], files.slice(0, 2));
+    assert.deepEqual([...(second?.entries.keys() ?? [])], files.slice(0, 3));
   });
 
   it("leaves no signal listeners behind after the write", async () => {

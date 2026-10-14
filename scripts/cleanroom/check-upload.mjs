@@ -17,7 +17,7 @@
  * - **Snapshots**: each published one is byte-identical to the one handed over, and none
  *   is missing. Two must not be published, as s3cab publishes neither: `corrupt`'s, since
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
- *   row names, and `faults`'s with no closing `.`.
+ *   row names, and `faults`'s cut off after its last file row.
  * - **Objects first**: every object a published snapshot names is stored.
  * - **`sets/<set>/`**, for every set: `info` is two `KEY=value` lines, `OWNER` then
  *   `CREATED`; `dirs.txt` is the parsed list with LF endings; `exclude.txt` is a byte copy
@@ -225,7 +225,7 @@ for (const set of new Set([...sets, ...published.keys()])) {
       );
     } else if (set === "faults" && name === faultsDamaged) {
       mismatches.push(
-        `${label} is published, the snapshot handed over with no closing .`,
+        `${label} is published, the snapshot handed over cut off after its last file row`,
       );
     } else if (!original) {
       mismatches.push(

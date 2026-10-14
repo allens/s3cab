@@ -89,7 +89,7 @@ export function formatDeletionRecord(rows) {
  * its object counts as not deleted, the safe direction, since a damaged record
  * must never make missing content look intentional. The file is invalid when a
  * row was refused, or it doesn't open with the heading row, doesn't end with
- * `.`, or holds a type starting with neither `@` nor `#`: a reader
+ * `.` and its LF, or holds a type starting with neither `@` nor `#`: a reader
  * can't know what it lost. Every other `@` or `#` row is skipped (ADR-0103).
  * @param {string} text - A record file's body
  * @returns {{ rows: DeletionRow[], invalid?: string }} `invalid` is the reason, for a file that isn't valid
@@ -103,7 +103,7 @@ export function parseDeletionRecord(text) {
     ? undefined
     : "the first line isn't the @S3CAB FORMAT heading row";
   let ended = false;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (line === "") {
       continue;
     }
@@ -114,7 +114,10 @@ export function parseDeletionRecord(text) {
     if (ended) {
       invalid ??= 'rows follow the closing "." line';
     } else if (line === TERMINATOR) {
-      ended = true;
+      // Only its LF proves it whole, and the last piece of the split has none.
+      ended = index < lines.length - 1;
+    } else if (type === TERMINATOR) {
+      invalid ??= `its closing line isn't exactly "."`;
     } else if (type === DELETED) {
       if (
         /^[0-9a-f]{64}$/.test(hash) &&

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { parse, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileProps } from "../../src/lib/file-props.mjs";
+import { localMoment } from "../../src/lib/format.mjs";
 import {
   formatLine,
   stringifySnapshot,
@@ -70,7 +71,7 @@ export async function writeSnapshot(
   return withSnapshotFile(snapshotDir, name, (stream) =>
     pipeline(
       stringifySnapshot(snapshot, {
-        start: new Date().toISOString(),
+        start: localMoment("minutes").instant,
         preamble,
       }),
       stream,

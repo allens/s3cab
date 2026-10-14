@@ -246,6 +246,9 @@ function parse(gz, problems, notes) {
   if (lines.at(-1) !== ".") {
     problems.push("has no . as its last line");
   }
+  if (!lines.at(-2)?.startsWith("@SNAPSHOT\tFINISH")) {
+    problems.push("has no @SNAPSHOT FINISH row just before the .");
+  }
   // Only when present, like every whole-snapshot row: what a snapshot room can write in
   // them is ADR-0096's open question, but the spec says these two are exact.
   if (declared.FILES !== undefined && declared.FILES !== String(objects)) {

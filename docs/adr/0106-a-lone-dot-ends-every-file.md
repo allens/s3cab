@@ -37,13 +37,15 @@ needn't sit on the line that proves completeness.
 
 `.` is the established line terminator (SMTP, POP3, NNTP). It survives trimming and any
 encoding, and it can't collide with a row, since every row starts with `-`, `@` or `#`. A
-one-byte line can't be torn, which is also what lets the tolerant work-file read
-([0092](0092-recover-the-interrupted-work-file.md)) take it on its own word.
+line is whole once its LF is written, the `.` included, so a reader trusts every line that has
+one. The tolerant work-file read ([0092](0092-recover-the-interrupted-work-file.md)) now keeps a
+parked file's last row, where 0098 dropped it; it drops only a final line with no LF.
 
 A time zone in `FINISH` was considered and dropped: `START` has it.
 
 ## Consequences
 
-- A trimmed or re-encoded file keeps its last line, so a hand-edited deletion record stays valid.
+- Trim-on-save leaves the `.` as it is, so a hand-edited deletion record stays valid. An editor
+  that saves CRLF line endings still breaks the file, as before: lines end with LF alone.
 - Every file written before this change is refused as truncated. Pre-1.0 policy: no
   compatibility reader. The clean-room restore bucket's golden set is reseeded after it lands.

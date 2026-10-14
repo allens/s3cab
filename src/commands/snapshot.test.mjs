@@ -305,9 +305,8 @@ const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE|FINISH) .*|\.)\n?/gm;
  * whatever came before it is the previous snapshot (none, for the
  * interrupted-first-seed state).
  *
- * The trailer goes, as a stopped run never writes one — so the tolerant read
- * drops the last file row, which nothing vouches for (ADR-0098). The
- * `@SNAPSHOT START` instant is kept as the run minted it, because with no
+ * The trailer goes, as a stopped run never writes one, and so does the last
+ * file row: the run stopped before that file. The `@SNAPSHOT START` instant is kept as the run minted it, because with no
  * previous snapshot it is the change-time boundary those rows are judged by
  * (ADR-0094) — a test that needs the boundary somewhere in particular puts the
  * *clock* there (`setUp`'s `tick`) rather than re-stamping the file.
@@ -317,13 +316,18 @@ function parkSentinelHashes(snapshotsDir) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = gunzipSync(readFileSync(path))
+  const lines = gunzipSync(readFileSync(path))
     .toString("utf8")
     .replace(HASH, `$1${SENTINEL_HASH}`)
-    .replace(TRAILER, "");
+    .replace(TRAILER, "")
+    .split("\n");
+  lines.splice(
+    lines.findLastIndex((line) => line.startsWith("-\t")),
+    1,
+  );
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.gz"),
-    gzipSync(Buffer.from(text, "utf8")),
+    gzipSync(Buffer.from(lines.join("\n"), "utf8")),
   );
   unlinkSync(path);
 }
@@ -457,8 +461,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     await snapshot("photos", {});
 
     // Every unchanged file took its hash from the parked lookup rather than
-    // being read again — the whole point of parking — bar the last row, which
-    // no closing `.` vouches for (ADR-0098).
+    // being read again — the whole point of parking — bar the one the stopped
+    // run never reached.
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
     assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
@@ -573,8 +577,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     const PREVIOUS_HASH = "e".repeat(64);
 
     /**
-     * Two runs: a finished one, then a later one parked, whose last row the
-     * tolerant read drops (ADR-0098). The previous snapshot carries one sentinel and the parked file
+     * Two runs: a finished one, then a later one parked before its last file.
+     * The previous snapshot carries one sentinel and the parked file
      * another, so every reused row names the source it came from.
      * @param {TestContext} t
      */
@@ -600,7 +604,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       assert.equal(
         hashes.filter((hash) => hash === PREVIOUS_HASH).length,
         1,
-        "the row the parked file can't vouch for comes from the previous snapshot",
+        "the row the parked file lacks comes from the previous snapshot",
       );
       assert.ok(
         hashes.length > 1 &&
