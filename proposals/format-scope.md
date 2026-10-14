@@ -124,7 +124,7 @@ s3://my-bucket/
   lets the old holder publish one more snapshot. S3 can't make one key's upload conditional on
   another's.
 - **Takeover is explicit:** rewrite `OWNER` and `CLAIMED`, keep `CREATED`, only when the user asks
-  — s3cab's takeover command. The old holder's next backup is then refused. A set with no
+  — `s3cab takeover`. The old holder's next backup is then refused. A set with no
   `<set>.info` is taken over by creating one with a conditional PUT, `CREATED` equal to
   `CLAIMED`.
 - **Reading needs no `<set>.info`.** Nothing a restore needs is in it, so a reader works on a set
@@ -194,9 +194,8 @@ one, which is documented of course, but that doesn't mean anyone else has to use
   - A valid file has exactly one of each. A reader that finds one missing or repeated ignores it,
     as it does `FILES` disagreeing with the row count: only people read them.
   - s3cab writes them straight after the heading row.
-- **`@S3CAB PUBLISHED` (name to settle) dates the spec a file follows**: the date format.md
-  states. It changes with the format, not its wording, and a unit test holds s3cab's constant to
-  format.md's date. Readers never refuse a file over it; it is for people, and for wording a
+- **`@S3CAB SPEC` dates the spec a file follows**: the date format.md states. It changes with the
+  format, not its wording, and a unit test holds s3cab's constant to format.md's date. Readers never refuse a file over it; it is for people, and for wording a
   refusal ("written to the format of …"). Deletion records carry it too.
   - No version number: additive changes need none, and a breaking change changes the heading row,
     which every reader already matches exactly.
@@ -214,13 +213,11 @@ one, which is documented of course, but that doesn't mean anyone else has to use
 
 ## Still to plan
 
-- **Open:** the takeover command's name and shape (cli-design, ADR-0053); `@S3CAB PUBLISHED`'s
-  name; where s3cab keeps its local copy of the ownership pair.
-- **ADRs:** one for the format scope, amending 0013 (layout), 0024, 0052 (`backup` publishes to
-  `sets/`), 0053, 0096 (the spec is format.md alone; its `sets/<set>/` markers), 0098
-  (`@S3CAB VERSION`/`HOME`, `@SET EXCLUDE`, the "user@machine" section, and the versioned-URL
-  rejection, whose `VERSION` clause the date row and the heading row replace), 0102 and 0103
-  (both open with `@S3CAB` rows).
+- **Recorded** as [ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md) and
+  [ADR-0108](../docs/adr/0108-set-ownership.md), both proposed; the takeover command, the date
+  row's name and the local `claim` file are settled there.
+- **ADRs:** as each lands, accept it and mark what it supersedes in 0013, 0024, 0052, 0053, 0096,
+  0098, 0102 and 0103, status lines and index entries both.
 - **Docs:** CONTEXT.md, where "owner" and "take-over" are `_Avoid_` words that become terms, and
   "Unique within a bucket (first-come)" changes meaning; design/backup.md's `reattach` and
   layout sections, and its argument against a check at backup time; repository-protocol.md; the
@@ -235,5 +232,6 @@ one, which is documented of course, but that doesn't mean anyone else has to use
   cleanup of the new keys; a test that `referencedObjects` skips `snapshots/<set>.info`.
 - **Clean room:** the seed's "is this bucket mine?" check reads `snapshots/<set>.info` as a
   foreign set and `.s3cab/` keys as strays; then a reseed.
-- **Live buckets:** move each real set's `sets/<set>/` by hand, and check that no real set is
-  backed up from two machines.
+- **Live buckets:** run `s3cab takeover` for each real set on the machine its latest
+  `@SNAPSHOT BY` names, copying the old `CREATED` in by hand if wanted, then delete `sets/`; check
+  that no real set is backed up from two machines.
