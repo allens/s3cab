@@ -69,8 +69,7 @@ if (seeded !== seedHash()) {
 writeCleanroom(cleanroom, "restore", bucket, credentials);
 
 // `reattach` is how a second machine gets a set to restore from, and this sandbox's
-// `.s3cab/` starts empty. It writes one thing to the bucket: each set's `info`, re-stamped
-// with this user@machine as OWNER — the value, never the syntax F12 measures.
+// `.s3cab/` starts empty. It only reads the bucket.
 for (const name of setNames) {
   console.log(`reattach ${name}`);
   mustRun(["reattach", name, "--bucket", bucket]);

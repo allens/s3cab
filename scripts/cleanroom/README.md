@@ -339,9 +339,10 @@ spec describes. It is input, not a target to converge on, the same as the
 snapshots every restorer reads; what it costs is that an encoding question the
 examples settle drops out of this report, which is the snapshot clean room's to
 raise. s3cab snapshots offline once a set exists, so the build writes each set
-straight into `.s3cab\` rather than running `setup`, which would publish the
-`sets/` entry that is the session's to write. The session's upload is the first
-thing in the bucket. Like the snapshot build, it runs on each platform in turn.
+straight into `.s3cab\` rather than running `setup`, which would claim it in the
+bucket with the `snapshots/<set>.info` that is the session's to write. The
+session's upload is the first thing in the bucket. Like the snapshot build, it
+runs on each platform in turn.
 
 Then two sets are damaged, each the upload side of the golden set's damage
 under the same name. `corrupt`'s `b-corrupt.txt` is rewritten after its
@@ -383,23 +384,24 @@ node scripts/cleanroom/compare-snapshot.mjs <root>
 ## check-upload.mjs
 
 Checks the bucket an upload clean room left. Restoring it can't stand in: no
-restore reads `dirs.txt` or `exclude.txt`, and a restore can't say whether the
-session refused the two snapshots it should have. So, in order:
+restore reads a set's `.info`, and a restore can't say whether the session
+refused the two snapshots it should have. So, in order:
 
-- every key is in the layout the spec documents, with no deletion record;
+- every key is in the layout the spec documents, with no deletion record and
+  nothing in s3cab's `.s3cab/` folder; what the session put in a folder of its
+  own is a note;
 - every object hashes to its key, which means downloading every one;
 - every published snapshot is byte-identical to the one handed over, none is
   missing, and neither `corrupt`'s nor `faults`'s without its closing `.` is published;
 - every object a published snapshot names is stored;
 - no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
-- `sets\<set>\` holds `info` as `OWNER` then `CREATED`, `dirs.txt` as the parsed
-  list with LF endings, and `exclude.txt` as a byte copy;
-- s3cab reattaches every set and restores every published snapshot.
+- every set with a published snapshot has a `snapshots/<set>.info` of `OWNER`,
+  `CLAIMED` and `CREATED` lines, each once and ending LF;
+- s3cab reattaches every set with a published snapshot and restores each one.
 
-That last step writes to the bucket, since `reattach` re-stamps each set's
-`info`, so it comes after `info` has been read. An `OWNER` other than this
-`user@machine` is a note, since what "user" and "machine" mean is itself a
-reading.
+`corrupt` has nothing to publish, so whether the session claimed it anyway is a
+note, as is an `OWNER` other than this `user@machine`: what "user" and "machine"
+mean is itself a reading.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
@@ -470,8 +472,7 @@ symlinks, no permissions, mtimes rounded to the millisecond
 would fail a restorer for being right. The script drives the real CLI as a
 subprocess to produce them, with `S3CAB_HOME` pointed at the sandbox's `.s3cab\`
 so your own `~/.s3cab` is untouched while `~/.aws` keeps working. It reattaches
-each set first, which is not read-only: `reattach` rewrites each set's `info`,
-naming this machine its owner.
+each set first, which only reads the bucket.
 
 `faults` and `corrupt` restore with a nonzero exit, which the script reports as
 expected rather than failing — and their reference trees are whatever s3cab

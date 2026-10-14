@@ -367,8 +367,8 @@ export function buildFixtures(dir) {
 
 /**
  * Write a set's own files into `dir`: `dirs.txt`, and `exclude.txt` where the set has
- * patterns. The spec lays a set out the same way on the local side as under `sets/` in a
- * bucket, so a clean room's `sets/` and s3cab's home are written alike.
+ * patterns. A clean room's `sets/` and s3cab's home lay a set out alike, so one writer
+ * serves both.
  * @param {string} dir
  * @param {string} name
  * @param {string[]} dirs the set's member directories

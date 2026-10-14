@@ -18,12 +18,12 @@
  * snapshot room, whose job is writing them, is where those questions get asked.
  *
  * `s3cab snapshot` is offline once a set exists, so each set is written straight into
- * .s3cab/ rather than through `setup`, which would claim the name in the bucket and
- * publish its `sets/` entry. Writing that entry is the session's job, and the bucket
- * starts its turn empty.
+ * .s3cab/ rather than through `setup`, which would claim the name in the bucket with
+ * its `snapshots/<set>.info`. Writing that is the session's job, and the bucket starts
+ * its turn empty.
  *
  * Built on every platform, as the snapshot sandbox is: Windows alone would show an upload
- * writing `dirs.txt` through Python's text mode, which turns its LFs into CRLFs.
+ * writing `.info` through Python's text mode, which turns its LFs into CRLFs.
  *
  * Two sets are damaged once s3cab has snapshotted them, each the upload side of the
  * restore bucket's damage under the same name (seed-restore-cleanroom-bucket.mjs):

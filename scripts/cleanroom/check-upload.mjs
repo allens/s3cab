@@ -7,11 +7,12 @@
  *
  * Run once the session has finished, on the machine the sandbox was built on, before the
  * sandbox is destroyed. Restoring the bucket is not enough on its own: no restore reads
- * `dirs.txt` or `exclude.txt`, and a restore can't say whether the room refused the two
- * snapshots it should have. So this checks the bucket against what the spec says an upload
- * leaves, and only then has s3cab reattach and restore it:
+ * a set's `.info`, and a restore can't say whether the room refused the two snapshots it
+ * should have. So this checks the bucket against what the spec says an upload leaves, and
+ * only then has s3cab reattach and restore it:
  *
- * - **Layout**: every key is one guide/format.md documents. An upload deletes nothing, so a
+ * - **Layout**: every key is one guide/format.md documents, the room's own `.<name>/`
+ *   folder included but not `.s3cab/`, which is s3cab's. An upload deletes nothing, so a
  *   deletion record is out of place too.
  * - **Objects**: each one hashes to its key. Every object is downloaded to see.
  * - **Headers**: no object or snapshot carries a Content-Encoding or `x-amz-meta-*`.
@@ -20,13 +21,12 @@
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
  *   row names, and `faults`'s cut off after its last file row.
  * - **Objects first**: every object a published snapshot names is stored.
- * - **`sets/<set>/`**, for every set: `info` is two `KEY=value` lines, `OWNER` then
- *   `CREATED`; `dirs.txt` is the parsed list with LF endings; `exclude.txt` is a byte copy
- *   of the set's own, and absent if it has none.
- * - **s3cab accepts it**: each set reattaches, and each published snapshot restores.
- *
- * `reattach` writes to the bucket (it re-stamps each set's `info` with this user@machine
- * as OWNER), which is why it comes after `info` has been read.
+ * - **`snapshots/<set>.info`**, for every set with a published snapshot: `OWNER`,
+ *   `CLAIMED` and `CREATED` lines, each once and ending LF, the instants in `mtime`'s
+ *   form. A set with nothing published may have one or not: whether a claim waits for a
+ *   snapshot is a reading, so that is a note.
+ * - **s3cab accepts it**: each set with a published snapshot reattaches, and each
+ *   published snapshot restores.
  *
  * Exits 1 if anything mismatched, 0 if only notes or nothing.
  *
@@ -76,7 +76,13 @@ if (!existsSync(handed)) {
 }
 
 const instant = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
-const info = new RegExp(`^OWNER=([^\\n]+)\\nCREATED=${instant}\\n$`);
+// Three LF-terminated lines, one per key, in any order; the reading rule forgives a CR
+// and an unknown key, but the Uploading checklist asks a writer for neither.
+const infoLines = /^(?:(?:OWNER|CLAIMED|CREATED)=[^\r\n]+\n){3}$/;
+const infoInstants = [
+  new RegExp(`^CLAIMED=${instant}$`, "m"),
+  new RegExp(`^CREATED=${instant}$`, "m"),
+];
 const me = `${userInfo().username}@${hostname()}`;
 
 /** @type {string[]} */
@@ -106,7 +112,7 @@ async function get(key) {
   // byte comparisons below can't see one: it has to be read off the response.
   const { ContentEncoding, Metadata = {} } = response;
   if (
-    /^(objects|snapshots)\//.test(key) &&
+    /^objects\/|\.tsv\.gz$/.test(key) &&
     (ContentEncoding || Object.keys(Metadata).length > 0)
   ) {
     headered.push(`${key}: ${JSON.stringify({ ContentEncoding, Metadata })}`);
@@ -128,13 +134,6 @@ const namedHashes = (gz) =>
     .map((line) => line.split("\t"))
     .filter(([type]) => type?.trim() === "-")
     .map(([, hash]) => hash?.trim() ?? "");
-
-/** @param {string} text a `dirs.txt` as written: trimmed lines, no blanks or comments */
-const parsedLines = (text) =>
-  text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"));
 
 // What the room was handed: each set's own files and the intact snapshots, from s3cab's
 // home. The damaged `faults` snapshot was written only into the room, a minute before
@@ -167,7 +166,9 @@ const objects = new Set();
 /** @type {Map<string, string[]>} */
 const published = new Map();
 /** @type {Set<string>} */
-const setFiles = new Set();
+const infos = new Set();
+/** @type {string[]} */
+const ownFolder = [];
 /** @type {string[]} */
 const strays = [];
 for (const key of keys) {
@@ -181,21 +182,26 @@ for (const key of keys) {
       ...(published.get(snapshot[1]) ?? []),
       snapshot[2],
     ]);
-  } else if (/^sets\/[^/]+\/(info|dirs\.txt|exclude\.txt)$/.test(key)) {
-    setFiles.add(key);
+  } else if (/^snapshots\/[^/]+\.info$/.test(key)) {
+    infos.add(key);
+  } else if (/^\.[^/]+\//.test(key) && !key.startsWith(".s3cab/")) {
+    ownFolder.push(key);
   } else {
     strays.push(key);
   }
 }
 console.log(
   `s3://${bucket}: ${objects.size} objects, ` +
-    `${[...published.values()].flat().length} snapshots, ${setFiles.size} set files`,
+    `${[...published.values()].flat().length} snapshots, ${infos.size} set markers`,
 );
 if (strays.length > 0) {
   mismatches.push(
     `keys outside the layout format.md documents (an upload deletes nothing, so a ` +
-      `deletion record counts):${some(strays)}`,
+      `deletion record counts, and .s3cab/ is s3cab's own folder):${some(strays)}`,
   );
+}
+if (ownFolder.length > 0) {
+  notes.push(`the room's own folder holds:${some(ownFolder)}`);
 }
 
 // ── Objects ─────────────────────────────────────────────────────────────────
@@ -279,67 +285,35 @@ if (headered.length > 0) {
   );
 }
 
-// ── sets/<set>/ ─────────────────────────────────────────────────────────────
+// ── snapshots/<set>.info ────────────────────────────────────────────────────
 
 for (const set of sets) {
-  const prefix = `sets/${set}/`;
-  // `corrupt` included: the spec's `sets/<set>/` marks a set that has no snapshots too.
-  if (![...setFiles].some((key) => key.startsWith(prefix))) {
-    mismatches.push(`${prefix} doesn't exist`);
+  const key = `snapshots/${set}.info`;
+  if (!infos.has(key)) {
+    if (published.has(set)) {
+      mismatches.push(
+        `${key} doesn't exist, yet the set has snapshots published`,
+      );
+    } else {
+      notes.push(`${key} doesn't exist, and nothing of ${set} is published`);
+    }
     continue;
   }
-
-  if (setFiles.has(`${prefix}info`)) {
-    const text = (await get(`${prefix}info`)).toString("utf8");
-    const match = info.exec(text);
-    if (!match) {
-      mismatches.push(
-        `${prefix}info isn't 'OWNER=…' then 'CREATED=<instant>', each ending LF: ` +
-          JSON.stringify(text),
-      );
-    } else if (match[1] !== me) {
-      notes.push(
-        `${prefix}info names OWNER ${JSON.stringify(match[1])}, where this ` +
-          `user@machine is ${JSON.stringify(me)}`,
-      );
-    }
-  } else {
-    mismatches.push(`${prefix}info doesn't exist`);
-  }
-
-  const localDirs = readFileSync(join(handed, set, "dirs.txt"), "utf8");
-  const expectedDirs = parsedLines(localDirs).join("\n") + "\n";
-  if (!setFiles.has(`${prefix}dirs.txt`)) {
-    mismatches.push(`${prefix}dirs.txt doesn't exist`);
-  } else {
-    const text = (await get(`${prefix}dirs.txt`)).toString("utf8");
-    if (text !== expectedDirs) {
-      mismatches.push(
-        `${prefix}dirs.txt isn't the parsed list, one per line, LF-terminated: ` +
-          `${JSON.stringify(text)}, not ${JSON.stringify(expectedDirs)}`,
-      );
-    }
-  }
-
-  const localExclude = join(handed, set, "exclude.txt");
-  const remoteExclude = setFiles.has(`${prefix}exclude.txt`);
-  if (existsSync(localExclude)) {
-    const local = readFileSync(localExclude);
-    if (!remoteExclude) {
-      mismatches.push(`${prefix}exclude.txt doesn't exist`);
-    } else {
-      const remote = await get(`${prefix}exclude.txt`);
-      if (!remote.equals(local)) {
-        mismatches.push(
-          `${prefix}exclude.txt isn't a byte copy of the set's own: ` +
-            `${JSON.stringify(remote.toString("utf8"))}, not ` +
-            JSON.stringify(local.toString("utf8")),
-        );
-      }
-    }
-  } else if (remoteExclude) {
+  const text = (await get(key)).toString("utf8");
+  const owner = /^OWNER=(.+)$/m.exec(text)?.[1];
+  if (
+    !infoLines.test(text) ||
+    owner === undefined ||
+    !infoInstants.every((line) => line.test(text))
+  ) {
     mismatches.push(
-      `${prefix}exclude.txt exists for a set that has none, and reattach would adopt it`,
+      `${key} isn't OWNER, CLAIMED and CREATED lines, each once and ending LF, the ` +
+        `instants in mtime's form: ${JSON.stringify(text)}`,
+    );
+  } else if (owner !== me) {
+    notes.push(
+      `${key} names OWNER ${JSON.stringify(owner)}, where this user@machine is ` +
+        JSON.stringify(me),
     );
   }
 }
@@ -350,7 +324,7 @@ const home = mkdtempSync(join(tmpdir(), "s3cab-check-upload-"));
 const { run } = cli(home);
 try {
   for (const set of sets) {
-    if (![...setFiles].some((key) => key.startsWith(`sets/${set}/`))) {
+    if (!published.has(set)) {
       continue;
     }
     const reattached = run(["reattach", set, "--bucket", bucket]);

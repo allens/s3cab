@@ -99,19 +99,21 @@ if (skipped.length > 0) {
 // goes; anything else and we stop and say what we found. A flag would have put that
 // judgement on the operator at the moment they are least likely to check.
 //
-// Every key is read, not just the `sets/` markers: a clear that died partway leaves
-// `snapshots/` with no marker beside it (keys go in listing order, and `sets/` sorts
-// before `snapshots/`), and those stale snapshots would end up stamped as part of the
-// new seed.
+// Every key is read, not just the `<set>.info` markers: a clear that died partway leaves
+// snapshots with no marker beside them (keys go in listing order, and `<set>.info` sorts
+// before `<set>/`), and those stale snapshots would end up stamped as part of the new
+// seed. s3cab's copy of each set's config, under `.s3cab/sets/<set>/`, names it too.
 const keys = await listAll(bucket);
 /** @type {Set<string>} */
 const present = new Set();
 /** @type {string[]} */
 const strays = [];
 for (const key of keys) {
-  const [top, name = ""] = key.split("/");
-  if (top === "sets" || top === "snapshots") {
-    present.add(name);
+  const [top, name = "", set = ""] = key.split("/");
+  if (top === "snapshots") {
+    present.add(name.replace(/\.info$/, ""));
+  } else if (top === ".s3cab" && name === "sets") {
+    present.add(set);
   } else if (top !== "objects" && !/^objects\.deleted-\d+\.tsv$/.test(key)) {
     strays.push(key);
   }
