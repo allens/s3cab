@@ -213,19 +213,21 @@ one, which is documented of course, but that doesn't mean anyone else has to use
 
 ## Still to plan
 
-- **Recorded** as [ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md) and
-  [ADR-0108](../docs/adr/0108-set-ownership.md), both proposed; the takeover command, the date
-  row's name and the local `claim` file are settled there.
-- **ADRs:** as each lands, accept it and mark what it supersedes in 0013, 0024, 0052, 0053, 0096,
-  0098, 0102 and 0103, status lines and index entries both.
+- **Recorded** as [ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md),
+  implemented bar the client folders, and [ADR-0108](../docs/adr/0108-set-ownership.md),
+  proposed; the takeover command, the date row's name and the local `claim` file are settled
+  there.
+- **ADRs:** when 0108 lands, accept it, mark 0107's client folders done, and mark what 0108
+  supersedes in 0013, 0024, 0052, 0053 and 0098, status lines and index entries both.
+- **The spec date:** move format.md's date and `SPEC_DATE` in snapshot-file.mjs to the day the
+  ownership change lands.
 - **Docs:** CONTEXT.md, where "owner" and "take-over" are `_Avoid_` words that become terms, and
   "Unique within a bucket (first-come)" changes meaning; design/backup.md's `reattach` and
   layout sections, and its argument against a check at backup time; repository-protocol.md; the
   README's bucket layout.
 - **Code:** set-marker.mjs (the new keys, its own `.info` reader, listing sets from
   `snapshots/`); `setup`; `reattach` (refresh; its two-machines warning goes); the takeover
-  command; the checks in `backup`, `upload --snapshot` and `forget`; the writer's `@CLIENT` and
-  date rows, deletion records included.
+  command; the checks in `backup`, `upload --snapshot` and `forget`.
 - **Tests:** a helper that gives a test machine the set's pair, for every test that builds a set
   with `writeSet` and backs up; a takeover step in the model harness, which also reads
   `sets/<set>/info` directly; the ADR-0084 two-machine test getting past the check; integration

@@ -5,8 +5,8 @@ import {
   HEADING,
   INSTANT,
   isHeadingRow,
+  openingRows,
   TERMINATOR,
-  versionAndHome,
 } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
 
@@ -64,8 +64,8 @@ const DELETED = "#deleted";
  */
 
 /**
- * The record file's body (ADR-0102): the heading and `@S3CAB` rows every s3cab
- * file opens with, one `#deleted` row per object, and the closing `.` (ADR-0106)
+ * The record file's body (ADR-0102): the heading and the rows every s3cab file
+ * opens with, one `#deleted` row per object, and the closing `.` (ADR-0106)
  * — no finish instant, since each row has its own. Rows sort by instant then
  * hash, so a compacted file reads chronologically.
  * @param {DeletionRow[]} rows
@@ -80,7 +80,7 @@ export function formatDeletionRecord(rows) {
     .map(({ hash, size, instant, by }) =>
       formatLine(DELETED, hash, size, instant, showControlChars(by)),
     );
-  return HEADING + versionAndHome() + body.join("") + `${TERMINATOR}\n`;
+  return HEADING + openingRows() + body.join("") + `${TERMINATOR}\n`;
 }
 
 /**

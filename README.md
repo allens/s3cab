@@ -293,6 +293,16 @@ Editing a set _is_ editing these files, and deleting the directory deletes the s
 `env` is unrecoverable — everything else can be pulled back down from the bucket with
 `s3cab reattach`.
 
+`~/.s3cab` is the s3cab home on every OS. Set `S3CAB_HOME` to move the whole tree; every path
+s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
+keyless identity if you set one up ([guide/auth.md](guide/auth.md)), and the CloudFormation
+templates `s3cab aws` writes ([guide/aws.md](guide/aws.md)).
+
+Each snapshot records a few of these settings for whoever reads it later. Its `@CLIENT HOME`
+row is the home it was taken from, so the set's directory and the snapshot's own path follow
+from it and the names. `@SET BUCKET` is the set's `S3CAB_BUCKET`, and `@SET ENDPOINT` its endpoint, when it
+has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`).
+
 Each snapshot file is a tab-separated table with one `-` row per file — its `hash`,
 `size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with
 the variable-length (and platform-native, absolute) path last. It opens with rows naming
@@ -353,7 +363,9 @@ sharing `objects/`, so duplicate content is stored once across everything in the
 set keeps its own snapshot files under its own prefix, `snapshots/<set>/`, and its config
 under `sets/<set>/` — which is both how a set name is claimed (first-come, taken over on a
 new machine with `reattach`) and how that machine gets the set's directories and exclude
-rules back. The set's local `env` file is never uploaded: it can hold credentials.
+rules back: `exclude.txt` as a byte-for-byte copy of yours, `dirs.txt` as the list s3cab read
+from yours, one directory per line, without its comments and blank lines. The set's local
+`env` file is never uploaded: it can hold credentials.
 
 A snapshot file only ever appears in `snapshots/` after every file it references is safely in
 `objects/`, so any snapshot file you find is complete and restorable. Snapshots are never
