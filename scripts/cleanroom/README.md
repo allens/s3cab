@@ -3,9 +3,7 @@
 > **Partly built** ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
 > the harness that builds each clean room is here, and everything below describes it. Still to
 > come: the clean-room programs for the current spec; the CI matrix that builds and runs them;
-> `compare-restore.mjs` in place of `compare.py`; and, before 1.0, keeping only the latest
-> programs, so [restorers/](restorers/) stops being append-only and the
-> earlier runs' programs go, while their reports in `docs/` stay.
+> and `compare-restore.mjs` in place of `compare.py`.
 
 A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'s
 no-lock-in promise: a session that has read
@@ -26,7 +24,7 @@ C# on Windows, Swift on macOS, C on Linux. The aim is not variety, or avoiding
 any language. It is to show what recovering your data takes with as little as
 possible beyond the operating system: on each platform, its own language, its
 own frameworks or system libraries, and nothing of s3cab's. Run 2 (C++) predates
-that rule and stays as history. The restorers are one half of
+that rule. The restorers are one half of
 [ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)'s
 three-way proof: a clean-room backup is the other. That is two Python programs,
 one per pillar of a backup, each written in its own clean room by a session that
@@ -42,8 +40,9 @@ maintained, and improved every run as findings come in: the seed script, the thr
 build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
 `restore-bucket.mjs`), and the checkers, `compare-snapshot.mjs`, `check-upload.mjs`,
 `compare.py` and `audit-transcript.mjs`.
-[restorers/](restorers/) is frozen — its programs are never updated, because each
-one's value is being a fixed reading of the spec on a given date.
+A clean room's program is frozen — never updated, because its value is being a
+fixed reading of the spec on a given date — and kept only while it reads the
+current format. Then it goes, and its report links the last commit that held it.
 
 Two buckets, one per role
 ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
@@ -146,8 +145,8 @@ one model at `xhigh`**, the best model you have when the set starts. A run in a
 real set is recorded if its transcript audit came back clean. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
 role and the platform, the model and the effort; a backup program goes in
-`backup/<platform>/` here (`linux`, `windows`, `macos`), beside
-[restorers/](restorers/). The spec is frozen for the length of the set: each
+`backup/<platform>/` here (`linux`, `windows`, `macos`), and a restorer in
+`restorers/`. The spec is frozen for the length of the set: each
 run's findings are collected, and fixed only after the last run, so every run in
 the set reads the same spec.
 
@@ -288,10 +287,10 @@ set would have no reference tree, and the refusal is already the answer.)
 recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor
-says what to do when it fails. And `faults` gets a second snapshot with its last
-line, the closing `.`, removed and the rest recompressed: truncating the compressed
-bytes would test gunzip's own check instead, and that line's whole purpose is
-catching a backup killed mid-write.
+says what to do when it fails. And `faults` gets a second snapshot cut off after
+its last file row, as a backup killed mid-write leaves it, and recompressed:
+truncating the compressed bytes would test gunzip's own check instead, and
+catching that cut is the closing `.`'s whole purpose.
 
 `spread` also carries the exclude grammar: each rule in
 [guide/exclude.md](../../guide/exclude.md) gets a pattern, a path it drops and a
@@ -349,8 +348,8 @@ under the same name. `corrupt`'s `b-corrupt.txt` is rewritten after its
 snapshot with its size and mtime kept, so only hashing the bytes uploaded
 notices: stored as it is, it is exactly the wrong-bytes object the seed plants
 by hand, made the way a real one gets made. And `faults` gets a second snapshot,
-a minute older, with its closing `.` cut off. s3cab publishes neither set's
-damaged snapshot. The spec says a snapshot without that line is damaged goods, but
+a minute older, cut off after its last file row. s3cab publishes neither set's
+damaged snapshot. The spec says a snapshot without its closing `.` is damaged goods, but
 says nothing of a file that changed since its snapshot, so what the session does
 with `corrupt` is a reading to report, not a rule to check.
 
@@ -508,50 +507,3 @@ nanosecond mtimes (`lstat` with `bigint: true`).
 python3 scripts/cleanroom/compare.py <my-restore-dir> <reference-dir>
 ```
 
-## restorers/
-
-Programs from earlier runs, each written from the spec alone, each **deliberately
-not maintained** in step with s3cab. If one drifts from a future format, that drift
-is a breaking format change to notice — not a bug to patch here.
-
-**Both predate gzip snapshots**
-([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)) **and the
-five-column layout** ([ADR-0098](../../docs/adr/0098-snapshot-row-layout.md)).
-They read the earlier four-column `.tsv.zst` files, so neither restores a
-corpus staged today. That is
-exactly such a drift, recorded rather than patched.
-
-### pyrestore.py — run 1
-
-Python, from [guide/format.md](../../guide/format.md) alone; the experiment
-behind [run 1](../../docs/format-spec-audit.md). Its inline `GUESS(n)` comments
-are the raw form of that run's findings. An independent reading of the spec as
-written on 2026-08-12. Needs Python ≥ 3.14 (stdlib zstd) and boto3.
-
-```sh
-python scripts/cleanroom/restorers/pyrestore.py --bucket <bucket> list-sets
-python scripts/cleanroom/restorers/pyrestore.py --bucket <bucket> restore <set> <snapshot> --output <dir>
-```
-
-### cpprestore.cpp — run 2
-
-C++23, behind [run 2](../../docs/format-spec-audit-2.md). Where `pyrestore.py`
-answered whether the format is readable without s3cab, this one answers what
-reading it *costs*: libcurl for HTTPS, OpenSSL for SHA-256/HMAC, libzstd for
-decompression, and **no AWS SDK, no S3 client library, and no shelling out** —
-SigV4 signed by hand, in about 80 lines, working on the first attempt against
-the real endpoint. That reduces the vendor's whole SDK, for a reader, to an HTTP
-client, two hash primitives, one decompressor and a page of signing arithmetic.
-An independent reading of the spec as written on 2026-08-20.
-
-```sh
-g++ -std=c++23 -O2 -Wall -Wextra -o s3cab-restore \
-  scripts/cleanroom/restorers/cpprestore.cpp -lcurl -lcrypto -lzstd
-./s3cab-restore --bucket <bucket> --region <region> list
-./s3cab-restore --bucket <bucket> --region <region> restore <set> <snapshot> <outdir>
-```
-
-Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
-`AWS_SESSION_TOKEN` — it has no SDK to read `~/.aws` with, which is why
-the clean room gets static keys. Exit 2 means integrity faults, which
-it enumerates after restoring everything restorable.
