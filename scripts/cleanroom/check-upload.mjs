@@ -14,6 +14,7 @@
  * - **Layout**: every key is one guide/format.md documents. An upload deletes nothing, so a
  *   deletion record is out of place too.
  * - **Objects**: each one hashes to its key. Every object is downloaded to see.
+ * - **Headers**: no object or snapshot carries a Content-Encoding or `x-amz-meta-*`.
  * - **Snapshots**: each published one is byte-identical to the one handed over, and none
  *   is missing. Two must not be published, as s3cab publishes neither: `corrupt`'s, since
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
@@ -82,6 +83,8 @@ const me = `${userInfo().username}@${hostname()}`;
 const mismatches = [];
 /** @type {string[]} */
 const notes = [];
+/** @type {string[]} */
+const headered = [];
 
 /**
  * Up to ten of `items`, one per line, and how many more there were.
@@ -99,6 +102,15 @@ async function get(key) {
   const response = await client.send(
     new GetObjectCommand({ Bucket: bucket, Key: key }),
   );
+  // The SDK hands back the stored bytes whatever Content-Encoding says, so the
+  // byte comparisons below can't see one: it has to be read off the response.
+  const { ContentEncoding, Metadata = {} } = response;
+  if (
+    /^(objects|snapshots)\//.test(key) &&
+    (ContentEncoding || Object.keys(Metadata).length > 0)
+  ) {
+    headered.push(`${key}: ${JSON.stringify({ ContentEncoding, Metadata })}`);
+  }
   const bytes = await /** @type {NonNullable<typeof response.Body>} */ (
     response.Body
   ).transformToByteArray();
@@ -258,6 +270,13 @@ for (const set of new Set([...sets, ...published.keys()])) {
       }
     }
   }
+}
+
+if (headered.length > 0) {
+  mismatches.push(
+    `stored with a Content-Encoding or x-amz-meta-* metadata, which format.md's ` +
+      `Uploading rules out:${some(headered)}`,
+  );
 }
 
 // ── sets/<set>/ ─────────────────────────────────────────────────────────────
