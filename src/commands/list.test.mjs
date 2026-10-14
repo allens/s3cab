@@ -3,7 +3,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { gzipSync } from "node:zlib";
 import { readSet, writeSet } from "../lib/sets.mjs";
+import { formatLine, HEADING } from "../lib/snapshot-file.mjs";
 import { list } from "./list.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -31,8 +33,9 @@ afterEach(() => {
 });
 
 /**
- * Create a set on disk with the given snapshot names — drops empty `.tsv.gz`
- * files into the set's snapshot dir, which is all `list` reads to name them.
+ * Create a set on disk, held by this machine, with the given snapshot names —
+ * drops empty `.tsv.gz` files into the set's snapshot dir, which is all `list`
+ * reads to name them.
  * @param {string} name
  * @param {string[]} dirs
  * @param {string} bucket
@@ -40,6 +43,7 @@ afterEach(() => {
  */
 function seedSet(name, dirs, bucket, snapshots) {
   const set = writeSet(name, { dirs, bucket });
+  writeFileSync(set.claimPath, "OWNER=me@here\nCLAIMED=x\nCREATED=x\n");
   mkdirSync(set.snapshotsDir, { recursive: true });
   for (const snap of snapshots) {
     writeFileSync(join(set.snapshotsDir, `${snap}.tsv.gz`), "");
@@ -113,6 +117,7 @@ describe("list", () => {
 
     assert(result.mode === "detail");
     assert.equal(result.remote, false);
+    assert.equal(result.held, true);
     assert.equal(result.set.name, "docs");
     assert.equal(result.set.bucket, "my-bucket");
     assert.deepEqual(result.set.dirs, ["/data/docs"]);
@@ -128,6 +133,26 @@ describe("list", () => {
       keyId: undefined,
       rolesAnywhere: false,
     });
+  });
+
+  it("names a read-only set's holder from its latest snapshot's @SNAPSHOT BY", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const set = writeSet("docs", { bucket: "b" }); // attached, never claimed
+    mkdirSync(set.snapshotsDir, { recursive: true });
+    for (const [name, by] of /** @type {const} */ ([
+      ["2026-06-11T0915", "alice@desktop"],
+      ["2026-06-12T0915", "bob@laptop"],
+    ])) {
+      const rows = HEADING + formatLine("@SNAPSHOT", "BY", "", "", by) + ".\n";
+      writeFileSync(join(set.snapshotsDir, `${name}.tsv.gz`), gzipSync(rows));
+    }
+
+    const result = await list("docs");
+
+    assert(result.mode === "detail");
+    assert.equal(result.held, false);
+    assert.equal(result.holder, "bob@laptop");
   });
 
   it("surfaces the set's provider overrides, never the secret", async () => {

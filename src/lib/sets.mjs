@@ -54,6 +54,12 @@ const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
  * @param {string} name
  */
 const setExcludePath = (name) => join(setDir(name), "exclude.txt");
+/**
+ * The set's `claim` file, `~/.s3cab/sets/<name>/claim`: present only on the
+ * machine holding the set (set-marker.mjs).
+ * @param {string} name
+ */
+const setClaimPath = (name) => join(setDir(name), "claim");
 
 /**
  * Read a file's text, or undefined if it doesn't exist.
@@ -72,18 +78,18 @@ function readTextFile(path) {
 
 /**
  * Read a set's local `exclude.txt` verbatim, or `undefined` if it has none —
- * what `setup`/`backup` push to the remote marker and `reattach` writes back. Verbatim
- * (not parsed) because the exclude file is the user's to read and edit, and is
- * stored on the remote byte-for-byte (set-marker.mjs).
+ * what `setup`/`backup` push to the bucket's `.s3cab/` folder and `takeover`
+ * writes back. Verbatim (not parsed) because the exclude file is the user's to
+ * read and edit, and is stored in the bucket byte-for-byte (set-marker.mjs).
  * @param {string} name
  * @returns {string | undefined}
  */
 export const readSetExclude = (name) => readTextFile(setExcludePath(name));
 
 /**
- * Write a set's local `exclude.txt` from text — used by `reattach` to recreate
- * the exclude file pulled from the remote marker. Creates the set directory if
- * absent (so it can run before `writeSet` if ever needed).
+ * Write a set's local `exclude.txt` from text — used by `takeover` to recreate
+ * the exclude file pulled from the bucket's `.s3cab/` folder. Creates the set
+ * directory if absent (so it can run before `writeSet` if ever needed).
  * @param {string} name
  * @param {string} text
  */
@@ -103,8 +109,8 @@ const nativePattern = (pattern) => pattern.replaceAll("/", sep);
 
 /**
  * The starter `exclude.txt` a new set is born with (`setup` create only, via
- * `seedStarterExclude` below; reattach reproduces the remote config exactly and
- * never seeds — setup.mjs). The active patterns are "you'd almost never want
+ * `seedStarterExclude` below; takeover reproduces the published config exactly
+ * and never seeds — setup.mjs). The active patterns are "you'd almost never want
  * this backed up": regenerable dependency trees, VCS metadata (`.git` — its
  * working internals churn every commit, and the history normally lives on the
  * remote), and OS metadata/system noise. `.git` is defaulted-out but *disclosed*
@@ -309,6 +315,7 @@ export function listSets() {
  * @property {string} dirsPath - The set's member-directories file, `~/.s3cab/sets/<name>/dirs.txt` (derived from `name`)
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
  * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
+ * @property {string} claimPath - The set's claim file, `~/.s3cab/sets/<name>/claim` (derived from `name`)
  */
 
 /**
@@ -356,6 +363,7 @@ export function readSet(name) {
     dirsPath: setDirsPath(name),
     excludePath: setExcludePath(name),
     envPath: setEnvPath(name),
+    claimPath: setClaimPath(name),
   };
 }
 

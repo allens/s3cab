@@ -212,6 +212,7 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
         snapshotDir: set.snapshotsDir,
         name: second,
         since: first,
+        claimPath: set.claimPath,
       });
       assert.equal(
         uploaded.candidates,

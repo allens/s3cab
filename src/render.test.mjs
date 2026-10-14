@@ -16,6 +16,7 @@ import {
   renderList,
   renderDelete,
   renderProp,
+  renderReattach,
   renderRestore,
   renderSetup,
   renderStatus,
@@ -509,6 +510,7 @@ describe("renderList", () => {
       overrides: { rolesAnywhere: false },
       snapshots: ["2026-05-12T0946"],
       remote: false,
+      held: true,
     });
 
     assert.match(text, /^name: docs\n/);
@@ -538,6 +540,7 @@ describe("renderList", () => {
       },
       snapshots: [],
       remote: false,
+      held: true,
     });
 
     assert.match(
@@ -558,6 +561,7 @@ describe("renderList", () => {
       overrides: { region: "eu-west-1", rolesAnywhere: true },
       snapshots: [],
       remote: false,
+      held: true,
     });
 
     // The sign-in mode leads the block — RA-first, mirroring authNotice and
@@ -580,10 +584,64 @@ describe("renderList", () => {
       overrides: { rolesAnywhere: false },
       snapshots: [],
       remote: true,
+      held: true,
     });
     // No local dirs → "(none)"; remote heading; no snapshots yet → "(none yet)".
     assert.match(text, /dirs \(\/d\.txt\):\n {2}\(none\)/);
     assert.match(text, /\nremote snapshots:\n {2}\(none yet\)$/);
+  });
+
+  it("shows a read-only set's holder in place of its config, which is the holder's", () => {
+    const detailSet = {
+      ...set("docs", "my-bucket", []),
+      dirsPath: "/d.txt",
+      excludePath: "/e.txt",
+    };
+    const text = renderList({
+      mode: "detail",
+      set: detailSet,
+      overrides: { rolesAnywhere: false },
+      snapshots: [],
+      remote: false,
+      held: false,
+      holder: "bob@laptop",
+    });
+
+    assert.match(
+      text,
+      /bucket: my-bucket\nheld by: bob@laptop \(read-only on this machine\)\nsnapshots:/,
+    );
+    assert.doesNotMatch(text, /dirs|exclude file/);
+  });
+});
+
+describe("renderReattach", () => {
+  it("says where the set came from, how many snapshots arrived, and who holds it", () => {
+    assert.equal(
+      renderReattach({
+        set: "photos",
+        bucket: "b",
+        snapshots: 12,
+        pulled: 3,
+        holder: "bob@laptop",
+        held: false,
+      }),
+      "Set 'photos' → bucket 'b': 12 snapshots (3 new)\n" +
+        "Held by bob@laptop; read-only on this machine.",
+    );
+  });
+
+  it("says so when this machine holds it, with nothing new", () => {
+    assert.equal(
+      renderReattach({
+        set: "photos",
+        bucket: "b",
+        snapshots: 1,
+        pulled: 0,
+        held: true,
+      }),
+      "Set 'photos' → bucket 'b': 1 snapshot\nHeld by this machine.",
+    );
   });
 });
 

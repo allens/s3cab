@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after } from "node:test";
 import { deleteObject } from "../../src/lib/s3.mjs";
-import { remoteSetPrefix } from "../../src/lib/set-marker.mjs";
+import {
+  remoteConfigPrefix,
+  remoteInfoKey,
+} from "../../src/lib/set-marker.mjs";
 import { useTempHome } from "./temp-home.mjs";
 
 // Shared harness for the gated real-bucket integration tests in test/integration/
@@ -61,14 +64,18 @@ useTempHome(isolatedHome);
 after(() => rmSync(isolatedHome, { recursive: true, force: true }));
 
 /**
- * Best-effort teardown of a set's remote `sets/<name>/` marker files, so the
- * shared bucket doesn't accumulate markers across runs.
+ * Best-effort teardown of a set's `snapshots/<name>.info` marker and its
+ * `.s3cab/sets/<name>/` config, so the shared bucket doesn't accumulate them
+ * across runs.
  * @param {string} name
  */
 export async function cleanupSetMarker(name) {
-  for (const file of ["info", "dirs.txt", "exclude.txt"]) {
-    await deleteObject(`s3://${bucket}/${remoteSetPrefix(name)}${file}`).catch(
-      () => {},
-    );
+  const keys = [
+    remoteInfoKey(name),
+    `${remoteConfigPrefix(name)}dirs.txt`,
+    `${remoteConfigPrefix(name)}exclude.txt`,
+  ];
+  for (const key of keys) {
+    await deleteObject(`s3://${bucket}/${key}`).catch(() => {});
   }
 }

@@ -14,6 +14,7 @@ import { restore } from "./commands/restore.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
+import { takeover } from "./commands/takeover.mjs";
 import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
@@ -39,6 +40,7 @@ import {
   renderLines,
   renderList,
   renderProp,
+  renderReattach,
   renderRestore,
   renderSetup,
   renderStatus,
@@ -354,24 +356,51 @@ export const commands = {
     render: renderSetup,
   },
   reattach: {
-    summary: "Reattach this machine to an existing backup set",
+    summary:
+      "Attach an existing backup set to this machine read-only, or refresh it",
     guide: "restore",
-    examples: ["s3cab reattach photos --bucket my-backups"],
+    examples: [
+      "s3cab reattach photos --bucket my-backups",
+      "s3cab reattach photos",
+    ],
     args: {
       set: {
         required: true,
-        description: "The existing backup set to reattach to",
+        description: "The existing backup set to attach or refresh",
       },
     },
     options: {
       bucket: {
         type: "string",
         short: "b",
-        description: "The S3 bucket holding the set",
+        description:
+          "The S3 bucket holding the set (needed only when it isn't attached yet)",
       },
     },
     exec: (options, [name, ...directories] = []) =>
       reattach(name, directories, options),
+    render: renderReattach,
+  },
+  takeover: {
+    summary: "Make this machine the one that backs up an existing set",
+    guide: "restore",
+    examples: ["s3cab takeover photos --bucket my-backups"],
+    args: {
+      set: {
+        required: true,
+        description: "The existing backup set to take over",
+      },
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description:
+          "The S3 bucket holding the set (needed only when it isn't attached yet)",
+      },
+    },
+    exec: (options, [name, ...directories] = []) =>
+      takeover(name, directories, options),
     render: renderSetup,
   },
 

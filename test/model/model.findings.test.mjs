@@ -10,6 +10,7 @@ import { mkdtempDisposable, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { holdSet } from "../helpers/hold-set.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
 import { FakeS3, backendHolder } from "./harness/fake-s3.mjs";
 import { checkStore } from "./harness/invariants.mjs";
@@ -71,16 +72,17 @@ const useHome = (root, machine) => {
 };
 
 /**
- * A data directory with one file, registered as a set on the current home.
+ * A data directory, registered as a set the current home holds.
  * @param {string} root
  * @param {string} set
  * @param {string} dirName
- * @returns {string} the data directory (canonical)
+ * @returns {Promise<string>} the data directory (canonical)
  */
-const makeSet = (root, set, dirName) => {
+const makeSet = async (root, set, dirName) => {
   mkdirSync(join(root, dirName), { recursive: true });
   const dir = realpathSync.native(join(root, dirName));
-  writeSet(set, { dirs: [dir], bucket: BUCKET });
+  const { claimPath } = writeSet(set, { dirs: [dir], bucket: BUCKET });
+  await holdSet(BUCKET, set, claimPath);
   return dir;
 };
 
@@ -92,14 +94,14 @@ describe("prior-audit findings, encoded", () => {
     // Machine A snapshots offline at the shared minute — local only, nothing
     // uploaded, nothing records that it wasn't.
     useHome(root, "mA");
-    const dataA = makeSet(root, "col", "dataA");
+    const dataA = await makeSet(root, "col", "dataA");
     writeFileSync(join(dataA, "a.txt"), "machine A content, never uploaded");
     await snapshot("col");
 
     // Machine B publishes a remote snapshot for the same set at the same
     // minute — same name, different document.
     useHome(root, "mB");
-    const dataB = makeSet(root, "col", "dataB");
+    const dataB = await makeSet(root, "col", "dataB");
     writeFileSync(join(dataB, "b.txt"), "machine B content");
     await backup("col");
 
@@ -107,8 +109,14 @@ describe("prior-audit findings, encoded", () => {
     // check would find B's snapshot and trust A's never-uploaded hashes as
     // stored; the byte-identity check (ADR-0084) sees a different document,
     // distrusts the baseline, LISTs the store and uploads A's objects.
+    // A takes the set back: B's makeSet made B the holder.
     clockHolder.current.advance(MINUTE_MS);
     useHome(root, "mA");
+    await holdSet(
+      BUCKET,
+      "col",
+      join(root, "mA", ".s3cab", "sets", "col", "claim"),
+    );
     process.exitCode = 0;
     const result = await backup("col");
 
@@ -129,7 +137,7 @@ describe("prior-audit findings, encoded", () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
-    const data = makeSet(root, "lost", "data");
+    const data = await makeSet(root, "lost", "data");
     writeFileSync(join(data, "f.txt"), "safely stored bytes");
 
     // The retry relay lives below the seam, so model its lost-response shape
@@ -169,7 +177,7 @@ describe("prior-audit findings, encoded", () => {
    */
   const rewriteKeepingMtime = async (root) => {
     useHome(root, "mA");
-    const data = makeSet(root, "stale", "data");
+    const data = await makeSet(root, "stale", "data");
     const file = join(data, "f.txt");
     writeFileSync(file, "old bytes!!");
     await backup("stale");
@@ -245,7 +253,7 @@ describe("prior-audit findings, encoded", () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
-    const data = makeSet(root, "trunc", "data");
+    const data = await makeSet(root, "trunc", "data");
     for (let i = 0; i < 3; i++) {
       writeFileSync(join(data, `f${i}.txt`), `file number ${i}\n`.repeat(10));
     }
@@ -329,7 +337,7 @@ describe("prior-audit findings, encoded", () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
-    const data = makeSet(root, "race", "data");
+    const data = await makeSet(root, "race", "data");
     const content = Buffer.from("crash orphan from weeks back");
     writeFileSync(join(data, "f.txt"), content);
 
@@ -380,7 +388,7 @@ describe("prior-audit findings, encoded", () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
-    const data = makeSet(root, "interleave", "data");
+    const data = await makeSet(root, "interleave", "data");
     writeFileSync(join(data, "f.txt"), "vouched for by the baseline");
     await backup("interleave");
     clockHolder.current.advance(8 * DAY_MS);

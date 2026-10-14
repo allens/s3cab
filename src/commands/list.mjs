@@ -1,8 +1,9 @@
 import { loadSet, parseEnvFile } from "../lib/env.mjs";
 import { readProviderConfig } from "../lib/provider.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
+import { readClaim } from "../lib/set-marker.mjs";
 import { listSets, readSet } from "../lib/sets.mjs";
-import { listSnapshotNames } from "../lib/snapshot-file.mjs";
+import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
 /** @import { ProviderConfig } from "../lib/provider.mjs" */
 /** @import { BackupSet } from "../lib/sets.mjs" */
@@ -25,13 +26,16 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 /**
  * The single-set detail view — the whole `BackupSet` (config + derived paths),
  * its provider overrides, and its snapshots, local or (with `--remote`) the
- * set's cloud backups.
+ * set's cloud backups. A set this machine doesn't hold shows who does in place
+ * of its directories, which are the holder's (ADR-0108).
  * @typedef {Object} ListDetail
  * @property {"detail"} mode
  * @property {BackupSet} set
  * @property {ProviderConfig} overrides
  * @property {string[]} snapshots
  * @property {boolean} remote
+ * @property {boolean} held - Whether this machine holds the set (it has a `claim` file)
+ * @property {string} [holder] - When it doesn't: `@SNAPSHOT BY` of its latest local snapshot, if it has one
  */
 /** @typedef {ListSummary | ListDetail} ListResult */
 
@@ -70,12 +74,14 @@ export async function list(setName, options = {}) {
   if (options.remote) {
     const set = loadSet(setName);
     const snapshots = await snapshotsFor(set, options);
+    const holder = await holderOf(set);
     return {
       mode: "detail",
       set,
       overrides: providerOverrides(set),
       snapshots,
       remote: true,
+      ...holder,
     };
   }
 
@@ -83,12 +89,14 @@ export async function list(setName, options = {}) {
   if (setName !== undefined) {
     const set = readSet(setName);
     const snapshots = await snapshotsFor(set, options);
+    const holder = await holderOf(set);
     return {
       mode: "detail",
       set,
       overrides: providerOverrides(set),
       snapshots,
       remote: false,
+      ...holder,
     };
   }
 
@@ -114,6 +122,25 @@ export async function list(setName, options = {}) {
  */
 function providerOverrides(set) {
   return readProviderConfig(parseEnvFile(set.envPath));
+}
+
+/**
+ * Whether this machine holds the set, and if not, who last backed it up: the
+ * latest local snapshot's `@SNAPSHOT BY`, so `list` stays offline. The bucket's
+ * marker would be fresher, and `reattach` shows it.
+ * @param {BackupSet} set
+ * @returns {Promise<{ held: boolean, holder?: string }>}
+ */
+async function holderOf(set) {
+  if (readClaim(set.claimPath)) {
+    return { held: true };
+  }
+  const latest = listSnapshotNames(set.snapshotsDir).at(0);
+  if (latest === undefined) {
+    return { held: false };
+  }
+  const { by } = await readSnapshot(set.snapshotsDir, latest);
+  return { held: false, holder: by };
 }
 
 /**

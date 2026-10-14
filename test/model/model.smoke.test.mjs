@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { holdSet } from "../helpers/hold-set.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
 import { FakeS3, backendHolder } from "./harness/fake-s3.mjs";
@@ -43,9 +44,9 @@ afterEach(() => {
 /**
  * A set of three files, two sharing content, homed in a disposable dir.
  * @param {string} root
- * @returns {string} the data directory (canonicalized)
+ * @returns {Promise<string>} the data directory (canonicalized)
  */
-const oneSet = (root) => {
+const oneSet = async (root) => {
   const data = join(root, "data");
   mkdirSync(data, { recursive: true });
   writeFileSync(join(data, "a.txt"), "alpha");
@@ -53,14 +54,15 @@ const oneSet = (root) => {
   writeFileSync(join(data, "copy.txt"), "alpha");
   useTempHome(root);
   const dir = realpathSync.native(data);
-  writeSet("photos", { dirs: [dir], bucket: BUCKET });
+  const set = writeSet("photos", { dirs: [dir], bucket: BUCKET });
+  await holdSet(BUCKET, "photos", set.claimPath);
   return dir;
 };
 
 describe("model harness smoke", () => {
   it("backs up through the fake with virtual-clock snapshot names", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    oneSet(dir.path);
+    await oneSet(dir.path);
 
     const result = await backup("photos");
 
@@ -73,12 +75,13 @@ describe("model harness smoke", () => {
     const listing = await fake.listAll(BUCKET);
     const keys = listing.map(({ key }) => key);
     assert.deepEqual(keys, [
+      ".s3cab/sets/photos/dirs.txt", // the set config backup publishes alongside
       `objects/${sha("alpha")}`,
       `objects/${sha("beta")}`,
-      "sets/photos/dirs.txt", // the set claim backup publishes alongside
+      "snapshots/photos.info", // the holder's marker
       "snapshots/photos/2026-01-05T0000.tsv.gz",
     ]);
-    // Objects strictly before the manifest (the commit point); the set claim
+    // Objects strictly before the manifest (the commit point); the set config
     // may land after it, and did.
     const putKeys = fake.log
       .filter(({ op }) => op === "PUT")
@@ -98,7 +101,7 @@ describe("model harness smoke", () => {
 
   it("takes a second snapshot after the clock advances a minute", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const data = oneSet(dir.path);
+    const data = await oneSet(dir.path);
 
     await backup("photos");
     writeFileSync(join(data, "b.txt"), "gamma");
@@ -118,7 +121,7 @@ describe("model harness smoke", () => {
 
   it("restores byte-identically into an output directory", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    oneSet(dir.path);
+    await oneSet(dir.path);
     await backup("photos");
 
     const out = join(dir.path, "out");

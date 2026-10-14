@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe("under the virtual clock, every recorded instant is virtual", () => {
-  it("the set marker's CREATED and the snapshot's @SNAPSHOT START and FINISH instants", async () => {
+  it("the set marker's CLAIMED and CREATED and the snapshot's @SNAPSHOT START and FINISH instants", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, ".s3cab");
     process.env.S3CAB_HOME = home;
@@ -50,12 +50,12 @@ describe("under the virtual clock, every recorded instant is virtual", () => {
     await setup([realpathSync.native(data)], { set: "clock", bucket: BUCKET });
     const marker = await backendHolder.current.getBytes(
       BUCKET,
-      "sets/clock/info",
+      "snapshots/clock.info",
     );
     assert.match(
       String(marker),
-      /^CREATED=2026-01-05T00:00:00\.000Z$/m,
-      `CREATED must be the virtual clock, got:\n${String(marker)}`,
+      /^CLAIMED=2026-01-05T00:00:00\.000Z\nCREATED=2026-01-05T00:00:00\.000Z$/m,
+      `CLAIMED and CREATED must be the virtual clock, got:\n${String(marker)}`,
     );
 
     clockHolder.current.advance(MINUTE_MS);

@@ -9,7 +9,9 @@ so a graceful stop costs nothing again. Partly superseded by
 [0107](0107-the-spec-is-the-public-repository-format.md): `@S3CAB VERSION` and `HOME` become
 `@CLIENT VERSION` and `HOME` beside a new `@CLIENT NAME` and `@S3CAB SPEC`, `@SET EXCLUDE`
 becomes `@CLIENT EXCLUDE`, and the date row and the heading row replace the `VERSION` clause of
-the case against a versioned spec URL. Partly supersedes
+the case against a versioned spec URL. Partly superseded by [0108](0108-set-ownership.md):
+`OWNER` names the set's holder rather than being advisory, and `reattach` no longer compares
+it. Partly supersedes
 [0082](0082-snapshot-end-trailer.md) (the trailer's shape and its `COMPLETE`/`PARTIAL` status),
 [0072](0072-timestamps-utc-in-files-local-in-names.md)'s `#SNAPSHOT` line (the instant and zone it
 records stand) and [0092](0092-recover-the-interrupted-work-file.md)'s "costs a gracefully parked

@@ -1,6 +1,6 @@
 # Set ownership: `snapshots/<set>.info`, a read-only `reattach`, and `takeover`
 
-**Status:** proposed (2026-10-14). Once accepted, partly supersedes
+**Status:** accepted & implemented (2026-10-14). Partly supersedes
 [0013](0013-one-repository-one-bucket.md) (`sets/<set>/` leaves the layout; `.`-prefixed client
 folders join it), [0024](0024-set-name-is-the-whole-identity.md) (two live machines on one set
 stop being tolerated, `OWNER` stops being advisory, and its `sets/<set>/` marker goes; the set's

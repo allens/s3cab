@@ -85,7 +85,7 @@ export const { restore } = await import("../../../src/commands/restore.mjs");
 export const { verify } = await import("../../../src/commands/verify.mjs");
 export const { forget } = await import("../../../src/commands/forget.mjs");
 export const { cleanup } = await import("../../../src/commands/cleanup.mjs");
-export const { reattach } = await import("../../../src/commands/reattach.mjs");
+export const { takeover } = await import("../../../src/commands/takeover.mjs");
 export const { upload } = await import("../../../src/commands/upload.mjs");
 
 export const { writeSet, readSet } = await import("../../../src/lib/sets.mjs");

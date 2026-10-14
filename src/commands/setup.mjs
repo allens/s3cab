@@ -1,13 +1,15 @@
 import { realpathSync, statSync } from "node:fs";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
-import { localMoment } from "../lib/format.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
+import { listRemoteSnapshots } from "../lib/remote.mjs";
 import {
   claimRemoteSet,
+  freshInfo,
   pushSetConfig,
   readRemoteInfo,
+  writeClaim,
 } from "../lib/set-marker.mjs";
 import {
   listSets,
@@ -20,19 +22,17 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
-import { userAtMachine } from "../lib/user-at-machine.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
 
 /**
  * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053) —
- * create a **new** backup set on this machine. Adopting a set that *already*
- * exists in the cloud (a replacement/recovery machine) is `reattach`'s job now
- * ([ADR-0053](../../docs/adr/0053-reattach-command.md) split the old
- * `setup --inherit` out — `setup` creates, `reattach` adopts). Listing what you
- * have is `list`'s job (ADR-0036 split that on the read/write seam); `setup` only
- * *writes*.
+ * create a **new** backup set on this machine. A set that *already* exists in
+ * the bucket is attached with `reattach` and backed up from here after
+ * `takeover` ([ADR-0108](../../docs/adr/0108-set-ownership.md)). Listing what
+ * you have is `list`'s job (ADR-0036 split that on the read/write seam); `setup`
+ * only *writes*.
  *
  * There is no "update mode" (ADR-0052 retired it): a set's member directories
  * live in its public `dirs.txt`, edited directly like `exclude.txt`, so
@@ -41,10 +41,11 @@ import { userAtMachine } from "../lib/user-at-machine.mjs";
  * directory, and remote namespace.
  *
  * `setup --set <name> --bucket <b> <directory>...` claims the name in the bucket
- * ("first person wins") by atomically writing the remote `info` marker, then
- * writes the local set and publishes its config (`dirs.txt`/`exclude.txt`) to
- * `sets/<name>/`. A name already claimed by another machine is refused with the
- * owner and a `reattach` suggestion. `--bucket` is required (ADR-0026). It
+ * ("first person wins") by creating its `snapshots/<name>.info` marker with a
+ * conditional PUT, then writes the local set, keeps the pair it claimed with,
+ * and publishes its config (`dirs.txt`/`exclude.txt`) to `.s3cab/sets/<name>/`.
+ * A name the bucket already has — a marker, or snapshots without one — is
+ * refused, pointing at `reattach`. `--bucket` is required (ADR-0026). It
  * touches S3 (the claim/publish), which is why this is async; the read commands
  * (`list`/`snapshot`/`compare`/`tree`) stay offline once a set exists.
  *
@@ -193,27 +194,18 @@ function resolveDirectories(directories, name, bucket) {
 }
 
 /**
- * The `info` marker's `CREATED` value: a full UTC instant
- * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
- * It is a record, never typed and never sorted, so a fully-qualified form costs
- * no UX. What a *user* sees is rendered down to a date by `collisionError`.
- * Read through the clock seam, like every recorded instant (lib/format.mjs).
- */
-const nowStamp = () => localMoment("seconds").instant;
-
-/**
- * The collision error a losing claim raises: name the owner and point at
- * `reattach` as the way to take the set over on this machine.
+ * The error for a name the bucket already has: name its holder and point at
+ * `reattach`, which attaches it here.
  * @param {string} name
  * @param {string} bucket
- * @param {SetInfo} [info]
+ * @param {SetInfo} [info] - Its marker, if it has one
  */
 const collisionError = (name, bucket, info) => {
   // Only the fields actually present — a corrupted/partial marker (empty OWNER
-  // or CREATED) must not print "(owner: , created )".
+  // or CREATED) must not print "(held by , created )".
   const parts = [];
   if (info?.owner) {
-    parts.push(`owner: ${info.owner}`);
+    parts.push(`held by ${info.owner}`);
   }
   if (info?.created) {
     // Just the date. The file keeps the full instant, but a millisecond UTC
@@ -223,8 +215,8 @@ const collisionError = (name, bucket, info) => {
   }
   const detail = parts.length ? ` (${parts.join(", ")})` : "";
   return new Error(
-    `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n\n` +
-      `To take it over on this machine:\n` +
+    `Backup set '${name}' already exists in bucket '${bucket}'${detail}.\n\n` +
+      `To attach it to this machine:\n` +
       `  ${shellCommand(`s3cab reattach ${name} --bucket ${bucket}`)}`,
   );
 };
@@ -264,23 +256,27 @@ async function create(name, directories, options) {
 
   // Claim the name before writing anything locally ("first person wins"). If the
   // claim loses, nothing local was written — the gathered config lives only in
-  // this process's environment, so there is nothing to roll back.
-  const won = await claimRemoteSet(bucket, name, {
-    owner: userAtMachine(),
-    created: nowStamp(),
-  });
+  // this process's environment, so there is nothing to roll back. A set with
+  // snapshots already exists even with no marker (ADR-0108): another client may
+  // never have written one.
+  const existing = await listRemoteSnapshots(bucket, name);
+  if (existing.length > 0) {
+    throw collisionError(name, bucket, await readRemoteInfo(bucket, name));
+  }
+  const info = freshInfo();
+  const won = await claimRemoteSet(bucket, name, info);
   if (!won) {
-    const info = await readRemoteInfo(bucket, name);
-    throw collisionError(name, bucket, info);
+    throw collisionError(name, bucket, await readRemoteInfo(bucket, name));
   }
 
   const set = writeSet(name, { dirs, bucket });
+  writeClaim(set.claimPath, info);
   // Persist the provider config to the new set's env now the claim has won, so
   // later commands sign in the same way without re-supplying it.
   if (Object.keys(updates).length > 0) {
     updateEnvFile(set.envPath, updates);
   }
-  // The starter exclude file is a birth gift for *new* sets only (`reattach`
+  // The starter exclude file is a birth gift for *new* sets only (`takeover`
   // reproduces an existing set exactly, never silently narrowing what it backs
   // up), seeded before `pushSetConfig` so the published remote config matches.
   // The notice is what makes it findable — its header is the `help exclude`

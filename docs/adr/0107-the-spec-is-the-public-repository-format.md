@@ -1,7 +1,6 @@
 # The spec is the public repository format; a file names its writer in `@CLIENT` rows
 
-**Status:** accepted & implemented (2026-10-14), bar the client folders, which land with
-[0108](0108-set-ownership.md). Partly supersedes
+**Status:** accepted & implemented (2026-10-14). Partly supersedes
 [0096](0096-three-implementations-prove-the-format.md) (the spec is format.md alone, so a
 clean-room backup needs neither s3cab's exclude syntax nor its config files),
 [0098](0098-snapshot-row-layout.md) (`@S3CAB VERSION` and `HOME`, `@SET EXCLUDE`, and the
