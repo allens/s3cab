@@ -184,9 +184,7 @@ describe("shortDuration", () => {
 describe("completionInstant", () => {
   it("rounds the clock up to the millisecond, never back before the last row", (t) => {
     // Truncating (the toString default) records a moment up to a millisecond
-    // earlier than the write really ended; a file whose ctime landed in that
-    // window would then read as touched after the snapshot, for ever
-    // (ADR-0085). Up is the safe direction.
+    // earlier than the write really ended.
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.Instant.from(
         "2026-06-23T10:30:00.123456789Z",

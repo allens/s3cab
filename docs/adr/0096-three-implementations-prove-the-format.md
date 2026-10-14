@@ -44,7 +44,7 @@ make the spec alone define the interface. The split also fits each room to its j
 - **The upload room gets inputs the harness controls.** It is handed snapshots rather than
   writing its own, so a build can stage what a single room never could: a file changed after
   its snapshot, which tests "every object stored is the bytes its key names" directly, and a
-  snapshot missing its `@S3CAB END` line.
+  snapshot missing its closing `.` line.
 - **A failure names one program.** s3cab's snapshot uploaded by the clean-room upload, and the
   clean-room snapshot uploaded by `s3cab upload --snapshot`, each isolate one side.
 

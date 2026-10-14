@@ -251,8 +251,8 @@ Four layout notes the README and code don't carry:
   traversal skips dot-directories; without it such a script is linted and formatted but
   never type-checked. **A subdirectory is earned by a workflow whose files outlive one
   run**, not by a shared topic — [scripts/cleanroom/](scripts/cleanroom/) is the only one,
-  because that exercise accumulates a preserved restorer per run and its own README says
-  which of its files are maintained and which are frozen. Three benchmarks sharing a
+  because that exercise's harness outlives every run and its own README says which of its
+  files are maintained and which are frozen. Three benchmarks sharing a
   subject stay flat.
 - **Snapshots live outside any working copy**, in `~/.s3cab/sets/<set>/snapshots/`, so
   `.gitignore` only keeps the `/.s3cab/env*` secret guards for the committed

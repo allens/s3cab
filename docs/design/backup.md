@@ -224,8 +224,8 @@ change-detection baseline) → `storedHashes` (what needs no upload, settled *be
 so a credentials or network problem surfaces in seconds) → `generateSnapshot` with
 `uploadObjects` spliced into its pipeline → `uploadSnapshotFile` (the manifest, last). The
 uploader is a pass-through transform, so the snapshot a backup writes is row-for-row identical to
-the one a plain `snapshot` would have written. (Not byte-identical: `@S3CAB END` records when
-its last row landed — [ADR-0082](../adr/0082-snapshot-end-trailer.md).)
+the one a plain `snapshot` would have written. (Not byte-identical: `@SNAPSHOT FINISH` records when
+its last row landed — [ADR-0106](../adr/0106-a-lone-dot-ends-every-file.md).)
 
 **The hash lookup is one map**: the previous snapshot's rows with an interrupted run's parked
 hashes laid over them. Under the opt-in change-time check, one boundary judges both — the

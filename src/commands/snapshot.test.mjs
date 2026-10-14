@@ -296,8 +296,8 @@ const SENTINEL_HASH = "f".repeat(64);
 /** A snapshot row's hash, behind its type. */
 const HASH = /^(-\t)[0-9a-f]{64}/gm;
 
-/** The rows only a finished run writes: `@SNAPSHOT FILES`, `SIZE`, `@S3CAB END`. */
-const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE)|@S3CAB\tEND) .*\n?/gm;
+/** The lines only a finished run writes: `@SNAPSHOT FILES`, `SIZE`, `FINISH` and the closing `.`. */
+const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE|FINISH) .*|\.)\n?/gm;
 
 /**
  * Turn the set's newest snapshot into a parked lookup holding sentinel hashes,
@@ -305,9 +305,8 @@ const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE)|@S3CAB\tEND) .*\n?/gm;
  * whatever came before it is the previous snapshot (none, for the
  * interrupted-first-seed state).
  *
- * The trailer goes, as a stopped run never writes one — so the tolerant read
- * drops the last file row, which nothing vouches for (ADR-0098). The
- * `@SNAPSHOT START` instant is kept as the run minted it, because with no
+ * The trailer goes, as a stopped run never writes one, and so does the last
+ * file row: the run stopped before that file. The `@SNAPSHOT START` instant is kept as the run minted it, because with no
  * previous snapshot it is the change-time boundary those rows are judged by
  * (ADR-0094) — a test that needs the boundary somewhere in particular puts the
  * *clock* there (`setUp`'s `tick`) rather than re-stamping the file.
@@ -317,13 +316,18 @@ function parkSentinelHashes(snapshotsDir) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = gunzipSync(readFileSync(path))
+  const lines = gunzipSync(readFileSync(path))
     .toString("utf8")
     .replace(HASH, `$1${SENTINEL_HASH}`)
-    .replace(TRAILER, "");
+    .replace(TRAILER, "")
+    .split("\n");
+  lines.splice(
+    lines.findLastIndex((line) => line.startsWith("-\t")),
+    1,
+  );
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.gz"),
-    gzipSync(Buffer.from(text, "utf8")),
+    gzipSync(Buffer.from(lines.join("\n"), "utf8")),
   );
   unlinkSync(path);
 }
@@ -361,7 +365,7 @@ function killSentinelRun(snapshotsDir) {
  * @param {string} snapshotsDir
  * @param {object} [options]
  * @param {string} [options.hash] - The sentinel to plant, when a test needs to tell this source from the parked one
- * @param {string} [options.finished] - An instant to restamp the `@S3CAB END` row with
+ * @param {string} [options.finished] - An instant to restamp the `@SNAPSHOT FINISH` row with
  */
 function plantSentinelSnapshot(
   snapshotsDir,
@@ -374,7 +378,7 @@ function plantSentinelSnapshot(
     .toString("utf8")
     .replace(HASH, `$1${hash}`);
   if (finished) {
-    text = text.replace(/^(@S3CAB\tEND *\t *\t)\S+/m, `$1${finished}`);
+    text = text.replace(/^(@SNAPSHOT\tFINISH *\t *\t)\S+/m, `$1${finished}`);
   }
   writeFileSync(path, gzipSync(Buffer.from(text, "utf8")));
 }
@@ -457,8 +461,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     await snapshot("photos", {});
 
     // Every unchanged file took its hash from the parked lookup rather than
-    // being read again — the whole point of parking — bar the last row, which
-    // no `@S3CAB END` vouches for (ADR-0098).
+    // being read again — the whole point of parking — bar the one the stopped
+    // run never reached.
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
     assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
@@ -551,7 +555,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges by when the previous run started, not when it finished", async (t) => {
     // A file edited mid-run, after it was hashed: its ctime falls between the
-    // run's `@SNAPSHOT START` and `@S3CAB END`, and only the start can veto it.
+    // run's `@SNAPSHOT START` and `FINISH`, and only the start can veto it.
     const { snapshotsDir, workDir, tick } = setUp(t);
     process.env.S3CAB_CHECK_CHANGE_TIME = "1";
 
@@ -573,8 +577,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     const PREVIOUS_HASH = "e".repeat(64);
 
     /**
-     * Two runs: a finished one, then a later one parked, whose last row the
-     * tolerant read drops (ADR-0098). The previous snapshot carries one sentinel and the parked file
+     * Two runs: a finished one, then a later one parked before its last file.
+     * The previous snapshot carries one sentinel and the parked file
      * another, so every reused row names the source it came from.
      * @param {TestContext} t
      */
@@ -600,7 +604,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       assert.equal(
         hashes.filter((hash) => hash === PREVIOUS_HASH).length,
         1,
-        "the row the parked file can't vouch for comes from the previous snapshot",
+        "the row the parked file lacks comes from the previous snapshot",
       );
       assert.ok(
         hashes.length > 1 &&

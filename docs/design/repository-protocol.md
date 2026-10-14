@@ -63,7 +63,7 @@ rests on them:
 | --- | --- |
 | `<name>.tsv.gz` | A landed local snapshot. **Nothing on it records whether it was ever uploaded** — `readBaseline` takes the latest by name regardless, and remote existence is established later by a single HEAD. |
 | `.snapshot.tsv.gz` | The in-progress work file, doubling as the per-set lock ([ADR-0048](../adr/0048-snapshot-lock-atomic-temp-file.md)) |
-| `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), stopping after its last file row with no `@S3CAB END`. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
+| `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), stopping after its last file row with no closing `.`. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
 
 ## The invariant, and the single place it is enforced
 
@@ -241,7 +241,7 @@ a description of the protocol rather than a running defect list:
 - Bucket versioning is recommended by every guide and **checked by no code path** —
   [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
 - A truncated stored snapshot object reading as a shorter valid snapshot — **closed 2026-08-14** by
-  [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s trailer, now `@S3CAB END`: a prefix cut
+  [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s trailer, now a lone `.` line: a prefix cut
   either loses it or tears a row. (Independently found 2026-08-11; the audit did not catch this one,
   because it is compression-stream semantics rather than protocol.) Since snapshots became gzip
   ([ADR-0097](../adr/0097-gzip-snapshot-compression.md)) there is a second, independent check:

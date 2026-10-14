@@ -643,7 +643,7 @@ describe("uploadSnapshot baseline trust", () => {
     invalidRecords = [
       {
         uri: "s3://trust-bucket/objects.deleted-1.tsv",
-        reason: "the closing @S3CAB END row is missing",
+        reason: 'the closing "." line is missing',
       },
     ];
     const warn = t.mock.method(console, "warn", () => {});

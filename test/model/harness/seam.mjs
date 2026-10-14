@@ -6,7 +6,7 @@ import { clockHolder } from "./clock.mjs";
 import { backendHolder } from "./fake-s3.mjs";
 
 // The Tier 1 seam: mocks `s3.mjs` (ADR-0019's designated fake point) and
-// `format.mjs` (to route its clock reads — names, instants, `@S3CAB END` rows —
+// `format.mjs` (to route its clock reads — names, instants, `FINISH` rows —
 // to the virtual clock), then imports the commands *through* those mocks and
 // re-exports them.
 // Everything the harness drives or inspects must come from here — a static

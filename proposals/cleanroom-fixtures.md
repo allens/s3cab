@@ -87,7 +87,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   raw splits the row, and the second half reads as a malformed row. Loud.
 - **Hard links and a FIFO** (`linkSync`, `execFileSync("mkfifo")`). A backup that deduplicates by
   inode drops a path. **Silent.** A FIFO gets no row; a backup that opens it hangs. Loud.
-- **"Two snapshots of an unchanged set differ in `@SNAPSHOT NAME`, `START` and `@S3CAB END`,
+- **"Two snapshots of an unchanged set differ in `@SNAPSHOT NAME`, `START` and `FINISH`,
   and nowhere else" costs no new fixture.** F5 already backs `edge` up twice without touching
   the tree; the harness only has to diff the two snapshots.
 

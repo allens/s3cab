@@ -138,8 +138,8 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       assert.match(text, /^@S3CAB\t/, "the heading row names the format");
       assert.match(
         text,
-        /\n@S3CAB\tEND +\t +\t\S+\t\n$/,
-        "complete — the last line is @S3CAB END",
+        /\n#deleted\t[^\n]*\n\.\n$/,
+        "complete — its #deleted rows, then the closing .",
       );
       const { rows, invalid } = parseDeletionRecord(text);
       assert.equal(invalid, undefined, "the record it wrote is valid");

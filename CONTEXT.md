@@ -172,7 +172,7 @@ _Avoid_: lock file, temp file (each names only half its job).
 **Partial snapshot**:
 A snapshot file holding only the rows a run got through before the user stopped it: the parked
 lookup left by Ctrl+C (`.snapshot.lookup.tsv.gz`), which the next run reads for its hashes. It
-stops after its last file row with no `@S3CAB END` (ADR-0098), so it can't pass for a
+stops after its last file row with no closing `.` (ADR-0106), so it can't pass for a
 finished snapshot; it is never installed as a **snapshot** of the set and never uploaded.
 _Avoid_: incomplete/truncated snapshot (truncation is *damage* — a partial snapshot is
 deliberate, and its filename says so), cancelled snapshot, half-snapshot.

@@ -94,7 +94,8 @@ export function captureTree(dirs) {
 
 /**
  * The model's own manifest parser, from the format spec: five tab-separated
- * columns per row (the type unpadded, the next three space-padded — trim). A
+ * columns per row (the type unpadded, the next three space-padded — trim),
+ * then the closing `.`. A
  * type starting `@` or `#` isn't a file, and only `@SET NAME`/`@SNAPSHOT NAME`
  * are read from those; a `-` row is `hash size mtime path`. Anything the spec
  * says can't happen lands in `parseErrors`.
@@ -129,9 +130,20 @@ export function parseManifest(key, bytes) {
       parseErrors: [`gunzip failed: ${String(error)}`],
     };
   }
-  for (const line of text.split("\n")) {
-    if (line === "") {
-      continue; // the trailing newline's empty split
+  if (!text.endsWith("\n.\n")) {
+    parseErrors.push('the closing "." line is missing');
+  }
+  // Drop the empty split after the last LF; the closing `.` is the one line
+  // with neither five fields nor a type, and nothing may follow it.
+  const lines = text.split("\n").slice(0, -1);
+  const terminator = lines.indexOf(".");
+  for (const [index, line] of lines.entries()) {
+    if (index === terminator) {
+      continue;
+    }
+    if (terminator !== -1 && index > terminator) {
+      parseErrors.push(`row after the closing ".": ${line}`);
+      continue;
     }
     const fields = line.split("\t");
     if (fields.length !== 5) {

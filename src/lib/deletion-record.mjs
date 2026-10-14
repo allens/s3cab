@@ -1,12 +1,11 @@
 import { showControlChars } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import {
-  endRow,
   formatLine,
   HEADING,
   INSTANT,
-  isEndLine,
   isHeadingRow,
+  TERMINATOR,
   versionAndHome,
 } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
@@ -66,8 +65,9 @@ const DELETED = "#deleted";
 
 /**
  * The record file's body (ADR-0102): the heading and `@S3CAB` rows every s3cab
- * file opens with, one `#deleted` row per object, and `@S3CAB END`. Rows sort
- * by instant then hash, so a compacted file reads chronologically.
+ * file opens with, one `#deleted` row per object, and the closing `.` (ADR-0106)
+ * — no finish instant, since each row has its own. Rows sort by instant then
+ * hash, so a compacted file reads chronologically.
  * @param {DeletionRow[]} rows
  * @returns {string}
  */
@@ -80,7 +80,7 @@ export function formatDeletionRecord(rows) {
     .map(({ hash, size, instant, by }) =>
       formatLine(DELETED, hash, size, instant, showControlChars(by)),
     );
-  return HEADING + versionAndHome() + body.join("") + endRow();
+  return HEADING + versionAndHome() + body.join("") + `${TERMINATOR}\n`;
 }
 
 /**
@@ -89,7 +89,7 @@ export function formatDeletionRecord(rows) {
  * its object counts as not deleted, the safe direction, since a damaged record
  * must never make missing content look intentional. The file is invalid when a
  * row was refused, or it doesn't open with the heading row, doesn't end with
- * `@S3CAB END`, or holds a type starting with neither `@` nor `#`: a reader
+ * `.` and its LF, or holds a type starting with neither `@` nor `#`: a reader
  * can't know what it lost. Every other `@` or `#` row is skipped (ADR-0103).
  * @param {string} text - A record file's body
  * @returns {{ rows: DeletionRow[], invalid?: string }} `invalid` is the reason, for a file that isn't valid
@@ -103,7 +103,7 @@ export function parseDeletionRecord(text) {
     ? undefined
     : "the first line isn't the @S3CAB FORMAT heading row";
   let ended = false;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (line === "") {
       continue;
     }
@@ -112,9 +112,12 @@ export function parseDeletionRecord(text) {
     const type = col1.trim();
     const [hash, size, instant] = [col2.trim(), col3.trim(), col4.trim()];
     if (ended) {
-      invalid ??= "rows follow the closing @S3CAB END row";
-    } else if (isEndLine(line)) {
-      ended = true;
+      invalid ??= 'rows follow the closing "." line';
+    } else if (line === TERMINATOR) {
+      // Only its LF proves it whole, and the last piece of the split has none.
+      ended = index < lines.length - 1;
+    } else if (type === TERMINATOR) {
+      invalid ??= `its closing line isn't exactly "."`;
     } else if (type === DELETED) {
       if (
         /^[0-9a-f]{64}$/.test(hash) &&
@@ -130,7 +133,7 @@ export function parseDeletionRecord(text) {
     }
   }
   if (!ended) {
-    invalid ??= "the closing @S3CAB END row is missing";
+    invalid ??= 'the closing "." line is missing';
   }
   return { rows, invalid };
 }

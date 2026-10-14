@@ -297,7 +297,7 @@ Each snapshot file is a tab-separated table with one `-` row per file — its `h
 `size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with
 the variable-length (and platform-native, absolute) path last. It opens with rows naming
 the set, its member directories and when the snapshot was taken — so a snapshot file is
-self-describing even found on its own — and closes with `@S3CAB END`, so a truncated one
+self-describing even found on its own — and closes with a lone `.` line, so a truncated one
 can be told from a whole one:
 
 ```
@@ -308,10 +308,11 @@ can be told from a whole one:
 -         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
 -         e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
 @SNAPSHOT FILES                                                       2
-@S3CAB    END                               2025-11-11T08:30:13.004Z
+@SNAPSHOT FINISH                            2025-11-11T08:30:13.004Z  1s
+.
 ```
 
-Every line has the same five columns, the first saying what kind of row it is, the rest
+Every line but that `.` has the same five columns, the first saying what kind of row it is, the rest
 space-padded, all separated by tabs, so it reads as a table in an editor, parses as clean TSV in a
 script, and filters and sums in a spreadsheet. (The example shortens the hashes and leaves
 out some rows.)

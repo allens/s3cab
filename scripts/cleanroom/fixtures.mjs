@@ -43,10 +43,10 @@
  *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket
  *   F16 small legalities     `hollow` — a set with no files, so a legal snapshot with
- *                            whole-snapshot rows, `@S3CAB END` and zero file rows
+ *                            whole-snapshot rows, the closing `.` and zero file rows
  *
  * And two things run 1 never met, because it ran against a local moto server rather
- * than real S3: the last line, `@S3CAB END` (new since the audit), and `bulk`, which pushes
+ * than real S3: the last line, the closing `.` (new since the audit), and `bulk`, which pushes
  * `objects/` past 1000 keys. That last is not required by the spec's recovery recipe,
  * which only ever lists `snapshots/<set>/` — but materialising the store listing is a
  * natural implementation choice (s3cab itself does it, ADR-0069) and `ListObjectsV2`
@@ -65,7 +65,7 @@
  *   `corrupt`  an object present under the right key with the wrong bytes — the case
  *              where the spec neither requires re-hashing a download nor says what to
  *              do when it fails. Its files are ordered so the divergence is visible.
- *   damaged    a snapshot with its `@S3CAB END` line removed and the rest recompressed,
+ *   damaged    a snapshot with its closing `.` line removed and the rest recompressed,
  *              published under `faults`. That line's whole purpose is detecting a
  *              backup killed mid-write, and no corpus had ever staged one missing.
  *
@@ -429,18 +429,18 @@ export function reportFixtures(dir, sets, skipped) {
 }
 
 /**
- * A snapshot with its last line, `@S3CAB END`, cut off: the damage a backup killed
- * mid-write leaves. Truncating the *compressed* bytes would test gunzip's own check
- * instead, so this decompresses, drops the last line, and recompresses — a well-formed
- * gzip stream missing its last line, which is precisely what a reader has to notice. The
- * seed publishes one for every restorer to refuse; the upload build hands one to the
- * upload room, whose program should refuse to publish it.
+ * A snapshot cut off after its last file row, trailer and closing `.` gone: the damage a
+ * backup killed mid-write leaves, since the trailer is written last. Truncating the
+ * *compressed* bytes would test gunzip's own check instead, so this decompresses, cuts,
+ * and recompresses — a well-formed gzip stream that simply stops, which is precisely
+ * what a reader has to notice. The seed publishes one for every restorer to refuse; the
+ * upload build hands one to the upload room, whose program should refuse to publish it.
  * @param {Uint8Array} snapshot a whole `.tsv.gz`
  */
-export function withoutEnd(snapshot) {
+export function withoutTrailer(snapshot) {
   const text = gunzipSync(snapshot).toString("utf8");
-  const lastLine = text.lastIndexOf("\n", text.length - 2) + 1;
-  return gzipSync(Buffer.from(text.slice(0, lastLine), "utf8"));
+  const trailer = text.lastIndexOf("\n@SNAPSHOT\tFILES") + 1;
+  return gzipSync(Buffer.from(text.slice(0, trailer), "utf8"));
 }
 
 /**

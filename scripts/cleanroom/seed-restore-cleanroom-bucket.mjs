@@ -34,7 +34,7 @@ import {
   oneMinuteBefore,
   reportFixtures,
   setNames,
-  withoutEnd,
+  withoutTrailer,
 } from "./fixtures.mjs";
 import { seedHash, stampSeed } from "./restore-bucket.mjs";
 
@@ -250,11 +250,11 @@ await client.send(
   }),
 );
 
-// A snapshot with its last line, `@S3CAB END`, cut off. That line is the format's answer
-// to a backup killed mid-write, and it has only ever been staged *present* — so
-// nothing has tested the one thing it exists for, and run 2 could only note that its
-// own completeness check went unexercised. It is published under `faults` as a second
-// snapshot (`withoutEnd`, fixtures.mjs), backdated so the intact one stays the set's
+// A snapshot cut off after its last file row, as a backup killed mid-write leaves it.
+// The closing `.` is the format's answer to that, and it has only ever been staged
+// *present* — so nothing has tested the one thing it exists for, and run 2 could only
+// note that its own completeness check went unexercised. It is published under `faults`
+// as a second snapshot (`withoutTrailer`, fixtures.mjs), backdated so the intact one stays the set's
 // latest: a *later* name would make the damaged snapshot the newest, and a bare
 // `restore --set faults` would stop there — hiding F7, which is the same set's point.
 const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
@@ -264,7 +264,9 @@ const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
 const damagedName = oneMinuteBefore(
   /** @type {string} */ (wholeName).replace(/\.tsv\.gz$/, ""),
 );
-console.log(`publishing snapshots/faults/${damagedName} with no @S3CAB END`);
+console.log(
+  `publishing snapshots/faults/${damagedName} cut off after its last file row`,
+);
 const whole = await client.send(
   new GetObjectCommand({
     Bucket: bucket,
@@ -278,7 +280,7 @@ await client.send(
   new PutObjectCommand({
     Bucket: bucket,
     Key: `snapshots/faults/${damagedName}.tsv.gz`,
-    Body: withoutEnd(wholeBytes),
+    Body: withoutTrailer(wholeBytes),
   }),
 );
 

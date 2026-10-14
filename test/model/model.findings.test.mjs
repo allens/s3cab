@@ -263,7 +263,7 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(whole.entries.size, 3, "the complete manifest must parse");
     assert.equal(whole.dirs.length, 1);
 
-    // ADR-0082: the @S3CAB END row makes truncation loud. The invariant is: every
+    // ADR-0082: the closing `.` makes truncation loud. The invariant is: every
     // truncation either *rejects* (the trailer or a whole row is gone, or
     // gunzip refuses the cut stream itself, as it does at every cut measured on
     // 26.11) or parses the complete manifest, which only a cut shaving

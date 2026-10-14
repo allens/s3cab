@@ -31,8 +31,8 @@ what "treat it as truncated" means for a restore, so this run had to learn the a
 reference trees — exactly what the firewall exists to catch.
 
 The session read `guide/format.md` and nothing else — no `src/`, no ADRs, and neither earlier
-report. Its restorer and its own comparator are preserved under
-[scripts/cleanroom/restorers/gorestore/](../scripts/cleanroom/restorers/gorestore/).
+report. Its restorer and its own comparator are in the history at
+[scripts/cleanroom/restorers/gorestore/](https://github.com/allens/s3cab/tree/4714f514a5c5c1b0410b8b203f895d73b8bebe9a/scripts/cleanroom/restorers/gorestore/).
 
 ---
 
@@ -47,8 +47,8 @@ every point where the spec was ambiguous, silent, or wrong, ranked by what a wro
 - **Restorer:** `restorer/` — ~1100 lines of Go 1.22 (Ubuntu 24.04's packaged `golang-go`).
   Dependencies: Go stdlib plus Ubuntu's packaged `golang-github-klauspost-compress-dev` (pure-Go
   zstd) and its transitive `golang-github-cespare-xxhash-dev`. **No AWS SDK, no S3 library, no
-  subprocesses**: SigV4 is hand-rolled over `net/http` ([sigv4.go](../scripts/cleanroom/restorers/gorestore/sigv4.go)), S3 is
-  GET + ListObjectsV2 over plain HTTPS ([s3.go](../scripts/cleanroom/restorers/gorestore/s3.go)).
+  subprocesses**: SigV4 is hand-rolled over `net/http` ([sigv4.go](https://github.com/allens/s3cab/blob/4714f514a5c5c1b0410b8b203f895d73b8bebe9a/scripts/cleanroom/restorers/gorestore/sigv4.go)), S3 is
+  GET + ListObjectsV2 over plain HTTPS ([s3.go](https://github.com/allens/s3cab/blob/4714f514a5c5c1b0410b8b203f895d73b8bebe9a/scripts/cleanroom/restorers/gorestore/s3.go)).
 - **Signing:** derivable from public AWS documentation knowledge alone. The `aws` CLI was run
   exactly once, before any code existed, as the reachability pre-flight `ENVIRONMENT.md` itself
   suggests. It was never consulted during development; the first signed request my code ever made
@@ -56,9 +56,9 @@ every point where the spec was ambiguous, silent, or wrong, ranked by what a wro
   the rest) worked as described.
 - **Verification:** all 10 snapshots across all 8 sets restored from the real bucket, then
   compared byte-for-byte against `reference/`, paths and mtimes included
-  ([compare.py](../scripts/cleanroom/restorers/gorestore/compare.py)). Spec corners the bucket doesn't stage (Windows paths,
+  ([compare.py](https://github.com/allens/s3cab/blob/4714f514a5c5c1b0410b8b203f895d73b8bebe9a/scripts/cleanroom/restorers/gorestore/compare.py)). Spec corners the bucket doesn't stage (Windows paths,
   case-folding, collisions, malformed files) are covered by 20 synthetic parser tests
-  ([snapshot_test.go](../scripts/cleanroom/restorers/gorestore/snapshot_test.go)), all passing.
+  ([snapshot_test.go](https://github.com/allens/s3cab/blob/4714f514a5c5c1b0410b8b203f895d73b8bebe9a/scripts/cleanroom/restorers/gorestore/snapshot_test.go)), all passing.
 
 ### Differential results (final binary, fresh run)
 

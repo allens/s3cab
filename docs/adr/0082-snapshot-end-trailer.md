@@ -5,7 +5,8 @@ superseded by [0094](0094-change-time-check-opt-in.md) — the `#END` instant is
 boundary for any check, and is kept for people reading the file. Partly superseded by
 [0098](0098-snapshot-row-layout.md) (the trailer becomes `#S3CAB END`, the last line of
 every s3cab file, and `COMPLETE`/`PARTIAL` goes) and [0101](0101-valid-and-invalid-files.md)
-(rows after `END` refuse the file, reversing point 3). Extends
+(rows after `END` refuse the file, reversing point 3), and by
+[0106](0106-a-lone-dot-ends-every-file.md) (the trailer is a lone `.` line, not a row). Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 

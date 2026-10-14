@@ -232,7 +232,7 @@ production; the dispatcher's render seam (s3cab.mjs:140–185); `render.mjs` as 
 ---
 
 Surfaced 2026-09-04 (twelfth pass) — the first architecture read of the **`find` → hash-operand
-`delete` pair** (ADR-0088/0089/0090), the **`#END` trailer** (ADR-0082), the **streamed-digest
+`delete` pair** (ADR-0088/0089/0090), the **end-of-file trailer** (ADR-0082), the **streamed-digest
 upload guard** (ADR-0083), **snapshot identity by byte equality** (ADR-0084), the **ctime
 cross-check** (ADR-0085), **restore collision by filesystem equivalence** (ADR-0086), the **run
 report** (ADR-0078/0079), **`tree --excluded`** (ADR-0080) and **online-only files** (ADR-0081):

@@ -494,6 +494,7 @@ describe("compareSnapshots", () => {
               new Error("EACCES: permission denied"),
             ],
           ]),
+          { start: momentOf(CURRENT).instant },
         ),
         stream,
       ),
@@ -552,6 +553,7 @@ describe("compareSnapshots", () => {
           new Map([
             [resolve(dir.path, "new.bin"), new Error("EISDIR: is a directory")],
           ]),
+          { start: momentOf(CURRENT).instant },
         ),
         stream,
       ),
@@ -580,6 +582,7 @@ describe("compareSnapshots", () => {
           new Map([
             [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
           ]),
+          { start: momentOf(PREVIOUS).instant },
         ),
         stream,
       ),
@@ -619,10 +622,22 @@ describe("compareSnapshots", () => {
     // A reader refuses a path under no `@SET DIR` (ADR-0101).
     const preamble = formatLine("@SET", "DIR", "", "", resolve(dir.path) + sep);
     await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
-      pipeline(stringifySnapshot(before, { preamble }), stream),
+      pipeline(
+        stringifySnapshot(before, {
+          start: momentOf(PREVIOUS).instant,
+          preamble,
+        }),
+        stream,
+      ),
     );
     await withSnapshotFile(dir.path, CURRENT, (stream) =>
-      pipeline(stringifySnapshot([[kept, keptProps]], { preamble }), stream),
+      pipeline(
+        stringifySnapshot([[kept, keptProps]], {
+          start: momentOf(CURRENT).instant,
+          preamble,
+        }),
+        stream,
+      ),
     );
 
     const result = await compareSnapshots(dir.path, [dir.path]);
@@ -780,12 +795,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
       ? `@SNAPSHOT\tSTART\t\t${instant}\tEurope/London\n`
       : ``;
     const row = `-\t${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
-    const text =
-      HEADING +
-      "@SET\tDIR\t\t\t/home/me/\n" +
-      start +
-      row +
-      "@S3CAB\tEND\t\t\t\n";
+    const text = HEADING + "@SET\tDIR\t\t\t/home/me/\n" + start + row + ".\n";
     writeFileSync(join(dir, `${name}.tsv.gz`), gzipSync(text));
   }
 

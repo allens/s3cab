@@ -25,7 +25,7 @@ verbatim and unedited — including its own top-level heading.
 The session read `guide/format.md` and nothing else — no `src/`, no ADRs, no other guides, and
 not run 1's report, so that diffing the two ambiguity lists afterwards would mean something.
 Its restorer is preserved as
-[scripts/cleanroom/restorers/cpprestore.cpp](../scripts/cleanroom/restorers/cpprestore.cpp).
+[scripts/cleanroom/restorers/cpprestore.cpp](https://github.com/allens/s3cab/blob/aaa34d55a709428f3ccebf27d8e4302795a26957/scripts/cleanroom/restorers/cpprestore.cpp).
 
 **None of run 1's F1–F16 reappeared**, and its finding 12 confirms each of those fixes against
 real data. Two things it found that run 1 could not: the sub-millisecond restore defect in

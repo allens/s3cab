@@ -13,7 +13,7 @@
  * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
  * names or how an `#error` row's message is worded, so those rows are compared by path
  * only; snapshot names and instants differ by run. The session's file is also held to the
- * format's rules: five fields a line, LF endings, the heading row first, `@S3CAB END` last,
+ * format's rules: five fields a line, LF endings, the heading row first, the `.` last,
  * and `FILES` and `SIZE` agreeing with its file rows. The padding and `SIZE`'s readable
  * form are recommendations (guide/format.md, "Canonical form"), so a departure there is a
  * note.
@@ -159,6 +159,12 @@ function parse(gz, problems, notes) {
   const declared = {};
   for (const [index, line] of lines.entries()) {
     const number = index + 1;
+    if (line === ".") {
+      if (index !== lines.length - 1) {
+        problems.push(`the . on line ${number} isn't the last line`);
+      }
+      continue;
+    }
     const fields = line.split("\t");
     if (fields.length !== 5) {
       problems.push(`line ${number} has ${fields.length} fields, not five`);
@@ -179,15 +185,6 @@ function parse(gz, problems, notes) {
       }
       continue;
     }
-    if (type === "@S3CAB" && col2 === "END") {
-      if (index !== lines.length - 1) {
-        problems.push(`@S3CAB END on line ${number} isn't the last line`);
-      }
-      if (!instant.test(time)) {
-        problems.push(`@S3CAB END's instant '${time}' is malformed`);
-      }
-      continue;
-    }
     if (type.startsWith("@")) {
       const property = `${type} ${col2}`;
       if (property === "@SET NAME") {
@@ -203,6 +200,10 @@ function parse(gz, problems, notes) {
           problems.push(`@SNAPSHOT START's instant '${time}' is malformed`);
         }
         snapshot.zone = last;
+      } else if (property === "@SNAPSHOT FINISH") {
+        if (!instant.test(time)) {
+          problems.push(`@SNAPSHOT FINISH's instant '${time}' is malformed`);
+        }
       } else if (
         property === "@SNAPSHOT FILES" ||
         property === "@SNAPSHOT SIZE"
@@ -242,9 +243,11 @@ function parse(gz, problems, notes) {
       );
     }
   }
-  const [endType = "", endProperty = ""] = (lines.at(-1) ?? "").split("\t");
-  if (endType.trim() !== "@S3CAB" || endProperty.trim() !== "END") {
-    problems.push("has no @S3CAB END as its last line");
+  if (lines.at(-1) !== ".") {
+    problems.push("has no . as its last line");
+  }
+  if (!lines.at(-2)?.startsWith("@SNAPSHOT\tFINISH")) {
+    problems.push("has no @SNAPSHOT FINISH row just before the .");
   }
   // Only when present, like every whole-snapshot row: what a snapshot room can write in
   // them is ADR-0096's open question, but the spec says these two are exact.
