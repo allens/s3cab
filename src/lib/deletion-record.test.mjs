@@ -212,6 +212,16 @@ describe("parseDeletionRecord", () => {
       /closing "\." line is missing/,
     ],
     [
+      "ends in a . with no LF, as a PUT cut just after it",
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).slice(0, -1),
+      /closing "\." line is missing/,
+    ],
+    [
+      "ends in a line that is more than .",
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/\.\n$/, ". \n"),
+      /closing line isn't exactly "\."/,
+    ],
+    [
       "has rows after the closing .",
       fileOf() + deletedRow(HASH_A, 1, T1, "x"),
       /rows follow/,
