@@ -148,6 +148,14 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   treat it as a link out of the backup, an `#error`. The same PR changes
   [guide/format.md](../guide/format.md)'s Links table, whose "recorded where it lies" doesn't hold
   for it.
+- **A crash can leave wrong bytes under an object's key.** `putFile` (`src/lib/s3.mjs`) hashes
+  the bytes as they stream and, on a mismatch, deletes the object its no-clobber PUT just
+  created. The object is visible in between, so a run killed there leaves bytes that don't hash
+  to their key, which every later backup dedups against and every restore of that content
+  fails on. [guide/format.md](../guide/format.md)'s Uploading rule says to leave nothing
+  stored. The expected digest is known before the PUT, so sending it as
+  `x-amz-checksum-sha256` would have S3 refuse the mismatch for a single-part upload; a
+  multipart one could check its running hash before completing, and abort instead.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

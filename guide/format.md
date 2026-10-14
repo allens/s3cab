@@ -230,7 +230,10 @@ A snapshot is a point-in-time record of every file in a backup set: a plain-text
 tab-separated (TSV) table, gzip-compressed on disk and in the bucket (`.tsv.gz` —
 decompress with any gzip tool: `gunzip`, or the gzip support built into every mainstream
 language). How hard it is compressed is s3cab's choice and may change; what is promised is
-plain, single-stream gzip. So compare two snapshots decompressed, never as `.gz` bytes.
+plain, single-stream gzip. So to tell whether two snapshots record the same rows, compare
+them decompressed: the same rows can compress to different bytes. One snapshot's copies are
+another matter: an upload copies the file as it is, so a snapshot in the bucket matches its
+local file byte for byte.
 
 The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) apply here in
 full — encoding, LF splitting, no escaping, and never trimming the last field. This section
@@ -874,8 +877,20 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   Hash the bytes as you send them: a file can change after the snapshot recorded it. If they
   don't match, leave nothing stored under that key, and don't upload the snapshot, which
   names an object the repository doesn't hold.
-- Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, never over an existing
-  one, and never one without its closing `.`.
+- Count an object already at its key as stored, without downloading it to check. Wrong
+  bytes there are damage, for a check of the whole repository to find.
+- Send no `Content-Encoding` header and no `x-amz-meta-*` metadata, for objects and
+  snapshots alike. A downloader that honours `Content-Encoding: gzip` hands back a
+  snapshot's decompressed text instead of the stored file.
+- Never upload a snapshot a reader would [refuse whole](#valid-and-invalid-files): one that
+  isn't UTF-8 once decompressed, doesn't start with the heading row, doesn't end with the
+  `.`, has rows after the `.`, or holds an unknown type starting with neither `@` nor `#`.
+- Upload a snapshot whose rows a reader refuses one path at a time like any other, with no
+  object for those rows. Its other rows still restore, and the reader reports the rest.
+- Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, where `<set>` is the
+  set it belongs to and `<name>` is its file name without `.tsv.gz`. Never upload over an
+  existing one. One already there with the same bytes is already uploaded; one with
+  different bytes is a conflict, refused.
 - Write [`sets/<set>/`](#the-remote-repository-the-keystone): `info` as `OWNER=user@machine`
   then `CREATED=` an instant; `dirs.txt` as the parsed list, one directory per line, LF
   endings; `exclude.txt`, if the set has one, as a byte copy. Never upload the set's `env`.
@@ -883,6 +898,22 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 **What trips people up:**
 
 - **Line endings.** Python's text mode writes `dirs.txt` with CRLF on Windows.
+- **Windows paths: go through `\\?\`.** An uploader opens every recorded path, so the
+  [writer's trap](#writing-a-snapshot) applies here too: a trailing space or dot, or a path
+  past 260 characters, finds the wrong file or none.
+- **Checking bytes before they're visible.** A plain PUT is visible the moment it returns, so
+  deleting wrong bytes afterwards leaves them stored if the uploader dies in between. S3
+  checks them itself when you send `x-amz-checksum-sha256`, which takes the base64 of the
+  binary digest, not the hex key: a mismatch stores nothing.
+- **Multipart checksums.** A multipart object's stored SHA-256 is a checksum of its parts'
+  checksums, not the file's hash, so only downloading it confirms the content.
+- **Not overwriting.** `If-None-Match: *` makes a PUT refuse an existing key with 412, and
+  can't be raced the way HEAD then PUT can.
+- **Content type.** Python's `mimetypes` reports a `.tsv.gz` file's encoding as `gzip`, and a
+  tool that passes that on sets the header the checklist rules out.
+- **Printing a path in Python on Windows.** Before Python 3.15, redirected output is encoded
+  in the locale's code page, and a path like `café.txt` spelled with a combining accent raises
+  `UnicodeEncodeError` between the objects and the snapshot. Run with `-X utf8`.
 
 ### Deleting
 
