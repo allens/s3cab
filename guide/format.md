@@ -333,7 +333,8 @@ canonical line:
 
 **Some values are written for people, and are free text**, outside the canonical form: the
 wording of an `#error` row and an `#excluded` row, `@CLIENT VERSION` and every `@CLIENT` row
-a tool adds, `BY`, `START`'s zone and `FINISH`'s duration. No reader depends on them. The exact duration is `FINISH` minus `START`.
+a tool adds, `BY`, `START`'s zone and `FINISH`'s duration. No reader depends on them. The
+exact duration is `FINISH` minus `START`.
 
 ### Row types
 
@@ -369,8 +370,9 @@ A broken link, or one whose target couldn't be checked, ends without one.
 
 **A reader skips an `@` or `#` type, or a property, that it doesn't know, and refuses a file
 holding any other type it doesn't know.** An unknown `@` or `#` row is something a newer
-format, or another tool, added that a restore needn't act on; an unknown row of any other kind may be content
-a restore would miss, so reading on would pass off part of a backup as all of it. The test,
+format, or another tool, added that a restore needn't act on; an unknown row of any other
+kind may be content a restore would miss, so reading on would pass off part of a backup as
+all of it. The test,
 concretely: take the first tab-separated field and trim it, and compare it case-sensitively
 — `@SET` and `@set` are different types, though a spreadsheet's sort and filter ignore case.
 
@@ -459,8 +461,8 @@ cell text, since a spreadsheet shows a bare 13-digit number as `1.23E+12`. s3cab
 read either back: a hand edit can change them, so a mismatch isn't damage.
 
 s3cab writes the rows in this order: the heading; `@S3CAB SPEC`; the `@CLIENT`, `@SET` and
-`@SNAPSHOT` rows above; every `#excluded` and `#error` row, so the answer to "why wasn't this backed
-up?" is near the top; one `-` row per file (with an `#error` in among them for
+`@SNAPSHOT` rows above; every `#excluded` and `#error` row, so the answer to "why wasn't
+this backed up?" is near the top; one `-` row per file (with an `#error` in among them for
 a file that failed while being read); then `FILES`, `SIZE` and `FINISH`, and the `.`. A
 reader goes by each row's type, not its position — except for the `.`, [below](#the-last-line).
 Within a block, rows come in the

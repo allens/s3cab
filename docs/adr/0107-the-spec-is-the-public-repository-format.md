@@ -42,8 +42,9 @@ spec-adherent.
 4. **`@CLIENT` rows say who wrote the file.** `@CLIENT NAME` is the client's folder name without
    the dot (`s3cab`), in the set-name characters; `@CLIENT VERSION` is free text. A valid file has
    exactly one of each, and one `@S3CAB SPEC`, and a reader ignores any of the three missing or
-   repeated, as it ignores `FILES` disagreeing with the row count. Any other `@CLIENT` row is the client's own: s3cab's `HOME` and
-   `EXCLUDE`. s3cab writes them after the `@S3CAB` rows, in deletion records too.
+   repeated, as it ignores `FILES` disagreeing with the row count. Any other `@CLIENT` row is
+   the client's own: s3cab's `HOME` and `EXCLUDE`. s3cab writes them after the `@S3CAB` rows, in
+   deletion records too.
 5. **Excluding is a format concept; the grammar is the client's, and exclusion is optional.**
    Anything a writer leaves out on purpose gets an `#excluded` row, except its own working
    folders. Column 2 is free text for people: a pattern in the writer's grammar, or blank. The
