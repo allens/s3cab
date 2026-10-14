@@ -17,6 +17,6 @@ Epic: make the exclude matcher more capable and more legible to users.
     segment;
   - `\` as a separator on Windows but a literal character elsewhere, though `reattach`
     carries one `exclude.txt` between them;
-  - whether `#excluded` and `@SET EXCLUDE` record the pattern as written or normalised;
+  - whether `#excluded` and `@CLIENT EXCLUDE` record the pattern as written or normalised;
   - case: simple case folding, so the Turkish `ı` and `İ` match only themselves, where
     Python's `re.IGNORECASE` pairs them with `i`.

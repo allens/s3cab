@@ -53,6 +53,7 @@ const FILE = "-";
 const EXCLUDED = "#excluded";
 const ERROR = "#error";
 const S3CAB = "@S3CAB";
+const CLIENT = "@CLIENT";
 const SET = "@SET";
 const SNAPSHOT = "@SNAPSHOT";
 const FORMAT = "FORMAT";
@@ -66,6 +67,12 @@ const HEADING_URL = "https://s3cab.plantegral.com/guide/format";
  * every stored file, so it must keep resolving (CLAUDE.md, printed URLs).
  */
 export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
+
+/**
+ * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
+ * moves when the format does, never for a wording edit to guide/format.md.
+ */
+export const SPEC_DATE = "2026-10-14";
 
 /**
  * The last line of every whole s3cab file, and its completeness check
@@ -114,7 +121,8 @@ export const TERMINATOR = ".";
  */
 /**
  * What a snapshot records about its set and the run's configuration — the
- * `@SET` rows. Read only by people (ADR-0098).
+ * `@SET` rows, and the patterns as `@CLIENT EXCLUDE`. Read only by people
+ * (ADR-0098).
  * @typedef {Object} SnapshotSet
  * @property {string} name - The set's name (its whole identity, ADR-0024)
  * @property {string} bucket - The set's bucket
@@ -498,7 +506,7 @@ const inProgressError = (tmpPath) => {
 
 /**
  * Write a complete snapshot file and return its path: the heading row, the
- * `@S3CAB`/`@SET`/`@SNAPSHOT` property rows, `#excluded` rows for
+ * `@S3CAB`/`@CLIENT`/`@SET`/`@SNAPSHOT` property rows, `#excluded` rows for
  * pattern-matched entries, `#error` rows for entries the walk couldn't check,
  * then a `-` row per kept file — each hashed via the
  * injected `getProps`, with an `#error` row for any that fails — and the
@@ -556,12 +564,12 @@ export async function writeSnapshot(
   // Whatever a person reads is spelled out (ADR-0100); only the paths the code
   // reads back as real ones are refused instead, by the walk.
   const preamble = [
-    versionAndHome(),
+    openingRows(),
+    ...set.patterns.map((pattern) => property(CLIENT, "EXCLUDE", pattern)),
     property(SET, "NAME", set.name),
     property(SET, "BUCKET", `s3://${set.bucket}`),
     ...(set.endpoint ? [property(SET, "ENDPOINT", set.endpoint)] : []),
     ...set.dirs.map((dir) => property(SET, DIR, asFolder(dir))),
-    ...set.patterns.map((pattern) => property(SET, "EXCLUDE", pattern)),
     property(SNAPSHOT, "NAME", moment.name),
     property(SNAPSHOT, "BY", userAtMachine()),
     property(SNAPSHOT, START, moment.zone, moment.instant),
@@ -1236,14 +1244,17 @@ export async function* stringifySnapshot(
 }
 
 /**
- * The `@S3CAB` rows that follow the heading in every s3cab file: which s3cab
- * wrote it, and from which home (ADR-0098). The deletion record opens with them
- * too (ADR-0102).
+ * The rows that follow the heading in every s3cab file (ADR-0107): the spec it
+ * follows, then the `@CLIENT` rows saying which program wrote it, which
+ * release, and from which home. The deletion record opens with them too
+ * (ADR-0102).
  * @returns {string}
  */
-export const versionAndHome = () =>
-  property(S3CAB, "VERSION", pkg.version) +
-  property(S3CAB, "HOME", asFolder(s3cabDir()));
+export const openingRows = () =>
+  property(S3CAB, "SPEC", SPEC_DATE) +
+  property(CLIENT, "NAME", "s3cab") +
+  property(CLIENT, "VERSION", pkg.version) +
+  property(CLIENT, "HOME", asFolder(s3cabDir()));
 
 /**
  * Format one TSV line at the fixed column widths (ADR-0098): the type unpadded
@@ -1269,7 +1280,7 @@ export function formatLine(type, col2, size, time, last) {
  * A whole-snapshot row: one fact, its property in col2 and its value last, an
  * instant in the time column. Spelled out (ADR-0100), since only people read
  * the values.
- * @param {string} type - `@S3CAB`, `@SET` or `@SNAPSHOT`
+ * @param {string} type - `@S3CAB`, `@CLIENT`, `@SET` or `@SNAPSHOT`
  * @param {string} name - The property
  * @param {string} value
  * @param {string} [time] - An instant, for a property that has one

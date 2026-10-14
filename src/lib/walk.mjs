@@ -59,7 +59,7 @@ export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
  * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
  * core behind both the `tree` and `snapshot` commands.
  * @param {BackupSet} set - Resolved backup set
- * @returns {WalkResult & { patterns: string[] }} What the walk found, and the exclude patterns it applied (a snapshot's `@SET EXCLUDE` rows)
+ * @returns {WalkResult & { patterns: string[] }} What the walk found, and the exclude patterns it applied (a snapshot's `@CLIENT EXCLUDE` rows)
  */
 export function walkSet(set) {
   assertWalkableDirs(set);

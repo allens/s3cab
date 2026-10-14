@@ -19,6 +19,7 @@ import {
   snapshotFileName,
   snapshotMoment,
   snapshotNames,
+  SPEC_DATE,
   withSnapshotFile,
   writeSnapshot,
 } from "./snapshot-file.mjs";
@@ -774,14 +775,16 @@ describe("writeSnapshot", () => {
       rows.map((row) => row.slice(0, 2).join(" ")),
       [
         "@S3CAB FORMAT",
-        "@S3CAB VERSION",
-        "@S3CAB HOME",
+        "@S3CAB SPEC",
+        "@CLIENT NAME",
+        "@CLIENT VERSION",
+        "@CLIENT HOME",
+        "@CLIENT EXCLUDE",
+        "@CLIENT EXCLUDE",
         "@SET NAME",
         "@SET BUCKET",
         "@SET ENDPOINT",
         "@SET DIR",
-        "@SET EXCLUDE",
-        "@SET EXCLUDE",
         "@SNAPSHOT NAME",
         "@SNAPSHOT BY",
         "@SNAPSHOT START",
@@ -817,12 +820,14 @@ describe("writeSnapshot", () => {
       "time",
       "https://s3cab.plantegral.com/guide/format",
     ]);
-    assert.match(tail("@S3CAB VERSION")[0]?.[1] ?? "", /^\d+\.\d+\.\d+/);
-    assert.ok(tail("@S3CAB HOME")[0]?.[1]?.endsWith(sep));
+    assert.deepEqual(tail("@S3CAB SPEC"), [["", SPEC_DATE]]);
+    assert.deepEqual(tail("@CLIENT NAME"), [["", "s3cab"]]);
+    assert.match(tail("@CLIENT VERSION")[0]?.[1] ?? "", /^\d+\.\d+\.\d+/);
+    assert.ok(tail("@CLIENT HOME")[0]?.[1]?.endsWith(sep));
     assert.deepEqual(tail("@SET NAME"), [["", "photos"]]);
     assert.deepEqual(tail("@SET BUCKET"), [["", "s3://my-backups"]]);
     assert.deepEqual(tail("@SET ENDPOINT"), [["", "https://s3.example.com"]]);
-    assert.deepEqual(tail("@SET EXCLUDE"), [
+    assert.deepEqual(tail("@CLIENT EXCLUDE"), [
       ["", "*.tmp"],
       ["", "cache"],
     ]);
@@ -854,6 +859,16 @@ describe("writeSnapshot", () => {
       ),
     );
     assert.ok(text.includes("\n@SNAPSHOT\tSTART "));
+  });
+
+  it("writes the spec date guide/format.md states", () => {
+    const spec = readFileSync(
+      new URL("../../guide/format.md", import.meta.url),
+      "utf8",
+    );
+    const [, stated] =
+      /This is the spec of (\d{4}-\d{2}-\d{2})\./.exec(spec) ?? [];
+    assert.equal(SPEC_DATE, stated);
   });
 
   it("spells out a control character in what only people read", async () => {

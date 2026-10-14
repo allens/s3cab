@@ -104,27 +104,29 @@ describe("formatDeletionRecord", () => {
     { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
   ];
 
-  it("writes the snapshot's heading and @S3CAB rows, a padded #deleted row per object, and the closing .", () => {
+  it("writes the snapshot's heading and opening rows, a padded #deleted row per object, and the closing .", () => {
     const lines = formatDeletionRecord(rows).split("\n");
     assert.match(
       lines[0] ?? "",
       /^@S3CAB\tFORMAT +\t {8}size\ttime {20}\thttps:/,
     );
-    assert.match(lines[1] ?? "", /^@S3CAB\tVERSION +\t +\t +\t\d/);
-    assert.match(lines[2] ?? "", /^@S3CAB\tHOME +\t +\t +\t.+[\\/]$/);
+    assert.match(lines[1] ?? "", /^@S3CAB\tSPEC +\t +\t +\t\d{4}-\d\d-\d\d$/);
+    assert.match(lines[2] ?? "", /^@CLIENT\tNAME +\t +\t +\ts3cab$/);
+    assert.match(lines[3] ?? "", /^@CLIENT\tVERSION +\t +\t +\t\d/);
+    assert.match(lines[4] ?? "", /^@CLIENT\tHOME +\t +\t +\t.+[\\/]$/);
     // `#deleted` overflows column 1's six; the columns after it still pad.
     assert.equal(
-      lines[3],
+      lines[5],
       `#deleted\t${HASH_A}\t        1204\t${T1}\tallen@DESKTOP`,
     );
     assert.equal(
-      lines[4],
+      lines[6],
       `#deleted\t${HASH_B}\t         892\t${T2}\tallen@LAPTOP`,
     );
     // No finish instant: each row has its own.
-    assert.equal(lines[5], ".");
-    assert.equal(lines[6], "", "ends with a newline");
-    assert.equal(lines.length, 7);
+    assert.equal(lines[7], ".");
+    assert.equal(lines[8], "", "ends with a newline");
+    assert.equal(lines.length, 9);
   });
 
   it("sorts rows by instant then hash, so a compacted file reads chronologically", () => {

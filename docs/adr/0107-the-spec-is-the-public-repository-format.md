@@ -1,8 +1,9 @@
 # The spec is the public repository format; a file names its writer in `@CLIENT` rows
 
-**Status:** proposed (2026-10-14). Once accepted, partly supersedes
-[0096](0096-three-implementations-prove-the-format.md) (the spec is format.md alone, so exclude
-syntax and the `sets/<set>/` markers leave a clean room's scope),
+**Status:** accepted & implemented (2026-10-14), bar the client folders, which land with
+[0108](0108-set-ownership.md). Partly supersedes
+[0096](0096-three-implementations-prove-the-format.md) (the spec is format.md alone, so a
+clean-room backup needs neither s3cab's exclude syntax nor its config files),
 [0098](0098-snapshot-row-layout.md) (`@S3CAB VERSION` and `HOME`, `@SET EXCLUDE`, and the
 `VERSION` clause of its case against a versioned spec URL),
 [0102](0102-deletion-record-takes-the-snapshot-layout.md) and
@@ -40,8 +41,8 @@ spec-adherent.
    every reader already matches exactly.
 4. **`@CLIENT` rows say who wrote the file.** `@CLIENT NAME` is the client's folder name without
    the dot (`s3cab`), in the set-name characters; `@CLIENT VERSION` is free text. A valid file has
-   exactly one of each, and a reader ignores either missing or repeated, as it ignores `FILES`
-   disagreeing with the row count. Any other `@CLIENT` row is the client's own: s3cab's `HOME` and
+   exactly one of each, and one `@S3CAB SPEC`, and a reader ignores any of the three missing or
+   repeated, as it ignores `FILES` disagreeing with the row count. Any other `@CLIENT` row is the client's own: s3cab's `HOME` and
    `EXCLUDE`. s3cab writes them after the `@S3CAB` rows, in deletion records too.
 5. **Excluding is a format concept; the grammar is the client's, and exclusion is optional.**
    Anything a writer leaves out on purpose gets an `#excluded` row, except its own working
