@@ -9,7 +9,9 @@
  *   the session's own scratchpad and tool output;
  * - a shell command naming one of those, or running s3cab itself;
  * - any web search or fetch: the brief forbids looking the tool up, and no role needs
- *   the web to do its work.
+ *   the web to do its work. From the shell that is a URL whose host isn't S3, any
+ *   mention of GitHub or the docs site, or `git`/`gh` fetching. A bare `curl` is not:
+ *   a restorer may test its requests against the bucket.
  * Paths elsewhere (a toolchain under Program Files, /usr) are not strays.
  *
  * Claude Code keeps a session's transcripts under `projects/<cwd, every character but
@@ -135,9 +137,25 @@ const named = new RegExp(
 // other-case matches as a note rather than going case-sensitive.
 const runsS3cab =
   /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)])/im;
+// A host that is only a variable (`https://$host/`) can't be read here; the command
+// that set it names the host itself.
+const urlHosts = /\bhttps?:\/\/([^\s/'"`)\\]+)/gi;
+const s3Host = /(^|\.)amazonaws\.com(:\d+)?$/i;
+const sourceHosts = /\b(github\.com|githubusercontent\.com|plantegral\.com)\b/i;
+const fetchesGit =
+  /(^|[\s;&|(`])(git\s+(clone|fetch|pull|ls-remote)|gh)(\.exe)?(?=$|[\s;&|)])/im;
+/** @param {string} command */
+const reachesWeb = (command) =>
+  [...command.matchAll(urlHosts)].some(
+    ([, host = ""]) => !/[$%{]/.test(host) && !s3Host.test(host),
+  ) ||
+  sourceHosts.test(command) ||
+  fetchesGit.test(command);
 /** @param {string} command */
 const strayCommand = (command) =>
-  named.test(command.replace(allowedSpelled, "")) || runsS3cab.test(command);
+  named.test(command.replace(allowedSpelled, "")) ||
+  runsS3cab.test(command) ||
+  reachesWeb(command);
 
 const fields = {
   input: "input_tokens",
