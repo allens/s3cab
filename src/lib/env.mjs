@@ -122,6 +122,16 @@ function applyEnvLayer(path, label) {
     return;
   }
   appliedEnvFiles.add(path);
+  applyEnv(values, label);
+}
+
+/**
+ * Merge values into process.env and record `label` as where they came from, so
+ * `envSource` names it instead of "your environment".
+ * @param {NodeJS.Dict<string>} values
+ * @param {string} label - e.g. `set 'photos' config`
+ */
+export function applyEnv(values, label) {
   Object.assign(process.env, values);
   for (const key of Object.keys(values)) {
     envSources.set(key, label);

@@ -1,4 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
+import { applyEnv } from "../lib/env.mjs";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
@@ -249,7 +250,7 @@ async function create(name, directories, options) {
     ...options,
     rolesAnywhere: options["roles-anywhere"],
   });
-  Object.assign(process.env, updates);
+  applyEnv(updates, "setup's options");
   // As `loadSet` will for every later command: the Roles Anywhere signer picks
   // its ARNs by the set's bucket (ADR-0105).
   process.env.S3CAB_BUCKET = bucket;
