@@ -3,7 +3,10 @@
 Files and directories to skip are listed in a backup set's exclude file,
 `~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
 `#` are comments, even indented; blank lines are ignored. Each line is trimmed of
-the whitespace around it, so a pattern can't start or end with a space.
+the whitespace around it, so a pattern can't start or end with a space: tab, VT,
+FF, CR, LF, every Unicode space (category Zs), U+2028, U+2029 and a byte-order
+mark, but not U+0085. So CRLF line endings, or a missing newline at the end, are
+fine.
 
 A new set starts with a ready-made exclude file: it skips regenerable
 dependency trees (`node_modules`), `.git` directories, and operating-system
@@ -75,14 +78,25 @@ to every directory in the set.
 
 **Case, and other rules**
 
-- Case doesn't matter on Windows or macOS, and does everywhere else.
+- Case doesn't matter on Windows or macOS, even on a drive or in a directory set
+  up to be case-sensitive. Everywhere else it always matters, even on a drive that
+  ignores it.
+- Ignoring case goes one character for one (Unicode's simple case folding): `ẞ`
+  matches `ß` but not `ss`, and the Turkish `ı` and `İ` match only themselves.
 - On macOS an accented letter also matches however it is stored, as one character
   or as a letter and an accent mark: both sides are compared in the composed form
   (NFC).
+- A name that isn't valid Unicode — a lone surrogate on Windows, bytes that aren't
+  UTF-8 on Linux — is matched with U+FFFD (�) in place of each part that doesn't
+  decode, so `*` matches there. A lone surrogate becomes three of them, which
+  matters to a `?`.
 - When several patterns match, the first in the file is the one recorded as
   leaving the path out.
 - A pattern can't contain a tab or a carriage return: s3cab stops and names it.
   Write `*` in place of the character, which still matches it.
+- A file whose name holds a tab, CR or LF, or isn't valid Unicode, stops the
+  backup, which names it. Rename it, or leave it out with a pattern such as
+  `odd*name.jpg`.
 
 ## Examples
 

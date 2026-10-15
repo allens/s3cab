@@ -103,7 +103,7 @@ _Avoid_: spec (for a design doc), format documentation (it is a contract, not a 
 A named list of directories that is the unit of snapshot, backup, and restore. Its **name** (a
 `[a-z0-9-]+` label, e.g. `work-laptop`) is its whole identity — at once the local handle, the
 local directory under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
-(first-come).
+(first-come: `setup` refuses a name the bucket already has).
 _Avoid_: profile, job, project, config; folder as a word for the *set* or in format prose (the
 format word is **directory** — `@SET DIR` in the snapshot file is just its abbreviation; "folder"
 collides with S3's pseudo-folders). "Folder" *is* used, deliberately, in user-facing prose for
@@ -113,9 +113,17 @@ directory.
 
 **Identity**:
 What names a backup set: its **name**, and nothing more — there is no separate machine or user
-component. (An advisory `OWNER`, the `user@machine` holding the set, is recorded for collision
-warnings only, never as part of the identity.)
+component. (Which machine **holds** the set is recorded beside it, never as part of the
+identity.)
 _Avoid_: owner, source, origin; `user@machine:set` (the retired form).
+
+**Holder**:
+The one machine that backs a set up, named by the `OWNER` in the bucket's
+`snapshots/<set>.info` ([ADR-0108](docs/adr/0108-set-ownership.md)). Every other machine with
+the set attached has it **read-only**: it can list, compare and restore, but its `backup` and
+`forget` are refused. A machine becomes the holder by creating the set (**setup**) or by
+**takeover**.
+_Avoid_: owner (the file's key, not the role), primary, master, writer.
 
 **Snapshot**:
 A point-in-time record of every file in a backup set. Recorded on disk as a
@@ -204,15 +212,22 @@ The porcelain verb for downloading files from a remote snapshot back to disk.
 _Avoid_: pull, download (the plumbing verb), recover.
 
 **Reattach** (the command):
-Attaching *this machine* to a backup set that already exists in the cloud — machine
-**succession**: the old machine is being retired, replaced, or recovered after loss
-(`s3cab reattach <set> --bucket <b>`, ADR-0053). Pulls the set's config and snapshot
-*history* down (**not** the backed-up files — that's **restore**), recreates it locally, and
-re-stamps `OWNER` as this `user@machine`. Meant for succession, not for running two live machines
-off one set — though it never disables the prior machine, so that stays possible (a discouraged
-power-user case). Split out of the old `setup --inherit`.
+Attaching a backup set that already exists in the cloud to *this machine*, **read-only**, or
+refreshing one already attached (`s3cab reattach <set> [--bucket <b>]`, ADR-0053, ADR-0108).
+Pulls the snapshots this machine lacks: **not** the backed-up files (that's **restore**), nor the
+set's directories and exclude rules, and it leaves the **holder** alone. Split out of the old
+`setup --inherit`.
 _Avoid_: reconnect (the runner-up — implies a live link; "attach" is the backup drive's own verb,
-ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over.
+ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over (that is
+**takeover**, which changes the holder).
+
+**Takeover** (the command):
+Making *this machine* a set's **holder** (`s3cab takeover <set> [--bucket <b>]`, ADR-0108):
+machine **succession**, when the old machine is retired, replaced or lost. Attaches and refreshes
+the set as **reattach** does, fills in its directory list and exclude rules where this machine
+has none, then rewrites the bucket's marker so the old holder's next backup is refused. One word
+as the command, two in prose ("take the set over").
+_Avoid_: claim (the format's word for creating a new set's marker), adopt, migrate, inherit.
 
 **Verify**:
 The porcelain verb that checks backups are complete and undamaged without downloading
@@ -230,7 +245,7 @@ until **cleanup** reclaims what nothing references any more. The repository forg
 *moment*; the stuff remains until swept. Previews what the removal would orphan, then confirms
 once for the whole run.
 _Avoid_: delete (its retired name — **delete** is now the path-scoped content-removal
-command), retire (**succession**'s word, see Reattach), prune, expire; drop (as a name for
+command), retire (**succession**'s word, see Takeover), prune, expire; drop (as a name for
 the command — fine as a plain-language gloss in prose, "drop a snapshot").
 
 **Delete** (the command):
@@ -267,8 +282,9 @@ The verb that *creates a new backup set* on this machine (ADR-0036, ADR-0052, AD
 flag — [ADR-0062](docs/adr/0062-bulk-operands-positional-addressing-by-flag.md).)
 A bucket is required, and it touches S3 (the collision check). There is no update mode — a set's
 directories live in its public `dirs.txt`, edited directly (like `exclude.txt`), so re-running
-`setup` on a set that already exists here is refused; adopting an existing *remote* set is
-**reattach**. Distinct from a **backup set**, the noun it operates on.
+`setup` on a set that already exists here is refused; attaching an existing *remote* set is
+**reattach**, and backing it up from here **takeover**. Distinct from a **backup set**, the noun
+it operates on.
 _Avoid_: sets (the retired command name), init, config, register, create.
 
 **List** (the command):

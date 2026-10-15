@@ -44,6 +44,7 @@ import {
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { ListResult } from "./commands/list.mjs" */
+/** @import { ReattachResult } from "./commands/reattach.mjs" */
 /** @import { ExcludedEntry } from "./commands/tree.mjs" */
 /** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
@@ -71,11 +72,11 @@ import {
  */
 
 /**
- * Confirm a `setup` (create) or `reattach` by echoing the set's resulting state.
+ * Confirm a `setup` (create) or `takeover` by echoing the set's resulting state.
  * Both return the stored `BackupSet`, so they share this renderer (ADR-0043 keeps
  * the command a pure data returner): the confirmation someone wants is "what is
  * this set now". The command-specific guidance (setup's starter-exclude notice,
- * reattach's snapshot-pull summary) already went to stderr from inside the command.
+ * takeover's previous holder) already went to stderr from inside the command.
  *
  * The `dirs.txt` path heads the directory list so a capable terminal can open it
  * — directories are edited in that file now, not through a `setup` re-run (there
@@ -88,6 +89,30 @@ export function renderSetup(set) {
     ? set.dirs.map((dir) => `  ${dir}`).join("\n")
     : "  (none yet — add them by editing that file)";
   return `Set '${set.name}' → bucket '${set.bucket}'\ndirs (${set.dirsPath}):\n${dirs}`;
+}
+
+/**
+ * Confirm a `reattach`: where the set is attached from, how many snapshots this
+ * machine has of it, and who holds it — no directories, which are the holder's.
+ * @param {ReattachResult} result
+ * @returns {string}
+ */
+export function renderReattach({
+  set,
+  bucket,
+  snapshots,
+  pulled,
+  holder,
+  held,
+}) {
+  const pulledNote = pulled > 0 ? ` (${formatCount(pulled)} new)` : "";
+  return (
+    `Set '${set}' → bucket '${bucket}': ${countOf(snapshots, "snapshot")}${pulledNote}\n` +
+    (held
+      ? `Held by this machine.`
+      : `${holder ? `Held by ${holder}` : `It has no holder`}; ` +
+        `read-only on this machine.`)
+  );
 }
 
 /**
@@ -383,7 +408,8 @@ function summaryLine(result, renamedCount, movedCount) {
  * two mode-tagged shapes. **`detail`** (a named set, or `--remote`) shows the
  * set's config — name, bucket, member directories with the `dirs.txt` path, the
  * exclude-file path — then its snapshots; the config paths teach where to edit a
- * set ("the files are the API", ADR-0002). **`summary`** (all sets) lists each
+ * set ("the files are the API", ADR-0002). A set this machine doesn't hold shows
+ * who last backed it up instead of the config, which is the holder's. **`summary`** (all sets) lists each
  * set's name then its snapshot times, collapsing to the "create one" guidance
  * when there are no sets yet (a legitimate result on stdout, not a stderr
  * warning — ADR-0043).
@@ -392,14 +418,23 @@ function summaryLine(result, renamedCount, movedCount) {
  */
 export function renderList(result) {
   if (result.mode === "detail") {
-    const { set, overrides, snapshots, remote } = result;
+    const { set, overrides, snapshots, remote, held, lastBackedUpBy } = result;
     return [
       `name: ${set.name}`,
       `bucket: ${set.bucket}`,
       ...providerOverrideLines(overrides),
-      `dirs (${set.dirsPath}):`,
-      ...(set.dirs.length ? set.dirs.map((dir) => `  ${dir}`) : ["  (none)"]),
-      `exclude file: ${set.excludePath}`,
+      ...(held
+        ? [
+            `dirs (${set.dirsPath}):`,
+            ...(set.dirs.length
+              ? set.dirs.map((dir) => `  ${dir}`)
+              : ["  (none)"]),
+            `exclude file: ${set.excludePath}`,
+          ]
+        : [
+            "read-only on this machine" +
+              (lastBackedUpBy ? `; last backed up by ${lastBackedUpBy}` : ""),
+          ]),
       `${remote ? "remote snapshots" : "snapshots"}:`,
       indentSnapshots(snapshots),
     ].join("\n");

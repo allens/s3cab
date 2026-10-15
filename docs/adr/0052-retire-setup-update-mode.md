@@ -3,6 +3,8 @@
 **Status:** accepted (2026-07-12) — **implemented** (2026-07-12). **Partly supersedes
 [0036](0036-setup-mutates-list-shows-drop-sets.md)** — its §2 made `setup` an upsert
 (create *then update*); the update half is removed here. Create and inherit are untouched.
+Partly superseded by [0108](0108-set-ownership.md): `backup` re-publishes the config to
+`.s3cab/sets/<set>/`, not `sets/<set>/`.
 
 ## Context
 

@@ -33,6 +33,8 @@ import { prop } from "./prop.mjs";
  *   `upload` performs **no** snapshot lookup — not "latest" nor "previous"; resolving which
  *   snapshot to upload or diff against is `backup`'s (porcelain) job. `--force`/`--bucket` are
  *   rejected here (force must never touch the immutable snapshot file; a snapshot always needs a set).
+ *   Only the machine holding the set publishes its snapshots (ADR-0108), checked just before the
+ *   snapshot file goes up.
  *
  * - **A folder's objects** — `upload <set> --dir <path>`: walk the subtree (applying the
  *   set's excludes), hash each file, conditional-PUT each object — **no snapshot written**.
@@ -214,6 +216,7 @@ export async function upload(setName, options = {}) {
     snapshotDir: set.snapshotsDir,
     name: snapshotName,
     since,
+    claimPath: set.claimPath,
   });
   return {
     mode: "snapshot",

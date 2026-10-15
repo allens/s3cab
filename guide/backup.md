@@ -1,8 +1,30 @@
 # Backing up
 
-`s3cab backup <set>` is the whole routine job. This page covers the two things about it you
-might need to act on: how s3cab decides a file hasn't changed (and the rare edits that fool
-it), and what happens when a backup stops part way.
+`s3cab backup <set>` is the whole routine job. This page covers what a set backs up, how
+s3cab decides a file hasn't changed (and the rare edits that fool it), and what happens when
+a backup stops part way.
+
+## What a set backs up
+
+A set's directories are listed in `~/.s3cab/sets/<set>/dirs.txt`, one absolute path per line.
+Blank lines are ignored, a line starting with `#` is a comment, and each line is trimmed the
+way an [exclude file's](exclude.md) lines are. Editing that file is how you add or drop a
+directory.
+
+- **Everything under each directory is backed up**, hidden and system files included, except
+  what your [exclude patterns](exclude.md) leave out. Each snapshot lists the patterns that
+  applied to that run in its `@CLIENT EXCLUDE` rows, one per pattern, including any that
+  matched nothing; the copy of `exclude.txt` in the bucket is only the latest.
+- **Links inside a directory are never followed**; the [format spec](format.md#links) says
+  what a snapshot records for them. A directory in `dirs.txt` that is itself a link is
+  followed, since you named it, and recorded as its [real path](format.md#paths).
+- **The directories mustn't overlap.** A file reached from two of them stops the backup,
+  unless an exclude pattern keeps the inner directory out of the outer one's walk.
+- **A directory named `.s3cab`**, all lowercase even on Windows, is never walked: it is
+  s3cab's own, and backing it up would back up the tool's working files. It gets no row in
+  the snapshot unless an exclude pattern matches it, and then it is listed as excluded like
+  any other. Only a directory is skipped: a file or a link named `.s3cab` is backed up as
+  usual.
 
 ## How s3cab spots an unchanged file
 
@@ -86,4 +108,15 @@ finish it in one sitting:
   The message also prints the command to delete the work file instead, if you'd rather read
   everything again from scratch.
 
-(The work file itself is described in the [format spec](format.md#the-local-side-s3cab).)
+Two work files can appear in the set's `snapshots/` directory while s3cab is working. Both
+start with a dot, neither is ever uploaded, and both are safe to delete when nothing is
+running. Neither ends with a snapshot's closing `.` line, so neither can pass for a finished
+snapshot.
+
+- `.snapshot.tsv.gz` — the snapshot being written right now, which becomes the finished
+  snapshot when the run completes. One left behind is the work file of a run that was
+  killed, which `--resume` carries on from.
+- `.snapshot.lookup.tsv.gz` — the file hashes from a run you stopped with Ctrl+C, kept for
+  the next run to reuse. Every hash in it is checked against the file's current size and
+  modification time before it is trusted, and the file is deleted as soon as a snapshot
+  completes.

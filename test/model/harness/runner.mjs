@@ -100,6 +100,8 @@ export async function runSequence(steps, root) {
   const setDirs = new Map();
   /** @type {Set<string>} `${machine}:${set}` — which machines have which sets */
   const machineSets = new Set();
+  /** @type {Map<string, number>} set → the machine holding it (ADR-0108) */
+  const holders = new Map();
 
   const homeOf = (/** @type {number} */ machine) =>
     join(root, `m${machine}`, ".s3cab");
@@ -162,6 +164,11 @@ export async function runSequence(steps, root) {
       if (step.kind === "cleanup") {
         agedOrphans = await computeAgedOrphans(model, fake, clock.now());
       }
+      // A backup or forget from a machine that has the set but doesn't hold it
+      // must be refused, and that refusal is the expected outcome.
+      const refused =
+        (step.kind === "backup" || step.kind === "forget") &&
+        holders.get(step.set) !== step.machine;
 
       // ── Execute ────────────────────────────────────────────────────────
       const logStart = fake.log.length;
@@ -197,6 +204,7 @@ export async function runSequence(steps, root) {
             );
             setDirs.set(step.set, dir);
             machineSets.add(`${step.machine}:${step.set}`);
+            holders.set(step.set, step.machine);
             break;
           }
           case "mutate": {
@@ -287,19 +295,16 @@ export async function runSequence(steps, root) {
             await s3cab.cleanup(BUCKET, { force: true });
             break;
           }
-          case "reattach": {
-            if (machineSets.has(`${step.machine}:${step.set}`)) {
-              skipped = true;
-              break;
-            }
-            const claim = await fake.getBytes(BUCKET, `sets/${step.set}/info`);
-            if (claim === undefined) {
+          case "takeover": {
+            const holder = holders.get(step.set);
+            if (holder === undefined || holder === step.machine) {
               skipped = true;
               break;
             }
             switchTo(step.machine);
-            await s3cab.reattach(step.set, [], { bucket: BUCKET });
+            await s3cab.takeover(step.set, [], { bucket: BUCKET });
             machineSets.add(`${step.machine}:${step.set}`);
+            holders.set(step.set, step.machine);
             break;
           }
         }
@@ -343,7 +348,13 @@ export async function runSequence(steps, root) {
         }
       }
 
+      if (refused && !threw) {
+        violations.push(
+          `${step.kind} went ahead on machine ${step.machine}, which doesn't hold ${step.set}`,
+        );
+      }
       if (
+        !refused &&
         !fault &&
         threw &&
         step.kind !== "mutate" &&

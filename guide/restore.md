@@ -150,8 +150,18 @@ first, then restore:
 > s3cab restore --set photos
 ```
 
-`reattach` pulls the set's _configuration and snapshot history_ down — not the files. It's
-`restore` that brings the content back. (See [Status](../README.md#status) for the split.)
+`reattach` pulls the set's _snapshot history_ down — not the files. It's `restore` that brings
+the content back. (See [Status](../README.md#status) for the split.)
+
+The set is read-only here until you take it over, which makes this the machine that backs it
+up:
+
+```console
+> s3cab takeover photos
+```
+
+That also brings back the set's directory list and exclude rules, and the old machine's
+backups of it are refused from then on.
 
 ## What restore guarantees
 

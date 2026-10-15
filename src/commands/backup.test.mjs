@@ -15,7 +15,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // `pushSetConfig` are faked at the module seam — what's under test is the wiring
 // and its order. Mocks first, then a dynamic import (objects.test.mjs rule).
 
-/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, dirs: string[] }} */
+/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string, dirs: string[] }} */
 let fakeSet;
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
@@ -43,12 +43,21 @@ let driftErrorCalls = [];
 let pushFails;
 /** @type {[string, string, object][]} */
 let pushCalls = [];
+/** @type {(() => void) | undefined} let the holder check refuse */
+let notHeld;
+/** @type {string[][]} the args each holder check got */
+let heldCalls = [];
 
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
 });
 mock.module("../lib/set-marker.mjs", {
   exports: {
+    assertHeld: async (/** @type {string[]} */ ...args) => {
+      calls.push("assertHeld");
+      heldCalls.push(args);
+      notHeld?.();
+    },
     pushSetConfig: async (
       /** @type {string} */ bucket,
       /** @type {string} */ set,
@@ -140,9 +149,12 @@ beforeEach(() => {
     bucket: "b",
     snapshotsDir: "snaps",
     excludePath: "photos/exclude.txt",
+    claimPath: "photos/claim",
     dirs: [],
   };
   calls = [];
+  heldCalls = [];
+  notHeld = undefined;
   baseline = {
     name: "2026-01-01T0900",
     previous: new Map(),
@@ -196,6 +208,9 @@ describe("backup (the fused pass)", () => {
     // The order is the invariant: nothing is hashed before the store question is
     // settled, and the manifest goes up only once the pipeline has drained.
     assert.deepEqual(calls, [
+      // Before the pass, so a set this machine doesn't hold is refused in
+      // seconds; `uploadSnapshotFile` checks again just before publishing.
+      "assertHeld",
       "readBaseline",
       "storedHashes",
       "uploadObjects",
@@ -222,8 +237,10 @@ describe("backup (the fused pass)", () => {
         set: "photos",
         snapshotDir: "snaps",
         name: "2026-01-02T0900",
+        claimPath: "photos/claim",
       },
     ]);
+    assert.deepEqual(heldCalls, [["b", "photos", "photos/claim"]]);
     assert.deepEqual(result, {
       set: "photos",
       bucket: "b",
@@ -245,6 +262,16 @@ describe("backup (the fused pass)", () => {
       excludePath: "photos/exclude.txt",
       comparison,
     });
+  });
+
+  it("refuses a set this machine doesn't hold before reading anything", async () => {
+    notHeld = () => {
+      throw new Error("not held");
+    };
+
+    await assert.rejects(backup("photos"), /not held/);
+
+    assert.deepEqual(calls, ["assertHeld"]);
   });
 
   it("suggests excluding only the files that failed last time too", async () => {

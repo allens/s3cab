@@ -44,6 +44,7 @@ describe("a pass over files that vanish before they are read", () => {
         dirsPath: join(dir.path, "dirs.txt"),
         excludePath: join(dir.path, "exclude.txt"),
         envPath: join(dir.path, "env"),
+        claimPath: join(dir.path, "claim"),
       },
       {
         // The pipeline is lazy, so the rows after the first are not yet hashed

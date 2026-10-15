@@ -45,7 +45,7 @@ describe("conformance: store semantics", () => {
         t.skip("backend does not declare conditional-put");
         return;
       }
-      const uri = `s3://${bucket}/sets/atomic-probe/info`;
+      const uri = `s3://${bucket}/snapshots/atomic-probe.info`;
       const results = await Promise.all(
         Array.from({ length: 8 }, (_, i) =>
           putText(uri, `claimant ${i}`, { noClobber: true }),
@@ -71,7 +71,7 @@ describe("conformance: store semantics", () => {
         t.skip("backend does not declare versioning");
         return;
       }
-      const key = "sets/marker-probe/dirs.txt";
+      const key = ".s3cab/sets/marker-probe/dirs.txt";
       const uri = `s3://${bucket}/${key}`;
       await putText(uri, "C:\\data\n");
       assert.equal(await objectExists(uri), true);
@@ -81,7 +81,7 @@ describe("conformance: store semantics", () => {
       assert.equal(await objectExists(uri), false);
       const listed = [];
       for await (const object of listObjects(
-        `s3://${bucket}/sets/marker-probe/`,
+        `s3://${bucket}/.s3cab/sets/marker-probe/`,
       )) {
         listed.push(object.Key);
       }

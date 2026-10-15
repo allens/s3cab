@@ -50,6 +50,8 @@ let stored = new Set();
 let headCalls = [];
 /** @type {Error | undefined} what the HEADs fail with, if they do */
 let headFailure;
+/** @type {Error | undefined} what the holder check refuses with, if it does */
+let notHeld;
 
 /**
  * One set holding two files: `a.jpg` only in the older snapshot, `b.jpg` in both
@@ -115,6 +117,15 @@ mock.module("../lib/prompt.mjs", {
     },
   },
 });
+mock.module("../lib/set-marker.mjs", {
+  exports: {
+    assertHeld: async () => {
+      if (notHeld) {
+        throw notHeld;
+      }
+    },
+  },
+});
 
 const { forget } = await import("./forget.mjs");
 
@@ -156,6 +167,7 @@ beforeEach(() => {
   stored = new Set();
   headCalls = [];
   headFailure = undefined;
+  notHeld = undefined;
   stdout = [];
   console.log = (/** @type {unknown[]} */ ...args) =>
     stdout.push(args.join(" "));
@@ -244,6 +256,18 @@ describe("forget command", () => {
       /not backed up for set 'photos'[\s\S]*s3cab list photos --remote/,
     );
     assert.equal(deleteCalls.length, 0);
+  });
+
+  it("refuses a set this machine doesn't hold, even with --force", async () => {
+    // A machine that is only browsing the set must not delete the holder's
+    // history (ADR-0108); --force skips the confirmation, not this.
+    notHeld = new Error("not held");
+    await assert.rejects(
+      () => forget(["2026-06-12T0915"], { set: "photos", force: true }),
+      /not held/,
+    );
+    assert.equal(referencedCalls, 0);
+    assert.deepEqual(deleteCalls, []);
   });
 
   it("refuses a non-interactive run without --force", async () => {

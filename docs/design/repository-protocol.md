@@ -40,8 +40,8 @@ prose rots silently.
 | --- | --- | --- | --- |
 | `objects/<sha256>` | absent → present | `backup`, `upload` — conditional PUT (`IfNoneMatch: "*"`) in `putObject` ([objects.mjs](../../src/lib/objects.mjs)) | `cleanup`, `delete` — via `deleteStoredObjects`, the only remover |
 | `snapshots/<set>/<name>.tsv.gz` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
-| `sets/<set>/info` | absent → claimed → re-stamped | `setup` claims it (conditional `putText`, first-writer-wins); `reattach` re-stamps OWNER with a plain PUT, preserving CREATED ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
-| `sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `reattach`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
+| `snapshots/<set>.info` | absent → claimed → taken over | `setup` claims it (conditional `putText`, first-writer-wins, only while `snapshots/<set>/` is empty); `takeover` rewrites OWNER and CLAIMED with a plain PUT, keeping CREATED, or claims it conditionally when absent ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
+| `.s3cab/sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
 | `objects.deleted-<n>.tsv` | absent → present, then **immutable** (never overwritten — compaction writes a *new* index) | `delete` — conditional PUT at the lowest free index, walking upward on collision ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | `cleanup` — compaction removes absorbed files, only *after* their merge lands at a fresh index ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) |
 
 Two properties of `objects/` are worth stating precisely, because most of the durability surface
@@ -65,6 +65,11 @@ rests on them:
 | `.snapshot.tsv.gz` | The in-progress work file, doubling as the per-set lock ([ADR-0048](../adr/0048-snapshot-lock-atomic-temp-file.md)) |
 | `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), stopping after its last file row with no closing `.`. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
 
+Beside them, `~/.s3cab/sets/<set>/claim` holds the OWNER and CLAIMED this machine wrote to
+`snapshots/<set>.info` ([ADR-0108](../adr/0108-set-ownership.md)). Its presence means this
+machine holds the set; a holder check (`assertHeld` in
+[set-marker.mjs](../../src/lib/set-marker.mjs)) that finds the marker changed deletes it.
+
 ## The invariant, and the single place it is enforced
 
 > A snapshot's presence under `snapshots/` guarantees every object it references is already
@@ -86,6 +91,9 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
 
 ### `backup` — the long one (fused pipeline, [ADR-0069](../adr/0069-fused-snapshot-upload-pipeline.md))
 
+First, `assertHeld` reads `snapshots/<set>.info` and refuses unless its OWNER and CLAIMED match
+`claim`. **[atomic]** read.
+
 1. `readBaseline` — pick the latest **local** snapshot. Local read.
 2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — compare the baseline's remote
    snapshot against the local file, **byte for byte**
@@ -104,7 +112,9 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
    renames the work file to the parked-lookup name.
 6. Throw on any collected upload failure or drift — **before** step 7, so no manifest is published.
    The local snapshot from step 5 survives.
-7. `uploadSnapshotFile` — no-clobber PUT of the manifest. **[atomic]. This is the commit point.**
+7. `uploadSnapshotFile` — `assertHeld` again, then the no-clobber PUT of the manifest.
+   **[atomic]. This is the commit point.** The check and the PUT are two requests: a takeover
+   landing between them lets this run publish anyway (ADR-0108 states the gap).
    A 412 here is resolved by byte-identity: identical is this run's own retried PUT and succeeds
    quietly. The two losing outcomes — different (another machine's snapshot holds the name) and
    absent (that snapshot deleted between the 412 and the read) — share **one** past-tense
@@ -121,13 +131,15 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 
 ### `upload`
 
-- `--snapshot` — objects first, manifest last; same commit point, same atomicity.
+- `--snapshot` — objects first, manifest last; same holder check, commit point and atomicity.
 - `--dir` — objects only, no manifest.
 - `--file` — `fileChange` guard, then one conditional PUT **[atomic]**. `--force` is the only path
   in the whole tool that overwrites an existing object, and therefore the only repair for a
   corrupt one.
 
 ### `forget`
+
+First, `assertHeld`, as `backup` does.
 
 1. LIST the set's remote snapshots and require **every** named snapshot to exist before deleting
    **any** — a typo cannot leave the first two of three already gone.
@@ -194,16 +206,19 @@ failure modes, deliberately different:
 
 ### `reattach`
 
-Read `info` → pull `dirs.txt`/`exclude.txt` and the remote snapshots (each landing via an atomic
-local write) → re-stamp OWNER with a plain PUT **[atomic]**. It **never disables the prior
-machine**: two live machines on one set is a tolerated state, not an error state — which is a
-precondition for [C2](#where-the-model-is-violable). The outgoing `OWNER` is read here and
-nowhere else, so this is also where the co-existence warning is issued (design/backup.md).
+Read `<set>.info` → pull the remote snapshots this machine lacks, each landing via an atomic local
+write. No bucket transition: it writes nothing remote.
+
+### `takeover`
+
+`reattach`'s reads → pull `dirs.txt`/`exclude.txt` where no local file exists → rewrite OWNER
+and CLAIMED with a plain PUT, or a conditional `putText` when the set has no `.info`
+**[atomic]** → write `claim`. The previous holder's next `assertHeld` refuses.
 
 ### `setup`
 
-Local-exists check → `claimRemoteSet`, a conditional `putText` **[atomic]**, first writer wins and
-the loser gets a loud collision error.
+Local-exists check → LIST `snapshots/<set>/`, refusing if it isn't empty → `claimRemoteSet`, a
+conditional `putText` **[atomic]**, first writer wins and the loser gets a loud collision error.
 
 ## The atomic gates, in one list
 
@@ -215,7 +230,7 @@ whose failure leaves only recoverable residue:
 3. Conditional PUT of an object — idempotent under content addressing, so a retry or a duplicate
    delivery is a no-op rather than an overwrite.
 4. **No-clobber PUT of the manifest — the commit point.**
-5. Conditional PUT of `info` / a deletion record — first-writer-wins claims.
+5. Conditional PUT of `<set>.info` / a deletion record — first-writer-wins claims.
 
 Gates 3, 4 and 5 all rest on the S3 conditional write (`If-None-Match: *`). That is a single
 mechanism carrying four separate correctness promises, and it is only verified on AWS — see
@@ -234,6 +249,10 @@ a description of the protocol rather than a running defect list:
   [ADR-0083](../adr/0083-streamed-digest-upload-guard.md)'s streamed-digest check on the PUT and
   [ADR-0084](../adr/0084-snapshot-identity-byte-equality.md)'s byte-identity comparison
   respectively. Kept named here because the transitions above cite them.
+- A takeover between a backup's holder check and its manifest PUT, a snapshot uploaded between
+  `setup`'s LIST of `snapshots/<set>/` and its claim, and a `claim` copied with the rest of a
+  home — the three gaps [guide/format.md](../../guide/format.md#who-holds-a-set) states
+  ([ADR-0108](../adr/0108-set-ownership.md)).
 - The `cleanup`-vs-backup and `delete`-vs-backup races —
   [proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md) §1 and §3.
 - The conditional-write backstop off-AWS — [s3-provider-compatibility.md](s3-provider-compatibility.md),

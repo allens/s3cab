@@ -11,7 +11,8 @@ import {
 } from "../../src/lib/remote.mjs";
 import { uploadSnapshot } from "../../src/lib/upload.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
-import { bucket } from "../helpers/integration.mjs";
+import { holdSet } from "../helpers/hold-set.mjs";
+import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
 // The upload executor's S3 round-trip against a real test bucket (S3 test
 // strategy, docs/design/testing.md). The gate/harness lives in the shared
@@ -75,12 +76,15 @@ describe("uploadSnapshot (real bucket)", () => {
     );
     const allHashes = [...new Set([...firstHashes, ...secondHashes])];
 
+    const claimPath = join(dir.path, "claim");
     try {
+      await holdSet(bucket, set, claimPath);
       // First backup: no --since → LIST the (empty) store, upload both objects.
       const firstResult = await uploadSnapshot({
         bucket,
         set,
         snapshotDir,
+        claimPath,
         name: first,
       });
       assert.equal(firstResult.candidates, firstHashes.length);
@@ -104,6 +108,7 @@ describe("uploadSnapshot (real bucket)", () => {
         bucket,
         set,
         snapshotDir,
+        claimPath,
         name: second,
         since: first,
       });
@@ -118,6 +123,7 @@ describe("uploadSnapshot (real bucket)", () => {
         bucket,
         set,
         snapshotDir,
+        claimPath,
         name: first,
       });
       assert.equal(reRun.uploaded, 0);
@@ -130,10 +136,12 @@ describe("uploadSnapshot (real bucket)", () => {
       rmSync(join(snapshotDir, `${first}.tsv.gz`));
       await writeSnapshot(snapshotDir, first, [fileA, fileB, fileC]);
       await assert.rejects(
-        () => uploadSnapshot({ bucket, set, snapshotDir, name: first }),
+        () =>
+          uploadSnapshot({ bucket, set, snapshotDir, name: first, claimPath }),
         /the name was already taken when we wrote it/,
       );
     } finally {
+      await cleanupSetMarker(set);
       for (const hash of allHashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
@@ -175,12 +183,15 @@ describe("uploadSnapshot (real bucket)", () => {
     assert(props, "the file should be in the snapshot");
     const hash = props.hash;
 
+    const claimPath = join(dir.path, "claim");
     try {
+      await holdSet(bucket, set, claimPath);
       // Backup one: the object and the snapshot go up.
       const firstResult = await uploadSnapshot({
         bucket,
         set,
         snapshotDir,
+        claimPath,
         name: first,
       });
       assert.equal(firstResult.uploaded, 1);
@@ -199,6 +210,7 @@ describe("uploadSnapshot (real bucket)", () => {
         bucket,
         set,
         snapshotDir,
+        claimPath,
         name: second,
         since: first,
       });
@@ -215,6 +227,7 @@ describe("uploadSnapshot (real bucket)", () => {
       }
       assert.deepEqual(keys, [`objects/${hash}`]);
     } finally {
+      await cleanupSetMarker(set);
       await deleteObject(`s3://${bucket}/objects/${hash}`);
       for (const name of [first, second]) {
         await deleteObject(
@@ -254,9 +267,11 @@ describe("uploadSnapshot (real bucket)", () => {
     // The file changes after the snapshot but before its turn to upload.
     writeFileSync(drifting, `changed, and now a longer body ${set}`);
 
+    const claimPath = join(dir.path, "claim");
     try {
+      await holdSet(bucket, set, claimPath);
       await assert.rejects(
-        () => uploadSnapshot({ bucket, set, snapshotDir, name }),
+        () => uploadSnapshot({ bucket, set, snapshotDir, name, claimPath }),
         /while the backup was running/,
       );
 
@@ -281,6 +296,7 @@ describe("uploadSnapshot (real bucket)", () => {
         "the drifted object must not be stored",
       );
     } finally {
+      await cleanupSetMarker(set);
       // stable.txt's object may have gone up before the abort (objects-first);
       // delete whatever landed. No snapshot to remove — none was published.
       for (const hash of [stableHash, driftHash]) {

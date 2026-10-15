@@ -21,7 +21,8 @@ import { captureTree, sha256 } from "./model.mjs";
 const LEGAL_KEY = new RegExp(
   "^(objects/[0-9a-f]{64}" +
     "|snapshots/[^/]+/[^/]+\\.tsv\\.gz" +
-    "|sets/[^/]+/(info|dirs\\.txt|exclude\\.txt)" +
+    "|snapshots/[a-z0-9-]+\\.info" +
+    "|\\.s3cab/sets/[^/]+/(dirs\\.txt|exclude\\.txt)" +
     "|objects\\.deleted-[1-9][0-9]*\\.tsv)$",
 );
 

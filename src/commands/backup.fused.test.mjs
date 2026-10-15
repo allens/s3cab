@@ -17,14 +17,16 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 let putUris = [];
 /** @type {Error | undefined} Let every PUT fail, to drive the failure path. */
 let putError;
+/** @type {Map<string, string>} the small text objects: the set's marker and config */
+const texts = new Map();
 
 // The store starts empty, which is the stencil's default (test/helpers/s3-seam.mjs):
 // nothing listed, and every remote snapshot absent, so no baseline is trusted.
-// The writes this suite models are the object PUT it measures, and the set's
-// cloud-config refresh backup does on the way out — `pushSetConfig`'s PUT of
-// dirs.txt plus the DELETE that clears a stale remote exclude.txt. That refresh
-// only *warns* when it fails, so leaving it unmodelled would quietly move every
-// test in this file onto the warning path.
+// The writes this suite models are the object PUT it measures, the set's marker
+// the holder check reads, and the set's cloud-config refresh backup does on the
+// way out — `pushSetConfig`'s PUT of dirs.txt plus the DELETE that clears a stale
+// remote exclude.txt. That refresh only *warns* when it fails, so leaving it
+// unmodelled would quietly move every test in this file onto the warning path.
 mock.module("../lib/s3.mjs", {
   exports: s3Seam({
     putFile: async (/** @type {string} */ _path, /** @type {string} */ uri) => {
@@ -34,7 +36,14 @@ mock.module("../lib/s3.mjs", {
       }
       return true;
     },
-    putText: async () => true,
+    putText: async (
+      /** @type {string} */ uri,
+      /** @type {string} */ content,
+    ) => {
+      texts.set(uri, content);
+      return true;
+    },
+    getText: async (/** @type {string} */ uri) => texts.get(uri),
     deleteObject: async () => {},
   }),
 });
@@ -44,6 +53,7 @@ const { writeSet } = await import("../lib/sets.mjs");
 const { listSnapshotNames, readSnapshot } =
   await import("../lib/snapshot-file.mjs");
 const { writeSnapshot } = await import("../../test/helpers/write-snapshot.mjs");
+const { holdSet } = await import("../../test/helpers/hold-set.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 const sha = (/** @type {string} */ content) =>
@@ -55,6 +65,7 @@ beforeEach(() => {
   savedEnv = { ...process.env };
   putUris = [];
   putError = undefined;
+  texts.clear();
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
@@ -66,25 +77,29 @@ afterEach(() => {
 });
 
 /**
- * A set of three files, two of which share their content.
+ * A set of three files, two of which share their content, held by this machine.
  * @param {string} root - A disposable directory to build the set and its home in
- * @returns {string} the set's snapshot store
+ * @returns {Promise<string>} the set's snapshot store
  */
-const oneSet = (root) => {
+const oneSet = async (root) => {
   const data = join(root, "data");
   mkdirSync(data, { recursive: true });
   writeFileSync(join(data, "a.txt"), "hello");
   writeFileSync(join(data, "b.txt"), "world");
   writeFileSync(join(data, "copy.txt"), "hello"); // same content as a.txt
-  const home = useTempHome(root);
-  writeSet("photos", { dirs: [realpathSync.native(data)], bucket: "b" });
-  return join(home, ".s3cab", "sets", "photos", "snapshots");
+  useTempHome(root);
+  const set = writeSet("photos", {
+    dirs: [realpathSync.native(data)],
+    bucket: "b",
+  });
+  await holdSet(set.bucket, set.name, set.claimPath);
+  return set.snapshotsDir;
 };
 
 describe("backup (fused snapshot + upload, real engine)", () => {
   it("PUTs each distinct object during the hash pass and the snapshot last", async () => {
     await using dir = await mkTmpDir();
-    const snapshotDir = oneSet(dir.path);
+    const snapshotDir = await oneSet(dir.path);
 
     const result = await backup("photos");
 
@@ -107,7 +122,7 @@ describe("backup (fused snapshot + upload, real engine)", () => {
     // The cheap-retry invariant: the stat-and-hash pass is never thrown away, so
     // the fix is `upload <set> --snapshot <name>`, not a whole fresh backup.
     await using dir = await mkTmpDir();
-    const snapshotDir = oneSet(dir.path);
+    const snapshotDir = await oneSet(dir.path);
     putError = new Error("connection reset");
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
@@ -137,7 +152,7 @@ describe("backup's run report (real engine)", () => {
 
   it("counts the files it went through, apart from the objects it sent", async () => {
     await using dir = await mkTmpDir();
-    oneSet(dir.path);
+    await oneSet(dir.path);
 
     const result = await backup("photos");
 
@@ -167,7 +182,7 @@ describe("backup's run report (real engine)", () => {
     // reused and not a byte is opened — while `files`/`bytes` still describe
     // the set in full.
     await using dir = await mkTmpDir();
-    const snapshotDir = oneSet(dir.path);
+    const snapshotDir = await oneSet(dir.path);
     await writeSnapshot(
       snapshotDir,
       "2020-01-01T0900",
@@ -188,7 +203,7 @@ describe("backup's run report (real engine)", () => {
     // fires only when there is no trusted baseline — so s3cab said where the
     // backup was going on the first run and never again (ADR-0078 §11).
     await using dir = await mkTmpDir();
-    oneSet(dir.path);
+    await oneSet(dir.path);
     /** @type {string[]} */
     const said = [];
     const warn = mock.method(console, "warn", (/** @type {unknown[]} */ ...m) =>
@@ -208,7 +223,7 @@ describe("backup's run report (real engine)", () => {
     // The summary and the command it prints have to be the same computation, or
     // "1 added" over a listing of none is a trust bug (ADR-0078 §8).
     await using dir = await mkTmpDir();
-    const snapshotDir = oneSet(dir.path);
+    const snapshotDir = await oneSet(dir.path);
     const root = data(dir.path);
     // A baseline taken before `copy.txt` existed.
     await writeSnapshot(

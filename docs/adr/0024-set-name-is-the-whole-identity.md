@@ -6,8 +6,10 @@ set **name** is the whole identity, the remote layout flattened to `snapshots/<s
 `setup` collision check + `--inherit` succession + the `sets/<set>/` marker (`dirs.txt` /
 `exclude.txt` / `info`) all landed. The full design is in
 [docs/design/backup.md](../design/backup.md). *(`setup --inherit` has since become its own
-command, `reattach` — [0053](0053-reattach-command.md); the succession semantics below are
-unchanged.)*
+command, `reattach` — [0053](0053-reattach-command.md).)* Partly superseded by
+[0108](0108-set-ownership.md): two live machines on one set are no longer tolerated, `OWNER`
+names the set's one holder rather than being advisory, and the `sets/<set>/` marker becomes
+`snapshots/<set>.info`. The set's name stays its whole identity.
 
 A backup set's **name** (a user-chosen `[a-z0-9-]+` label, e.g. `work-laptop`) is its *entire*
 identity: it is at once the local handle, the local directory name, and the remote namespace.

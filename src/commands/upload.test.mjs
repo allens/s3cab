@@ -13,12 +13,13 @@ import { beforeEach, describe, it, mock } from "node:test";
 // check is real fs, so its tests point at a genuine directory (`tmpdir()`). Mocks
 // first, then a dynamic import (objects.test.mjs ordering rule).
 
-/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string }} */
+/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string }} */
 const fakeSet = {
   name: "photos",
   bucket: "set-bucket",
   snapshotsDir: "/snaps",
   excludePath: "/snaps/exclude.txt",
+  claimPath: "/photos/claim",
 };
 /** @type {(string | undefined)[]} */
 let loadSetCalls = [];
@@ -229,6 +230,8 @@ describe("upload --snapshot (a snapshot's objects)", () => {
       snapshotDir: "/snaps",
       name: "2026-01-02T0900",
       since: "2026-01-01T0900",
+      // Its proof it holds the set, checked just before the snapshot goes up.
+      claimPath: "/photos/claim",
     });
     assert.deepEqual(result, {
       mode: "snapshot",

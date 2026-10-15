@@ -31,7 +31,8 @@ import { isCorruptSnapshotError } from "../../src/lib/referenced.mjs";
 import { uploadSnapshot, uploadSnapshotFile } from "../../src/lib/upload.mjs";
 import { enumeration } from "../helpers/enumeration.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
-import { bucket } from "../helpers/integration.mjs";
+import { holdSet } from "../helpers/hold-set.mjs";
+import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
 // The remote engine's S3 round-trips against a real test bucket (S3 test strategy,
 // docs/design/testing.md). The gate/harness lives in the shared integration
@@ -81,7 +82,7 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
     assert.equal(pulled, 0);
   });
 
-  it("pulls each snapshot file down byte-identically (the reattach sync, ADR-0027)", async () => {
+  it("pulls each snapshot file down byte-identically, and only once (the reattach refresh, ADR-0108)", async () => {
     await using dir = await mkTmpDir();
     const set = `dl-${Date.now()}`;
     const name = "2025-02-20T0900";
@@ -99,7 +100,9 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
 
     const destDir = join(dir.path, "pulled");
     try {
-      await uploadSnapshot({ bucket, set, snapshotDir, name });
+      const claimPath = join(dir.path, "claim");
+      await holdSet(bucket, set, claimPath);
+      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
 
       const pulled = await downloadRemoteSnapshots(bucket, set, destDir);
       assert.equal(pulled, 1);
@@ -112,6 +115,10 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
       // And it parses back to the same entries, so a local compare/list can use it.
       const { entries: roundTripped } = await readSnapshot(destDir, name);
       assert.deepEqual(roundTripped, original);
+
+      // A refresh pulls only the snapshots it lacks.
+      const again = await downloadRemoteSnapshots(bucket, set, destDir);
+      assert.equal(again, 0);
     } finally {
       for (const hash of hashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
@@ -119,6 +126,7 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       );
+      await cleanupSetMarker(set);
     }
   });
 });
@@ -149,7 +157,9 @@ describe("referencedObjects (real bucket)", () => {
     const badKey = `${remoteSnapshotsPrefix(set)}${badName}.tsv.gz`;
 
     try {
-      await uploadSnapshot({ bucket, set, snapshotDir, name });
+      const claimPath = join(dir.path, "claim");
+      await holdSet(bucket, set, claimPath);
+      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
       await putText(`s3://${bucket}/${badKey}`, "not a gzip stream");
 
       // Bucket-wide, grouped by set: pick out the set this test wrote (the shared
@@ -180,6 +190,7 @@ describe("referencedObjects (real bucket)", () => {
         `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       );
       await deleteObject(`s3://${bucket}/${badKey}`);
+      await cleanupSetMarker(set);
     }
   });
 });
@@ -215,10 +226,19 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
       join(dir.path, snapshotFileName(name)),
       gzipSync(HEADING + rows.join("\n")),
     );
-    await uploadSnapshotFile({ bucket, set, snapshotDir: dir.path, name });
+    const claimPath = join(dir.path, "claim");
+    await holdSet(bucket, set, claimPath);
+    await uploadSnapshotFile({
+      bucket,
+      set,
+      snapshotDir: dir.path,
+      name,
+      claimPath,
+    });
   });
   after(async () => {
     await deleteObject(remoteSnapshotUri(bucket, set, name));
+    await cleanupSetMarker(set);
     await dir.remove();
   });
 
@@ -273,7 +293,9 @@ describe("deleteRemoteSnapshot (real bucket)", () => {
     const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     try {
-      await uploadSnapshot({ bucket, set, snapshotDir, name });
+      const claimPath = join(dir.path, "claim");
+      await holdSet(bucket, set, claimPath);
+      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
       assert.deepEqual(await listRemoteSnapshots(bucket, set), [name]);
 
       await deleteRemoteSnapshot(bucket, set, name);
@@ -301,6 +323,7 @@ describe("deleteRemoteSnapshot (real bucket)", () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       ).catch(() => {});
+      await cleanupSetMarker(set);
     }
   });
 });

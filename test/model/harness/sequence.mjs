@@ -21,7 +21,7 @@ import { Random } from "./random.mjs";
  *   | { kind: "verify", fault?: FaultSpec }
  *   | { kind: "forget", machine: number, set: string, index: number, fault?: FaultSpec }
  *   | { kind: "cleanup", fault?: FaultSpec }
- *   | { kind: "reattach", machine: number, set: string }
+ *   | { kind: "takeover", machine: number, set: string }
  * )} Step
  */
 
@@ -143,7 +143,7 @@ export function generateSequence(seed, { steps: stepCount = 25 } = {}) {
         fault: maybeFault(rng, [...WRITE_FAULTS]),
       });
     } else {
-      steps.push({ kind: "reattach", machine: machines - 1, set });
+      steps.push({ kind: "takeover", machine: machines - 1, set });
     }
   }
   return steps;

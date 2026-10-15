@@ -6,12 +6,11 @@ import { reattach } from "./reattach.mjs";
 import { writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Offline reattach tests (docs/design/backup.md, ADR-0053): the pre-S3
-// validation that fires before any network touch. Reattach adopts an existing
-// *remote* set (split out of `setup --inherit`), so its create-vs-adopt sibling
-// `setup` is tested in setup.test.mjs; the real-bucket adopt behaviour lives in
-// the gated test/integration/set-lifecycle.test.mjs. The set store keeps no
-// module state, so each test points S3CAB_HOME at a temp dir.
+// Offline reattach tests (docs/design/backup.md, ADR-0053, ADR-0108): the
+// validation that fires before any network touch. What it does with the bucket
+// is reattach.attach.test.mjs, and against a real one the gated
+// test/integration/set-lifecycle.test.mjs. The set store keeps no module state,
+// so each test points S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -50,7 +49,7 @@ describe("reattach (offline validation)", () => {
     );
   });
 
-  it("takes no directories (it adopts the remote's dirs)", async () => {
+  it("takes no directories (they are the holder's)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
@@ -60,13 +59,13 @@ describe("reattach (offline validation)", () => {
     );
   });
 
-  it("needs a bucket (the one holding the set), with a copy-pasteable fix", async () => {
+  it("needs the bucket holding a set that isn't here yet", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
     await assert.rejects(
       () => reattach("photos", [], {}),
-      /Reattaching needs the bucket[\s\S]*s3cab reattach photos --bucket/,
+      /isn't on this machine yet[\s\S]*--bucket <bucket>/,
     );
   });
 
@@ -80,15 +79,15 @@ describe("reattach (offline validation)", () => {
     );
   });
 
-  it("refuses when the set already exists on this machine", async () => {
+  it("refuses to refresh a set from a bucket it isn't attached from", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     // A set already exists locally (written straight to the store, no S3).
     writeSet("photos", { dirs: [dir.path], bucket: "my-bucket" });
 
     await assert.rejects(
-      () => reattach("photos", [], { bucket: "my-bucket" }),
-      /already exists on this machine[\s\S]*Delete it first/,
+      () => reattach("photos", [], { bucket: "other-bucket" }),
+      /attached from bucket 'my-bucket', not 'other-bucket'/,
     );
   });
 });
