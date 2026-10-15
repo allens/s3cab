@@ -3,8 +3,7 @@
 **Proposed, not yet reviewed.** My idea: run the clean-room *sessions* themselves in GitHub
 Actions — **macOS only**, the one platform I can't easily run locally. Windows and Linux stay on
 my machine, where runs use my subscription; a CI run bills the API key, which costs far more.
-Builds on [cleanroom-harness.md](cleanroom-harness.md), which builds on
-[format-scope.md](format-scope.md).
+Builds on [cleanroom-harness.md](cleanroom-harness.md).
 
 Distinct from what ADR-0096 already settles for CI: a matrix that builds and runs the committed
 programs and never writes them. This is about writing them there. It reopens ADR-0096's "the
