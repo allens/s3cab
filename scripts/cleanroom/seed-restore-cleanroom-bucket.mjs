@@ -99,10 +99,10 @@ if (skipped.length > 0) {
 // goes; anything else and we stop and say what we found. A flag would have put that
 // judgement on the operator at the moment they are least likely to check.
 //
-// Every key is read, not just the `<set>.info` markers: a clear that died partway leaves
-// snapshots with no marker beside them (keys go in listing order, and `<set>.info` sorts
-// before `<set>/`), and those stale snapshots would end up stamped as part of the new
-// seed. s3cab's copy of each set's config, under `.s3cab/sets/<set>/`, names it too.
+// Every key is read, not just the `<set>.info` markers: a clear that died partway, going
+// in listing order, can leave a set's snapshots with neither its `.s3cab/sets/<set>/`
+// config nor its `<set>.info` beside them, and those stale snapshots would end up stamped
+// as part of the new seed.
 const keys = await listAll(bucket);
 /** @type {Set<string>} */
 const present = new Set();
@@ -118,6 +118,9 @@ for (const key of keys) {
     strays.push(key);
   }
 }
+// A folder marker (`snapshots/`, `.s3cab/sets/`), as the S3 console's "Create folder"
+// makes, names no set.
+present.delete("");
 const foreign = [...present].filter((name) => !setNames.includes(name));
 /** @type {string[]} */
 const found = [];

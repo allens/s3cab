@@ -38,7 +38,8 @@
  *   F9  metadata field count `#excluded` (exclude pattern), and a symlink into the set,
  *   F10 column padding       a size range wide enough to move the size column's width
  *   F11 metadata payloads    same rows as F9
- *   F12 `info` syntax        free — every set writes one
+ *   F12 `info` syntax        NOT A RESTORE'S — a reader skips every `<set>.info`; an
+ *                            upload's is check-upload.mjs's to check
  *   F13 Windows MAX_PATH     a nested path past 260 characters                 [POSIX]
  *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket

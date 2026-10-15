@@ -396,9 +396,9 @@ refused the two snapshots it should have. So, in order:
 - every object a published snapshot names is stored;
 - no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
 - every set with a published snapshot has a `snapshots/<set>.info` of `OWNER`,
-  `CLAIMED` and `CREATED` lines, each once and ending LF, with `CREATED` equal
-  to `CLAIMED` since every claim in an empty bucket is a new one, and no `.info`
-  claims a set the session wasn't handed;
+  `CLAIMED` and `CREATED` lines, each once and ending LF, the two instants in
+  `mtime`'s form and equal, since every claim in an empty bucket is a new one,
+  and no `.info` claims a set the session wasn't handed;
 - s3cab reattaches every set with a published snapshot or a `.info`, and
   restores each published snapshot.
 
@@ -479,7 +479,7 @@ symlinks, no permissions, mtimes rounded to the millisecond
 would fail a restorer for being right. The script drives the real CLI as a
 subprocess to produce them, with `S3CAB_HOME` pointed at the sandbox's `.s3cab\`
 so your own `~/.s3cab` is untouched while `~/.aws` keeps working. It reattaches
-each set first, which only reads the bucket.
+each set first.
 
 `faults` and `corrupt` restore with a nonzero exit, which the script reports as
 expected rather than failing — and their reference trees are whatever s3cab
