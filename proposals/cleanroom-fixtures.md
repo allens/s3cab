@@ -7,17 +7,13 @@ fixture here is buildable on Linux by a Node script, with no root and no special
 by what a wrong reading costs: **silent** (a restore or backup that looks right and isn't) before
 **loud** (it fails, or the harness compare catches it).
 
+The backup side's gaps are built (the unreadable file, the links, the hard-link pair and FIFO,
+the out-of-range mtimes, the backslash names, the refused sets). What is left reaches the seed
+and the restore fixtures only: the backup clean room has no exclude patterns and no `dirs.txt`
+([cleanroom-harness.md](cleanroom-harness.md)).
+
 ## Gaps
 
-- **An unreadable file, which gives an `#error` row.** ADR-0096 names this open. Use
-  `chmodSync(0o000)` with about twenty readable siblings: ext4 returns readdir entries in hash
-  order, so the unreadable file can't be placed, and the siblings make sure some rows come after
-  it. The builder has to check the file really is unreadable, because root reads anything, and
-  skip it loudly otherwise. `backup` exits 1 on an `#error` row, so the seed has to accept that
-  exit for this set instead of using `mustRun`. **Silent** on the backup side: a backup that
-  drops the row and shifts every later hash by one stores objects that match their keys but
-  belong to other files, and hashing what you download can't catch that. Restore side: no
-  snapshot in the restore fixtures has ever held an `#error` row.
 - **Hand-edited snapshots.** A new set whose `info`, `dirs.txt` and snapshots are published
   through the SDK, the way the seed already publishes the damaged `faults` snapshot. Its rows
   reuse hashes already in the bucket, and `restore --output` builds its reference on Linux.
@@ -29,7 +25,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
     **Silent.**
   - The same path twice with different hashes. "Valid and invalid files" refuses both rows, and
     s3cab exits nonzero; a first-wins or last-wins reader restores one of them and reports
-    nothing. This makes F4 in `fixtures.mjs` (marked NOT TESTABLE) testable. **Silent.**
+    nothing. This is F4, which no tree can provoke. **Silent.**
   - A row with a `..` segment. s3cab refuses the path; a restorer that joins it onto its output
     directory writes outside it. **Silent.**
   - A POSIX `@SET DIR` in a different case from its rows. "Every other path is matched exactly",
@@ -37,64 +33,42 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   - A `DIR` with a trailing or doubled separator. Loud.
   - A second snapshot whose last line is another `@S3CAB` row, `VERSION` say. A reader that
     checks only the type restores a cut-short snapshot. **Silent.**
-- **A backslash in a POSIX name**: `edge/back\slash.txt` and `edge/a\b/c.txt`. Covers
-  "a Windows path splits on `/` *and* `\`, any other on `/` alone". A restorer splitting on both
-  misplaces them on Linux; on Windows it has to refuse them. **Silent.**
-- **Exclude-pattern edges, backup side.** Add these to `spread`, beside its existing near misses.
-  In each case a home-made matcher (Python's `fnmatch` or `glob`, or a hand-translated regex)
-  can disagree with s3cab, so the tree that gets backed up differs. **Silent.**
+- **Exclude-pattern edges, seed side.** Add these to `spread`, beside its existing near misses.
+  They reach no clean room now, since none has patterns; what they test is that the seed's
+  own patterns mean what exclude.md says, so the restore fixtures hold the tree they claim.
   - A directory `old.log/` containing `inner.txt`. A pattern without a trailing `/` never matches
     a directory, so s3cab keeps it.
-  - `alpha/sub/deep.log`. `*` stays within one name, so `*.log` doesn't reach it. `fnmatch`'s
-    `*` crosses `/`.
+  - `alpha/sub/deep.log`. `*` stays within one name, so `*.log` doesn't reach it.
   - `photo[1].jpg` with that exact pattern, and a `photo1.jpg` near miss. Brackets are literal
-    in s3cab; `fnmatch` treats them as a character class.
-  - `runxlog`, which s3cab keeps. A regex translation that leaves `.` unescaped drops it.
-  - `.a.log`, which s3cab drops. `glob.glob` skips hidden names by default.
-  - `LOUD.LOG`, excluded only on Windows. A Windows backup using the case-sensitive
-    `fnmatchcase` keeps it.
+    in s3cab.
+  - `runxlog`, which s3cab keeps.
+  - `.a.log`, which s3cab drops.
+  - `LOUD.LOG`, excluded only on Windows.
 - **The rest of `exclude.txt` and `dirs.txt` the way people write them.** `edge`'s
   `exclude.txt` already has CRLF and no final newline. Still missing: an indented `#` line, a
   blank line and a pattern with a trailing space in an `exclude.txt`, and a `dirs.txt` with a
-  comment, a member directory reached through a symlink, and one written with a trailing `/`. The
-  snapshot and upload builds write every `dirs.txt` clean, with LF endings. A pattern that keeps
-  its trailing space matches nothing, so the backup takes files s3cab excludes. **Silent.** A
-  member directory kept as typed rather than resolved changes every path, which the harness
-  catches.
+  comment, a member directory reached through a symlink, and one written with a trailing `/`.
+  The seed writes every `dirs.txt` clean, with LF endings. A member directory kept as typed
+  rather than resolved changes every path in the restore fixtures.
 - **Nested member directories separated by an exclude.** Use `dirs` set to
   `[nest/outer, nest/outer/inner]` with the pattern `inner/`. s3cab accepts this and writes
   nested `@SET DIR`s, which exercises "the **longest wins**". A restorer that takes the first match
   lays the files out differently. **Silent**, though layout is the tool's own decision.
-- **mtimes before 1970 and after 2262**, for example `-86_400.25` and a date in 2300; ext4 holds
-  1901–2446. For a negative time, rounding toward zero instead of flooring sets the restored
-  mtime a second off. After 2262, a 64-bit nanosecond count overflows (Go's `UnixNano`, C++
-  `chrono` nanoseconds). **Silent.**
-- **A directory symlink, a dangling symlink and a link out of the set in `edge`.**
-  `link-to-plain` covers only a symlink to a file inside the set. A backup that follows the
-  directory symlink backs up the target tree under the link's name, which the harness catches. A
-  link out of the set is an `#error` row whose path ends with a separator if it leads to a folder;
-  a backup that follows it, drops it or gets the separator wrong is caught by path. The cost: s3cab
-  then exits 1 on `edge`, and the harness's `mustRun` throws on that.
 - **A gap in the deletion-record numbering.** Run `s3cab cleanup` after both deletes and before
   the torn object, the corrupt bytes and the damaged snapshot exist; cleanup refuses an
   unreadable snapshot, so it has to run first. That leaves a single `-3` record. A restorer that
   counts `-1`, `-2` … reports a recorded deletion as unexplained damage. Loud, but in the wrong
   category.
-- **A `.s3cab` directory inside `edge`.** It is "never walked and gets no row". A backup that
-  walks it adds rows, which the harness catches. Loud.
 - **A tab, LF or CR in an excluded name**: `edge/odd\nname.jpg` and `edge/odd\rname.jpg` with
-  the pattern `odd*name.jpg`. s3cab spells them out (`odd␊name.jpg`). A backup that writes them
-  raw splits the row, and the second half reads as a malformed row. Loud.
-- **Hard links and a FIFO** (`linkSync`, `execFileSync("mkfifo")`). A backup that deduplicates by
-  inode drops a path. **Silent.** A FIFO gets no row; a backup that opens it hangs. Loud.
+  the pattern `odd*name.jpg`. s3cab spells them out (`odd␊name.jpg`). A restorer that reads
+  them raw splits the row. Loud. (With no pattern, such a name is the `tabbed` set a backup
+  must refuse.)
 - **"Two snapshots of an unchanged set differ in `@SNAPSHOT NAME`, `START` and `FINISH`,
   and nowhere else" costs no new fixture.** F5 already backs `edge` up twice without touching
   the tree; the harness only has to diff the two snapshots.
-
-## Waiting on a fix in [bugs.md](bugs.md)
-
-- **A filename that isn't valid UTF-8**, created through a `Buffer` path in a set of its own. Its
-  shape depends on how the fix handles such names.
+- **mtimes before 1970 and after 2262 on Windows.** Built on POSIX; held back on Windows until
+  the `statSync` wrap in [bugs.md](bugs.md) is fixed, since s3cab's own reference row is wrong
+  there.
 
 ## Questions the fixtures raise
 
@@ -110,6 +84,9 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 
 ## Rejected
 
+- **A `.s3cab` directory inside `edge`.** Skipping it is s3cab's own rule
+  ([guide/backup.md](../guide/backup.md)), not the format's: a correct clean-room backup records
+  its files, and the checker, which compares with `s3cab snapshot`, would fail it for that.
 - **Sparse files.** Zeros are content, so sparseness isn't visible in the format. The only reason
   to use one would be to push the size column past 12 digits, which needs an object of a
   terabyte or more on every seed. A hand-made row lying about the size would raise a different question
