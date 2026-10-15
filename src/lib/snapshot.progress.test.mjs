@@ -42,6 +42,9 @@ let lines = [];
 /** The closing frame, if the pass drew one. */
 /** @type {string | undefined} */
 let closing;
+/** The width the stub terminal reports: none, as under the test runner. */
+/** @type {number | undefined} */
+let width;
 
 /**
  * Clear the last pass's frames. A function rather than two assignments in each
@@ -71,6 +74,7 @@ mock.module("./progress.mjs", {
     // Stubbed only because mocking a module replaces the whole of it, and
     // `walk.mjs` imports this from here.
     countedPass: () => ({ tick() {}, done() {}, [Symbol.dispose]() {} }),
+    terminalWidth: () => width,
   },
 });
 
@@ -156,6 +160,28 @@ describe("the fused pass's progress line", () => {
         `draw ${index + 1} should have named ${path}, got: ${line}`,
       );
     }
+  });
+
+  it("fits every frame to the terminal's width", async (/** @type {TestContext} */ t) => {
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    forgetFrames();
+    width = 60;
+    t.after(() => {
+      width = undefined;
+    });
+
+    await generateSnapshot(threeFileSet(dir.path));
+
+    for (const line of lines) {
+      assert.ok(line.length < 60, `expected under 60 columns, got: ${line}`);
+    }
+    // The temp directory's paths are longer than the room, so a frame that
+    // fits did trim one.
+    assert.ok(
+      lines.some((line) => line.includes("…")),
+      JSON.stringify(lines),
+    );
   });
 
   it("closes on the true figures alone, naming no file", async (/** @type {TestContext} */ t) => {

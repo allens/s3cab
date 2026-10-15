@@ -11,7 +11,7 @@ import {
   formatCount,
 } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { clockedLine } from "./progress.mjs";
+import { clockedLine, terminalWidth } from "./progress.mjs";
 import {
   assertNoWorkFile,
   listSnapshotNames,
@@ -462,7 +462,7 @@ function withProgress({
         hashing: inHand ? hashing() : null,
         currentFile: inHand ? currentFile?.() : null,
         stopping: stopping?.(),
-        width: process.stderr.columns,
+        width: terminalWidth(process.stderr),
         color,
       });
 
