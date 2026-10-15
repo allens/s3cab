@@ -78,7 +78,9 @@ export function statusLine(stream, text) {
 }
 
 /**
- * The terminal's width as it is now, or `undefined` off a terminal.
+ * The terminal's width as it is now, or `undefined` when there is none to fit
+ * to: off a terminal, or on one reporting zero columns (a pseudo-terminal nobody
+ * sized).
  *
  * Node updates `columns` only when libuv reports a resize, and under Windows
  * Terminal (ConPTY) it never does, so a window resized mid-run keeps the width the
@@ -89,15 +91,13 @@ export function statusLine(stream, text) {
  */
 export function terminalWidth(stream) {
   try {
-    /** @type {{ _refreshSize?: () => void }} */ (
-      /** @type {unknown} */ (stream)
-    )._refreshSize?.();
+    /** @type {{ _refreshSize?: () => void }} */ (stream)._refreshSize?.();
   } catch {
     // A failed read emits `error` on the stream, which throws when nothing
     // listens. Without this catch a backup would die over its progress line, so
     // the last width stands.
   }
-  return stream.columns;
+  return stream.columns || undefined;
 }
 
 /**
@@ -139,7 +139,7 @@ export function createProgress(stream, { logLines = false } = {}) {
       // Measured without escape codes, which take no columns: a styled line the
       // caller already fitted must not be cut. One that overflows loses its styling
       // too, since a cut can land mid-sequence or drop the reset.
-      const room = (terminalWidth(stream) || Infinity) - 1;
+      const room = (terminalWidth(stream) ?? Infinity) - 1;
       const visible = stripVTControlCharacters(text);
       stream.write(visible.length > room ? visible.slice(0, room) : text);
       // Clear the *tail* after writing rather than blanking the line before it.

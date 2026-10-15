@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import {
@@ -60,18 +61,22 @@ describe("createProgress", () => {
     assert.ok(writes.includes("counts [1%"), JSON.stringify(writes));
   });
 
-  it("cuts a line to the terminal's width now, not the width it started at", () => {
+  it("cuts each line to the terminal's width at that draw", () => {
     const { stream, writes } = fakeStream(true);
-    stream.columns = 11;
-    // The window was widened: asking the console again reports the new width.
+    // What the console reports when asked. The window is widened between draws.
+    let width = 11;
     Object.assign(stream, {
       _refreshSize() {
-        stream.columns = 21;
+        stream.columns = width;
       },
     });
-    const line = "x".repeat(20);
-    createProgress(stream).update(line);
-    assert.ok(writes.includes(line), JSON.stringify(writes));
+    const progress = createProgress(stream);
+    progress.update("x".repeat(20));
+    width = 21;
+    progress.update("y".repeat(20));
+    progress[Symbol.dispose]();
+    assert.ok(writes.includes("x".repeat(10)), JSON.stringify(writes));
+    assert.ok(writes.includes("y".repeat(20)), JSON.stringify(writes));
   });
 
   it("writes the text before clearing, so the line is never blanked", () => {
@@ -462,13 +467,26 @@ describe("statusLine", () => {
 
 describe("terminalWidth", () => {
   it("keeps the last width when the console can't be asked", () => {
-    const { stream } = fakeStream(true);
-    stream.columns = 80;
-    Object.assign(stream, {
+    // As Node's own `_refreshSize` fails: it emits `error`, which throws only
+    // because nothing listens.
+    const emitter = new EventEmitter();
+    const stream = Object.assign(emitter, {
+      columns: 80,
       _refreshSize() {
-        throw new Error("getWindowSize EBADF");
+        emitter.emit("error", new Error("getWindowSize EBADF"));
       },
     });
-    assert.equal(terminalWidth(stream), 80);
+    assert.equal(
+      terminalWidth(
+        /** @type {NodeJS.WriteStream} */ (/** @type {unknown} */ (stream)),
+      ),
+      80,
+    );
+  });
+
+  it("has no width for a terminal reporting zero columns", () => {
+    const { stream } = fakeStream(true);
+    stream.columns = 0;
+    assert.equal(terminalWidth(stream), undefined);
   });
 });
