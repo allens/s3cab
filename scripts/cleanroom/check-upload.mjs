@@ -15,7 +15,8 @@
  *   folder included but not `.s3cab/`, which is s3cab's. An upload deletes nothing, so a
  *   deletion record is out of place too.
  * - **Objects**: each one hashes to its key. Every object is downloaded to see.
- * - **Headers**: no object or snapshot carries a Content-Encoding or `x-amz-meta-*`.
+ * - **Headers**: no object or snapshot carries a Content-Encoding or `x-amz-meta-*`; one on
+ *   a `.info` is a note, since the checklist names only objects and snapshots.
  * - **Snapshots**: each published one is byte-identical to the one handed over, and none
  *   is missing. Two must not be published, as s3cab publishes neither: `corrupt`'s, since
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
@@ -23,10 +24,12 @@
  * - **Objects first**: every object a published snapshot names is stored.
  * - **`snapshots/<set>.info`**, for every set with a published snapshot: `OWNER`,
  *   `CLAIMED` and `CREATED` lines, each once and ending LF, the instants in `mtime`'s
- *   form. A set with nothing published may have one or not: whether a claim waits for a
- *   snapshot is a reading, so that is a note.
- * - **s3cab accepts it**: each set with a published snapshot reattaches, and each
- *   published snapshot restores.
+ *   form, and `CREATED` equal to `CLAIMED`, since every claim in an empty bucket is a new
+ *   one. A key of the room's own is a note, as the reading rule skips it. No `.info`
+ *   claims a set the room wasn't handed. A set with nothing published may have one or
+ *   not: whether a claim waits for a snapshot is a reading, so which it did is a note.
+ * - **s3cab accepts it**: each set with a published snapshot or a `.info` reattaches, and
+ *   each published snapshot restores.
  *
  * Exits 1 if anything mismatched, 0 if only notes or nothing.
  *
@@ -75,14 +78,8 @@ if (!existsSync(handed)) {
   process.exit(2);
 }
 
-const instant = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
-// Three LF-terminated lines, one per key, in any order; the reading rule forgives a CR
-// and an unknown key, but the Uploading checklist asks a writer for neither.
-const infoLines = /^(?:(?:OWNER|CLAIMED|CREATED)=[^\r\n]+\n){3}$/;
-const infoInstants = [
-  new RegExp(`^CLAIMED=${instant}$`, "m"),
-  new RegExp(`^CREATED=${instant}$`, "m"),
-];
+const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const infoKeys = ["OWNER", "CLAIMED", "CREATED"];
 const me = `${userInfo().username}@${hostname()}`;
 
 /** @type {string[]} */
@@ -111,16 +108,39 @@ async function get(key) {
   // The SDK hands back the stored bytes whatever Content-Encoding says, so the
   // byte comparisons below can't see one: it has to be read off the response.
   const { ContentEncoding, Metadata = {} } = response;
-  if (
-    /^objects\/|\.tsv\.gz$/.test(key) &&
-    (ContentEncoding || Object.keys(Metadata).length > 0)
-  ) {
-    headered.push(`${key}: ${JSON.stringify({ ContentEncoding, Metadata })}`);
+  if (ContentEncoding || Object.keys(Metadata).length > 0) {
+    const sent = `${key}: ${JSON.stringify({ ContentEncoding, Metadata })}`;
+    if (/^objects\/|^snapshots\/[^/]+\/[^/]+\.tsv\.gz$/.test(key)) {
+      headered.push(sent);
+    } else {
+      notes.push(
+        `${sent}, which the checklist rules out only for objects and snapshots`,
+      );
+    }
   }
   const bytes = await /** @type {NonNullable<typeof response.Body>} */ (
     response.Body
   ).transformToByteArray();
   return Buffer.from(bytes);
+}
+
+/**
+ * A `.info`'s `KEY=value` lines, held to how the Uploading checklist has a writer write
+ * them: each ending LF, with no CR and no blank line. `undefined` if it isn't that.
+ * @param {string} text
+ */
+function infoFields(text) {
+  if (!text.endsWith("\n") || text.includes("\r")) {
+    return undefined;
+  }
+  const lines = text.slice(0, -1).split("\n");
+  if (!lines.every((line) => line.indexOf("=") > 0)) {
+    return undefined;
+  }
+  return lines.map((line) => {
+    const cut = line.indexOf("=");
+    return { key: line.slice(0, cut), value: line.slice(cut + 1) };
+  });
 }
 
 /**
@@ -287,33 +307,73 @@ if (headered.length > 0) {
 
 // ── snapshots/<set>.info ────────────────────────────────────────────────────
 
-for (const set of sets) {
+const claimedSets = [...infos].map((key) =>
+  key.slice("snapshots/".length, -".info".length),
+);
+for (const set of new Set([...sets, ...claimedSets])) {
   const key = `snapshots/${set}.info`;
+  if (!sets.includes(set)) {
+    mismatches.push(`${key} claims a set the room wasn't handed`);
+    continue;
+  }
+  if (!published.has(set)) {
+    notes.push(
+      `nothing of ${set} is published, and ` +
+        (infos.has(key) ? `${key} claims it anyway` : `no ${key} claims it`),
+    );
+  }
   if (!infos.has(key)) {
     if (published.has(set)) {
       mismatches.push(
         `${key} doesn't exist, yet the set has snapshots published`,
       );
-    } else {
-      notes.push(`${key} doesn't exist, and nothing of ${set} is published`);
     }
     continue;
   }
   const text = (await get(key)).toString("utf8");
-  const owner = /^OWNER=(.+)$/m.exec(text)?.[1];
-  if (
-    !infoLines.test(text) ||
-    owner === undefined ||
-    !infoInstants.every((line) => line.test(text))
-  ) {
+  const fields = infoFields(text);
+  if (!fields) {
     mismatches.push(
-      `${key} isn't OWNER, CLAIMED and CREATED lines, each once and ending LF, the ` +
-        `instants in mtime's form: ${JSON.stringify(text)}`,
+      `${key} isn't KEY=value lines, each ending LF: ${JSON.stringify(text)}`,
     );
-  } else if (owner !== me) {
+    continue;
+  }
+  /** @type {string[]} */
+  const wrong = [];
+  /** @type {Record<string, string>} */
+  const value = {};
+  for (const name of infoKeys) {
+    const [only, ...more] = fields.filter((field) => field.key === name);
+    if (!only || more.length > 0) {
+      wrong.push(`${name} isn't there exactly once`);
+    } else {
+      value[name] = only.value;
+    }
+  }
+  for (const name of ["CLAIMED", "CREATED"]) {
+    const at = value[name];
+    if (at !== undefined && !instant.test(at)) {
+      wrong.push(`${name} isn't an instant in mtime's form`);
+    }
+  }
+  if (wrong.length === 0 && value.CLAIMED !== value.CREATED) {
+    wrong.push(
+      "CREATED isn't CLAIMED, though the room's every claim is a new one",
+    );
+  }
+  if (wrong.length > 0) {
+    mismatches.push(`${key}: ${wrong.join(", ")}: ${JSON.stringify(text)}`);
+  }
+  const extra = fields.filter((field) => !infoKeys.includes(field.key));
+  if (extra.length > 0) {
     notes.push(
-      `${key} names OWNER ${JSON.stringify(owner)}, where this user@machine is ` +
-        JSON.stringify(me),
+      `${key} adds keys of its own: ${extra.map((field) => field.key).join(", ")}`,
+    );
+  }
+  if (value.OWNER !== undefined && value.OWNER !== me) {
+    notes.push(
+      `${key} names OWNER ${JSON.stringify(value.OWNER)}, where this ` +
+        `user@machine is ${JSON.stringify(me)}`,
     );
   }
 }
@@ -324,7 +384,7 @@ const home = mkdtempSync(join(tmpdir(), "s3cab-check-upload-"));
 const { run } = cli(home);
 try {
   for (const set of sets) {
-    if (!published.has(set)) {
+    if (!published.has(set) && !infos.has(`snapshots/${set}.info`)) {
       continue;
     }
     const reattached = run(["reattach", set, "--bucket", bucket]);

@@ -396,12 +396,19 @@ refused the two snapshots it should have. So, in order:
 - every object a published snapshot names is stored;
 - no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
 - every set with a published snapshot has a `snapshots/<set>.info` of `OWNER`,
-  `CLAIMED` and `CREATED` lines, each once and ending LF;
-- s3cab reattaches every set with a published snapshot and restores each one.
+  `CLAIMED` and `CREATED` lines, each once and ending LF, with `CREATED` equal
+  to `CLAIMED` since every claim in an empty bucket is a new one, and no `.info`
+  claims a set the session wasn't handed;
+- s3cab reattaches every set with a published snapshot or a `.info`, and
+  restores each published snapshot.
 
-`corrupt` has nothing to publish, so whether the session claimed it anyway is a
-note, as is an `OWNER` other than this `user@machine`: what "user" and "machine"
-mean is itself a reading.
+Some things are readings rather than rules, so they are notes:
+
+- `corrupt` has nothing to publish, so whether the session claimed it anyway;
+- a key of the session's own in a `.info`, which the reading rule skips;
+- a header on a `.info`, which the checklist doesn't name;
+- an `OWNER` other than this `user@machine`, since what "user" and "machine"
+  mean is itself a reading.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
