@@ -190,8 +190,9 @@ Beyond that, the sandbox relies on the session doing as the brief says, and chec
 that it did. Nothing stops a session in `~/s3cab.sandbox` reading `~/.s3cab` (real
 snapshots) or `~/.claude` (the transcripts and memory of every session that worked
 on s3cab); `audit-transcript.mjs` lists every path it touched there, in temp or in
-the repo, and every time it ran s3cab or went to the web. Any of those voids the
-run. If runs keep straying, move the sandbox somewhere more isolated; until then,
+the repo, and every time it ran s3cab or went to the web from a tool or a shell
+command. Any of those voids the run. A program the session wrote and then ran is not
+audited: its own requests go unseen. If runs keep straying, move the sandbox somewhere more isolated; until then,
 the repo is the one place ruled out outright, because what it leaks arrives before
 the session's first tool call, where no audit sees it.
 
