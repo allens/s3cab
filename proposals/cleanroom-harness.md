@@ -1,7 +1,8 @@
 # The clean-room harness
 
-Built against [format-scope.md](format-scope.md), which lands first: every clean room reads the
-format it decides. Running these clean rooms in CI is [cleanroom-ci.md](cleanroom-ci.md).
+Built against the format as
+[ADR-0107](../docs/adr/0107-the-spec-is-the-public-repository-format.md) scopes it. Running these
+clean rooms in CI is [cleanroom-ci.md](cleanroom-ci.md).
 
 ## Back to backup and restore
 
