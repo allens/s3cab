@@ -264,7 +264,7 @@ const LIVE_DOCS = [
   "docs/design",
   "guide",
   "README.md",
-  "CONTEXT.md",
+  "GLOSSARY.md",
   "docs/integration-testing.md",
   "docs/releasing.md",
 ];

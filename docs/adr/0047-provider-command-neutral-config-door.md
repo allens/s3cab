@@ -76,5 +76,5 @@ mechanism, not the command.
 stdin lines — kept deliberately minimal, raw-mode no-echo, no masking rendering). Every
 printed `s3cab auth …` suggestion and `help auth` pointer (onboarding recipes,
 `credentialGuidance`, README, guide, design docs) now says `provider`. "Provider" enters
-[CONTEXT.md](../../CONTEXT.md). The `docs/design/s3-provider-compatibility.md` "friendlier
+[GLOSSARY.md](../../GLOSSARY.md). The `docs/design/s3-provider-compatibility.md` "friendlier
 per-destination endpoint/credential UX" out-of-scope item is now built — this ADR is it.

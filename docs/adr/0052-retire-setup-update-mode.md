@@ -96,4 +96,4 @@ answers the "make `dirs.txt` discoverable like `exclude.txt`" nicety). Touched: 
 ([src/commands/setup.test.mjs](../../src/commands/setup.test.mjs)) gain the "refuse on existing set"
 case, `backup.test.mjs` gains the re-sync cases, and the gated
 `test/integration/set-lifecycle.test.mjs` drops its update case; and the docs (README,
-[CONTEXT.md](../../CONTEXT.md), [docs/design/backup.md](../design/backup.md)).
+[GLOSSARY.md](../../GLOSSARY.md), [docs/design/backup.md](../design/backup.md)).

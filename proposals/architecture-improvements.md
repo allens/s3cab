@@ -390,7 +390,7 @@ least once; re-open only if the stated reason no longer holds.
   candidate **H**, eleventh pass) — **rejected 2026-08-07** after reading both sides, in the
   session that had just refactored `verifySet`. The candidate's premise was that the rule is
   *"implemented in two shapes with no shared name."* **It has a name.**
-  [CONTEXT.md](../CONTEXT.md)'s **Deletion record** entry defines the distinction, coins
+  [GLOSSARY.md](../GLOSSARY.md)'s **Deletion record** entry defines the distinction, coins
   **expected-missing** *(context, exit 0)*, and names all four consumers in one sentence, with
   [ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md) as the decision of record —
   cited at both code sites. The vocabulary was never missing; only a *function* was, and the code

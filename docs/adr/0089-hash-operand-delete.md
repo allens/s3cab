@@ -69,7 +69,7 @@ is deliberate.
 **`delete` keeps the verb**, working differently. POSIX pairs `find` with `-delete`, and
 s3cab borrows `find`'s matching semantics wholesale (0088), so taking the search rules but
 not the verb would leave the coherence on the table; [0012](0012-consumer-vocabulary-naming.md)
-says the plainest word wins, and CONTEXT.md's Delete entry already reads `_Avoid_: purge,
+says the plainest word wins, and GLOSSARY.md's Delete entry already reads `_Avoid_: purge,
 expunge, remove`.
 
 `purge` was the working name through the design session and is the defensible runner-up — a
@@ -87,7 +87,7 @@ about whether the *bucket* goes.
 - Pre-1.0, the old `deletions/<timestamp>.tsv` files get **no reader** — the shape is
   deleted outright, not branched on (CLAUDE.md's no-compatibility-code rule).
 - `guide/maintenance.md`'s delete section becomes the find → review → delete workflow;
-  `guide/find.md` gains the hand-off; CONTEXT.md's **Delete** entry is rewritten in place.
+  `guide/find.md` gains the hand-off; GLOSSARY.md's **Delete** entry is rewritten in place.
 - The consumer semantics of 0064 — `verify`'s expected/unexplained partition, `restore`'s
   graceful dated skip, `backup`'s baseline subtraction, `cleanup`'s interlock subtraction —
   are unchanged in meaning and restated against the new record in

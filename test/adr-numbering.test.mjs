@@ -52,7 +52,7 @@ describe("ADR numbering", () => {
               .join("\n") +
             `\n\nThe one that merged second yields. Renumber it to the next free ` +
             `number, and move its citations — they are spread across src/ ` +
-            `comments, CONTEXT.md, guide/ and proposals/, and some files cite ` +
+            `comments, GLOSSARY.md, guide/ and proposals/, and some files cite ` +
             `both ADRs, so check each rather than sweeping the repo.`
         : "",
     );

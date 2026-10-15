@@ -84,7 +84,7 @@ its offline tests; `setup` loses the `inherit()` function and `--inherit` option
 the registry ([commands.mjs](../../src/commands.mjs)) gains a `reattach` entry in the **Setup**
 group; `renderSetup` is shared by both (both return the stored `BackupSet`). Tests: new
 `reattach.test.mjs`, `setup.test.mjs` drops the inherit case, and the gated
-`set-lifecycle.test.mjs` renames its inherit case to `reattach`. Docs: README, CONTEXT.md (a new
+`set-lifecycle.test.mjs` renames its inherit case to `reattach`. Docs: README, GLOSSARY.md (a new
 `Reattach` term; `Setup` narrows to create), design/backup.md, the guide, and a forward-pointer
 on [0036](0036-setup-mutates-list-shows-drop-sets.md)'s deferred item. Historical ADRs that mention
 `setup --inherit` (0024/0026/0027/0045/0048/0051/0052) keep their text as the record of the

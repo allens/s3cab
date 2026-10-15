@@ -42,7 +42,7 @@ other one.
 - **restic uses `forget` for exactly this operation** (remove a snapshot from the repository;
   content reclaimed by a later `prune`) — the peer tool a casual-but-technical user most
   likely knows, so the expectation comes free (clig: consistency).
-- **Temporal fit.** A snapshot is a point in time (CONTEXT.md); you forget *a moment*, you
+- **Temporal fit.** A snapshot is a point in time (GLOSSARY.md); you forget *a moment*, you
   retire *a thing in service*.
 - **It is the accurate word for what happens.** The command removes only the snapshot file;
   the content lingers until `cleanup`. "The repository forgets the moment; the stuff remains
@@ -60,7 +60,7 @@ operand positional (snapshots / paths), addressing via `--set`/`-S`. No new shap
 
 ## Why not the alternatives
 
-- **`retire` for snapshot removal** — the runner-up. Reads well, but CONTEXT.md's Reattach
+- **`retire` for snapshot removal** — the runner-up. Reads well, but GLOSSARY.md's Reattach
   entry already uses "retired" for *machine* succession, and one word carrying two meanings
   is the synonym drift the glossary's `_Avoid_` apparatus exists to prevent. It also connotes
   preservation-in-honor (a retired jersey is kept, not destroyed) and reads more naturally at
@@ -80,7 +80,7 @@ operand positional (snapshots / paths), addressing via `--set`/`-S`. No new shap
 - **Rename churn** across `src/commands/delete.mjs` (→ `forget.mjs`), the registry, render,
   tests, `guide/maintenance.md`, [snapshot-deletion.md](../design/snapshot-deletion.md),
   [backup.md](../design/backup.md) ("`delete` is the retention primitive" prose), and
-  CONTEXT.md (a **Forget** entry; `delete` in the retired sense joins its `_Avoid_` list).
+  GLOSSARY.md (a **Forget** entry; `delete` in the retired sense joins its `_Avoid_` list).
   Scope from a fresh `grep` at build time.
 - **The report filenames follow the settled provenance principle** (the command's name
   prefixes its artifacts): `forget-unrestorable-preview.txt` /
@@ -90,7 +90,7 @@ operand positional (snapshots / paths), addressing via `--set`/`-S`. No new shap
   `s3cab delete --set <set> <snapshot>` hits the *new* command with a snapshot name as a
   path. That must be a clear error (the name matches no backed-up path), never a silent
   no-op — and the new command's validation should be checked against exactly this case.
-- **The new `delete` becomes the second command that removes stored objects** — CONTEXT.md's
+- **The new `delete` becomes the second command that removes stored objects** — GLOSSARY.md's
   Cleanup entry ("the only command that removes stored objects") is corrected when it lands.
   Unlike `cleanup` it removes content that live snapshots still reference, so it takes the
   strongest confirmation in the tool (clig: for severe/irreversible cases, require typing a

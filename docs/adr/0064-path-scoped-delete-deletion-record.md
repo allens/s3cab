@@ -159,7 +159,7 @@ destructive commands.
 ## Consequences
 
 - `guide/format.md` gains the `deletions/` section; `guide/maintenance.md` gains `delete`
-  (with an under-the-hood subsection); CONTEXT.md gains **Delete** and **Deletion record**
+  (with an under-the-hood subsection); GLOSSARY.md gains **Delete** and **Deletion record**
   and corrects Cleanup's "only command that removes stored objects".
 - Old snapshots may list paths whose content is deliberately gone — acceptable *because
   the user decided they didn't care about those files*, and detectable as deliberate via

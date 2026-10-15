@@ -7,7 +7,7 @@ the codebase; the knowledge itself lives in purpose-built homes.
 
 | What | Where |
 | --- | --- |
-| **Domain vocabulary** (the ubiquitous language) | [CONTEXT.md](CONTEXT.md) — glossary only: term + definition + `_Avoid_` synonyms. |
+| **Domain vocabulary** (the ubiquitous language) | [GLOSSARY.md](GLOSSARY.md) — glossary only: term + definition + `_Avoid_` synonyms. |
 | **Decisions** (the *why*, "don't re-litigate") | [docs/adr/](docs/adr/) — one numbered ADR each, indexed by [docs/adr/README.md](docs/adr/README.md). |
 | **Subsystem designs** | [docs/design/](docs/design/) |
 | **Contributor how-tos** | [docs/](docs/) — [integration-testing](docs/integration-testing.md), [releasing](docs/releasing.md). Doesn't ship. |
@@ -52,7 +52,7 @@ overlap that leaves is accepted over sync machinery
 ### Working conventions
 
 1. **After non-trivial work, update the docs** in the right home (see the map): a design decision
-   → an ADR; vocabulary → CONTEXT.md; a coding rule → this file. **Once a rule has settled,
+   → an ADR; vocabulary → GLOSSARY.md; a coding rule → this file. **Once a rule has settled,
    distill it to {rule + why + at most one example}** and let `git blame` hold the story —
    appending every correction without compressing is what bloats this file. **But distillation
    alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** A
@@ -232,7 +232,7 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
 ## What this project is
 
 **s3cab** = **S3 C**ontent **A**ddressable **B**ackup. [README.md](README.md) covers what it is,
-why, and what's coming; [CONTEXT.md](CONTEXT.md) defines the vocabulary. Treat the README's
+why, and what's coming; [GLOSSARY.md](GLOSSARY.md) defines the vocabulary. Treat the README's
 S3/backup descriptions as the _target_ and `src/` as _what works now_. Licensing
 (GPL-3.0-or-later; CLA not DCO) is [ADR-0008](docs/adr/0008-gpl-3-license.md) /
 [ADR-0009](docs/adr/0009-cla-not-dco.md); the removed bespoke SSO `login` and the

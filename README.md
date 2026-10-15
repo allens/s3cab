@@ -477,5 +477,5 @@ has the full model.
 
 _Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) to get started (it links the
 [CLA](CLA.md)); [CLAUDE.md](CLAUDE.md) for working conventions and architecture orientation,
-[docs/adr/](docs/adr/) for the design decisions, and [CONTEXT.md](CONTEXT.md) for the
+[docs/adr/](docs/adr/) for the design decisions, and [GLOSSARY.md](GLOSSARY.md) for the
 vocabulary._

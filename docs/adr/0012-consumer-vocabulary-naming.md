@@ -11,9 +11,9 @@ heuristic #9 urges plain language even for expert users —
 nothing, **not** contorting to hide a genuinely technical concept from a technical user — which
 is why `verify`, `--remote`, and the plumbing `prop`/`tree`/`upload` were weighed and *kept*
 (see "Calls weighed but kept as-is" below). Well-known technical language is fine; niche or
-non-universal acronyms are not — CONTEXT.md's `_Avoid_` lines apply that case by case (an
+non-universal acronyms are not — GLOSSARY.md's `_Avoid_` lines apply that case by case (an
 unexplained "CAS", "RA" in user-facing text). The canonical terms are pinned in
-[CONTEXT.md](../../CONTEXT.md); this ADR records the naming *calls* — weighed on purpose,
+[GLOSSARY.md](../../GLOSSARY.md); this ADR records the naming *calls* — weighed on purpose,
 don't re-litigate casually.
 
 This audience definition governs **user-facing prose too — not just names**: the README, the

@@ -22,7 +22,7 @@ was too strong: a porcelain command composing a plumbing command is legitimate.
 
 The flat prohibition mislabeled a real, healthy pattern as a smell. Git is the canonical
 counter-example — porcelain (`pull`) composes plumbing (`fetch` + `merge`) — and s3cab's
-porcelain/plumbing *verb* split (CONTEXT.md: `backup` is porcelain, `upload`/`download` are
+porcelain/plumbing *verb* split (GLOSSARY.md: `backup` is porcelain, `upload`/`download` are
 plumbing) already implied the layering; this just states the dependency rule that follows
 from it. With the rule named, "may a command depend on another command?" stops being a flat
 no and becomes a *direction* check: down the layers, never up or sideways within a layer.

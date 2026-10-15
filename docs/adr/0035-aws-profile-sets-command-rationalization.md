@@ -108,6 +108,6 @@ explicit flag. The `sets` command itself was already dropped by
   ADRs 0026/0030/0031/0033/0034, [docs/design/auth.md](../design/auth.md),
   [docs/design/backup.md](../design/backup.md), [docs/integration-testing.md](../integration-testing.md),
   `guide/bucket.md` (renamed — now [guide/aws.md](../../guide/aws.md)), README.md,
-  [CONTEXT.md](../../CONTEXT.md), and [src/help.mjs](../../src/help.mjs)'s `help auth` topic.
+  [GLOSSARY.md](../../GLOSSARY.md), and [src/help.mjs](../../src/help.mjs)'s `help auth` topic.
 - No change to the underlying behavior of any of the three jobs — this is a pure rename/regroup,
   not a redesign of what bucket-provisioning, profile-pointing, or set lifecycle management do.
