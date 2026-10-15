@@ -73,8 +73,7 @@ right is the point. Correctness covers:
 - the exact format;
 - full exclude syntax;
 - objects first, snapshot last;
-- the whole bucket layout the spec documents, `sets/<set>/` markers included, so s3cab can
-  reattach and restore its sets unaided;
+- the whole bucket layout the spec documents, each set's `snapshots/<set>.info` included;
 - every object stored is the bytes its key names, which is the spec's own definition of the
   key. The brief prescribes no way of ensuring it: how the program does is part of its reading
   of the spec.
@@ -195,7 +194,7 @@ indefinitely.
   role and platform;
   `seed-restore-cleanroom-bucket.mjs` fills the bucket every restorer reads;
   `compare-snapshot.mjs` and `check-upload.mjs` check the two backup rooms' work, the upload's
-  beyond what a restore can see (`sets/` files, and the snapshots it should have refused).
+  beyond what a restore can see (each set's `.info`, and the snapshots it should have refused).
   Still to build: a CI workflow that runs the whole matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are

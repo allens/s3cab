@@ -38,7 +38,8 @@
  *   F9  metadata field count `#excluded` (exclude pattern), and a symlink into the set,
  *   F10 column padding       a size range wide enough to move the size column's width
  *   F11 metadata payloads    same rows as F9
- *   F12 `info` syntax        free — every set writes one
+ *   F12 `info` syntax        NOT A RESTORE'S — a reader skips every `<set>.info`; an
+ *                            upload's is check-upload.mjs's to check
  *   F13 Windows MAX_PATH     a nested path past 260 characters                 [POSIX]
  *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket
@@ -367,8 +368,8 @@ export function buildFixtures(dir) {
 
 /**
  * Write a set's own files into `dir`: `dirs.txt`, and `exclude.txt` where the set has
- * patterns. The spec lays a set out the same way on the local side as under `sets/` in a
- * bucket, so a clean room's `sets/` and s3cab's home are written alike.
+ * patterns. A clean room's `sets/` and s3cab's home lay a set out alike, so one writer
+ * serves both.
  * @param {string} dir
  * @param {string} name
  * @param {string[]} dirs the set's member directories

@@ -1,9 +1,10 @@
 # Bugs / correctness suspicions
 
-> **Interim home — must reach zero before release.** Bugs belong in **GitHub Issues**, but the
-> repo won't use Issues until pre-release. So this file is the stop-gap tracker in the
-> meantime. It is the **one file in `proposals/` that should be gone by release** — i.e. *no
-> known bugs* at ship. After that, file bugs as GitHub Issues, not here.
+> **Interim home — must reach zero before a release to `latest`.** Bugs belong in **GitHub
+> Issues**, but the repo won't use Issues until pre-release. So this file is the stop-gap tracker
+> in the meantime. It is the **one file in `proposals/` that should be gone by that release** —
+> i.e. *no known bugs* at ship. A `-alpha.N` on `next` may ship with entries open. After that,
+> file bugs as GitHub Issues, not here.
 
 <sub>Last cleared 2026-07-19: the HIGH baseline-trust hole (`backup` trusting a local
 `--since` baseline whose remote snapshot a `forget` + `cleanup --delete` had since removed —
@@ -157,5 +158,5 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   `x-amz-checksum-sha256` would have S3 refuse the mismatch for a single-part upload; a
   multipart one could check its running hash before completing, and abort instead.
 
-The list must reach zero before release, at which point this file is deleted rather than kept
-empty. Anything found before Issues open goes back in the list here.
+The list must reach zero before a release to `latest`, at which point this file is deleted
+rather than kept empty. Anything found before Issues open goes back in the list here.
