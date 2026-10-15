@@ -257,14 +257,22 @@ so that a Windows run stays one.
 
 ## fixtures.mjs
 
-The trees the restore seed and the snapshot and upload builds back up, eight
-sets of them. Each makes its own, and no two match byte for byte (random
-content, natural mtimes),
-which costs no proof anything: a clean-room snapshot's rows are checked against
-`s3cab snapshot` of its own sandbox's trees, an upload is handed s3cab's
-snapshot of its own, and a restore is checked against s3cab's restore of the
-same golden set. They share the module so there is one list to
-keep.
+The trees the restore seed and the backup builds back up: one table, each entry
+declaring its set, its name (as code points, or as bytes where it has no UTF-8
+form), its kind, its attributes and which platform holds it. The build creates
+every entry and then **reads every one back** — the raw name from `readdir`, the
+kind from `lstat`, hidden and system from `attrib`, a link's target from
+`readlink` — because the creating tool isn't trusted: Node writes a lone
+surrogate given as a string as U+FFFD and reports success, symlinks need
+Developer Mode or elevation, and NTFS, APFS and ext4 each hold a different
+subset of the names. Nothing is checked through `s3cab snapshot`, since an s3cab
+bug and a broken fixture would agree. Content is deterministic and carries the
+platform's name, so two builds on one platform share every hash and their rows
+diff directly, and the three platforms' backups share no object; mtimes stay the
+filesystem's own, except where the value is the test (F6). Every set's member
+directories, and whether a backup must publish or refuse it, derive from the
+same table (`setDirs`), so the build, the brief and the checker agree without a
+file on disk between them.
 
 It is committed code rather than a chat because run 1's corpus is **gone** —
 staged by hand, and its harness "was a session artifact and is not preserved"
@@ -272,10 +280,10 @@ staged by hand, and its harness "was a session artifact and is not preserved"
 ambiguity list against the last one, and that comparison needs the same fixtures
 underneath. Every run that builds fixtures by hand throws them away again.
 
-Which fixtures, and why each one, is the coverage matrix in the module's own
-header: one line per audit finding F1–F16, naming the fixture that would catch a
-regression — and naming the two findings a corpus *cannot* provoke (F4, F15)
-rather than quietly dropping them so the table looks complete.
+Which fixtures, and why each one, is each entry's `why`, naming the audit
+finding it covers; the three findings a corpus *cannot* provoke (F4, F12, F15)
+are named in the module's header rather than quietly dropped so the table looks
+complete.
 
 Run 2 added four more, each for a rule the corpus asserted but never made a run
 *obey* — its report described its handling of all four as written and never
@@ -293,26 +301,42 @@ its last file row, as a backup killed mid-write leaves it, and recompressed:
 truncating the compressed bytes would test gunzip's own check instead, and
 catching that cut is the closing `.`'s whole purpose.
 
-`spread` also carries the exclude grammar: each rule in
-[guide/exclude.md](../../guide/exclude.md) gets a pattern, a path it drops and a
-near miss it keeps, so a snapshot that implements less than the whole grammar
-records a different tree. `edge`'s exclude file is the one a Windows editor
-leaves, CRLF endings and no final newline, which the spec says travel into the
-bucket byte for byte and are trimmed when read: a snapshot that keeps the CR or
-drops the unterminated last line backs up a file it should exclude, and an upload
-that rewrites the file no longer stores a byte copy.
+`edge` also carries what the audits of the backup side found silent: an
+unreadable file among twenty readable siblings, so a backup that drops its
+`#error` row shifts every later hash by one; links into the backup, dangling,
+and out of it to a file and to a directory (and on Windows a junction out of it,
+the one link every machine there can make, which Python's `os.walk` descends
+into); a hard-link pair; a FIFO; mtimes before 1970 and after 2262, POSIX-only
+until the Windows `statSync` wrap in [proposals/bugs.md](../../proposals/bugs.md)
+is fixed; the names Windows reserves (`CON`, `aux.txt`, `nul.txt`), which exist
+on every platform and are hostile to a plain-path open on Windows; the names
+Windows forbids (`: * ? " < > |`, a backslash) on POSIX only; and Windows' own
+trailing dot, hidden and system files, and a case pair in a folder `fsutil` makes
+case-sensitive. Two sets a backup must **refuse** rather than publish: `no-utf8`,
+one name with no UTF-8 form (a lone surrogate on Windows, a stray byte
+elsewhere), and `tabbed`, a tab in a name, POSIX only. s3cab refuses both with
+exit 1 and no snapshot.
 
-Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
-in names, strips trailing spaces, and folds case. On macOS, APFS folds case and
-Unicode normal form, so the case pair and the NFC/NFD pair are lost there; those
-two are probed on the filesystem, not gated on the OS. A snapshot or upload
-build skips them with a loud notice naming each one, because a partial corpus that reads as
-a complete one is the same silent-shortening failure the exercise exists to
-hunt; the seed refuses to run without them. Keep them in the corpus permanently
-anyway — for a Windows restorer they *become* the point, where one that refuses
-them is behaving correctly and one that silently strips the trailing space and
-reports success is not. A symlink, by contrast, is attempted everywhere and
-skipped only on the error: Windows has them, it just wants Developer Mode.
+The exclude patterns serve the seed alone, since a backup clean room has none
+([cleanroom-harness.md](../../proposals/cleanroom-harness.md)). `spread`'s give
+each rule in [guide/exclude.md](../../guide/exclude.md) a path it drops and a
+near miss it keeps; `edge`'s is the file a Windows editor leaves, CRLF endings
+and no final newline, which the spec says travel into the bucket byte for byte
+and are trimmed when read. Its middle line keeps a second copy of the
+no-UTF-8 name out of the seed's `edge`, so the restore fixtures carry the
+`#excluded` row the spec describes, U+FFFD and all.
+
+What a platform can't hold is declared per entry, not guessed from the OS, and
+what it refuses anyway is found by the read-back: a pair APFS folds, a symlink
+Windows won't make without Developer Mode, an unreadable file that root reads.
+Whatever fails is removed with everything sharing its `why` and named in a loud
+notice, because a partial corpus that reads as a complete one is the same
+silent-shortening failure the exercise exists to hunt; a set with nothing left is
+removed too, so a refused set never becomes an empty one that publishes. The
+seed refuses to run after any such notice. Keep them in the corpus permanently
+anyway — for a Windows restorer the POSIX names *become* the point, where one
+that refuses them is behaving correctly and one that silently strips the
+trailing space and reports success is not.
 
 ## build-snapshot-cleanroom.mjs
 
@@ -417,8 +441,9 @@ node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
 
 ## seed-restore-cleanroom-bucket.mjs
 
-Seeds the restore bucket with the **golden set**: eight backup sets made by
-s3cab from the fixtures, then deliberately damaged. It runs only when the stamp
+Seeds the restore bucket with the **golden set**: the backup sets made by s3cab
+from the fixtures (every set but the two a backup must refuse), then
+deliberately damaged. It runs only when the stamp
 below no longer matches, and only on Linux: Windows refuses the `[POSIX]`
 names, and macOS's APFS silently folds names that differ only in case or
 Unicode normalization. It builds the fixtures before touching the bucket and

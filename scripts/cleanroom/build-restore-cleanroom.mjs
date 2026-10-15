@@ -34,7 +34,7 @@ import {
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
-import { count, files, setNames } from "./fixtures.mjs";
+import { count, files, sets } from "./fixtures.mjs";
 import { seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
@@ -67,6 +67,10 @@ if (seeded !== seedHash()) {
 }
 
 writeCleanroom(cleanroom, "restore", bucket, credentials);
+
+// The golden set holds every set but the ones a backup must refuse, which the seed
+// never backs up.
+const setNames = sets.filter((set) => !set.refused).map(({ name }) => name);
 
 // `reattach` is how a second machine gets a set to restore from, and this sandbox's
 // `.s3cab/` starts empty.
