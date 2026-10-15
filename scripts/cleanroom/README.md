@@ -268,8 +268,9 @@ Developer Mode or elevation, and NTFS, APFS and ext4 each hold a different
 subset of the names. Nothing is checked through `s3cab snapshot`, since an s3cab
 bug and a broken fixture would agree. Content is deterministic and carries the
 platform's name, so two builds on one platform share every hash and their rows
-diff directly, and the three platforms' backups share no object; mtimes stay the
-filesystem's own, except where the value is the test (F6). Every set's member
+diff directly, and the three platforms' backups share no object but the empty
+file's; mtimes stay the filesystem's own, except where the value is the test
+(F6). Every set's member
 directories, and whether a backup must publish or refuse it, derive from the
 same table (`setDirs`), so the build, the brief and the checker agree without a
 file on disk between them.
@@ -317,14 +318,18 @@ one name with no UTF-8 form (a lone surrogate on Windows, a stray byte
 elsewhere), and `tabbed`, a tab in a name, POSIX only. s3cab refuses both with
 exit 1 and no snapshot.
 
-The exclude patterns serve the seed alone, since a backup clean room has none
-([cleanroom-harness.md](../../proposals/cleanroom-harness.md)). `spread`'s give
-each rule in [guide/exclude.md](../../guide/exclude.md) a path it drops and a
-near miss it keeps; `edge`'s is the file a Windows editor leaves, CRLF endings
-and no final newline, which the spec says travel into the bucket byte for byte
-and are trimmed when read. Its middle line keeps a second copy of the
-no-UTF-8 name out of the seed's `edge`, so the restore fixtures carry the
-`#excluded` row the spec describes, U+FFFD and all.
+The exclude patterns go wherever s3cab snapshots the trees: the seed, and the
+snapshot and upload builds while they last. The fused backup clean room gets
+none ([cleanroom-harness.md](../../proposals/cleanroom-harness.md)). `spread`'s
+give each rule in [guide/exclude.md](../../guide/exclude.md) a path it drops
+and a near miss it keeps; `edge`'s is the file a Windows editor leaves, CRLF
+endings and no final newline, which the spec says travel into the bucket byte
+for byte and are trimmed when read. Its middle line keeps a second copy of the
+no-UTF-8 name out of s3cab's `edge`, so the restore fixtures carry the
+`#excluded` row the spec describes, U+FFFD and all. `edge` now exits 1 under
+s3cab by design, for its `#error` rows, so every script that runs s3cab on it
+accepts that exit only with a snapshot written (`mustWrite` in
+`cleanroom.mjs`): exit 1 is also what any other failure gives.
 
 What a platform can't hold is declared per entry, not guessed from the OS, and
 what it refuses anyway is found by the read-back: a pair APFS folds, a symlink

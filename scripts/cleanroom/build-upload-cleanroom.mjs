@@ -75,29 +75,22 @@ const credentials = await sessionCredentials(bucket);
 const cleanroom = join(root, "cleanroom");
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
-const { run } = cli(home);
+const { mustWrite } = cli(home);
 
 writeCleanroom(cleanroom, "upload", bucket, credentials);
-const built = buildFixtures(fixtures);
+// Built for s3cab's patterns, as the seed builds them: the sets s3cab can snapshot.
+const built = buildFixtures(fixtures, { patterns: true });
+const { sets } = built;
 reportFixtures(fixtures, built);
-// Not the sets a backup must refuse: s3cab writes no snapshot of them, so there is
-// nothing to hand over.
-const sets = built.sets.filter((set) => !set.refused);
 
 console.log("");
-for (const { name, dirs, errors } of sets) {
+for (const { name, dirs } of sets) {
   const set = join(home, "sets", name);
   writeSetFiles(set, name, dirs);
   // A local set has to name its bucket. `snapshot` never reaches it.
   writeFileSync(join(set, "env"), `S3CAB_BUCKET=${bucket}\n`);
   console.log(`snapshot ${name}`);
-  // A set with `#error` rows by design exits 1 with its snapshot written all the same.
-  const result = run(["snapshot", name]);
-  if (result.code !== 0 && !(errors && result.code === 1)) {
-    throw new Error(
-      `s3cab snapshot ${name} exited ${result.code}\n${result.out}\n${result.err}`,
-    );
-  }
+  mustWrite(["snapshot", name], name);
 }
 
 // Same size, same mtime, different bytes: a check of size and mtime alone passes it.

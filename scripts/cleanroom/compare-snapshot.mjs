@@ -329,7 +329,7 @@ const snapshotsIn = (dir) =>
     : [];
 
 const home = mkdtempSync(join(tmpdir(), "s3cab-compare-snapshot-"));
-const { mustRun } = cli(home);
+const { mustWrite } = cli(home);
 let mismatched = false;
 
 try {
@@ -352,7 +352,7 @@ try {
         copyFileSync(join(roomSet, file), join(homeSet, file));
       }
     }
-    mustRun(["snapshot", set]);
+    mustWrite(["snapshot", set], set);
     const [referenceName = ""] = snapshotsIn(join(homeSet, "snapshots"));
     /** @type {string[]} */
     const referenceProblems = [];

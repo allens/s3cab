@@ -31,7 +31,9 @@ const cleanroom = join(root, "cleanroom");
 const fixtures = join(root, "fixtures");
 
 writeCleanroom(cleanroom, "snapshot");
-const built = buildFixtures(fixtures);
+// Built for s3cab's patterns, which this room is handed: the sets s3cab can snapshot,
+// since the checker compares each with s3cab's own.
+const built = buildFixtures(fixtures, { patterns: true });
 for (const { name, dirs } of built.sets) {
   writeSetFiles(join(cleanroom, "sets", name), name, dirs);
   // A snapshot records its set's bucket, so the set names one; nothing is uploaded to it.

@@ -13,7 +13,7 @@
  *
  * Content is deterministic and carries the platform's name, so two builds on one platform
  * share every hash and their rows diff directly, while the three platforms' backups share
- * no object even in one bucket. Modification times are left natural except where the
+ * no object but the empty file's even in one bucket. Modification times are left natural except where the
  * value is itself the test: `utimes` takes a float, which can't pin a sub-millisecond
  * value, and the rounding is what F6 observes.
  *
@@ -40,10 +40,10 @@
  * material for the golden set's damage (seed-restore-cleanroom-bucket.mjs), ordinary
  * trees in a backup room. Two sets a backup must **refuse** rather than publish: `no-utf8`,
  * one file whose name has no UTF-8 form (a lone surrogate on Windows, a stray byte
- * elsewhere), and `tabbed`, one file with a tab in its name. The seed has exclude
- * patterns, so for it the surrogate sits in `edge` under one and the restore fixtures
- * carry its `#excluded` row; the backup room has none, so there the name is a set of its
- * own.
+ * elsewhere), and `tabbed`, one file with a tab in its name. Where s3cab snapshots the
+ * trees it has exclude patterns, so there the surrogate sits in `edge` under one and the
+ * restore fixtures carry its `#excluded` row; the fused backup clean room has none, so
+ * there the name is a set of its own.
  *
  * Which platform holds what is declared per entry (`on`), not guessed from the OS: NTFS
  * forbids characters 1–31 and `: * ? " < > |` in a name; `a:b.txt` there makes a file `a`
@@ -63,6 +63,7 @@
 import { execFileSync } from "node:child_process";
 import { createCipheriv, createHash } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   linkSync,
@@ -71,6 +72,7 @@ import {
   openSync,
   readdirSync,
   readlinkSync,
+  rmdirSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -90,14 +92,12 @@ const platform = process.platform;
  * @property {string[]} dirs member directories, relative to the set's tree (`.` is the
  *   tree itself)
  * @property {boolean} [refused] a backup must stop on this set rather than publish it,
- *   and s3cab does; the seed leaves it out
- * @property {boolean} [errors] s3cab's snapshot of this set holds `#error` rows, so its
- *   `backup` and `snapshot` exit 1 by design
+ *   and s3cab does, so no s3cab snapshot of it exists: not seeded, never handed over
  */
 
 /** The sets, in backup order. Each one's tree is `<fixtures>/<name>`. @type {BackupSet[]} */
 export const sets = [
-  { name: "edge", dirs: ["."], errors: true },
+  { name: "edge", dirs: ["."] },
   { name: "docs", dirs: ["."] },
   { name: "bulk", dirs: ["."] },
   { name: "media", dirs: ["."] },
@@ -111,12 +111,16 @@ export const sets = [
 
 export const setNames = sets.map(({ name }) => name);
 
-// Every set's exclude patterns, for the seed alone: the backup room has none, so there
-// `spread`'s near misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give each
-// rule of guide/exclude.md's grammar a path it drops and a near miss it keeps. `edge`'s is
-// the file a Windows editor leaves: CRLF endings and no newline after the last line, which
-// the bucket holds byte for byte and a reader trims. Its middle line keeps the surrogate
-// out of the seed's `edge`, so that set backs up and the restore fixtures carry the
+/** The sets the golden set holds: every one s3cab can back up. */
+export const seeded = sets.filter((set) => !set.refused);
+
+// Every set's exclude patterns, wherever s3cab snapshots the trees: the seed, and the
+// snapshot and upload builds while they last. The fused backup clean room gets none, so
+// there `spread`'s near misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
+// each rule of guide/exclude.md's grammar a path it drops and a near miss it keeps.
+// `edge`'s is the file a Windows editor leaves: CRLF endings and no newline after the last
+// line, which the bucket holds byte for byte and a reader trims. Its middle line keeps the
+// surrogate out of s3cab's `edge`, so that set backs up and the restore fixtures carry the
 // `#excluded` row the spec describes, U+FFFD and all.
 export const excludes = new Map([
   ["edge", "*.tmp\r\nsurrogate-*\r\n*.swp"],
@@ -130,14 +134,17 @@ export const excludes = new Map([
  * @property {(string | Buffer)[]} path segments below that tree; only the last may be
  *   bytes, for a name with no UTF-8 form
  * @property {"file" | "dir" | "symlink" | "junction" | "hardlink" | "fifo"} kind
- * @property {string | Buffer} [content] a file's bytes
+ * @property {string | Buffer | (() => Buffer)} [content] a file's bytes; a function for
+ *   content worth making only when the file is written, so importing the table costs nothing
  * @property {number} [mtime] seconds since the epoch, pinned where the value is the test
  * @property {string[]} [target] a link's target, as segments below the fixtures directory
+ * @property {boolean} [dangling] a link whose target must not exist
  * @property {("hidden" | "system")[]} [attrs] Windows attributes, set with `attrib`
  * @property {boolean} [caseSensitive] a directory NTFS keeps case-sensitive (`fsutil`)
  * @property {boolean} [unreadable] mode 000, and checked to be unreadable
  * @property {"posix" | "windows"} [on] which platform holds it; both when absent
- * @property {"seed"} [only] built for the seed alone
+ * @property {"patterns"} [only] built only where s3cab snapshots the trees with the exclude
+ *   patterns above
  * @property {string} why the finding it covers. Entries sharing a `why` stand or fall
  *   together, so a pair is never half built
  */
@@ -195,14 +202,14 @@ export const fixtures = [
   // in normal form. A reader that normalises paths merges them silently, and so does APFS.
   {
     set: "edge",
-    path: ["café.txt"],
+    path: ["caf\u00e9.txt"],
     kind: "file",
     content: text("NFC: e-acute as one code point"),
     why: "NFC/NFD pair of names (F1)",
   },
   {
     set: "edge",
-    path: ["café.txt"],
+    path: ["cafe\u0301.txt"],
     kind: "file",
     content: text("NFD: e + combining acute"),
     why: "NFC/NFD pair of names (F1)",
@@ -301,7 +308,7 @@ export const fixtures = [
         set: "edge",
         path: ["sizes", String(name)],
         kind: "file",
-        content: bytes(String(name), Number(size)),
+        content: () => bytes(String(name), Number(size)),
         why: "sizes across the column width (F10)",
       }),
   ),
@@ -405,6 +412,7 @@ export const fixtures = [
     path: ["link-dangling"],
     kind: "symlink",
     target: ["edge", "missing.txt"],
+    dangling: true,
     why: "a dangling symlink, which gets no row",
   },
   {
@@ -486,14 +494,14 @@ export const fixtures = [
     content: text("excluded by the unterminated last line, in the seed"),
     why: "a file an unterminated last pattern drops (F9)",
   },
-  // The seed's half of the lone surrogate: under a pattern, so s3cab backs `edge` up and
+  // s3cab's half of the lone surrogate: under a pattern, so s3cab backs `edge` up and
   // writes the `#excluded` row with U+FFFD standing in for what doesn't decode.
   {
     set: "edge",
     path: [noUtf8("surrogate-")],
     kind: "file",
     content: text("no UTF-8 form, excluded"),
-    only: "seed",
+    only: "patterns",
     why: "a name with no UTF-8 form under an exclude pattern",
   },
   // Names Windows reserves. Ordinary files on Linux, where the restore fixtures carry them
@@ -580,14 +588,14 @@ export const fixtures = [
     set: "media",
     path: ["clip.bin"],
     kind: "file",
-    content: bytes("clip", 40 * 1024 * 1024),
+    content: () => bytes("clip", 40 * 1024 * 1024),
     why: "an object past the multipart threshold",
   },
   {
     set: "media",
     path: ["poster.bin"],
     kind: "file",
-    content: bytes("poster", 512 * 1024),
+    content: () => bytes("poster", 512 * 1024),
     why: "a mid-sized object",
   },
 
@@ -773,19 +781,18 @@ function located(dir, entry) {
  * Create one entry. Throws if the platform refuses it.
  * @param {string} dir
  * @param {Fixture} entry
- * @param {string | Buffer} abs
+ * @param {ReturnType<typeof located>} where
  */
-function create(dir, entry, abs) {
+function create(dir, entry, { abs, parent }) {
   const target = entry.target ? join(dir, ...entry.target) : "";
-  mkdirSync(
-    Buffer.isBuffer(abs) ? dirname(abs.toString("utf8")) : dirname(abs),
-    {
-      recursive: true,
-    },
-  );
+  mkdirSync(parent, { recursive: true });
   switch (entry.kind) {
-    case "file":
-      writeFileSync(abs, entry.content ?? "");
+    case "file": {
+      const content =
+        typeof entry.content === "function"
+          ? entry.content()
+          : (entry.content ?? "");
+      writeFileSync(abs, content);
       if (entry.mtime !== undefined) {
         // A negative number is "now" to `utimes`, so a time before 1970 goes as a Date;
         // a positive one stays a number, since a Date drops the sub-millisecond part.
@@ -794,7 +801,7 @@ function create(dir, entry, abs) {
         utimesSync(abs, stamp, stamp);
       }
       if (entry.unreadable) {
-        execFileSync("chmod", ["000", String(abs)]);
+        chmodSync(abs, 0);
       }
       if (entry.attrs) {
         execFileSync("attrib", [
@@ -803,6 +810,7 @@ function create(dir, entry, abs) {
         ]);
       }
       return;
+    }
     case "dir":
       mkdirSync(abs, { recursive: true });
       if (entry.caseSensitive && windows) {
@@ -868,11 +876,19 @@ function mismatch(dir, entry, where, listed) {
     dir: stats.isDirectory(),
     symlink: stats.isSymbolicLink(),
     junction: stats.isSymbolicLink(),
-    hardlink: stats.isFile() && stats.nlink >= 2,
+    hardlink: stats.isFile(),
     fifo: stats.isFIFO(),
   };
   if (!kinds[entry.kind]) {
     return `not a ${entry.kind}`;
+  }
+  const target = join(dir, ...(entry.target ?? []));
+  if (entry.kind === "hardlink") {
+    // The same inode under two names, not merely a file with some other link.
+    const other = lstatSync(target);
+    if (other.ino !== stats.ino || other.dev !== stats.dev) {
+      return `not the same file as ${JSON.stringify(target)}`;
+    }
   }
   if (
     entry.mtime !== undefined &&
@@ -898,15 +914,38 @@ function mismatch(dir, entry, where, listed) {
     }
   }
   if (entry.kind === "symlink" || entry.kind === "junction") {
-    const expected = join(dir, ...(entry.target ?? []));
     const actual = readlinkSync(where.abs)
       .replace(/^\\\\\?\\/, "")
       .replace(/[\\/]$/, "");
-    if (actual !== expected) {
-      return `points at ${JSON.stringify(actual)}, not ${JSON.stringify(expected)}`;
+    if (actual !== target) {
+      return `points at ${JSON.stringify(actual)}, not ${JSON.stringify(target)}`;
+    }
+    // A link meant to lead somewhere must, or the row it exists to provoke never comes;
+    // one meant to dangle must not.
+    if (existsSync(target) === Boolean(entry.dangling)) {
+      return entry.dangling
+        ? "its target exists, where it should dangle"
+        : "its target doesn't exist, so it dangles";
     }
   }
   return undefined;
+}
+
+/**
+ * Remove the empty directories a removed entry leaves above it, up to but not including
+ * `stop`: `mkdir -p` made them for the entry alone, and nothing declares them.
+ * @param {string} parent
+ * @param {string} stop
+ */
+function pruneEmpty(parent, stop) {
+  while (
+    parent !== stop &&
+    existsSync(parent) &&
+    readdirSync(parent).length === 0
+  ) {
+    rmdirSync(parent);
+    parent = dirname(parent);
+  }
 }
 
 /**
@@ -914,19 +953,20 @@ function mismatch(dir, entry, where, listed) {
  * come back as declared, together with everything sharing its `why`. Returns the sets
  * that exist, with their member directories, and the groups this platform refused.
  * @param {string} dir
- * @param {{ seed?: boolean }} [options] `seed` builds for the restore seed: the entries
- *   only it uses, and none of the sets a backup must refuse
+ * @param {{ patterns?: boolean }} [options] `patterns` builds the trees s3cab snapshots
+ *   with the exclude patterns above (the seed, the split builds): the entries only they
+ *   use, and none of the sets a backup must refuse, which s3cab can't snapshot
  */
-export function buildFixtures(dir, { seed = false } = {}) {
+export function buildFixtures(dir, { patterns = false } = {}) {
   const refused = new Set(
-    sets.filter((set) => set.refused).map(({ name }) => name),
+    sets.filter((set) => !seeded.includes(set)).map(({ name }) => name),
   );
   const wanted = fixtures.filter(
     (entry) =>
       (entry.on === undefined ||
         entry.on === (windows ? "windows" : "posix")) &&
-      (entry.only !== "seed" || seed) &&
-      !(seed && refused.has(entry.set)),
+      (entry.only !== "patterns" || patterns) &&
+      !(patterns && refused.has(entry.set)),
   );
 
   /** @type {Map<string, string>} why → the first reason it failed */
@@ -935,7 +975,7 @@ export function buildFixtures(dir, { seed = false } = {}) {
     const where = located(dir, entry);
     if (!failed.has(entry.why)) {
       try {
-        create(dir, entry, where.abs);
+        create(dir, entry, where);
       } catch (error) {
         failed.set(
           entry.why,
@@ -976,13 +1016,14 @@ export function buildFixtures(dir, { seed = false } = {}) {
   for (const { entry, where } of built) {
     if (failed.has(entry.why)) {
       rmSync(where.abs, { recursive: true, force: true });
+      pruneEmpty(where.parent, join(dir, entry.set));
     }
   }
   const skipped = [...failed].map(([why, reason]) => `${why} — ${reason}`);
 
   // A set with nothing left is no set: removed, so a refused set can't become an empty one
   // that publishes, and reported beside the groups. One with no entry declared for this
-  // platform, or left out of the seed, is absent by design, which is not a failure.
+  // platform, or that s3cab can't snapshot, is absent by design, which is not a failure.
   /** @type {string[]} */
   const absent = [];
   const present = setDirs(dir).filter((set) => {
@@ -995,7 +1036,7 @@ export function buildFixtures(dir, { seed = false } = {}) {
         skipped.push(`the whole set ${set.name}`);
       } else {
         absent.push(
-          `${set.name.padEnd(8)} ${seed && set.refused ? "not seeded: a backup must refuse it" : `not declared for ${platform}`}`,
+          `${set.name.padEnd(8)} ${patterns && set.refused ? "not snapshotted by s3cab: a backup must refuse it" : `not declared for ${platform}`}`,
         );
       }
     }

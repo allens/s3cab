@@ -54,7 +54,7 @@ const { root, bucket } = readCommandLine(
 );
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
-const { run, mustRun } = cli(home);
+const { mustRun, mustWrite } = cli(home);
 const stamp = seedHash();
 
 /** @param {string} path */
@@ -76,9 +76,9 @@ const waitForNextMinute = async () => {
 };
 
 // Built before the bucket is touched: a golden set missing a fixture would be partial for
-// every run that reads it, not just this one. The seed's own build: the surrogate under
-// `edge`'s pattern, and none of the sets a backup must refuse.
-const built = buildFixtures(fixtures, { seed: true });
+// every run that reads it, not just this one. Built for s3cab's patterns: the surrogate
+// under `edge`'s, and none of the sets a backup must refuse.
+const built = buildFixtures(fixtures, { patterns: true });
 const { sets, skipped } = built;
 reportFixtures(fixtures, built);
 if (skipped.length > 0) {
@@ -197,23 +197,9 @@ for (const { name } of sets) {
   }
 }
 
-/**
- * Back a set up. `edge` holds `#error` rows by design (links out of the backup, an
- * unreadable file), so its backup exits 1 with the snapshot published all the same.
- * @param {string} name
- * @param {boolean} [errors]
- */
-const backup = (name, errors) => {
+for (const { name } of sets) {
   console.log(`backup ${name}`);
-  const result = run(["backup", name]);
-  if (result.code !== 0 && !(errors && result.code === 1)) {
-    throw new Error(
-      `s3cab backup ${name} exited ${result.code}\n${result.out}\n${result.err}`,
-    );
-  }
-};
-for (const { name, errors } of sets) {
-  backup(name, errors);
+  mustWrite(["backup", name], name);
 }
 
 // ── The damage ──────────────────────────────────────────────────────────────
@@ -232,7 +218,7 @@ mustRun([
   sha256(join(fixtures, "edge", "dedup-a.txt")),
 ]);
 await waitForNextMinute();
-backup("edge", true);
+mustWrite(["backup", "edge"], "edge");
 
 // F7, unexplained damage: remove an object from the store *without* a deletion record.
 // Done through the SDK rather than `s3cab delete`, because delete's whole job is to
