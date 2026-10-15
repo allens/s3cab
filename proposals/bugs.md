@@ -168,12 +168,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   user has to delete the parked file by hand. Accented file names are common in photo
   libraries. A tolerant read should drop an undecodable tail, as it already drops the torn line.
   Not yet reproduced end to end.
-- **`setup --profile` says the profile came from your environment.** `create`
-  (`src/commands/setup.mjs`) merges the flag into `process.env` without recording a source, so
-  `envSource` (`src/lib/env.mjs`) falls back to "your environment": the notice reads
-  `Using AWS profile: s3cab-allen-onedrive (from your environment)` with no `AWS_PROFILE` in the
-  shell. The profile used is right; the label sends someone hunting a stale export to the wrong
-  place.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

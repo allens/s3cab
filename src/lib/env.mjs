@@ -9,7 +9,8 @@ import { resolveSet } from "./sets.mjs";
 // s3cab's environment-file loading — *what configuration applies* (the set's
 // bucket, region, endpoint, profile), distinct from *how credentials are
 // obtained* (the standard AWS chain in src/lib/auth.mjs). There is one s3cab
-// layer: a set's own env file, applied over the ambient shell (set > shell, a
+// layer (bar `setup`'s own options, applied before the set's file exists): a
+// set's own env file, applied over the ambient shell (set > shell, a
 // file value always beating the shell, never the cwd `.env`, never `~/.aws/*`) —
 // specified in docs/design/auth.md; this module implements it. The machine-wide
 // default is the ambient AWS setup itself (~/.aws, a default profile, exported
@@ -91,7 +92,9 @@ export const loadedSet = () => _loadedSet;
 
 /**
  * Which env layer last set each key: variable name → human label
- * (`set 'photos' config`). A key present in process.env but *absent* here came
+ * (`set 'photos' config`, or `the setup command` for the options `setup`
+ * applies before the set's file exists). A key present in process.env but
+ * *absent* here came
  * from outside s3cab's layering — a shell export, a Node `--env-file`, the parent
  * process — which is exactly what `envSource` reports as "your environment".
  * Module-level like `appliedEnvFiles`: the set layer is applied over the shell,
@@ -122,6 +125,16 @@ function applyEnvLayer(path, label) {
     return;
   }
   appliedEnvFiles.add(path);
+  applyEnv(values, label);
+}
+
+/**
+ * Merge values into process.env and record `label` as where they came from, so
+ * `envSource` names it instead of "your environment".
+ * @param {NodeJS.Dict<string>} values
+ * @param {string} label - e.g. `set 'photos' config`
+ */
+export function applyEnv(values, label) {
   Object.assign(process.env, values);
   for (const key of Object.keys(values)) {
     envSources.set(key, label);
@@ -129,9 +142,10 @@ function applyEnvLayer(path, label) {
 }
 
 /**
- * Where an effective environment variable came from — a set's config (the label
- * `envSources` recorded), or "your environment" for anything s3cab didn't set
- * itself: a shell export, a Node `--env-file`, the parent process, all
+ * Where an effective environment variable came from — the label `envSources`
+ * recorded (a set's config, or `setup`'s own options), or "your environment" for
+ * anything s3cab didn't set itself: a shell export, a Node `--env-file`, the
+ * parent process, all
  * indistinguishable once merged into process.env before we ran. `undefined` when
  * the variable isn't set at all.
  *
