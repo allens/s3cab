@@ -54,7 +54,7 @@ const { root, bucket } = readCommandLine(
 );
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
-const { mustRun } = cli(home);
+const { mustRun, mustWrite } = cli(home);
 const stamp = seedHash();
 
 /** @param {string} path */
@@ -76,9 +76,11 @@ const waitForNextMinute = async () => {
 };
 
 // Built before the bucket is touched: a golden set missing a fixture would be partial for
-// every run that reads it, not just this one.
-const { sets, skipped } = buildFixtures(fixtures);
-reportFixtures(fixtures, sets, skipped);
+// every run that reads it, not just this one. Built for s3cab's patterns: the surrogate
+// under `edge`'s, and none of the sets a backup must refuse.
+const built = buildFixtures(fixtures, { patterns: true });
+const { sets, skipped } = built;
+reportFixtures(fixtures, built);
 if (skipped.length > 0) {
   console.error(
     "\nNot seeding: the golden set has to hold every fixture. The bucket is untouched.",
@@ -178,14 +180,14 @@ if (keys.length > 0) {
 
 // ── Back them up ────────────────────────────────────────────────────────────
 
-for (const [name, dirs] of sets) {
+for (const { name, dirs } of sets) {
   console.log(`setup ${name}`);
   mustRun(["setup", "--set", name, "--bucket", bucket, ...dirs]);
 }
 
 // Before the first backup, or the #excluded row never appears. A set with no patterns
 // loses setup's starter file, and backup then deletes the remote copy to match.
-for (const [name] of sets) {
+for (const { name } of sets) {
   const excludePath = join(home, "sets", name, "exclude.txt");
   const exclude = excludes.get(name);
   if (exclude) {
@@ -195,9 +197,9 @@ for (const [name] of sets) {
   }
 }
 
-for (const [name] of sets) {
+for (const { name } of sets) {
   console.log(`backup ${name}`);
-  mustRun(["backup", name]);
+  mustWrite(["backup", name], name);
 }
 
 // ── The damage ──────────────────────────────────────────────────────────────
@@ -216,7 +218,7 @@ mustRun([
   sha256(join(fixtures, "edge", "dedup-a.txt")),
 ]);
 await waitForNextMinute();
-mustRun(["backup", "edge"]);
+mustWrite(["backup", "edge"], "edge");
 
 // F7, unexplained damage: remove an object from the store *without* a deletion record.
 // Done through the SDK rather than `s3cab delete`, because delete's whole job is to

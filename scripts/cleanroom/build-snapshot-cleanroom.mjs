@@ -31,8 +31,10 @@ const cleanroom = join(root, "cleanroom");
 const fixtures = join(root, "fixtures");
 
 writeCleanroom(cleanroom, "snapshot");
-const { sets, skipped } = buildFixtures(fixtures);
-for (const [name, dirs] of sets) {
+// Built for s3cab's patterns, which this room is handed: the sets s3cab can snapshot,
+// since the checker compares each with s3cab's own.
+const built = buildFixtures(fixtures, { patterns: true });
+for (const { name, dirs } of built.sets) {
   writeSetFiles(join(cleanroom, "sets", name), name, dirs);
   // A snapshot records its set's bucket, so the set names one; nothing is uploaded to it.
   writeFileSync(
@@ -40,7 +42,7 @@ for (const [name, dirs] of sets) {
     "S3CAB_BUCKET=s3cab-cleanroom-snapshot\n",
   );
 }
-reportFixtures(fixtures, sets, skipped);
+reportFixtures(fixtures, built);
 
 handover(root, [
   "install Python 3 if this machine lacks it: the brief tells the session not to\n" +

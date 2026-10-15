@@ -615,7 +615,41 @@ export function cli(home) {
     }
     return result;
   };
-  return { run, mustRun };
+  /**
+   * The set's snapshots in this home, by file name.
+   * @param {string} set
+   */
+  const snapshotsOf = (set) => {
+    try {
+      return readdirSync(join(home, "sets", set, "snapshots")).filter(
+        (entry) => entry.endsWith(".tsv.gz") && !entry.startsWith("."),
+      );
+    } catch {
+      return [];
+    }
+  };
+  /**
+   * `snapshot` or `backup` of a set whose tree holds `#error` rows by design (`edge`:
+   * links out of the backup, an unreadable file): exit 1 is expected, but only with the
+   * snapshot written, since exit 1 is also what every thrown error gives. A run that
+   * wrote none failed for another reason, and is reported as one.
+   * @param {string[]} argv
+   * @param {string} set
+   */
+  const mustWrite = (argv, set) => {
+    const before = snapshotsOf(set).length;
+    const result = run(argv);
+    if (
+      result.code !== 0 &&
+      !(result.code === 1 && snapshotsOf(set).length > before)
+    ) {
+      throw new Error(
+        `s3cab ${argv.join(" ")} exited ${result.code} without writing a snapshot\n${result.out}\n${result.err}`,
+      );
+    }
+    return result;
+  };
+  return { run, mustRun, mustWrite };
 }
 
 /**

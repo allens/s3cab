@@ -34,7 +34,7 @@ import {
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
-import { count, files, setNames } from "./fixtures.mjs";
+import { count, files, seeded as seededSets } from "./fixtures.mjs";
 import { seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
@@ -67,6 +67,8 @@ if (seeded !== seedHash()) {
 }
 
 writeCleanroom(cleanroom, "restore", bucket, credentials);
+
+const setNames = seededSets.map(({ name }) => name);
 
 // `reattach` is how a second machine gets a set to restore from, and this sandbox's
 // `.s3cab/` starts empty.

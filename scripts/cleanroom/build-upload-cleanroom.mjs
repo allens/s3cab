@@ -75,20 +75,22 @@ const credentials = await sessionCredentials(bucket);
 const cleanroom = join(root, "cleanroom");
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
-const { mustRun } = cli(home);
+const { mustWrite } = cli(home);
 
 writeCleanroom(cleanroom, "upload", bucket, credentials);
-const { sets, skipped } = buildFixtures(fixtures);
-reportFixtures(fixtures, sets, skipped);
+// Built for s3cab's patterns, as the seed builds them: the sets s3cab can snapshot.
+const built = buildFixtures(fixtures, { patterns: true });
+const { sets } = built;
+reportFixtures(fixtures, built);
 
 console.log("");
-for (const [name, dirs] of sets) {
+for (const { name, dirs } of sets) {
   const set = join(home, "sets", name);
   writeSetFiles(set, name, dirs);
   // A local set has to name its bucket. `snapshot` never reaches it.
   writeFileSync(join(set, "env"), `S3CAB_BUCKET=${bucket}\n`);
   console.log(`snapshot ${name}`);
-  mustRun(["snapshot", name]);
+  mustWrite(["snapshot", name], name);
 }
 
 // Same size, same mtime, different bytes: a check of size and mtime alone passes it.
@@ -103,7 +105,7 @@ console.log(
 
 /** @param {string} name */
 const snapshotsOf = (name) => join(home, "sets", name, "snapshots");
-for (const [name, dirs] of sets) {
+for (const { name, dirs } of sets) {
   const set = join(cleanroom, "sets", name);
   writeSetFiles(set, name, dirs);
   mkdirSync(join(set, "snapshots"));
