@@ -150,3 +150,13 @@ niceties.
   _Adjacent:_ a pre-flight "what would this back up" is the other answer to the same question
   and may be the better one — `status` already reports what a backup would upload without
   transferring anything. Check whether it is enough before changing the live line again.
+- **`First backup — every file is new.` contradicts the line above it when the store is already
+  full** (user, 2026-10-15, restarting the real `onedrive` set fresh over its kept `objects/`).
+  The run read `Uploaded 360 objects (464.2MB)` out of 282,144 files, then a blank line, then
+  `First backup — every file is new.` `changesLine` in [src/render.mjs](../src/render.mjs) prints
+  it whenever there is no baseline snapshot
+  ([ADR-0078](../docs/adr/0078-backup-run-report.md) §7). So "new" means new to this set's
+  snapshot history, while the upload line is about the bucket, and the bucket already had almost
+  everything. Any first snapshot against a populated bucket hits this, not just a restart.
+  _My suggestion, not settled:_ say only what is true without a baseline, e.g. `First backup —
+  nothing to compare with.`
