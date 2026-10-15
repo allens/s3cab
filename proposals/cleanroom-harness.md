@@ -37,15 +37,26 @@ that, what the split's staged inputs tested moves to where it belongs:
 | Hashing the bytes as they're sent (implementation) | the harvest review of the program's code; s3cab's own tests for its upload |
 | Refusing a torn snapshot handed in (implementation) | s3cab's tests for `upload`; the Uploading checklist keeps the rule |
 
-- **Gained:** no s3cab output reaches any clean room (the upload room's exception goes); the
-  questions that fell between the two halves get asked (a file whose bytes don't match while
-  sending: re-hash, `#error` and carry on, or fail?); six runs a real set instead of nine.
+- **Gained:** no s3cab output reaches any clean room (the upload room's exception goes); six
+  runs a real set instead of nine.
+- **Lost:** the staged after-snapshot change. The upload build rewrote `b-corrupt.txt` after
+  s3cab's snapshot, which is the only thing that ever made a room face a file whose bytes don't
+  match while sending (re-hash, `#error` and carry on, or fail?). A fused room controls its own
+  walk, and nothing can change a file between its hash and its send, so the question is asked
+  only if the reader thinks of it unprompted. The split's second reader goes too: ADR-0096's
+  case was two readers on either side of the file, and the published snapshot is now read by
+  `compare-snapshot` and the restorers alone, so an uploader *parsing* rows is tested by
+  nobody but a restorer. Every backup run also takes a bucket turn, with boto3 and a credential
+  window, where the snapshot rooms needed neither and could run beside an upload.
 - **Changes to the checks:** the published snapshot is downloaded and given `compare-snapshot`'s
-  row checks against `s3cab snapshot` of the same trees, replacing "byte-identical to the one
-  handed over"; `sets/` checks become `snapshots/<set>.info`. The comparison runs s3cab with no
-  patterns and allows for s3cab skipping `.s3cab` folders. `@SET BUCKET` is optional
-  (ADR-0107), so its check reports a mismatch only when the room wrote the row. `spread`'s patterns and `edge`'s CRLF
-  `exclude.txt` stay for s3cab's seed only.
+  row checks against `s3cab snapshot` of the same trees, taken in a throwaway home whose `env`
+  names the backup bucket, so `@SET BUCKET` compares like with like; it is optional (ADR-0107),
+  so the check reports a mismatch only when the room wrote the row. That replaces
+  `check-upload`'s "byte-identical to the one handed over", with everything that fed it: the
+  snapshots read from `<root>/.s3cab/sets`, the damaged `faults` name, "never published", and
+  `corrupt` must not publish. The comparison runs s3cab with no patterns; `spread`'s patterns
+  and `edge`'s CRLF `exclude.txt` stay for s3cab's seed only, and `faults` and `corrupt` are
+  ordinary trees in the backup bucket, their names describing damage only the golden set has.
 - **The cost to watch: a shallower reading.** One session now covers both the "Writing a snapshot"
   and "Uploading" checklists. The first fused experiment's guesses against each are compared with
   the last split runs' (30 snapshot, 33 upload); clearly fewer argues for splitting again.
@@ -75,6 +86,11 @@ s3cab-restore <bucket> <set> <dir> [<snapshot>]
   to check.
 - The spec leaves the restore layout for several `@SET DIR`s to the tool, so the brief fixes it to
   s3cab's `--output` layout (`<dir>/<root-basename>/…`), as today, for `compare.py` to compare.
+- **Open: where the set → directories list lives.** With `sets/` gone from the clean room, the
+  brief has to say which directories make each set, and the checker needs the same list to run
+  `s3cab snapshot`; today it reads `cleanroom/sets/<set>/dirs.txt`. *Reviewer's suggestion:* a
+  pure `setDirs(root)` in `fixtures.mjs` that the build calls for `ENVIRONMENT.md` and the
+  checker calls for itself, so nothing extra is written to disk.
 
 ## Fixtures
 
@@ -89,27 +105,33 @@ apart. Today it is a Linux-maximal corpus that Windows and macOS only lose from.
   lone-surrogate string name as U+FFFD and reports success, and what works depends on the Node
   version, the machine (symlinks need Developer Mode or elevation) and the filesystem (NTFS, ReFS,
   exFAT, a share). Never checked through `s3cab snapshot`: an s3cab bug and a broken fixture
-  would agree.
+  would agree. Still to decide: the declaration's shape; that `lstat` can't see hidden or
+  system, so those read back through `attrib` again; and the junction's target, since into the
+  backup means no row and out of it means `#error`.
 - **Windows' own commands only where Node has no API,** spawned from the module
   (`execFileSync`), so still one file: `attrib` for hidden and system, and
-  `fsutil file setCaseSensitiveInfo` for a case-sensitive folder.
+  `fsutil file setCaseSensitiveInfo` for a case-sensitive folder (works unelevated).
 - **A lone surrogate goes through a `Buffer` path holding its WTF-8 bytes** (`ED A0 80`). A string
   path is converted to UTF-8 first, which swaps the surrogate for U+FFFD; the raw bytes reach
   Windows as the real U+D800 (Node 26, confirmed by PowerShell's code points).
 - **Deterministic content, natural mtimes.** Random bytes buy only uniqueness, which fixed
   distinct content gives too; fixed content means the same hashes on every build and platform, so
-  two runs' snapshots diff directly. The mtimes stay the filesystem's own: `utimes` takes a float,
-  which can't pin a sub-millisecond value (F6).
+  two runs' hashes diff directly (the rows still differ in mtime). It also makes the restore and
+  backup buckets share *every* hash, where today only the fixed-content files do, which turns
+  ADR-0096's two-bucket rationale from mostly to entirely. The mtimes stay the filesystem's own:
+  `utimes` takes a float, which can't pin a sub-millisecond value (F6).
+- **macOS has no section yet.** Nothing beyond the APFS folding probes that exist is known to be
+  needed; say so or add it when a Mac run shows otherwise.
 
 What a probe on Windows (Node, cross-checked with `Get-ChildItem -LiteralPath -Force`) found:
 
 | Fixture | On Windows |
 |---|---|
-| leading/trailing-space names (F2), path past `MAX_PATH` (F13) | creatable through Node: **not POSIX-only** |
+| leading/trailing-space names (F2), path past `MAX_PATH` (F13) | creatable through Node, and s3cab backs them up and restores them by plain path: **not POSIX-only**. So s3cab's Windows reference holds them, and a restorer that strips the space or fails past 260 reads as MISSING plus EXTRA; `edge` still exits nonzero there, now only for F3 and the case pair |
 | U+0085 in a name (a third of F3) | creatable; `\v` and `\f` are not (NTFS forbids 1–31) |
 | trailing dot (`notes.`) | creatable; new — the spec's `\\?\` hint |
 | case pair | only in a case-sensitive folder (`fsutil`) |
-| `CON`, `aux.txt`, `nul.txt` | creatable, and hostile on Windows itself: a plain-path open of `CON` gets the console |
+| `CON`, `aux.txt`, `nul.txt` | creatable, and hostile to Python's and .NET's plain-path open, which gets the console; not to Node, which prefixes `\\?\` itself, so s3cab backs them up (hash of the file's bytes) and restores them (`writeFileAtomic`'s rename to `PRN`, `LPT1`, `nul.txt` lands a real file) with no hang |
 | `? * < > \| "` | impossible; Linux names for the golden set |
 | `a:b.txt` | makes file `a` with an alternate data stream `b.txt` — never a fixture on Windows |
 | junction, directory/file/broken symlink | creatable (symlinks needed no elevation here; a CI runner may differ) |
@@ -122,13 +144,19 @@ names it must deal with deliberately: the reserved names (`CON`, `aux.txt`, `nul
 plain path makes an alternate data stream on `a` and reports success; `CON` is creatable through
 `\\?\` but then hostile to every plain-path tool. What to do on arrival is the tool's choice
 (the spec says so, "Restoring on another operating system") — these make the report say what it
-chose. s3cab's own `restore` refuses `:` before writing; its handling of the reserved names is
-unchecked.
+chose. s3cab's own `restore` refuses `:` before writing, and writes the reserved names as
+ordinary files (tested 2026-10-15), so its Windows reference contains `CON` and a restorer that
+skips it reads as MISSING.
 
-**Open: the lone surrogate and the reserved names.** A name with no UTF-8 form stops the backup
-(the spec refuses it), and without exclude patterns the clean-room backup has no way past, so it
-needs a set of its own or stays out. `CON` needs s3cab tried against it first, carefully. Both
-wait on that.
+**Decided: the lone surrogate is two fixtures.** s3cab refuses the whole set that holds one
+(exit 1, no snapshot, the name printed with three U+FFFD) unless a pattern leaves it out, and
+then writes the `#excluded` row with the same spelling. So for the seed, which has patterns, it
+sits in `edge` under one, and the golden set carries that row. For the fused backup room, which
+has none, it is a set of its own that the room is expected to refuse, and the checker's own
+`s3cab snapshot` refuses it too. That needs a per-set expectation in the checker (published, or
+refused with a nonzero exit and the name said) in place of "every set has a snapshot and a
+`.info`"; a `.info` claimed before the walk refused stays a note. APFS can't hold the name
+(`EILSEQ`), so on macOS it is a loud skip.
 
 ## The restore clean room
 
@@ -151,6 +179,16 @@ The difference section is a result of its own: each entry is a place two careful
 disagreed, explained while the session still has the context. Its size against phase 1's list
 measures how much the references would have hidden. Changes `build-restore-cleanroom.mjs` (build
 without `reference/`, then copy it in and resume) and the restore brief; the checks don't change.
+
+Still to decide when it is built:
+
+- What the phase-2 prompt says. Phase 1 starts from a bare `go` with the brief in the system
+  prompt; phase 2 has to say that `reference/` is there and what to write. Whether
+  `--append-system-prompt-file` must be repeated on `--resume` is unverified.
+- What "freezes the report" copies. The brief names no report file, and kept runs show sessions
+  choosing `REPORT.md` and `guess-log.md`; a copy of the whole clean room minus credentials
+  needs no name.
+- A second `--max-budget-usd`, and that the harvested program is phase 2's.
 
 Every golden-set snapshot today is a Linux backup, so no restorer reads drive letters or
 backslashes; seeding per platform needs Windows and macOS machines, and is in
