@@ -20,7 +20,7 @@ import {
 // (the same split `planCleanup` keeps with `cleanup`).
 //
 // **Unrestorable, not orphaned** (ADR-0063's vocabulary verdict). `orphan` stays
-// object-side, `cleanup`'s storage-accounting word (CONTEXT.md) — and the hashes
+// object-side, `cleanup`'s storage-accounting word (GLOSSARY.md) — and the hashes
 // below genuinely do become orphans, which is why the computation still says so.
 // What this module *reports* is the user consequence of that state, read through
 // the **Restore** vocabulary: a file no surviving snapshot lists. One state, two

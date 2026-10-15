@@ -73,7 +73,7 @@ with.
 - When `AWS_PROFILE` is set, the first bullet becomes the whole command
   (`aws sso login --profile <name>`).
 - The remedy list's "request a new set" became "request new ones" — with a *backup set* now
-  named in the same message, "set" could only be read wrong (CONTEXT.md reserves the word).
+  named in the same message, "set" could only be read wrong (GLOSSARY.md reserves the word).
 - The expired path is unit-tested from both SDK texts; nothing enforces that the texts stay
   current, by design (see the failure mode above).
 

@@ -1,6 +1,6 @@
 # Clean-room fixtures
 
-Epic: what the clean-room golden set and backup trees
+Epic: what the clean-room restore fixtures and backup fixtures
 ([scripts/cleanroom/](../scripts/cleanroom/),
 [ADR-0096](../docs/adr/0096-three-implementations-prove-the-format.md)) don't yet provoke. Every
 fixture here is buildable on Linux by a Node script, with no root and no special mounts. Ordered
@@ -17,13 +17,13 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   exit for this set instead of using `mustRun`. **Silent** on the backup side: a backup that
   drops the row and shifts every later hash by one stores objects that match their keys but
   belong to other files, and hashing what you download can't catch that. Restore side: no
-  golden snapshot has ever held an `#error` row.
+  snapshot in the restore fixtures has ever held an `#error` row.
 - **Hand-edited snapshots.** A new set whose `info`, `dirs.txt` and snapshots are published
   through the SDK, the way the seed already publishes the damaged `faults` snapshot. Its rows
   reuse hashes already in the bucket, and `restore --output` builds its reference on Linux.
   - Windows `@SET DIR`s (`C:\…`, `\\nas\share\…`, `//nas/share/…`) with rows in a different
     case or with `/` separators. Covers "Reading is more forgiving…" and the Windows half of
-    "How a `@SET DIR` matches a path". Nothing in the golden set is Windows-shaped today. Loud.
+    "How a `@SET DIR` matches a path". Nothing in the restore fixtures is Windows-shaped today. Loud.
   - A row under `…\PhotosX\` where the only `DIR` is `…\Photos`. s3cab refuses the row, since
     it's under no `DIR`; a restorer comparing string prefixes lands it at `Photos/X/…`.
     **Silent.**
@@ -122,7 +122,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 - **Several snapshots of one set, latest versus by name.** "Latest" isn't a format concept. `edge`
   already has two snapshots, the harness restores every snapshot by name, and the backdated
   damaged snapshot already catches "latest by LastModified".
-- **Overlapping member directories.** s3cab refuses them, so no golden snapshot can hold any.
+- **Overlapping member directories.** s3cab refuses them, so no snapshot in the restore fixtures can hold any.
 - **Sub-millisecond mtimes and half-millisecond ties.** F6 already covers sub-millisecond times.
   Node can't set exact nanoseconds, and a tie costs a re-hash, not data.
 - **mtimes past 9999.** They break the 24-character form, and ext4 stops at 2446.

@@ -119,7 +119,7 @@ Pure rename/regroup of the management surface — no change to what create/updat
 reshaping remained). It touched: the command registry ([src/commands.mjs](../../src/commands.mjs)) —
 dropped `sets`, added `setup`, extended `list`; the command file `src/commands/sets.mjs`, renamed to
 [`setup.mjs`](../../src/commands/setup.mjs) (one-export-per-command [0023](0023-porcelain-plumbing-lib-layers.md)
-still holds); help ([src/help.mjs](../../src/help.mjs)); [CONTEXT.md](../../CONTEXT.md) (the "Sets (the
+still holds); help ([src/help.mjs](../../src/help.mjs)); [GLOSSARY.md](../../GLOSSARY.md) (the "Sets (the
 command)" term split into `setup` + `list`; the `Inherit` example became `s3cab setup … --inherit`);
 and the README/guide. Error-message examples that showed `s3cab sets …` (e.g. `collisionError`, the
 bucket-less-set message in [0030](0030-error-message-guidelines.md)) now read `s3cab setup …`.

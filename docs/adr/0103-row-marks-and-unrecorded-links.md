@@ -121,7 +121,7 @@ number; a type spelled like an Excel error value (`#N/A`, `#REF!`) imports as th
 
 - Every reader and writer of the row types changes: `snapshot-file.mjs`, the deletion record,
   `compare`, `render`, the walk (a link out of the backup becomes an `#error`; `compare` no longer
-  reads links), [guide/format.md](../../guide/format.md) and [CONTEXT.md](../../CONTEXT.md).
+  reads links), [guide/format.md](../../guide/format.md) and [GLOSSARY.md](../../GLOSSARY.md).
 - The clean-room harness and its fixtures change shape, and the golden set is reseeded.
 - A set that holds a link to outside content starts exiting 1 on its first run under this
   version, and names each such link, until its folder is added or it's excluded.

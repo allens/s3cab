@@ -175,7 +175,7 @@ export const sizeDisagreements = (object, storedSize) => {
  * `set/snapshot`, the name a whole-bucket scan has to use because a snapshot name
  * alone is only unique within its set. Written the same way as its place in the
  * bucket (`snapshots/<set>/<name>.tsv.gz`), so a name printed here pastes
- * straight after `s3://<bucket>/snapshots/` (CONTEXT.md, **Snapshot**).
+ * straight after `s3://<bucket>/snapshots/` (GLOSSARY.md, **Snapshot**).
  *
  * `referencedObjects` reports these **per set**, but a whole-bucket scan wants
  * them flat, to refuse on a non-empty list or to caveat its output with one. The

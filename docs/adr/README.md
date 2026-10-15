@@ -2,7 +2,7 @@
 
 Each file records one decision: *that* it was made and *why* (format: the `ADR-FORMAT.md` of the
 `domain-modeling` skill from [mattpocock/skills](https://github.com/mattpocock/skills)).
-Domain vocabulary lives in [CONTEXT.md](../../CONTEXT.md); fuller designs in
+Domain vocabulary lives in [GLOSSARY.md](../../GLOSSARY.md); fuller designs in
 [docs/design/](../design/); AI-assistant working rules in [CLAUDE.md](../../CLAUDE.md).
 
 New ADR: take the next number, `NNNN-slug.md`. Offer one only when a decision is **hard to
