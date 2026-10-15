@@ -174,6 +174,16 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   Under `D:\src\s3cab` the longest frame is about 55 columns, so nothing is cut and the test
   fails; CI's longer checkout paths hide it. A file name in the fixture long enough to overflow
   60 columns from any root would make the premise hold everywhere.
+- **An exclude pattern can't silence an entry the walk fails to inspect.** Two places in
+  `src/lib/walk.mjs` record an `#error` before asking the patterns: `checkLink`, when
+  `readlinkSync` throws (it consults `excludedBy` only after the `stat` that follows), and
+  `createWalkCallbackFn`, when `resolveFileType`'s fallback `lstat` comes back as an error.
+  Seen on the real `onedrive` set (2026-10-15): a locked OneDrive Personal Vault, which the
+  dirent reports as a link, gave `#error EINVAL: invalid argument, readlink 'D:\OneDrive\Personal
+  Vault'`, and a `Personal Vault` pattern would not have removed it. `backup`'s
+  `excludeSuggestions` makes it worse: after two failing runs it suggests exactly such a line,
+  which then does nothing. The obstacle to a fix is that the entry's type is unknown at that
+  point, and a pattern ending in `/` matches only a directory.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
