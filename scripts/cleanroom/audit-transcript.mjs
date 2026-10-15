@@ -9,9 +9,12 @@
  *   the session's own scratchpad and tool output;
  * - a shell command naming one of those, or running s3cab itself;
  * - any web search or fetch: the brief forbids looking the tool up, and no role needs
- *   the web to do its work. From the shell that is a URL whose host isn't S3, any
- *   mention of GitHub or the docs site, or `git`/`gh` fetching. A bare `curl` is not:
- *   a restorer may test its requests against the bucket.
+ *   the web to do its work. From the shell that is a URL whose host isn't an S3
+ *   endpoint, any mention of a host serving s3cab's source or docs, or `gh`. A curl to
+ *   S3 is not: a restorer may test its requests against the bucket. Nor is the URL in
+ *   the spec's `@S3CAB FORMAT` row, which every snapshot carries. Not caught: a host
+ *   held in a variable, a scheme-less host not on the list, and a URL in a file the
+ *   session wrote and then ran, which is what a restorer is.
  * Paths elsewhere (a toolchain under Program Files, /usr) are not strays.
  *
  * Claude Code keeps a session's transcripts under `projects/<cwd, every character but
@@ -135,22 +138,32 @@ const named = new RegExp(
 // Case-insensitive, since Windows runs `S3CAB` too, though it also flags a bare `S3CAB` in an
 // environment-variable filter (`-match '^(AWS_|S3CAB)'`). If that false alarm recurs, report
 // other-case matches as a note rather than going case-sensitive.
+// `@` admits a version (`npm view s3cab@latest`).
 const runsS3cab =
-  /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)])/im;
-// A host that is only a variable (`https://$host/`) can't be read here; the command
-// that set it names the host itself.
-const urlHosts = /\bhttps?:\/\/([^\s/'"`)\\]+)/gi;
-const s3Host = /(^|\.)amazonaws\.com(:\d+)?$/i;
-const sourceHosts = /\b(github\.com|githubusercontent\.com|plantegral\.com)\b/i;
-const fetchesGit =
-  /(^|[\s;&|(`])(git\s+(clone|fetch|pull|ls-remote)|gh)(\.exe)?(?=$|[\s;&|)])/im;
+  /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)@])/im;
+const formatUrl = "s3cab.plantegral.com/guide/format";
+// A host ends at the first character a host can't hold, so a query string or a variable
+// after it isn't read as part of it. One that starts with a variable reads as empty.
+const urlHosts = /\bhttps?:\/\/([^\s/'"`)\\?#:;,|<>&$%{]*)/gi;
+const s3Host = /(^|\.)s3[.-]([a-z0-9-]+\.)*amazonaws\.com$/i;
+// The npm package ships src/ and guide/, so its registry and CDNs serve s3cab too.
+const sourceHosts =
+  /\b(github\.(com|io)|githubusercontent\.com|plantegral\.com|pages\.dev|npmjs\.(com|org)|unpkg\.com|jsdelivr\.net)\b/i;
+// Keyed on the subcommand, so a variable named `gh` isn't one. Not `git`: a clone from the
+// web names its URL, and one between local folders isn't the web.
+const runsGh =
+  /(^|[\s;&|(`])gh(\.exe)?\s+(api|repo|browse|gist|release|search|pr|issue|run|workflow)\b/im;
 /** @param {string} command */
-const reachesWeb = (command) =>
-  [...command.matchAll(urlHosts)].some(
-    ([, host = ""]) => !/[$%{]/.test(host) && !s3Host.test(host),
-  ) ||
-  sourceHosts.test(command) ||
-  fetchesGit.test(command);
+const reachesWeb = (command) => {
+  const rest = command.replaceAll(formatUrl, "");
+  return (
+    [...rest.matchAll(urlHosts)].some(
+      ([, host = ""]) => host !== "" && !s3Host.test(host),
+    ) ||
+    sourceHosts.test(rest) ||
+    runsGh.test(rest)
+  );
+};
 /** @param {string} command */
 const strayCommand = (command) =>
   named.test(command.replace(allowedSpelled, "")) ||
