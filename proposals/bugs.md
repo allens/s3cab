@@ -157,6 +157,17 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   stored. The expected digest is known before the PUT, so sending it as
   `x-amz-checksum-sha256` would have S3 refuse the mismatch for a single-part upload; a
   multipart one could check its running hash before completing, and abort instead.
+- **A killed run whose work file is cut inside a multi-byte character blocks every later
+  backup of the set.** The tolerant read that recovers the work file
+  (`readParkedLookup` → `parseSnapshotStream({ tolerant: true })`, `src/lib/snapshot-file.mjs`)
+  decompresses with `Z_SYNC_FLUSH`, so it gets the bytes up to the cut, mid-row by design.
+  `utf8Lines` ends with a strict `decoder.decode()` that tolerance never reaches: if the cut
+  lands inside a character such as `é`, that last decode throws (`TypeError: The encoded data
+  was not valid for encoding utf-8`, checked under node 26.10.0), surfacing as "Not an s3cab
+  snapshot", and `readBaseline` (`src/lib/snapshot.mjs`) calls the read without a catch. The
+  user has to delete the parked file by hand. Accented file names are common in photo
+  libraries. A tolerant read should drop an undecodable tail, as it already drops the torn line.
+  Not yet reproduced end to end.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
