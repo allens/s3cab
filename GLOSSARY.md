@@ -364,3 +364,15 @@ its own clean room) and the **clean-room restorer**. "Clean-room" is what separa
 backs up and restores too.
 _Avoid_: writer/reader (s3cab is both), reference implementation (`reference/` is the trees s3cab
 restored for a clean room to compare against), port, reimplementation.
+
+**Backup fixtures**:
+The trees on disk a clean-room backup backs up, built by `scripts/cleanroom/fixtures.mjs`, with the
+names and file types the spec has to get right. Named for the clean room that starts from them, like
+the **restore fixtures**.
+_Avoid_: fixtures (unqualified: there are two kinds), corpus.
+
+**Restore fixtures**:
+The backup sets a clean-room restorer restores from, in the restore bucket: s3cab's backup of the
+backup fixtures, with `faults` and `corrupt` deliberately damaged. Named for the clean room that
+starts from them; how they were made and where they live don't enter into it.
+_Avoid_: golden set, fixtures (unqualified).

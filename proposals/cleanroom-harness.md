@@ -33,7 +33,7 @@ that, what the split's staged inputs tested moves to where it belongs:
 | What | Where it's tested |
 |---|---|
 | Stored objects hash to their keys (format) | `check-upload`, every object, every run |
-| What makes a file valid (format) | restorers, against the golden set's torn `faults` snapshot |
+| What makes a file valid (format) | restorers, against the restore fixtures' torn `faults` snapshot |
 | Hashing the bytes as they're sent (implementation) | the harvest review of the program's code; s3cab's own tests for its upload |
 | Refusing a torn snapshot handed in (implementation) | s3cab's tests for `upload`; the Uploading checklist keeps the rule |
 
@@ -56,7 +56,7 @@ that, what the split's staged inputs tested moves to where it belongs:
   snapshots read from `<root>/.s3cab/sets`, the damaged `faults` name, "never published", and
   `corrupt` must not publish. The comparison runs s3cab with no patterns; `spread`'s patterns
   and `edge`'s CRLF `exclude.txt` stay for s3cab's seed only, and `faults` and `corrupt` are
-  ordinary trees in the backup bucket, their names describing damage only the golden set has.
+  ordinary trees in the backup bucket, their names describing damage only the restore fixtures have.
 - **The cost to watch: a shallower reading.** One session now covers both the "Writing a snapshot"
   and "Uploading" checklists. The first fused experiment's guesses against each are compared with
   the last split runs' (30 snapshot, 33 upload); clearly fewer argues for splitting again.
@@ -80,7 +80,7 @@ s3cab-restore <bucket> <set> <dir> [<snapshot>]
   placement takes the longest whole-segment match, which only bites when one is a prefix of
   another (`C:\Photos\`, `C:\Photos-2024\`); overlapping directories stop the backup; and `spread`,
   the only multi-directory set, is what makes the restore layout question answerable.
-- `<snapshot>` is optional, latest by default: the golden set's torn `faults` snapshot is
+- `<snapshot>` is optional, latest by default: the restore fixtures' torn `faults` snapshot is
   restored by name.
 - Not the `<bucket>/<set>` form: it makes every program split a string and gives the spec nothing
   to check.
@@ -115,10 +115,13 @@ apart. Today it is a Linux-maximal corpus that Windows and macOS only lose from.
   path is converted to UTF-8 first, which swaps the surrogate for U+FFFD; the raw bytes reach
   Windows as the real U+D800 (Node 26, confirmed by PowerShell's code points).
 - **Deterministic content, natural mtimes.** Random bytes buy only uniqueness, which fixed
-  distinct content gives too; fixed content means the same hashes on every build and platform, so
-  two runs' hashes diff directly (the rows still differ in mtime). It also makes the restore and
-  backup buckets share *every* hash, where today only the fixed-content files do, which turns
-  ADR-0096's two-bucket rationale from mostly to entirely. The mtimes stay the filesystem's own:
+  distinct content gives too; fixed content means the same hashes on every build on one platform,
+  so two runs' hashes diff directly (the rows still differ in mtime). The content carries the
+  platform's name, so the three platforms' restore fixtures share one bucket without sharing an
+  object ([cleanroom-seeding.md](cleanroom-seeding.md)), and hashes match only between runs on
+  the same platform. On one platform, the restore and backup buckets share *every* hash, where
+  today only the fixed-content files do, which turns ADR-0096's two-bucket rationale from mostly
+  to entirely. The mtimes stay the filesystem's own:
   `utimes` takes a float, which can't pin a sub-millisecond value (F6).
 - **macOS has no section yet.** Nothing beyond the APFS folding probes that exist is known to be
   needed; say so or add it when a Mac run shows otherwise.
@@ -132,13 +135,13 @@ What a probe on Windows (Node, cross-checked with `Get-ChildItem -LiteralPath -F
 | trailing dot (`notes.`) | creatable; new — the spec's `\\?\` hint |
 | case pair | only in a case-sensitive folder (`fsutil`) |
 | `CON`, `aux.txt`, `nul.txt` | creatable, and hostile to Python's and .NET's plain-path open, which gets the console; not to Node, which prefixes `\\?\` itself, so s3cab backs them up (hash of the file's bytes) and restores them (`writeFileAtomic`'s rename to `PRN`, `LPT1`, `nul.txt` lands a real file) with no hang |
-| `? * < > \| "` | impossible; Linux names for the golden set |
+| `? * < > \| "` | impossible; Linux names for the restore fixtures |
 | `a:b.txt` | makes file `a` with an alternate data stream `b.txt` — never a fixture on Windows |
 | junction, directory/file/broken symlink | creatable (symlinks needed no elevation here; a CI runner may differ) |
 | hidden, hidden + system | creatable with `attrib` |
 | lone surrogate | not through a string path (written as U+FFFD, reported as success); through a WTF-8 `Buffer` path, yes |
 
-**Decided: Linux fixtures Windows can't hold**, so the golden set hands every Windows restorer
+**Decided: Linux fixtures Windows can't hold**, so the restore fixtures hand every Windows restorer
 names it must deal with deliberately: the reserved names (`CON`, `aux.txt`, `nul.txt`), and
 `: * ? " < > |` in a name (`a:b.txt`, `a?b.txt`, …). A Windows restorer that writes `a:b.txt` by
 plain path makes an alternate data stream on `a` and reports success; `CON` is creatable through
@@ -151,7 +154,7 @@ skips it reads as MISSING.
 **Decided: the lone surrogate is two fixtures.** s3cab refuses the whole set that holds one
 (exit 1, no snapshot, the name printed with three U+FFFD) unless a pattern leaves it out, and
 then writes the `#excluded` row with the same spelling. So for the seed, which has patterns, it
-sits in `edge` under one, and the golden set carries that row. For the fused backup room, which
+sits in `edge` under one, and the restore fixtures carry that row. For the fused backup room, which
 has none, it is a set of its own that the room is expected to refuse, and the checker's own
 `s3cab snapshot` refuses it too. That needs a per-set expectation in the checker (published, or
 refused with a nonzero exit and the name said) in place of "every set has a snapshot and a
@@ -190,9 +193,9 @@ Still to decide when it is built:
   needs no name.
 - A second `--max-budget-usd`, and that the harvested program is phase 2's.
 
-Every golden-set snapshot today is a Linux backup, so no restorer reads drive letters or
+Every snapshot in the restore fixtures today is a Linux backup, so no restorer reads drive letters or
 backslashes; seeding per platform needs Windows and macOS machines, and is in
-[cleanroom-ci.md](cleanroom-ci.md).
+[cleanroom-seeding.md](cleanroom-seeding.md).
 
 ## Open: the readable example
 
