@@ -71,6 +71,8 @@ mock.module("./progress.mjs", {
     // Stubbed only because mocking a module replaces the whole of it, and
     // `walk.mjs` imports this from here.
     countedPass: () => ({ tick() {}, done() {}, [Symbol.dispose]() {} }),
+    // No terminal, as under the test runner: the line is never cut.
+    terminalWidth: () => undefined,
   },
 });
 

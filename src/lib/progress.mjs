@@ -78,6 +78,29 @@ export function statusLine(stream, text) {
 }
 
 /**
+ * The terminal's width as it is now, or `undefined` off a terminal.
+ *
+ * Node updates `columns` only when libuv reports a resize, and under Windows
+ * Terminal (ConPTY) it never does, so a window resized mid-run keeps the width the
+ * run started with. `_refreshSize` is the handler Node runs on that report, and it
+ * asks the console directly. It is undocumented, so it is called only if present.
+ * @param {NodeJS.WriteStream} stream
+ * @returns {number | undefined}
+ */
+export function terminalWidth(stream) {
+  try {
+    /** @type {{ _refreshSize?: () => void }} */ (
+      /** @type {unknown} */ (stream)
+    )._refreshSize?.();
+  } catch {
+    // A failed read emits `error` on the stream, which throws when nothing
+    // listens. Without this catch a backup would die over its progress line, so
+    // the last width stands.
+  }
+  return stream.columns;
+}
+
+/**
  * Create an in-place stderr progress reporter. Use it with `using` so its
  * closing newline runs on any scope exit (including a throw mid-loop), leaving
  * the cursor on a fresh line before whatever prints next.
@@ -116,7 +139,7 @@ export function createProgress(stream, { logLines = false } = {}) {
       // Measured without escape codes, which take no columns: a styled line the
       // caller already fitted must not be cut. One that overflows loses its styling
       // too, since a cut can land mid-sequence or drop the reset.
-      const room = (stream.columns || Infinity) - 1;
+      const room = (terminalWidth(stream) || Infinity) - 1;
       const visible = stripVTControlCharacters(text);
       stream.write(visible.length > room ? visible.slice(0, room) : text);
       // Clear the *tail* after writing rather than blanking the line before it.

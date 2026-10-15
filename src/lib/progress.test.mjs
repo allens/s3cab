@@ -6,6 +6,7 @@ import {
   countedPass,
   createProgress,
   statusLine,
+  terminalWidth,
 } from "./progress.mjs";
 
 /**
@@ -57,6 +58,20 @@ describe("createProgress", () => {
     // Over by one: cut to the room, with the styling dropped rather than broken.
     createProgress(stream).update("counts \x1b[2m[1%]\x1b[22m");
     assert.ok(writes.includes("counts [1%"), JSON.stringify(writes));
+  });
+
+  it("cuts a line to the terminal's width now, not the width it started at", () => {
+    const { stream, writes } = fakeStream(true);
+    stream.columns = 11;
+    // The window was widened: asking the console again reports the new width.
+    Object.assign(stream, {
+      _refreshSize() {
+        stream.columns = 21;
+      },
+    });
+    const line = "x".repeat(20);
+    createProgress(stream).update(line);
+    assert.ok(writes.includes(line), JSON.stringify(writes));
   });
 
   it("writes the text before clearing, so the line is never blanked", () => {
@@ -442,5 +457,18 @@ describe("statusLine", () => {
     const { stream, output } = fakeStream(false);
     statusLine(stream, "Connection lost");
     assert.equal(output(), "Connection lost\n");
+  });
+});
+
+describe("terminalWidth", () => {
+  it("keeps the last width when the console can't be asked", () => {
+    const { stream } = fakeStream(true);
+    stream.columns = 80;
+    Object.assign(stream, {
+      _refreshSize() {
+        throw new Error("getWindowSize EBADF");
+      },
+    });
+    assert.equal(terminalWidth(stream), 80);
   });
 });
