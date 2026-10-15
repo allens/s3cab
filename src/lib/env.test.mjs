@@ -68,7 +68,6 @@ async function setup(root) {
   return {
     loadSet: env.loadSet,
     envSource: env.envSource,
-    applyEnv: env.applyEnv,
     setEnvPath,
     /** @param {string} name @param {string} contents */
     set: (name, contents) => writeEnv(setEnvPath(name), contents),
@@ -170,17 +169,6 @@ describe("envSource", () => {
     // shadowed shell export.
     assert.equal(process.env.AWS_PROFILE, "setprof");
     assert.equal(t.envSource("AWS_PROFILE"), "set 'photos' config");
-  });
-
-  it("names the label a command's own values were applied under", async () => {
-    // `setup --profile` applies its options before the set's env file exists.
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-
-    t.applyEnv({ AWS_PROFILE: "flagprof" }, "setup's options");
-
-    assert.equal(process.env.AWS_PROFILE, "flagprof");
-    assert.equal(t.envSource("AWS_PROFILE"), "setup's options");
   });
 
   it("traces any variable, not just the profile", async () => {

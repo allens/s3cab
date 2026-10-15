@@ -250,10 +250,9 @@ async function create(name, directories, options) {
     ...options,
     rolesAnywhere: options["roles-anywhere"],
   });
-  applyEnv(updates, "setup's options");
-  // As `loadSet` will for every later command: the Roles Anywhere signer picks
-  // its ARNs by the set's bucket (ADR-0105).
-  process.env.S3CAB_BUCKET = bucket;
+  // The bucket too, as `loadSet` will for every later command: the Roles Anywhere
+  // signer picks its ARNs by the set's bucket (ADR-0105).
+  applyEnv({ ...updates, S3CAB_BUCKET: bucket }, "the setup command");
 
   // Claim the name before writing anything locally ("first person wins"). If the
   // claim loses, nothing local was written — the gathered config lives only in

@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { parseEnvFile } from "../lib/env.mjs";
+import { envSource, parseEnvFile } from "../lib/env.mjs";
 import {
   ensureMachineIdentity,
   identityEnvPath,
@@ -133,6 +133,8 @@ describe("setup provider knobs", () => {
     });
 
     assert.equal(envAtClaim?.AWS_PROFILE, "work");
+    assert.equal(envSource("AWS_PROFILE"), "the setup command");
+    assert.equal(envSource("S3CAB_BUCKET"), "the setup command");
     assert.equal(parseEnvFile(readSet("photos").envPath).AWS_PROFILE, "work");
   });
 
