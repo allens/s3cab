@@ -374,9 +374,9 @@ asked for and what stood in the way. That is one of the things being tested.
 **Correct, not fast.** No caching between runs, no parallelism.
 
 Correct covers everything the spec says a backup writes to the bucket: objects before the
-snapshot that names them, the snapshot itself, and every file the bucket layout documents, each
-set's own entry included. Every object stored has to be the bytes its key names; how you make
-sure of that is up to you, and part of what is being read.
+snapshot that names them, the snapshot itself, and each set's \`snapshots/<set>.info\`. Every
+object stored has to be the bytes its key names; how you make sure of that is up to you, and
+part of what is being read.
 
 **Verify against the real bucket, over the network.** Don't stand up a local S3 server, a fake
 endpoint, or a recorded-and-replayed transcript. Every result you report about the bucket has to
