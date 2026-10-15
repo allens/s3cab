@@ -3,7 +3,9 @@
 **Status:** proposed (2026-10-07; amended 2026-10-09: the clean-room backup's two programs are
 written in separate clean rooms, on every platform; amended 2026-10-12: the clean-room backup is
 proof only, with no readability goal). The model is settled. The clean-room
-backup is not built, and the restorers exist only as frozen clean-room runs.
+backup is not built, and the restorers exist only as frozen clean-room runs. Partly superseded
+by [0107](0107-the-spec-is-the-public-repository-format.md): the spec is format.md alone, so a
+clean-room backup needs neither s3cab's exclude syntax nor its config files.
 
 **s3cab is the tool.** It both backs up and restores. Beside it sit two kinds of **clean-room
 implementation**, each derived from the spec alone (`guide/format.md` and `guide/exclude.md`,

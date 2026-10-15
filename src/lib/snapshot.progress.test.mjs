@@ -99,6 +99,7 @@ function threeFileSet(root) {
     dirsPath: join(root, "dirs.txt"),
     excludePath: join(root, "exclude.txt"),
     envPath: join(root, "env"),
+    claimPath: join(root, "claim"),
   };
 }
 

@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   bucket,
   bucketViolations,
+  claimSet,
   inspector,
   makeTree,
   nextZone,
@@ -60,7 +61,7 @@ async function objectKeys() {
 async function manifestKeys() {
   return (await inspector.listAll(bucket))
     .map(({ key }) => key)
-    .filter((key) => key.startsWith("snapshots/"));
+    .filter((key) => key.endsWith(".tsv.gz"));
 }
 
 /**
@@ -93,6 +94,8 @@ describe("concurrency: backup vs backup", () => {
     }
     seedSet(homeA, "seta", [data]);
     seedSet(homeB, "setb", [data]);
+    await claimSet(homeA, "seta");
+    await claimSet(homeB, "setb");
     const expected = captureTree([data]);
 
     // A lists the (empty) store and parks before its first object PUT — its
@@ -129,7 +132,7 @@ describe("concurrency: backup vs backup", () => {
     }
   });
 
-  it("same set, same snapshot name: the manifest no-clobber race has exactly one winner", async () => {
+  it("same set, same snapshot name, a takeover between holder check and publish: the manifest no-clobber race has exactly one winner", async () => {
     const scratch = freshScratch("bb-same-name");
     await wipeBucket();
     const homeA = join(scratch, "homeA");
@@ -143,9 +146,12 @@ describe("concurrency: backup vs backup", () => {
     }
     seedSet(homeA, "s", [dataA]);
     seedSet(homeB, "s", [dataB]);
+    await claimSet(homeA, "s");
 
     // Same fixed zone → same minute-precision snapshot name (the two spawns
-    // are seconds apart). Both park before the manifest PUT; A commits first.
+    // are seconds apart). A parks before the manifest PUT, its holder check
+    // already passed; B takes the set over and parks there too. Both now
+    // believe they hold it (ADR-0108's race gap); A commits first.
     const tz = "Etc/GMT-1";
     const a = await holdAt(["backup", "s"], {
       scratch,
@@ -154,6 +160,7 @@ describe("concurrency: backup vs backup", () => {
       tz,
       hold: "1:PUT:^/snapshots/",
     });
+    await claimSet(homeB, "s");
     const b = await holdAt(["backup", "s"], {
       scratch,
       id: "b",
@@ -204,6 +211,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     }
     seedSet(homeA, "s", [data]);
     seedSet(homeB, "s", [data]);
+    await claimSet(homeA, "s");
 
     // Machine A crashes between its last object and the manifest: four
     // orphans, no snapshot.
@@ -215,8 +223,10 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.notEqual(killed.status, 0);
     assert.equal((await objectKeys()).length, 4);
 
-    // Machine B backs up the same content, skips the stored orphans, and
-    // parks before its manifest PUT — the §1 window, wide open.
+    // Machine B takes the set over, backs up the same content, skips the
+    // stored orphans, and parks before its manifest PUT — the §1 window, wide
+    // open.
+    await claimSet(homeB, "s");
     const b = await holdAt(["backup", "s"], {
       scratch,
       id: "b",
@@ -262,6 +272,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     }
     seedSet(homeA, "s", [data]);
     seedSet(homeB, "s", [data]);
+    await claimSet(homeA, "s");
 
     // Crash orphans again — but this time aged past a compressed grace
     // (labeled time compression: S3CAB_XGRACE_MS rewrites GRACE_MS in the
@@ -274,6 +285,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.notEqual(killed.status, 0);
     await new Promise((r) => setTimeout(r, 6_000));
 
+    await claimSet(homeB, "s");
     const b = await holdAt(["backup", "s"], {
       scratch,
       id: "b",
@@ -326,6 +338,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     // Backup 1 establishes the baseline; age its objects past the compressed
     // grace the cleanup below will run with.
@@ -395,6 +408,7 @@ describe("concurrency: forget and cleanup", () => {
     makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
@@ -442,6 +456,7 @@ describe("concurrency: forget and cleanup", () => {
     makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
@@ -493,6 +508,7 @@ describe("concurrency: forget and cleanup", () => {
     makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     const killed = s3cab(["backup", "s"], {
       home,
@@ -539,6 +555,7 @@ describe("concurrency: forget and cleanup", () => {
     makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
+    await claimSet(home, "s");
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
@@ -592,15 +609,15 @@ describe("concurrency: setup vs setup", () => {
     }
 
     // Both park before the claim PUT, then release together — as close to
-    // simultaneous conditional PUTs of sets/race/dirs.txt as two real
+    // simultaneous conditional PUTs of snapshots/race.info as two real
     // processes get.
     const a = await holdAt(
       ["setup", "--set", "race", "--bucket", bucket, data],
-      { scratch, id: "a", home: homeA, hold: "1:PUT:^/sets/" },
+      { scratch, id: "a", home: homeA, hold: "1:PUT:^/snapshots/race\\.info" },
     );
     const b = await holdAt(
       ["setup", "--set", "race", "--bucket", bucket, data],
-      { scratch, id: "b", home: homeB, hold: "1:PUT:^/sets/" },
+      { scratch, id: "b", home: homeB, hold: "1:PUT:^/snapshots/race\\.info" },
     );
     release(a.gate);
     release(b.gate);

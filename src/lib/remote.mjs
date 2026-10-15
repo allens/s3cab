@@ -8,6 +8,7 @@ import {
   listObjects,
 } from "./s3.mjs";
 import {
+  listSnapshotNames,
   parseCompressedSnapshotStream,
   snapshotFileName,
   snapshotNames,
@@ -24,7 +25,8 @@ import {
 // set's snapshots live under `snapshots/<set>/<name>.tsv.gz`, keyed by the set's
 // name — its whole identity (ADR-0024). The other half is the content-addressed
 // `objects/<sha256>` store, owned by objects.mjs. This module owns the
-// `snapshots/` layout — the store's read/manage side (list, read, download,
+// `snapshots/` layout, bar each set's `<set>.info` marker (set-marker.mjs) —
+// the store's read/manage side (list, read, download,
 // delete, the referenced-union). The upload engine that composes both halves is
 // upload.mjs, which addresses a snapshot through this module's
 // `remoteSnapshotUri` so the layout stays spelled in one place; s3.mjs stays the
@@ -236,7 +238,7 @@ export async function referencedObjects(bucket) {
     const slash = rest.indexOf("/");
     if (slash <= 0) {
       continue;
-    } // the `snapshots/` folder marker, or a stray key
+    } // a `<set>.info` marker, the `snapshots/` folder marker, or a stray key
     const set = rest.slice(0, slash);
     const file = rest.slice(slash + 1);
     if (!file) {
@@ -319,28 +321,30 @@ async function readSetReferenced(bucket, set, names) {
 }
 
 /**
- * Pull a set's remote snapshot files down into `snapshotDir` — the
- * reattach-time metadata sync
+ * Pull down the set's remote snapshot files that `snapshotDir` lacks — the
+ * metadata sync behind `reattach` and `takeover`
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
- * Lists `snapshots/<set>/` and streams each `.tsv.gz` **verbatim** to a local
- * file (atomically, via `writeFileAtomic`), touching **no** `objects/`. A
+ * Lists `snapshots/<set>/` and streams each missing `.tsv.gz` **verbatim** to a
+ * local file (atomically, via `writeFileAtomic`), touching **no** `objects/`. A
  * remote snapshot file is byte-identical to its local form
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
- * correct and avoids needless decompress-then-recompress.
+ * correct and avoids needless decompress-then-recompress, and a name already
+ * here is already this file.
  *
- * This is what lets `compare`/`list`/`restore` stay local-only: `reattach`
- * calls it so a fresh machine lands with full local history, instead of growing a
- * remote-reading variant of every browse command (ADR-0027). It streams
- * (bounded memory) and writes each file atomically, so a mid-pull failure leaves
- * no partial snapshot file behind — only fewer of them, in a fresh set the user can
- * delete and reattach.
+ * This is what lets `compare`/`list`/`restore` stay local-only: a machine lands
+ * with full local history, instead of growing a remote-reading variant of every
+ * browse command (ADR-0027). It streams (bounded memory) and writes each file
+ * atomically, so a mid-pull failure leaves no partial snapshot file behind —
+ * only fewer of them, which the next refresh fetches.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} snapshotDir - The set's local snapshots dir to write into
  * @returns {Promise<number>} How many snapshot files were pulled
  */
 export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
-  const names = await listRemoteSnapshots(bucket, set);
+  const local = new Set(listSnapshotNames(snapshotDir));
+  const remote = await listRemoteSnapshots(bucket, set);
+  const names = remote.filter((name) => !local.has(name));
   if (names.length === 0) {
     return 0;
   }

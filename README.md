@@ -205,7 +205,8 @@ Run once: a bucket to back up to, credentials to reach it, and the set itself.
 | `s3cab aws <bucket>`                   | Write a CloudFormation template — and print the steps — to stand up an **AWS** S3 bucket plus a locked-down identity; `--roles-anywhere` builds the keyless certificate identity instead ([guide](guide/aws.md)). |
 | `s3cab provider [<set>]`               | Set, clear, or show how s3cab reaches your storage: `--profile` for an AWS profile, `--endpoint` + `--region` for any [S3-compatible provider](guide/aws.md#non-aws-providers), `--keys` to be prompted for an access key, `--unset` to remove one ([guide](guide/auth.md)). |
 | `s3cab setup --set <set> <directory>…` | Create a **backup set** from one or more directories; `--bucket` binds its cloud destination, and it takes the same provider flags as `provider`. Its directories then live in an editable `dirs.txt`. |
-| `s3cab reattach <set>`                 | Attach this machine to a set that already exists in the cloud — a replacement or recovery machine (`--bucket` holds it). Pulls its config and snapshot history, not the files (that's `restore`). |
+| `s3cab reattach <set>`                 | Attach a set that already exists in the cloud to this machine, read-only, to browse and restore it (`--bucket` names its bucket the first time). Pulls its snapshot history, not the files (that's `restore`); run it again to pull newer snapshots. |
+| `s3cab takeover <set>`                 | Make this machine the one that backs a set up — a replacement machine. Attaches the set if it isn't here, fills in its directory list and exclude rules where this machine has none, and from then on the old machine's backups are refused. |
 
 ### Backup & restore
 
@@ -260,8 +261,8 @@ locations they were backed up from; pass `--output <dir>` to recover under a dir
 choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is how
 you restore a backup whose original paths don't fit this machine — a different drive layout,
 or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
-`s3cab reattach <set> --bucket <bucket>` — then `restore`. The full walkthrough is in
-[guide/restore.md](guide/restore.md).
+`s3cab reattach <set> --bucket <bucket>` — then `restore`; to back the set up from there
+too, `s3cab takeover <set>`. The full walkthrough is in [guide/restore.md](guide/restore.md).
 
 ### Coming next
 
@@ -281,6 +282,7 @@ the set's own directory under your home directory — never inside your backed-u
 
 ```
 ~/.s3cab/sets/photos/
+  claim                          # present while this machine holds the set (see below)
   dirs.txt                       # the directories that make up the set — yours to edit
   env                            # S3CAB_BUCKET=… plus how this set signs in
   exclude.txt                    # glob patterns for files to skip — yours to edit
@@ -290,8 +292,18 @@ the set's own directory under your home directory — never inside your backed-u
 ```
 
 Editing a set _is_ editing these files, and deleting the directory deletes the set. Only
-`env` is unrecoverable — everything else can be pulled back down from the bucket with
-`s3cab reattach`.
+`env` is unrecoverable: `s3cab reattach` pulls the snapshots back down from the bucket, and
+`s3cab takeover` the directory list and exclude rules too.
+
+`~/.s3cab` is the s3cab home on every OS. Set `S3CAB_HOME` to move the whole tree; every path
+s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
+keyless identity if you set one up ([guide/auth.md](guide/auth.md)), and the CloudFormation
+templates `s3cab aws` writes ([guide/aws.md](guide/aws.md)).
+
+Each snapshot records a few of these settings for whoever reads it later. Its `@CLIENT HOME`
+row is the home it was taken from, so the set's directory and the snapshot's own path follow
+from it and the names. `@SET BUCKET` is the set's `S3CAB_BUCKET`, and `@SET ENDPOINT` its
+endpoint, when it has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`).
 
 Each snapshot file is a tab-separated table with one `-` row per file — its `hash`,
 `size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with
@@ -341,19 +353,28 @@ directory inside a shared one. Inside, the structure is fixed and well-known, so
 s3://my-backup-bucket/
   objects/<sha256>                 # your files, each stored once under its content hash
   snapshots/<set>/<name>.tsv.gz    # the snapshot files saying which objects make up each backup
-  sets/<set>/                      # each set's config + the marker claiming its name
-    info                             # the machine that created it, and when
+  snapshots/<set>.info             # the machine that backs each set up, and since when
+  objects.deleted-<n>.tsv          # what `s3cab delete` removed on purpose (absent until it runs)
+  .s3cab/sets/<set>/               # s3cab's copy of each set's config
     dirs.txt                         # its member directories
     exclude.txt                      # its exclude patterns, if it has any
-  objects.deleted-<n>.tsv          # what `s3cab delete` removed on purpose (absent until it runs)
 ```
 
 One bucket can hold **many backup sets** — your own, and other people's or machines' — all
 sharing `objects/`, so duplicate content is stored once across everything in the bucket. Each
-set keeps its own snapshot files under its own prefix, `snapshots/<set>/`, and its config
-under `sets/<set>/` — which is both how a set name is claimed (first-come, taken over on a
-new machine with `reattach`) and how that machine gets the set's directories and exclude
-rules back. The set's local `env` file is never uploaded: it can hold credentials.
+set keeps its own snapshot files under its own prefix, `snapshots/<set>/`, beside a
+`<set>.info` file naming the one machine that backs it up: its **holder**. A set name is
+first-come: `setup` claims it, and refuses a name the bucket already has. Any machine can
+`reattach` a set to browse and restore it; `takeover` makes that machine the holder, and the
+old holder's backups are refused from then on. Two machines backing up one set would
+interleave their files, so the latest snapshot could be either machine's.
+
+s3cab keeps its copy of each set's config in its own folder, `.s3cab/sets/<set>/`, so a
+machine taking the set over gets its directories and exclude rules back: `exclude.txt` as a
+byte-for-byte copy of yours, `dirs.txt` as the list s3cab read from yours, one directory per
+line, without its comments and blank lines. Another tool leaves `.s3cab/` alone, as s3cab
+leaves any other `.`-named folder alone. The set's local `env` file is never uploaded: it can
+hold credentials.
 
 A snapshot file only ever appears in `snapshots/` after every file it references is safely in
 `objects/`, so any snapshot file you find is complete and restorable. Snapshots are never

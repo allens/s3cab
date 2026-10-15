@@ -42,7 +42,8 @@ that, what the split's staged inputs tested moves to where it belongs:
 - **Changes to the checks:** the published snapshot is downloaded and given `compare-snapshot`'s
   row checks against `s3cab snapshot` of the same trees, replacing "byte-identical to the one
   handed over"; `sets/` checks become `snapshots/<set>.info`. The comparison runs s3cab with no
-  patterns and allows for s3cab skipping `.s3cab` folders. `spread`'s patterns and `edge`'s CRLF
+  patterns and allows for s3cab skipping `.s3cab` folders. `@SET BUCKET` is optional
+  (ADR-0107), so its check reports a mismatch only when the room wrote the row. `spread`'s patterns and `edge`'s CRLF
   `exclude.txt` stay for s3cab's seed only.
 - **The cost to watch: a shallower reading.** One session now covers both the "Writing a snapshot"
   and "Uploading" checklists. The first fused experiment's guesses against each are compared with

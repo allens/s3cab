@@ -145,10 +145,10 @@ scenario name where cross-cutting, a module name where clearest:
   `uploadSnapshot`, `referencedObjects`, `deleteRemoteSnapshot`. (`getObject`'s verified
   download is exercised offline by the mocked-seam tests in `src/lib/objects.test.mjs`, and
   end-to-end by the restore round-trip below.)
-- `test/integration/set-marker.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT
-  claim, listing, config publish).
-- `test/integration/set-lifecycle.test.mjs` — `setup`'s create / collision and `reattach`'s
-  adopt against a real bucket.
+- `test/integration/set-marker.test.mjs` — the `snapshots/<set>.info` marker (conditional-PUT
+  claim, takeover overwrite, listing) and the `.s3cab/sets/<set>/` config publish.
+- `test/integration/set-lifecycle.test.mjs` — `setup`'s create / collision, `reattach`'s
+  read-only attach and `takeover`'s claim against a real bucket.
 - `test/integration/backup-restore-roundtrip.test.mjs` — the **`backup → restore` round-trip**
   (set up → backup → wipe originals → restore asserting byte-identical + mtime → skip →
   `--overwrite`). The single most valuable integration test.
