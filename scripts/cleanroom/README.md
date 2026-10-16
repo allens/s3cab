@@ -159,9 +159,9 @@ bucket's credentials, and nothing else. The language is Python for the backup
 and the platform's canonical one (above) for a restorer, so runs differ by
 reader and by spec version. It also holds `cli`, the subprocess that drives the
 real s3cab for the scripts that need its output. The restorer brief is
-language-neutral apart from one sentence — which names no version and no
-toolchain, leaving the session to find "the most modern version that comes as
-standard" on the machine it's on.
+language-neutral apart from one sentence — which names no version, leaving the
+session to find "the most modern version that comes as standard" on the machine
+it's on. Windows is the exception, below.
 
 The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads

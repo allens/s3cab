@@ -26,9 +26,9 @@
  * Python on every platform, a restorer is its platform's canonical one (C# on Windows,
  * Swift on macOS, C on Linux; see README.md), so runs differ by reader and by spec version.
  * The restorer brief is language-neutral apart from one sentence. That sentence names no
- * version and no toolchain: "the most modern version that comes as standard on the
- * platform you are running on" is discovered on the machine, where a version pinned in
- * prose would rot the way a line number does.
+ * version: "the most modern version that comes as standard on the platform you are
+ * running on" is discovered on the machine, where a version pinned in prose would rot
+ * the way a line number does. Windows is the exception below.
  *
  * A clean room built on Windows gets a Windows brief, because the platform is then the
  * thing under test. There is no package archive, so the sentence becomes "the .NET
@@ -215,19 +215,28 @@ export async function sessionCredentials(bucket) {
 
 /**
  * The in-box .NET Framework's compiler and Windows PowerShell, as a Windows restorer's
- * ENVIRONMENT.md names them (ADR-0096: nothing installed). Found at build time rather
- * than named in the brief, where a version would rot. Without it a session goes looking,
- * and a look in the home folder for a per-user .NET voids the run.
+ * ENVIRONMENT.md names them (ADR-0096: nothing installed). Named by the build, since a
+ * session left to find a compiler searches, and a look in the home folder for a
+ * per-user .NET voids the run. The folder has been `v4.0.30319` since 2010 and the
+ * product line has ended, so the path is fixed.
  * @returns {string}
  */
 function csharpToolchain() {
   const windir = process.env.windir ?? "C:\\Windows";
-  const framework = join(windir, "Microsoft.NET", "Framework64");
-  const csc = readdirSync(framework)
-    .sort()
-    .map((version) => join(framework, version, "csc.exe"))
-    .filter((path) => existsSync(path))
-    .at(-1);
+  const csc = join(
+    windir,
+    "Microsoft.NET",
+    "Framework64",
+    "v4.0.30319",
+    "csc.exe",
+  );
+  if (!existsSync(csc)) {
+    console.error(
+      `${csc} doesn't exist, so this Windows has no .NET Framework 4, which the\n` +
+        "restorer brief names (ADR-0096). Install .NET Framework 4.8 and build again.",
+    );
+    return process.exit(2);
+  }
   const powershell = join(
     windir,
     "System32",
@@ -235,16 +244,11 @@ function csharpToolchain() {
     "v1.0",
     "powershell.exe",
   );
-  if (!csc) {
-    throw new Error(
-      `No csc.exe under ${framework}: this Windows has no .NET Framework 4.`,
-    );
-  }
   return `## Toolchain
 
-The .NET Framework that ships with Windows, which every Windows machine has. Use it and nothing
-else, even where something newer is installed, and don't look for another: that a stock Windows
-machine is enough is part of what is being tested.
+The .NET Framework that ships with Windows. Use it and nothing else, even where something newer
+is installed, and don't look for another: that a stock Windows machine is enough is part of what
+is being tested.
 
 - Compiler: \`${csc}\` (C# 5)
 - Or \`Add-Type\`, in Windows PowerShell: \`${powershell}\`
@@ -422,7 +426,7 @@ ${
     : ""
 }
 - **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
-  says where the bucket${python ? " and the sets are" : " is"} and says nothing about the format.
+  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : " is"} and says nothing about the format.
   If you find yourself wanting more than those, that is itself a finding: record what you needed
   and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
@@ -564,8 +568,9 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
  */
 export function handover(root, todo) {
   console.log(
-    `\nStill to do before the run:\n` +
-      todo.map((item) => `  - ${item}\n`).join("") +
+    (todo.length
+      ? `\nStill to do before the run:\n${todo.map((item) => `  - ${item}\n`).join("")}`
+      : "") +
       `\nRun it headless from ${join(root, "cleanroom")} — not the root beside it, and\n` +
       `never the repo — with the README's command:\n` +
       `    claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid> \\\n` +
