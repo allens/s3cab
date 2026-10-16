@@ -68,8 +68,12 @@ export const repoRoot = realpathSync.native(
   join(import.meta.dirname, "..", ".."),
 );
 
-/** One client for every script's own requests, through the standard credential chain. */
-export const client = new S3Client({});
+/**
+ * One client for every script's own requests, through the standard credential chain. It
+ * follows a bucket into its own region: at home the restore bucket is CI's, in another
+ * region from the personal buckets AWS_REGION names.
+ */
+export const client = new S3Client({ followRegionRedirects: true });
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
@@ -156,17 +160,27 @@ function readRoot(script) {
  */
 export function readCommandLine(script, variable) {
   const root = readRoot(script);
+  return { root, bucket: readBucket(script, variable, root) };
+}
+
+/**
+ * Read the bucket `variable` names, or exit 2 saying what was wrong.
+ * @param {string} script this script's file name, for the example command
+ * @param {string} variable the environment variable naming its bucket
+ * @param {string} args the example command's arguments
+ */
+export function readBucket(script, variable, args) {
   const bucket = process.env[variable];
   if (!bucket) {
     console.error(
       `No clean-room bucket is set (${variable}). Run with the test\n` +
         "environment, which names it:\n" +
         "\n" +
-        `    node --env-file=.env.test scripts/cleanroom/${script} ${root}\n`,
+        `    node --env-file=.env.test scripts/cleanroom/${script} ${args}\n`,
     );
     return process.exit(2);
   }
-  return { root, bucket };
+  return bucket;
 }
 
 /**

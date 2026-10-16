@@ -49,16 +49,15 @@ Two buckets, one per role
 reads, and `S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is emptied for each clean-room
 backup's turn.
 
-The golden set is seeded **once per format or fixture change**, on Linux or WSL,
-apart from the runs, which only read it: only a Linux filesystem holds every
-fixture, so seeding is the one step a Windows or macOS run couldn't do
-([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)). The
-root must be on that filesystem — `~`, not `/mnt/c`:
+The golden set is seeded **once per format or fixture change**, by GitHub
+Actions on Linux, Windows and macOS, apart from the runs, which only read it
+([.github/workflows/cleanroom-seed.yml](../../.github/workflows/cleanroom-seed.yml)).
+Every run, at home or in CI, reads that one bucket, `test-s3cab-ci-cleanroom-restore`;
+a home identity can only read it. A change on `main` to what the stamp covers
+reseeds it, and so does dispatching the workflow from `main`:
 
 ```sh
-node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <restore-bucket>
-node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs ~/s3cab.sandbox
-rm -r ~/s3cab.sandbox
+gh workflow run cleanroom-seed.yml --ref main
 ```
 
 Every run then happens in a **sandbox**: one directory outside the repo, built
@@ -298,9 +297,9 @@ unreadable file among twenty readable siblings, so a backup that drops its
 `#error` row shifts every later hash by one; links into the backup, dangling,
 and out of it to a file and to a directory (and on Windows a junction out of it,
 the one link every machine there can make, which Python's `os.walk` descends
-into); a hard-link pair; a FIFO; mtimes before 1970 and after 2262, POSIX-only
-until the Windows `statSync` wrap in [proposals/bugs.md](../../proposals/bugs.md)
-is fixed; the names Windows reserves (`CON`, `aux.txt`, `nul.txt`), which exist
+into); a hard-link pair; a FIFO; mtimes before 1970 and after 2262, off Windows
+until the `statSync` wrap in [proposals/bugs.md](../../proposals/bugs.md)
+is fixed, and the later one Linux's alone; the names Windows reserves (`CON`, `aux.txt`, `nul.txt`), which exist
 on every platform and are hostile to a plain-path open on Windows; the names
 Windows forbids (`: * ? " < > |`, a backslash) on POSIX only; and Windows' own
 trailing dot, hidden and system files, and a case pair in a folder `fsutil` makes
@@ -326,9 +325,11 @@ s3cab by design, for its `#error` rows, so every script that runs s3cab on it
 accepts that exit only with a snapshot written (`mustWrite` in
 `cleanroom.mjs`): exit 1 is also what any other failure gives.
 
-What a platform can't hold is declared per entry, not guessed from the OS, and
-what it refuses anyway is found by the read-back: a pair APFS folds, a symlink
-Windows won't make without Developer Mode, an unreadable file that root reads.
+What a platform can't hold is declared per entry, not guessed from the OS — for
+macOS, as its runners' APFS holds it: the case and NFC/NFD pairs fold, names must
+be UTF-8, and no mtime past 2262 — and what it refuses anyway is found by the
+read-back: a symlink Windows won't make without Developer Mode, a case-sensitive
+folder `fsutil` won't make, an unreadable file that root reads.
 Whatever fails is removed with everything sharing its `why` and named in a loud
 notice, because a partial corpus that reads as a complete one is the same
 silent-shortening failure the exercise exists to hunt; a set with nothing left is
@@ -422,27 +423,39 @@ the fixtures' control characters shows instead of printing as nothing.
 
 Seeds the restore bucket with the **golden set**: the backup sets made by s3cab
 from the fixtures (every set but the two a backup must refuse), then
-deliberately damaged. It runs only when the stamp
-below no longer matches, and only on Linux: Windows refuses the `[POSIX]`
-names, and macOS's APFS silently folds names that differ only in case or
-Unicode normalization. It builds the fixtures before touching the bucket and
-stops if any group was skipped, since a golden set missing one would be partial
-for every run after it.
+deliberately damaged, once by each platform. Only the workflow runs it, in
+three steps:
 
-It stamps the bucket with a hash of what made it: `format.md`, `fixtures.mjs`
-and the seed script itself. Hashing the spec alone let a build accept a golden
-set from older fixtures, and a run measured against a corpus missing what was
-added since passes without saying so. The stamp is a bucket tag, not a key,
-because a restorer works out the bucket's contents from a listing and would
-report a key the spec doesn't describe. The stamp is removed
-first and written last, so a seed that fails halfway leaves a bucket every
-restore build refuses.
+- `--empty`, only when the stamp below no longer matches: unstamps the bucket and
+  empties it;
+- `<root>`, each platform's turn: its sets, each suffixed with its name
+  (`edge-linux`, `edge-windows`, `edge-macos`);
+- `--stamp`, once every platform's sets are there.
+
+The platforms take turns because two deletes finishing in the same minute
+collide on the deletion record. Every file's content carries its platform's
+name: an object's key is its hash, so without it two platforms' backups of the
+same file would share an object, and `faults`' torn object or `corrupt`'s wrong
+bytes would reach the other platforms' sets, or be undone by the next upload. A
+turn backs up what `fixtures.mjs` declares for its platform, builds it before
+touching the bucket, and stops if any group was skipped, since a golden set
+missing one would be partial for every run after it.
+
+The stamp is a hash of what made the golden set: the spec's date (`This is the
+spec of …` at the top of `format.md`), `fixtures.mjs` and the seed script. The
+date and not the file, because it changes when the format does and never for a
+change of wording. Hashing the spec alone let a build accept a golden set from
+older fixtures, and a run measured against a corpus missing what was added since
+passes without saying so. The stamp is a bucket tag, not a key, because a
+restorer works out the bucket's contents from a listing and would report a key
+the spec doesn't describe. It is removed first and written last, so a seed that
+fails halfway leaves a bucket every restore build refuses.
 
 **It empties the bucket for you**, when the bucket is its own to empty. A seed
 needs an empty repository — snapshots are immutable and a set name belongs to
 whoever claimed it first — and there is never a reason to keep the previous
 golden set, so the question worth asking is not "may I clear this?" but "is
-this bucket mine to clear?": an `.env.test` pointing somewhere forgotten, a live
+this bucket mine to clear?": a variable pointing somewhere forgotten, a live
 integration run. The set names answer it, since the integration suite names its
 sets for the clock (`rt1755…`) and never one of ours. A bucket holding only our
 own names is cleared and reported; anything else and the script stops and names
@@ -458,19 +471,14 @@ missing its closing `.`. `corrupt` has an object whose bytes don't hash to its k
 The damaged snapshot is backdated a minute so the intact one stays `faults`'s
 latest; it exists only in S3.
 
-```sh
-node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs <root>
-```
-
-The bucket wants an expiry longer than the format is expected to hold still, or
-the golden set sweeps out from under the runs it serves:
-`node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <bucket>`.
-
 ## build-restore-cleanroom.mjs
 
 Builds a restore sandbox from the golden set: the clean room, with the
-`reference\` trees a restorer's output is compared to. It refuses a bucket
-stamped from another spec or other fixtures, which is the cue to reseed. The same command
+`reference\` trees a restorer's output is compared to, one per snapshot of every
+platform's sets. It refuses a bucket stamped from another spec or other
+fixtures, or missing any platform's sets, which is the cue to reseed. It
+follows the bucket to its own region and names that one in `ENVIRONMENT.md`,
+whatever `AWS_REGION` says: the restore bucket is CI's, in `us-east-1`. The same command
 on every OS, and it has to run on the OS under test: s3cab's Windows restore
 refuses the case-colliding pair, can't create the control-character names, and
 sets mtimes exactly where Linux carries a sub-microsecond error — every one a

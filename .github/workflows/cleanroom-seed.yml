@@ -1,0 +1,111 @@
+# Seed the clean-room restore bucket (scripts/cleanroom/README.md, the seed): each
+# platform backs up its own fixtures into test-s3cab-ci-cleanroom-restore, which every
+# clean-room restore build reads, at home and in CI.
+#
+# Runs when what the stamp covers changes on main, and by hand. The first job compares
+# the bucket's stamp with this checkout's and empties the bucket only when they differ;
+# otherwise every later job is skipped.
+#
+# Dispatch it from main only (`gh workflow run cleanroom-seed.yml --ref main`): the
+# s3cab-ci role trusts main's OIDC subject and same-repo PRs, so a run from any other
+# branch fails at the assume-role. No job here may declare `environment:`, which changes
+# the subject the same way.
+#
+# The platforms take turns (`max-parallel: 1`), and runs queue behind one another
+# (the concurrency group): two deletes finishing in the same minute collide on the
+# deletion record, which is named by the minute and never overwritten.
+#
+# After a failed turn, "Re-run all jobs", never "Re-run failed jobs": the failed turn
+# left its sets claimed, and only a fresh `empty if stale` clears them.
+
+name: cleanroom-seed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - guide/format.md
+      - scripts/cleanroom/fixtures.mjs
+      - scripts/cleanroom/seed-restore-cleanroom-bucket.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cleanroom-seed
+  cancel-in-progress: false
+
+env:
+  # Match ci.yml: pin to the engines floor.
+  NODE_VERSION: "26.10.0"
+  S3CAB_TEST_BUCKET_CLEANROOM_RESTORE: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE }}
+
+jobs:
+  empty:
+    name: empty if stale
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    outputs:
+      reseed: ${{ steps.empty.outputs.reseed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the restore bucket's region
+      - id: empty
+        run: node scripts/cleanroom/seed-restore-cleanroom-bucket.mjs --empty
+
+  seed:
+    name: seed (${{ matrix.os }})
+    needs: empty
+    if: needs.empty.outputs.reseed == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      max-parallel: 1
+      matrix:
+        # macos-14 as in ci.yml: Apple Silicon, APFS case- and normalization-insensitive.
+        os: [ubuntu-latest, windows-latest, macos-14]
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      # The sandbox root has to be outside the checkout, as every clean-room script
+      # insists.
+      - run: node scripts/cleanroom/seed-restore-cleanroom-bucket.mjs "${{ runner.temp }}/s3cab.sandbox"
+
+  stamp:
+    name: stamp
+    needs: seed
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: node scripts/cleanroom/seed-restore-cleanroom-bucket.mjs --stamp

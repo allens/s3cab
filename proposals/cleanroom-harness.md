@@ -39,10 +39,6 @@ Still to decide when it is built:
   needs no name.
 - A second `--max-budget-usd`, and that the harvested program is phase 2's.
 
-Every snapshot in the restore fixtures today is a Linux backup, so no restorer reads drive letters or
-backslashes; seeding per platform needs Windows and macOS machines, and is in
-[cleanroom-seeding.md](cleanroom-seeding.md).
-
 ## Open: the readable example
 
 We dropped the idea of the backup program also being easy-to-follow example code (ADR-0096's

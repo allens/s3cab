@@ -38,8 +38,8 @@ is backup, then restore, each on every platform the user has. During a real set
 the spec is frozen: findings are collected, and nothing in `guide/` changes until
 its last run.
 
-Seeding the golden set is **not** part of either. It happens on Linux or WSL
-whenever the spec or the fixtures change; a restore run on any platform needs only
+Seeding the golden set is **not** part of either. GitHub Actions does it whenever
+the spec or the fixtures change on `main`; a restore run on any platform needs only
 a matching stamp, never the backup runs before it.
 
 ## Preflight, before a real set and after any harness change
@@ -49,7 +49,7 @@ a matching stamp, never the backup runs before it.
   output it passes, and given that output with one row changed it fails. A checker
   never seen failing proves nothing by passing.
 - Restore role: the restore bucket's stamp matches (the build refuses otherwise).
-  If not, stop: reseeding is its own step, from Linux or WSL, per the README.
+  If not, stop: reseeding is its own step, the seed workflow, per the README.
 
 Report, and stop.
 

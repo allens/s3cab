@@ -49,14 +49,15 @@
  * forbids characters 1–31 and `: * ? " < > |` in a name; `a:b.txt` there makes a file `a`
  * with an alternate data stream. Windows' own oddities (a trailing dot, hidden and system,
  * a junction, reserved names such as `CON` that are hostile to a plain-path open) are the
- * Windows section at the foot of the table. Pairs that only some filesystems keep apart
- * (case, NFC/NFD) are declared everywhere and probed by the read-back. Whatever fails to
- * build is removed with everything sharing its `why`, and named in a loud notice: a partial
- * corpus that reads as a complete one is the silent-shortening failure the exercise hunts.
- * A set with nothing left is removed and reported too, so a refused set is never an
- * empty set that publishes.
+ * Windows section at the foot of the table. macOS is declared as its runners' APFS holds
+ * it: case- and normalization-insensitive, so the case and NFC/NFD pairs fold; UTF-8 names
+ * only; and mtimes as 64-bit nanoseconds, so nothing past 2262. The read-back still checks
+ * every entry built. Whatever fails to build is removed with everything sharing its `why`,
+ * and named in a loud notice: a partial corpus that reads as a complete one is the
+ * silent-shortening failure the exercise hunts. A set with nothing left is removed and
+ * reported too, so a refused set is never an empty set that publishes.
  *
- * The out-of-range mtimes (before 1970, after 2262) are POSIX-only for now: on Windows
+ * The out-of-range mtimes (before 1970, after 2262) are off Windows for now: there
  * `statSync` wraps a time outside 1970–2106 (proposals/bugs.md), so s3cab's own reference
  * row would be wrong and the checker would fail a correct program.
  */
@@ -83,8 +84,22 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 /** @import { Stats } from "node:fs" */
 
+/** @typedef {"linux" | "windows" | "macos"} Platform */
+
+/** Every platform the restore bucket holds sets from. @type {Platform[]} */
+export const platforms = ["linux", "windows", "macos"];
+
 const windows = process.platform === "win32";
-const platform = process.platform;
+
+/**
+ * This machine's platform: in every file's content, and the suffix on every set it seeds.
+ * @type {Platform}
+ */
+export const platform = windows
+  ? "windows"
+  : process.platform === "darwin"
+    ? "macos"
+    : "linux";
 
 /**
  * @typedef {object} BackupSet
@@ -116,6 +131,19 @@ export const setNames = sets.map(({ name }) => name);
 /** The sets the golden set holds: every one s3cab can back up. */
 export const seeded = sets.filter((set) => !set.refused);
 
+/**
+ * A set's name in the golden set: each platform seeds every set s3cab can back up,
+ * suffixed with its name (`edge-linux`), so the three seeds share one bucket and no set.
+ * @param {string} name
+ * @param {Platform} suffix
+ */
+export const goldenSet = (name, suffix) => `${name}-${suffix}`;
+
+/** Every set name the golden set holds. */
+export const goldenSets = platforms.flatMap((suffix) =>
+  seeded.map(({ name }) => goldenSet(name, suffix)),
+);
+
 // Every set's exclude patterns, for the seed, where s3cab snapshots the trees. The backup
 // clean room gets none (ADR-0107: excluding is the tool's own), so there `spread`'s near
 // misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
@@ -144,7 +172,7 @@ export const excludes = new Map([
  * @property {("hidden" | "system")[]} [attrs] Windows attributes, set with `attrib`
  * @property {boolean} [caseSensitive] a directory NTFS keeps case-sensitive (`fsutil`)
  * @property {boolean} [unreadable] mode 000, and checked to be unreadable
- * @property {"posix" | "windows"} [on] which platform holds it; both when absent
+ * @property {Platform[]} [on] the platforms that hold it; every one when absent
  * @property {"patterns"} [only] built only where s3cab snapshots the trees with the exclude
  *   patterns above
  * @property {string} why the finding it covers. Entries sharing a `why` stand or fall
@@ -207,6 +235,7 @@ export const fixtures = [
     path: ["caf\u00e9.txt"],
     kind: "file",
     content: text("NFC: e-acute as one code point"),
+    on: ["linux", "windows"],
     why: "NFC/NFD pair of names (F1)",
   },
   {
@@ -214,6 +243,7 @@ export const fixtures = [
     path: ["cafe\u0301.txt"],
     kind: "file",
     content: text("NFD: e + combining acute"),
+    on: ["linux", "windows"],
     why: "NFC/NFD pair of names (F1)",
   },
   {
@@ -287,7 +317,7 @@ export const fixtures = [
     kind: "file",
     content: text("x"),
     mtime: -86_400.25,
-    on: "posix",
+    on: ["linux", "macos"],
     why: "an mtime before 1970 (F6)",
   },
   {
@@ -296,7 +326,7 @@ export const fixtures = [
     kind: "file",
     content: text("x"),
     mtime: Date.UTC(2300, 0, 1) / 1000,
-    on: "posix",
+    on: ["linux"],
     why: "an mtime past 2262, where 64-bit nanoseconds overflow (F6)",
   },
   // F10: sizes spanning the size column's 12-character minimum width.
@@ -343,7 +373,7 @@ export const fixtures = [
     path: ["vertical\vtab.txt"],
     kind: "file",
     content: text("vertical tab"),
-    on: "posix",
+    on: ["linux", "macos"],
     why: "\\v and \\f in names (F3)",
   },
   {
@@ -351,7 +381,7 @@ export const fixtures = [
     path: ["form\ffeed.txt"],
     kind: "file",
     content: text("form feed"),
-    on: "posix",
+    on: ["linux", "macos"],
     why: "\\v and \\f in names (F3)",
   },
   {
@@ -367,6 +397,7 @@ export const fixtures = [
     path: ["case"],
     kind: "dir",
     caseSensitive: true,
+    on: ["linux", "windows"],
     why: "case-differing sibling paths (F14)",
   },
   {
@@ -374,6 +405,7 @@ export const fixtures = [
     path: ["case", "Case.txt"],
     kind: "file",
     content: text("upper"),
+    on: ["linux", "windows"],
     why: "case-differing sibling paths (F14)",
   },
   {
@@ -381,6 +413,7 @@ export const fixtures = [
     path: ["case", "case.txt"],
     kind: "file",
     content: text("lower"),
+    on: ["linux", "windows"],
     why: "case-differing sibling paths (F14)",
   },
   // F13: past Windows MAX_PATH. Node goes through `\\?\`, so NTFS holds it.
@@ -452,7 +485,7 @@ export const fixtures = [
     set: "edge",
     path: ["pipe"],
     kind: "fifo",
-    on: "posix",
+    on: ["linux", "macos"],
     why: "a FIFO, no row",
   },
   // An unreadable file gives an `#error` row among the file rows. Twenty readable siblings,
@@ -465,7 +498,7 @@ export const fixtures = [
     kind: "file",
     content: text("can't be read"),
     unreadable: true,
-    on: "posix",
+    on: ["linux", "macos"],
     why: "an unreadable file, an #error among the file rows",
   },
   ...Array.from(
@@ -476,7 +509,7 @@ export const fixtures = [
         path: ["unreadable", `sibling-${String(index).padStart(2, "0")}.txt`],
         kind: "file",
         content: text(`sibling ${index}`),
-        on: "posix",
+        on: ["linux", "macos"],
         why: "an unreadable file, an #error among the file rows",
       }),
   ),
@@ -503,6 +536,7 @@ export const fixtures = [
     path: [noUtf8("surrogate-")],
     kind: "file",
     content: text("no UTF-8 form, excluded"),
+    on: ["linux", "windows"],
     only: "patterns",
     why: "a name with no UTF-8 form under an exclude pattern",
   },
@@ -535,7 +569,7 @@ export const fixtures = [
         path: [name],
         kind: "file",
         content: text(`a character Windows forbids: ${name[1]}`),
-        on: "posix",
+        on: ["linux", "macos"],
         why: 'names holding : * ? " < > |',
       }),
   ),
@@ -544,7 +578,7 @@ export const fixtures = [
     path: ["back\\slash.txt"],
     kind: "file",
     content: text("a backslash in a name"),
-    on: "posix",
+    on: ["linux", "macos"],
     why: "a backslash in a POSIX name, which splits nothing",
   },
   {
@@ -552,7 +586,7 @@ export const fixtures = [
     path: ["a\\b", "c.txt"],
     kind: "file",
     content: text("a backslash in a directory name"),
-    on: "posix",
+    on: ["linux", "macos"],
     why: "a backslash in a POSIX name, which splits nothing",
   },
 
@@ -687,6 +721,7 @@ export const fixtures = [
     path: [noUtf8("scan-")],
     kind: "file",
     content: text("no UTF-8 form"),
+    on: ["linux", "windows"],
     why: "a name with no UTF-8 form, refused",
   },
   {
@@ -694,7 +729,7 @@ export const fixtures = [
     path: ["q1\t2026.txt"],
     kind: "file",
     content: text("a tab in the name"),
-    on: "posix",
+    on: ["linux", "macos"],
     why: "a name holding a tab, refused",
   },
 
@@ -705,7 +740,7 @@ export const fixtures = [
     path: ["notes."],
     kind: "file",
     content: text("a trailing dot"),
-    on: "windows",
+    on: ["windows"],
     why: "a trailing dot in a name",
   },
   // Hidden and system files are ordinary files.
@@ -715,7 +750,7 @@ export const fixtures = [
     kind: "file",
     content: text("hidden"),
     attrs: ["hidden"],
-    on: "windows",
+    on: ["windows"],
     why: "a hidden file",
   },
   {
@@ -724,7 +759,7 @@ export const fixtures = [
     kind: "file",
     content: text("hidden and system"),
     attrs: ["hidden", "system"],
-    on: "windows",
+    on: ["windows"],
     why: "a hidden system file",
   },
   // The one link every Windows machine can make. Python's `os.walk(followlinks=False)`
@@ -734,7 +769,7 @@ export const fixtures = [
     path: ["junction"],
     kind: "junction",
     target: ["outside"],
-    on: "windows",
+    on: ["windows"],
     why: "a junction out of the backup, an #error ending in a separator",
   },
 ];
@@ -988,8 +1023,7 @@ export function buildFixtures(dir, { patterns = false } = {}) {
   );
   const wanted = fixtures.filter(
     (entry) =>
-      (entry.on === undefined ||
-        entry.on === (windows ? "windows" : "posix")) &&
+      (entry.on === undefined || entry.on.includes(platform)) &&
       (entry.only !== "patterns" || patterns) &&
       !(patterns && refused.has(entry.set)),
   );

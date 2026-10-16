@@ -14,25 +14,34 @@ import {
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { client } from "./cleanroom.mjs";
+import { client, listAll } from "./cleanroom.mjs";
+import { goldenSets } from "./fixtures.mjs";
 
 const seedTag = "s3cab-cleanroom-seed";
 
-// What decides the golden set's contents: the spec it is written to, the trees backed up,
-// and the damage done to them. A change to any of them makes a new golden set, so the
-// stamp covers all three. Each is hashed under its name, so moving a line from one file
-// to another still changes the stamp. Every one is checked out with LF endings on every
-// platform (.gitattributes), so a Windows build agrees with the Linux seed.
+// What decides the golden set's contents: the format it is written in, the trees backed
+// up, and the damage done to them. The format is the spec's date, not format.md's bytes:
+// the date changes when the format does and never for a change of wording, which would
+// otherwise void the bucket for nothing. Each file is hashed under its name, so moving a
+// line from one to the other still changes the stamp. Both are checked out with LF
+// endings on every platform (.gitattributes), so a Windows build agrees with every seed.
 const seedInputs = [
-  join("guide", "format.md"),
   join("scripts", "cleanroom", "fixtures.mjs"),
   join("scripts", "cleanroom", "seed-restore-cleanroom-bucket.mjs"),
 ];
 
-/** The hash of this checkout's seed inputs: the spec, the fixtures and the seed. */
+/** The hash of this checkout's seed inputs: the spec's date, the fixtures and the seed. */
 export function seedHash() {
   const repo = join(import.meta.dirname, "..", "..");
+  const spec = readFileSync(join(repo, "guide", "format.md"), "utf8");
+  const [, date] = /This is the spec of (\d{4}-\d{2}-\d{2})\./.exec(spec) ?? [];
+  if (!date) {
+    throw new Error(
+      'guide/format.md names no spec date ("This is the spec of YYYY-MM-DD.")',
+    );
+  }
   const hash = createHash("sha256");
+  hash.update(`spec ${date}\0`);
   for (const input of seedInputs) {
     hash.update(`${input.replaceAll("\\", "/")}\0`);
     hash.update(readFileSync(join(repo, input)));
@@ -48,6 +57,19 @@ export function seedHash() {
 export async function seededHash(bucket) {
   const tags = await bucketTags(bucket);
   return tags.find(({ Key }) => Key === seedTag)?.Value;
+}
+
+/**
+ * The golden set's sets the bucket holds no snapshot of: every platform seeds its own, so
+ * a seed that stopped after one platform leaves the others' missing.
+ * @param {string} bucket
+ */
+export async function missingSets(bucket) {
+  const keys = await listAll(bucket, "snapshots/");
+  const snapshots = keys.filter((key) => key.endsWith(".tsv.gz"));
+  return goldenSets.filter(
+    (name) => !snapshots.some((key) => key.startsWith(`snapshots/${name}/`)),
+  );
 }
 
 /**
