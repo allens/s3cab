@@ -283,9 +283,12 @@ OIDC token at all (GitHub's design), so it can't either. Save as `trust-policy.j
 ```
 
 ```sh
-aws iam create-role --role-name s3cab-ci --assume-role-policy-document file://trust-policy.json
+aws iam create-role --role-name s3cab-ci --assume-role-policy-document file://trust-policy.json --max-session-duration 21600
 aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/test-s3cab-ci-access
 ```
+
+`--max-session-duration 21600` is six hours, the longest a GitHub job runs: a clean-room job
+outlasts the one-hour default, and its credentials would expire partway through.
 
 > **Updating an existing role** (not first-time setup): swap `create-role` for
 > `aws iam update-assume-role-policy --role-name s3cab-ci --policy-document file://trust-policy.json`.

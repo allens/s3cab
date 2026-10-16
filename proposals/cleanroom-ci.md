@@ -120,8 +120,9 @@ instead:
 - A concurrency group on the backup bucket, since backup runs take turns emptying it. Restore runs
   only read, so they can run side by side. A group keeps one pending run by default and cancels
   it when another arrives; `queue: max` keeps up to 100.
-- The trust policy allows `workflow_dispatch` from `main` only, so a dispatch from a branch, to
-  try a harness change, is refused.
+- The trust policy lets any event running on `main` assume the role (push, schedule,
+  `workflow_dispatch`), so a dispatch from a branch, to try a harness change, is refused. A job
+  that declares `environment:` is refused too, because its OIDC `sub` names the environment.
 
 ## Left to the implementing session
 

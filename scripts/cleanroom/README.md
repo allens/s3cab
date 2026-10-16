@@ -351,10 +351,12 @@ in turn, as with a restorer: the session writes and tests its program on the
 machine the sandbox is built on.
 
 The brief fixes the program's command line, `s3cab-backup.py <bucket> <set>
-<dir>...`, so a harness can run it, and nothing else about its shape: what it
-does with a set it can't back up is the spec's to say and the report's to
-discuss. `faults` and `corrupt` are ordinary trees here; their names describe
-damage only the restore fixtures have.
+<dir>...`, so a harness can run it, and has the session finish on an emptied
+bucket and one run per set with exactly that command line, so a set the program
+refuses can't reach the bucket some other way. Nothing else about the program's
+shape is fixed: what it does with a set it can't back up is the spec's to say
+and the report's to discuss. `faults` and `corrupt` are ordinary trees here;
+their names describe damage only the restore fixtures have.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs <root>
