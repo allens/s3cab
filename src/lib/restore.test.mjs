@@ -307,6 +307,52 @@ describe("planRestore", () => {
     }
   });
 
+  it("refuses a POSIX name holding a `\\` bound for Windows — even once `..` resolved", () => {
+    // On Windows `reroot` hands `a\..\..\..\Windows\x.txt` to `join`, which
+    // resolves it to `C:\Windows\x.txt`: nothing in that dest is out of place.
+    // `exists` isn't consulted, so `--overwrite` can't reach it either.
+    const named = new Map([
+      [
+        "/home/u/edge/back\\slash.txt",
+        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
+      ],
+      [
+        "/home/u/edge/a\\..\\..\\..\\Windows\\x.txt",
+        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
+      ],
+      [
+        "/home/u/edge/plain.txt",
+        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
+      ],
+    ]);
+    const dests = new Map([
+      ["/home/u/edge/back\\slash.txt", "C:\\out\\edge\\back\\slash.txt"],
+      ["/home/u/edge/a\\..\\..\\..\\Windows\\x.txt", "C:\\Windows\\x.txt"],
+      ["/home/u/edge/plain.txt", "C:\\out\\edge\\plain.txt"],
+    ]);
+    const plan = planRestore(
+      named,
+      [...named.keys()],
+      (source) => /** @type {string} */ (dests.get(source)),
+      { exists: () => true, overwrite: true },
+    );
+    assert.deepEqual(plan, [
+      { dest: "C:\\out\\edge\\back\\slash.txt", action: "refuse" },
+      { dest: "C:\\Windows\\x.txt", action: "refuse" },
+      writeOf("C:\\out\\edge\\plain.txt"),
+    ]);
+  });
+
+  it("leaves a `\\` alone in a POSIX name restored to a POSIX path", () => {
+    const named = new Map([
+      ["/back\\slash.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
+    ]);
+    const plan = planRestore(named, ["/back\\slash.jpg"], destFor, {
+      exists: () => false,
+    });
+    assert.deepEqual(plan, [writeOf("/back\\slash.jpg")]);
+  });
+
   it("leaves a `:` alone in a POSIX name, where it is an ordinary character", () => {
     const named = new Map([
       ["/a:b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],

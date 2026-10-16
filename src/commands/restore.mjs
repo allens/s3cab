@@ -52,9 +52,10 @@ import { shellCommand } from "../lib/style.mjs";
  * `corrupt`, nothing is written for it, the run continues, and it exits 1
  * (guide/format.md's restorer rule). So is a name this filesystem **refuses** —
  * a backup taken on Linux can hold a name Windows forbids, and one taken on
- * Windows a name too long for Linux — reported `refused`, exit 1. (A `:` is
- * refused before anything is written, since NTFS would take it as a stream
- * rather than refuse it — see `planRestore`.) So is a path whose snapshot row
+ * Windows a name too long for Linux — reported `refused`, exit 1. (A `:`, and
+ * a Linux name's `\`, are refused before anything is written, since NTFS would
+ * take one as a stream and the other as a separator rather than refuse them —
+ * see `planRestore`.) So is a path whose snapshot row
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * Only those four degrade; any
  * other failure (network, credentials, a full disk) still aborts, since it is

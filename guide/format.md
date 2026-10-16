@@ -776,7 +776,9 @@ For a restorer, or anything else that reads the files.
 - **Restoring on another operating system, or where case is ignored.** A snapshot can hold
   two paths differing only in case, from Linux or from a Windows directory set to be
   case-sensitive, and a Linux one can hold characters Windows forbids. The twins collide in
-  an ordinary Windows or macOS directory, and the characters fail on Windows. The format
+  an ordinary Windows or macOS directory, and the characters fail on Windows, all but `\`,
+  which Windows takes as a separator: `a\..\x` climbs out of the output directory like a
+  hand-added `..`. s3cab refuses such a name rather than restore it. The format
   records what was there; what to do on arrival is your tool's choice, worth stating.
   So is whether a download that doesn't hash to its key is still worth writing, clearly
   flagged, or better withheld.
