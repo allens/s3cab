@@ -3,7 +3,8 @@
 **Status:** proposed (2026-10-07; amended 2026-10-09: the clean-room backup's two programs are
 written in separate clean rooms, on every platform; amended 2026-10-12: the clean-room backup is
 proof only, with no readability goal; amended 2026-10-16: the clean-room backup is one program
-again, walk to bucket, and the harness for it is built). The model is settled. The clean-room
+again, walk to bucket, and the harness for it is built; and the golden set is seeded by GitHub
+Actions on all three platforms, into one bucket every run reads). The model is settled. The clean-room
 backup program is not yet written, and the restorers exist only as frozen clean-room runs. Partly
 superseded by [0107](0107-the-spec-is-the-public-repository-format.md): the spec is format.md
 alone, so a clean-room backup needs neither s3cab's exclude syntax nor its config files.
@@ -80,7 +81,7 @@ drive letter, name the IANA zone where Python can't, and reach paths past `MAX_P
 writing `.info` through Python's text mode on Windows, writes CRLF, which the spec forbids.
 Neither s3cab nor any restorer reads that file strictly enough to notice, so the backup's own
 checker has to. The seed is different in kind: it produces the golden set rather than reading the
-spec, and is Linux-only because only Linux holds every fixture.
+spec, so it runs in CI, where every platform is.
 
 The language stays one, and so does the portability rule below: every program, wherever it was
 written, must run unchanged on all three platforms. So the portability test gets three programs
@@ -229,10 +230,14 @@ indefinitely.
     seed stamps the bucket with a hash of the spec, the fixtures and itself, and a restore build
     refuses any other stamp, since a restorer written from today's spec fails against
     yesterday's format through no fault of its own, and passes against yesterday's fixtures
-    without meeting what was added since. The seed runs **on Linux only**, where every fixture
-    can exist: Windows refuses the `[POSIX]` names, and macOS's APFS silently folds names
-    differing only in case or Unicode normalization into one file. Every restore build is then
-    the same on every OS: reattach the sets and restore s3cab's own reference from them.
+    without meeting what was added since. **Each platform seeds its own sets, in GitHub
+    Actions**, suffixed with its name (`edge-windows`), so restorers meet drive letters,
+    backslashes and APFS's view of a tree as well as Linux's, and a restorer written without a
+    Mac still reads a Mac's backup. CI is the one system that runs all three, so the golden
+    set is never two platforms out of three. Every file's content carries its platform's name,
+    so no two platforms share an object and one bucket keeps the reason above for one backup
+    per bucket. Every restore build is then the same on every OS: reattach every platform's
+    sets and restore s3cab's own reference from them.
   - **`S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is used in turns**: empty the bucket, one clean-room
     backup, every restorer restores it. Every backup program takes a turn on every runner:
     nine turns once macOS has its own.
@@ -249,8 +254,8 @@ indefinitely.
   ordered by job dependencies and a concurrency group. It builds and runs the committed
   programs; it never writes them. On each runner, the reference for a restore is s3cab's own
   restore there, and the clean-room backup's published snapshot is compared with
-  `s3cab snapshot` of the same trees there. Personal buckets of the same names serve the
-  sessions that write the programs, one session at a time.
+  `s3cab snapshot` of the same trees there. The sessions that write the programs read CI's
+  restore bucket too; a personal backup bucket serves them, one session at a time.
 
   **The backup turns are the matrix's cost.** They share one bucket, so they run one after
   another, each followed by every restorer. That is the price of testing each backup's

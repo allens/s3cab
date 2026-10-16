@@ -24,18 +24,20 @@
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
  */
+import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   cli,
+  client,
   handover,
   listAll,
   readCommandLine,
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
-import { count, files, seeded as seededSets } from "./fixtures.mjs";
-import { seedHash, seededHash } from "./restore-bucket.mjs";
+import { count, files, goldenSets } from "./fixtures.mjs";
+import { missingSets, seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",
@@ -46,33 +48,42 @@ const cleanroom = join(root, "cleanroom");
 const reference = join(cleanroom, "reference");
 const { run, mustRun } = cli(join(root, ".s3cab"));
 
+// The bucket's own region, whatever AWS_REGION says: at home the restore bucket is CI's,
+// in another region from the personal ones. ENVIRONMENT.md hands the restorer this
+// variable, and a request signed for the wrong region is refused.
+const { BucketRegion } = await client.send(
+  new HeadBucketCommand({ Bucket: bucket }),
+);
+process.env.AWS_REGION = BucketRegion;
+
 // A restorer written from today's spec fails against a golden set in yesterday's format
 // through no fault of its own, and the session would spend its run reporting that as
 // spec gaps. Yesterday's fixtures are subtler: the run passes, measured against a corpus
-// missing whatever was added since.
+// missing whatever was added since. A platform's sets missing is the same corpus short.
 const seeded = await seededHash(bucket);
-if (seeded !== seedHash()) {
+const missing = await missingSets(bucket);
+if (seeded !== seedHash() || missing.length > 0) {
   console.error(
     `The restore bucket '${bucket}' ${
-      seeded
-        ? "was seeded from a different spec or fixtures than this checkout's"
-        : "carries no stamp from a finished seed"
+      seeded !== seedHash()
+        ? seeded
+          ? "was seeded from a different spec or fixtures than this checkout's"
+          : "carries no stamp from a finished seed"
+        : `holds no snapshot of ${missing.join(", ")}`
     }, so a\n` +
       "restorer written from the spec here would be measured against another golden set.\n" +
-      "Reseed it from Linux or WSL first:\n" +
+      "Reseed it from main, where the workflow's role may write it:\n" +
       "\n" +
-      "    node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs ~/s3cab.sandbox\n",
+      "    gh workflow run cleanroom-seed.yml --ref main\n",
   );
   process.exit(2);
 }
 
 writeCleanroom(cleanroom, "restore", bucket, credentials);
 
-const setNames = seededSets.map(({ name }) => name);
-
 // `reattach` is how a second machine gets a set to restore from, and this sandbox's
-// `.s3cab/` starts empty.
-for (const name of setNames) {
+// `.s3cab/` starts empty. Every platform's sets: a restorer restores what each backed up.
+for (const name of goldenSets) {
   console.log(`reattach ${name}`);
   mustRun(["reattach", name, "--bucket", bucket]);
 }
@@ -84,7 +95,7 @@ for (const name of setNames) {
 mkdirSync(reference, { recursive: true });
 /** @type {string[]} */
 const exits = [];
-for (const name of setNames) {
+for (const name of goldenSets) {
   const prefix = `snapshots/${name}/`;
   const keys = await listAll(bucket, prefix);
   const snapshots = keys
@@ -112,7 +123,7 @@ for (const name of setNames) {
         .map((line) => `      ${line}`);
       exits.push(
         `${name}/${snapshot} → ${result.code}`,
-        ...(name === "faults" || name === "corrupt" ? [] : said),
+        ...(/^(faults|corrupt)-/.test(name) ? [] : said),
       );
     }
     // `hollow` restores nothing, so s3cab prints "Nothing to restore" and creates no
@@ -132,7 +143,7 @@ for (const entry of readdirSync(reference)) {
 }
 if (exits.length > 0) {
   // `faults` and `corrupt` are broken on purpose, so a nonzero exit is theirs to give, and
-  // `edge`'s off Linux, whose disks refuse or fold its [POSIX] names (fixtures.mjs). Any
+  // `edge`'s off Linux, whose disks refuse or fold names Linux backed up (fixtures.mjs). Any
   // other set here is one s3cab could not restore whole on this platform, and the
   // difference matters: a refusal it reported and carried past is a valid reference,
   // an abort that stopped the restore halfway is not.
