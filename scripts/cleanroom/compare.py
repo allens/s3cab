@@ -8,35 +8,52 @@ not the format. Symlinks anywhere are reported (the format stores none).
 """
 import os, sys, hashlib
 
+def fail(error: OSError):
+    raise error  # else os.walk reads an unopenable folder as empty, and two pass as IDENTICAL
+
 def walk(root: bytes):
     files, dirs, links = {}, set(), []
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel = os.path.relpath(dirpath, root)
-        if rel != b'.':
+    # Keys cut the root off, not relpath: on Windows that strips a trailing space or dot.
+    cut = len(root) + 1
+    for dirpath, dirnames, filenames in os.walk(root, onerror=fail):
+        rel = dirpath[cut:]
+        if rel:
             dirs.add(rel)
         for d in dirnames:
             p = os.path.join(dirpath, d)
             if os.path.islink(p):
-                links.append(os.path.relpath(p, root))
+                links.append(p[cut:])
         for f in filenames:
             p = os.path.join(dirpath, f)
             if os.path.islink(p):
-                links.append(os.path.relpath(p, root))
+                links.append(p[cut:])
                 continue
             st = os.lstat(p)
             h = hashlib.sha256()
             with open(p, 'rb') as fh:
                 for chunk in iter(lambda: fh.read(1 << 20), b''):
                     h.update(chunk)
-            files[os.path.relpath(p, root)] = (st.st_size, st.st_mtime_ns, h.hexdigest())
+            files[p[cut:]] = (st.st_size, st.st_mtime_ns, h.hexdigest())
     return files, dirs, links
 
 def show(b: bytes) -> str:
     return repr(b)[1:]  # repr keeps control chars visible
 
+def root(path: str) -> bytes:
+    # Not abspath: it drops a trailing dot or space too (guide/format.md).
+    path = os.path.normpath(os.path.join(os.getcwd(), path))
+    # Without \\?\ Windows strips a name's trailing spaces and dots, so lstat
+    # can't find ' both ends.txt ' (edge) even though walk listed it.
+    if os.name == 'nt' and not path.startswith('\\\\?\\'):
+        if path.startswith('\\\\'):
+            path = '\\\\?\\UNC\\' + path[2:]
+        else:
+            path = '\\\\?\\' + path
+    return os.fsencode(path)
+
 def main(mine: str, ref: str) -> int:
-    mf, md, ml = walk(os.fsencode(mine))
-    rf, rd, rl = walk(os.fsencode(ref))
+    mf, md, ml = walk(root(mine))
+    rf, rd, rl = walk(root(ref))
     problems = []
     for p in sorted(rf.keys() - mf.keys()):
         problems.append(f"MISSING in mine: {show(p)}")
