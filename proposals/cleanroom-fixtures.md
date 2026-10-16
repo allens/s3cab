@@ -10,7 +10,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 The backup side's gaps are built (the unreadable file, the links, the hard-link pair and FIFO,
 the out-of-range mtimes, the backslash names, the refused sets). What is left reaches the seed
 and the restore fixtures only: the backup clean room has no exclude patterns and no `dirs.txt`
-([cleanroom-harness.md](cleanroom-harness.md)).
+([ADR-0096](../docs/adr/0096-three-implementations-prove-the-format.md)).
 
 ## Gaps
 

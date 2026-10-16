@@ -28,7 +28,7 @@ or be undone by the next platform's upload. With the platform's name in each bac
 content, no two platforms share an object, and ADR-0096's reason for one backup per bucket holds
 inside one bucket. The deletion records are bucket-wide but list hashes, so they stay apart too.
 The cost is that hashes match only between runs on the same platform
-([cleanroom-harness.md](cleanroom-harness.md)).
+([scripts/cleanroom/README.md](../scripts/cleanroom/README.md), fixtures.mjs).
 
 **Decided: the seeds take turns,** one platform after another behind one concurrency group: two
 deletes finishing in the same minute collide on the deletion record. The first turn empties the

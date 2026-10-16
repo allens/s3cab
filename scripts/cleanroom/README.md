@@ -26,20 +26,19 @@ possible beyond the operating system: on each platform, its own language, its
 own frameworks or system libraries, and nothing of s3cab's. Run 2 (C++) predates
 that rule. The restorers are one half of
 [ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)'s
-three-way proof: a clean-room backup is the other. That is two Python programs,
-one per pillar of a backup, each written in its own clean room by a session that
-never sees the other's, so the snapshot file between them is defined by the spec
-alone. Like the restorers, both are written on every platform: a session can only
-test where it runs, and each platform changes what a backup has to get right —
+three-way proof: a clean-room backup is the other. That is one Python program,
+walk to bucket, written from the spec by a session that has seen nothing else.
+Like the restorers, it is written on every platform: a session can only test
+where it runs, and each platform changes what a backup has to get right —
 Windows path casing and drive letters, a time zone Python can't name there, text
-mode writing CRLF. They stay Python everywhere, and each has to run unchanged on
-all three. Nothing here is distributed; it lives in the repo as evidence.
+mode writing CRLF. It stays Python everywhere, and each one has to run unchanged
+on all three. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
-maintained, and improved every run as findings come in: the seed script, the three
+maintained, and improved every run as findings come in: the seed script, the two
 build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
-`restore-bucket.mjs`), and the checkers, `compare-snapshot.mjs`, `check-upload.mjs`,
-`compare.py` and `audit-transcript.mjs`.
+`restore-bucket.mjs`), and the checkers, `check-backup.mjs` with
+`compare-snapshot.mjs`, `compare.py` and `audit-transcript.mjs`.
 A clean room's program is frozen — never updated, because its value is being a
 fixed reading of the spec on a given date — and kept only while it reads the
 current format. Then it goes, and its report links the last commit that held it.
@@ -48,7 +47,7 @@ Two buckets, one per role
 ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
 `S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the **golden set** every restorer
 reads, and `S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is emptied for each clean-room
-upload's turn. A snapshot clean room has no bucket at all: a snapshot is a local file.
+backup's turn.
 
 The golden set is seeded **once per format or fixture change**, on Linux or WSL,
 apart from the runs, which only read it: only a Linux filesystem holds every
@@ -68,10 +67,10 @@ destroy, then the next.
 
 ```text
 ~/s3cab.sandbox/
-  cleanroom/   the session opens here: spec, brief, credentials (not for
-               a snapshot), and sets/ (snapshot, upload) or reference/ (restore)
-  fixtures/    the trees it backs up (snapshot, upload)
-  .s3cab/      s3cab's home while the build runs it (upload, restore)
+  cleanroom/   the session opens here: spec, brief, credentials, and
+               reference/ (restore)
+  fixtures/    the trees it backs up (backup)
+  .s3cab/      s3cab's home while the build runs it (restore)
 ```
 
 A restorer run, end to end — the same commands on every OS (`$HOME` expands in
@@ -97,30 +96,21 @@ Move-Item $HOME/s3cab.sandbox/cleanroom $HOME/s3cab.experiments/2026-10-12-resto
 Remove-Item -Recurse $HOME/s3cab.sandbox
 ```
 
-The two halves of the backup are the same sequence with their own scripts, and
-like a restorer, each is built and run on every OS. A snapshot run needs no
-bucket, and so no test environment:
-
-```powershell
-node scripts/cleanroom/build-snapshot-cleanroom.mjs $HOME/s3cab.sandbox
-# run, then check: its snapshots compared, and its transcript audited
-node scripts/cleanroom/compare-snapshot.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
-node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
-```
-
-An upload run's turn starts from an empty bucket, which the build leaves for you
-to empty:
+A backup run is the same sequence with its own scripts, and like a restorer, it
+is built and run on every OS. Its turn starts from an empty bucket, which the
+build leaves for you to empty:
 
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
-node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs $HOME/s3cab.sandbox
+node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs $HOME/s3cab.sandbox
 # run, then check: the bucket it left, and its transcript audited
-node --env-file=.env.test scripts/cleanroom/check-upload.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
+node --env-file=.env.test scripts/cleanroom/check-backup.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
 node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
 ```
 
-The checkers run before the sandbox is destroyed, on the machine that built it:
-they read its trees, and the upload checker reads what the clean room was handed.
+The checker runs before the sandbox is destroyed, on the machine that built it:
+it reads the trees the clean room was handed, and takes s3cab's own snapshot of
+them there and then.
 
 **Every run is kept**, real or experiment, in `~/s3cab.experiments/`, one folder
 per run named for its date, role, platform, model and effort. What moves there is
@@ -165,15 +155,14 @@ comparison.
 
 Reads the one root every script here takes, and writes the clean room each
 build script hands over: a byte copy of
-[guide/format.md](../../guide/format.md) (plus
-[guide/exclude.md](../../guide/exclude.md) for a snapshot, the one role whose
-output the exclude grammar decides), a brief naming the language, credentials
-where the role has a bucket, and nothing else. The language is Python for both
-halves of the backup and the platform's canonical one (above) for a restorer, so
-runs differ by reader and by spec version. It also holds `cli`, the subprocess
-that drives the real s3cab for the builds that need its output. The restorer brief is language-neutral apart from one
-sentence — which names no version and no toolchain, leaving the session to find
-"the most modern version that comes as standard" on the machine it's on.
+[guide/format.md](../../guide/format.md), a brief naming the language, the
+bucket's credentials, and nothing else. The language is Python for the backup
+and the platform's canonical one (above) for a restorer, so runs differ by
+reader and by spec version. It also holds `cli`, the subprocess that drives the
+real s3cab for the scripts that need its output. The restorer brief is
+language-neutral apart from one sentence — which names no version and no
+toolchain, leaving the session to find "the most modern version that comes as
+standard" on the machine it's on.
 
 The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
@@ -217,7 +206,9 @@ repositories — snapshots published over swept objects, written on purpose by
 wandered into one would report a real observation as a spec defect. The bucket
 comes only from the role's `S3CAB_TEST_BUCKET_CLEANROOM_*` variable, which
 `--env-file=.env.test` supplies with the `AWS_*` settings without the file itself
-travelling.
+travelling. For a backup it also lists each set with its member directories, and
+nothing of what makes any set hard: which ones a backup has to refuse is the
+spec's to say.
 
 Libraries come from the platform's packages, and the brief bars **any AWS SDK or
 S3 client library, packaged or not** — the restorer signs its own requests, and
@@ -257,7 +248,7 @@ so that a Windows run stays one.
 
 ## fixtures.mjs
 
-The trees the restore seed and the backup builds back up: one table, each entry
+The trees the restore seed and the backup build back up: one table, each entry
 declaring its set, its name (as code points, or as bytes where it has no UTF-8
 form), its kind, its attributes and which platform holds it. The build creates
 every entry and then **reads every one back** — the raw name from `readdir`, the
@@ -318,9 +309,11 @@ one name with no UTF-8 form (a lone surrogate on Windows, a stray byte
 elsewhere), and `tabbed`, a tab in a name, POSIX only. s3cab refuses both with
 exit 1 and no snapshot.
 
-The exclude patterns go wherever s3cab snapshots the trees: the seed, and the
-snapshot and upload builds while they last. The fused backup clean room gets
-none ([cleanroom-harness.md](../../proposals/cleanroom-harness.md)). `spread`'s
+The exclude patterns are the seed's, where s3cab snapshots the trees. The backup
+clean room gets none: excluding is the tool's own, not the format's
+([ADR-0107](../../docs/adr/0107-the-spec-is-the-public-repository-format.md)),
+so there `spread`'s near misses and `edge`'s `ignored.*` are ordinary files, and
+the lone surrogate is the `no-utf8` set rather than an `#excluded` row. `spread`'s
 give each rule in [guide/exclude.md](../../guide/exclude.md) a path it drops
 and a near miss it keeps; `edge`'s is the file a Windows editor leaves, CRLF
 endings and no final newline, which the spec says travel into the bucket byte
@@ -343,86 +336,42 @@ anyway — for a Windows restorer the POSIX names *become* the point, where one
 that refuses them is behaving correctly and one that silently strips the
 trailing space and reports success is not.
 
-## build-snapshot-cleanroom.mjs
+## build-backup-cleanroom.mjs
 
-Builds a snapshot sandbox: the clean room, with each set's `dirs.txt` and
-`exclude.txt` in its `sets\`, pointing at the trees in `fixtures\`. The session
-writes each set's snapshots beside them, laid out as the spec's local side
-describes. Nothing of s3cab's runs and nothing touches the network: there is no
-bucket and no credentials, so the snapshot brief is the one that needs only
-Python's standard library. The exclude patterns are the ones the seed gives
-s3cab in place of `setup`'s starter file, so both snapshots skip the same files.
-Run it on each platform in turn, as with a restorer: the session writes and tests
-its program on the machine the sandbox is built on.
+Builds a backup sandbox: the clean room, whose `ENVIRONMENT.md` names each set's
+member directories in `fixtures\`, and the trees. Nothing of s3cab's reaches the
+room: no set files, no exclude patterns, no snapshot of the trees. s3cab's own
+snapshot of them is taken afterwards, by the checker. The session is handed
+every set this platform could build, the ones a backup must refuse included,
+and told nothing of what makes any of them hard. The bucket starts its turn
+empty, so the session's claim is the first thing in it. Run it on each platform
+in turn, as with a restorer: the session writes and tests its program on the
+machine the sandbox is built on.
 
-```sh
-node scripts/cleanroom/build-snapshot-cleanroom.mjs <root>
-```
-
-## build-upload-cleanroom.mjs
-
-Builds an upload sandbox: the clean room, with each set's `dirs.txt`,
-`exclude.txt` and `snapshots\` in its `sets\`, the snapshots s3cab took of the
-trees in `fixtures\`. It is the one backup clean room handed s3cab's output, and on
-purpose: an upload has to start from a snapshot, and s3cab's is the one the
-spec describes. It is input, not a target to converge on, the same as the
-snapshots every restorer reads; what it costs is that an encoding question the
-examples settle drops out of this report, which is the snapshot clean room's to
-raise. s3cab snapshots offline once a set exists, so the build writes each set
-straight into `.s3cab\` rather than running `setup`, which would claim it in the
-bucket with the `snapshots/<set>.info` that is the session's to write. The
-session's upload is the first thing in the bucket. Like the snapshot build, it
-runs on each platform in turn.
-
-Then two sets are damaged, each the upload side of the golden set's damage
-under the same name. `corrupt`'s `b-corrupt.txt` is rewritten after its
-snapshot with its size and mtime kept, so only hashing the bytes uploaded
-notices: stored as it is, it is exactly the wrong-bytes object the seed plants
-by hand, made the way a real one gets made. And `faults` gets a second snapshot,
-a minute older, cut off after its last file row. s3cab publishes neither set's
-damaged snapshot. The spec says a snapshot without its closing `.` is damaged goods, but
-says nothing of a file that changed since its snapshot, so what the session does
-with `corrupt` is a reading to report, not a rule to check.
+The brief fixes the program's command line, `s3cab-backup.py <bucket> <set>
+<dir>...`, so a harness can run it, and nothing else about its shape: what it
+does with a set it can't back up is the spec's to say and the report's to
+discuss. `faults` and `corrupt` are ordinary trees here; their names describe
+damage only the restore fixtures have.
 
 ```sh
-node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs <root>
+node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs <root>
 ```
 
-## compare-snapshot.mjs
+## check-backup.mjs
 
-Checks a snapshot clean room's work: each set's latest snapshot in
-`cleanroom\sets\<set>\snapshots\` against `s3cab snapshot` of the same trees,
-taken there and then in a throwaway home, so s3cab's output never exists while
-the session could read it. It compares what ADR-0096 lists: file rows exact by
-path, the `@SET DIR` rows, the `#excluded` and `#error` paths, and
-nothing of the names and instants that differ by run. It holds the session's file
-to the format's rules: five fields a line, LF endings, UTF-8 with no BOM, the
-heading row first, the `.` last, and `FILES` and `SIZE` agreeing with the
-file rows where it writes them. The padding and `SIZE`'s readable form are the
-format's recommendations, so a file that departs from them gets a note, not a
-mismatch.
-
-Two more differences come back as notes, because the spec hasn't decided them: the time zone in `@SNAPSHOT START`, which Python's standard library
-can't name, and an excluded directory written as one row where the other side
-wrote a row for each file in it. Paths print JSON-quoted, so a stray CR or one of
-the fixtures' control characters shows instead of printing as nothing.
-
-```sh
-node scripts/cleanroom/compare-snapshot.mjs <root>
-```
-
-## check-upload.mjs
-
-Checks the bucket an upload clean room left. Restoring it can't stand in: no
-restore reads a set's `.info`, and a restore can't say whether the session
-refused the two snapshots it should have. So, in order:
+Checks the bucket a backup clean room left. Restoring it can't stand in: no
+restore reads a set's `.info`, a restore can't say whether the session refused
+the sets it should have, and a snapshot that restores can still have recorded
+the trees differently from s3cab. So, in order:
 
 - every key is in the layout the spec documents, with no deletion record and
   nothing in s3cab's `.s3cab/` folder; what the session put in a folder of its
   own is a note;
 - every object hashes to its key, which means downloading every one;
-- every published snapshot is byte-identical to the one handed over, none is
-  missing, and neither `corrupt`'s nor `faults`'s without its closing `.` is published;
+- every set the room was handed is as the fixture table expects it: a set s3cab
+  backs up has a snapshot published, and its latest is compared with s3cab's
+  (below); a set a backup must refuse has none;
 - every object a published snapshot names is stored;
 - no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
 - every set with a published snapshot has a `snapshots/<set>.info` of `OWNER`,
@@ -434,15 +383,37 @@ refused the two snapshots it should have. So, in order:
 
 Some things are readings rather than rules, so they are notes:
 
-- `corrupt` has nothing to publish, so whether the session claimed it anyway;
+- a refused set has nothing to publish, so whether the session claimed it
+  before its walk stopped;
 - a key of the session's own in a `.info`, which the reading rule skips;
 - a header on a `.info`, which the checklist doesn't name;
 - an `OWNER` other than this `user@machine`, since what "user" and "machine"
   mean is itself a reading.
 
 ```sh
-node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
+node --env-file=.env.test scripts/cleanroom/check-backup.mjs <root>
 ```
+
+## compare-snapshot.mjs
+
+The checker's row comparison: a published snapshot, downloaded, against
+`s3cab snapshot` of the same trees, taken there and then in a throwaway home
+whose set names the backup bucket, so `@SET BUCKET` compares like with like.
+It compares what ADR-0096 lists: file rows exact by path, the `@SET DIR` rows,
+the `#excluded` and `#error` paths, and nothing of the names and instants that
+differ by run. It holds the session's file to the format's rules: five fields a
+line, LF endings, UTF-8 with no BOM, the heading row first, the `.` last, and
+`FILES` and `SIZE` agreeing with the file rows where it writes them. The
+padding and `SIZE`'s readable form are the format's recommendations, so a file
+that departs from them gets a note, not a mismatch.
+
+Three more differences come back as notes, because the spec hasn't decided
+them or leaves them open: `@SET BUCKET` left out, which the spec makes optional,
+so it is compared only when written; the time zone in `@SNAPSHOT START`, which
+Python's standard library can't name; and an excluded directory written as one
+row where the other side wrote a row for each file in it. Paths print
+JSON-quoted, so a stray CR or one of the fixtures' control characters shows
+instead of printing as nothing.
 
 ## seed-restore-cleanroom-bucket.mjs
 
@@ -539,7 +510,7 @@ separately, since both tools create directories implicitly at restore time, so
 those reflect the run rather than the format.
 
 **To be rewritten in JavaScript as `compare-restore.mjs`** when the CI matrix is
-built, beside the two backup checkers above. It is Python only because run 2's
+built, beside the backup checker above. It is Python only because run 2's
 session wrote it that way: Node reads byte paths too (`readdir` with `encoding: "buffer"`), and
 nanosecond mtimes (`lstat` with `bigint: true`).
 

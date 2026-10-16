@@ -40,10 +40,10 @@
  * material for the golden set's damage (seed-restore-cleanroom-bucket.mjs), ordinary
  * trees in a backup room. Two sets a backup must **refuse** rather than publish: `no-utf8`,
  * one file whose name has no UTF-8 form (a lone surrogate on Windows, a stray byte
- * elsewhere), and `tabbed`, one file with a tab in its name. Where s3cab snapshots the
- * trees it has exclude patterns, so there the surrogate sits in `edge` under one and the
- * restore fixtures carry its `#excluded` row; the fused backup clean room has none, so
- * there the name is a set of its own.
+ * elsewhere), and `tabbed`, one file with a tab in its name. The seed has exclude
+ * patterns, so there the surrogate sits in `edge` under one and the restore fixtures carry
+ * its `#excluded` row; the backup clean room has none, so there the name is a set of its
+ * own.
  *
  * Which platform holds what is declared per entry (`on`), not guessed from the OS: NTFS
  * forbids characters 1–31 and `: * ? " < > |` in a name; `a:b.txt` there makes a file `a`
@@ -114,9 +114,9 @@ export const setNames = sets.map(({ name }) => name);
 /** The sets the golden set holds: every one s3cab can back up. */
 export const seeded = sets.filter((set) => !set.refused);
 
-// Every set's exclude patterns, wherever s3cab snapshots the trees: the seed, and the
-// snapshot and upload builds while they last. The fused backup clean room gets none, so
-// there `spread`'s near misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
+// Every set's exclude patterns, for the seed, where s3cab snapshots the trees. The backup
+// clean room gets none (ADR-0107: excluding is the tool's own), so there `spread`'s near
+// misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
 // each rule of guide/exclude.md's grammar a path it drops and a near miss it keeps.
 // `edge`'s is the file a Windows editor leaves: CRLF endings and no newline after the last
 // line, which the bucket holds byte for byte and a reader trims. Its middle line keeps the
