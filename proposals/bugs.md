@@ -157,6 +157,16 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   stored. The expected digest is known before the PUT, so sending it as
   `x-amz-checksum-sha256` would have S3 refuse the mismatch for a single-part upload; a
   multipart one could check its running hash before completing, and abort instead.
+- **`setup` accepts a set that `restore --output` will refuse.** Two member directories with
+  the same final name (`C:\a\Photos`, `D:\b\Photos`) back up fine, but `reroot`
+  (`src/lib/restore.mjs`) refuses their snapshot, so the user finds out only when restoring.
+  Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
+- **On Windows, a modification time past 2106-02-07T06:28:16Z is recorded wrong, without a
+  word.** Node v26's `lstat` returns the seconds modulo 2³² (measured: a year-10000 file reads
+  as 2106-01-29, where Python reads it right), so `fileProps` (`src/lib/file-props.mjs`) writes
+  a valid row holding a false time, and restore sets it. Likely libuv. Once Node reads it right,
+  `toISOString` writes `+010000-…`, a row s3cab's own reader refuses: the
+  [Writing checklist](../guide/format.md#writing-a-snapshot) makes a time past 9999 an `#error`.
 - **A killed run whose work file is cut inside a multi-byte character blocks every later
   backup of the set.** The tolerant read that recovers the work file
   (`readParkedLookup` → `parseSnapshotStream({ tolerant: true })`, `src/lib/snapshot-file.mjs`)
