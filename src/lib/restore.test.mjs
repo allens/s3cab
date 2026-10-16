@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { foldsCase } from "./path-match.mjs";
 import { planRestore, reroot, selectEntries } from "./restore.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
@@ -244,6 +245,30 @@ describe("reroot", () => {
       join(resolve("out"), "Photos", "beach.jpg"),
     );
   });
+
+  // Windows reads a `\` as a separator, so a POSIX name holding one has no
+  // place under a Windows output, where `join` would resolve its `..`. Under
+  // any other output it is an ordinary character. `resolve("out")` is
+  // Windows-shaped exactly when this runs on Windows.
+  it("places a POSIX name holding `\\` only under a non-Windows output", () => {
+    const out = resolve("out");
+    const map = reroot(["/home/u/edge/"], "out");
+    for (const name of ["back\\slash.txt", "a\\..\\..\\..\\Windows\\x.txt"]) {
+      assert.equal(
+        map(`/home/u/edge/${name}`),
+        foldsCase(out) ? undefined : join(out, "edge", name),
+      );
+    }
+    assert.equal(map("/home/u/edge/plain.txt"), join(out, "edge", "plain.txt"));
+  });
+
+  it("ignores a `\\` above the root, which is never joined", () => {
+    const map = reroot(["/home/u/we\\ird/photos/"], "out");
+    assert.equal(
+      map("/home/u/we\\ird/photos/a.jpg"),
+      join(resolve("out"), "photos", "a.jpg"),
+    );
+  });
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
@@ -307,50 +332,21 @@ describe("planRestore", () => {
     }
   });
 
-  it("refuses a POSIX name holding a `\\` bound for Windows — even once `..` resolved", () => {
-    // On Windows `reroot` hands `a\..\..\..\Windows\x.txt` to `join`, which
-    // resolves it to `C:\Windows\x.txt`: nothing in that dest is out of place.
-    // `exists` isn't consulted, so `--overwrite` can't reach it either.
+  it("refuses a path with no destination by its snapshot path, --overwrite or not", () => {
+    // `exists` isn't consulted: `--overwrite` can't reach it either.
     const named = new Map([
       [
-        "/home/u/edge/back\\slash.txt",
-        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
-      ],
-      [
-        "/home/u/edge/a\\..\\..\\..\\Windows\\x.txt",
-        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
-      ],
-      [
-        "/home/u/edge/plain.txt",
+        "/home/u/a\\..\\x.txt",
         { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
       ],
     ]);
-    const dests = new Map([
-      ["/home/u/edge/back\\slash.txt", "C:\\out\\edge\\back\\slash.txt"],
-      ["/home/u/edge/a\\..\\..\\..\\Windows\\x.txt", "C:\\Windows\\x.txt"],
-      ["/home/u/edge/plain.txt", "C:\\out\\edge\\plain.txt"],
-    ]);
-    const plan = planRestore(
-      named,
-      [...named.keys()],
-      (source) => /** @type {string} */ (dests.get(source)),
-      { exists: () => true, overwrite: true },
-    );
-    assert.deepEqual(plan, [
-      { dest: "C:\\out\\edge\\back\\slash.txt", action: "refuse" },
-      { dest: "C:\\Windows\\x.txt", action: "refuse" },
-      writeOf("C:\\out\\edge\\plain.txt"),
-    ]);
-  });
-
-  it("leaves a `\\` alone in a POSIX name restored to a POSIX path", () => {
-    const named = new Map([
-      ["/back\\slash.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
-    ]);
-    const plan = planRestore(named, ["/back\\slash.jpg"], destFor, {
-      exists: () => false,
+    const plan = planRestore(named, [...named.keys()], () => undefined, {
+      exists: () => true,
+      overwrite: true,
     });
-    assert.deepEqual(plan, [writeOf("/back\\slash.jpg")]);
+    assert.deepEqual(plan, [
+      { dest: "/home/u/a\\..\\x.txt", action: "refuse" },
+    ]);
   });
 
   it("leaves a `:` alone in a POSIX name, where it is an ordinary character", () => {
