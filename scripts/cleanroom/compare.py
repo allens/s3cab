@@ -34,9 +34,17 @@ def walk(root: bytes):
 def show(b: bytes) -> str:
     return repr(b)[1:]  # repr keeps control chars visible
 
+def root(path: str) -> bytes:
+    # Without \\?\ Windows strips a name's trailing spaces and dots, so lstat
+    # can't find ' both ends.txt ' (edge) even though walk listed it.
+    path = os.path.abspath(path)
+    if os.name == 'nt':
+        path = '\\\\?\\' + path
+    return os.fsencode(path)
+
 def main(mine: str, ref: str) -> int:
-    mf, md, ml = walk(os.fsencode(mine))
-    rf, rd, rl = walk(os.fsencode(ref))
+    mf, md, ml = walk(root(mine))
+    rf, rd, rl = walk(root(ref))
     problems = []
     for p in sorted(rf.keys() - mf.keys()):
         problems.append(f"MISSING in mine: {show(p)}")
