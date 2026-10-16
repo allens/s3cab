@@ -55,9 +55,9 @@ Report, and stop.
 
 ## One run
 
-1. **Build** with the role's command from the README. A backup empties the backup
-   bucket first. The sandbox root must not exist: if a stale one does, show what
-   is in it and ask before deleting it.
+1. **Build** with the role's command from the README. Before a backup run, empty
+   the backup bucket. The sandbox root must not exist: if a stale one does, show
+   what is in it and ask before deleting it.
 2. **Run.** Start the README's headless command in the background, from
    `<root>/cleanroom`, with a fresh `--session-id` and the user's model and effort.
    Give the user the tail command for that session's transcript, then wait for the
