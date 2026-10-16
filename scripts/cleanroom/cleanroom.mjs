@@ -320,8 +320,8 @@ The same program has to run unchanged on Linux, macOS and Windows. If something 
 can't be done portably with those two, don't reach for another library: record what the spec
 asked for and what stood in the way. That is one of the things being tested.
 
-**Correct, not fast.** No caching between runs, no parallelism. Whatever the spec says a backup
-keeps between runs, keep in this directory, never in the home folder or anywhere else outside it.
+**Correct, not fast.** No caching of file contents or hashes between runs, no parallelism.
+Whatever the spec says a backup keeps between runs, keep beside the program.
 
 Correct covers everything the spec says a backup records and writes: every rule of the snapshot,
 and its canonical form too; a row for everything the spec says is recorded; objects before the
@@ -333,8 +333,9 @@ endpoint, or a recorded-and-replayed transcript. Every result you report about t
 come from a real request.
 
 Back up every set in \`ENVIRONMENT.md\`, each directory where it is; don't copy anything first.
-Leave the bucket as that command line alone leaves it, with no option of your own added to any
-set's run.
+When you finish, empty the bucket and run your final program once per set, with exactly the
+command line above and every directory \`ENVIRONMENT.md\` names for that set, and leave the
+bucket as those runs leave it.
 
 ## Deliverable
 
@@ -368,6 +369,8 @@ ${
   issue tracker, its documentation site, or its package on any registry. The spec names the tool,
   so this is a rule rather than a secret. Ambiguity in the text is the measurement; resolving it
   from another source destroys the reading.
+- **Write only in this directory and your own scratchpad** — nothing in the home folder or temp
+  outside them, whether you write it or your program does.
 - **Touch only the bucket \`ENVIRONMENT.md\` names**, ${
     python ? "which is yours to write to and to empty." : "and only to read."
   }
