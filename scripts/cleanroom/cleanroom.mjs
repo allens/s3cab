@@ -59,7 +59,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -253,6 +253,64 @@ is being tested.
 - Compiler: \`${csc}\` (C# 5)
 - Or \`Add-Type\`, in Windows PowerShell: \`${powershell}\`
 `;
+}
+
+/**
+ * The settings the run's `--settings` passes, written beside the clean room rather than in
+ * it: a file the session can reach is one it can loosen mid-run. `strictAllowlist` is
+ * honoured only from `--settings` (or user and managed settings), never from a project's.
+ * Windows gets no `sandbox` block: Claude Code's shell sandbox doesn't run there, and
+ * `failIfUnavailable` would refuse to start the run, so a Windows run's shell is held only
+ * by the brief and the audit. `--restricted` drops the user's settings, their
+ * `autoMode.environment` with them, so without a line naming the bucket the classifier
+ * refuses the backup's closing empty.
+ * @param {"backup" | "restore"} role
+ * @param {string} bucket
+ */
+function sessionSettings(role, bucket) {
+  return {
+    permissions: {
+      blockReadsOutsideWorkingDirectories: true,
+      deny: ["WebFetch", "WebSearch"],
+    },
+    ...(windows
+      ? {}
+      : {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            network: {
+              allowedDomains: ["*.amazonaws.com"],
+              strictAllowlist: true,
+            },
+          },
+        }),
+    autoMode: {
+      environment: [
+        "$defaults",
+        role === "backup"
+          ? `Trusted cloud bucket: s3://${bucket} is this run's disposable test fixture. Writing to it and emptying it is routine.`
+          : `Trusted cloud bucket: s3://${bucket} is this run's read-only test fixture. Listing and reading it is routine.`,
+      ],
+    },
+  };
+}
+
+/**
+ * The headless run's command, from `<root>/cleanroom`. `--restricted` loads no user
+ * settings, so a user-level `additionalDirectories` can't make the home folder a working
+ * directory, and it drops every command tool `--tools` doesn't name.
+ * @param {"backup" | "restore"} role
+ */
+function runCommand(role) {
+  const tools = `Bash,${windows ? "PowerShell," : ""}Read,Write,Edit,Glob,Grep,TaskStop`;
+  return (
+    `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
+    (role === "backup" ? " --add-dir ../fixtures" : "") +
+    ` --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid>` +
+    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go`
+  );
 }
 
 /**
@@ -549,6 +607,12 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
     "utf8",
   );
 
+  writeFileSync(
+    join(dirname(dir), "session-settings.json"),
+    JSON.stringify(sessionSettings(role, bucket), null, 2) + "\n",
+    "utf8",
+  );
+
   const profile = process.env.AWS_PROFILE;
   console.log(`wrote a ${language} ${role} clean room in ${dir}`);
   console.log("  format.md       the spec, byte-for-byte");
@@ -564,17 +628,17 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
 /**
  * The closing message: what is left to do by hand, and where to open the session.
  * @param {string} root
+ * @param {"backup" | "restore"} role
  * @param {string[]} todo
  */
-export function handover(root, todo) {
+export function handover(root, role, todo) {
   console.log(
     (todo.length
       ? `\nStill to do before the run:\n${todo.map((item) => `  - ${item}\n`).join("")}`
       : "") +
       `\nRun it headless from ${join(root, "cleanroom")} — not the root beside it, and\n` +
       `never the repo — with the README's command:\n` +
-      `    claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid> \\\n` +
-      `      --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go\n` +
+      `    ${runCommand(role)}\n` +
       `and keep the previous run's report out of it. Diffing the two\n` +
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
       `fix that didn't land.`,

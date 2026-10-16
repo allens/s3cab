@@ -47,7 +47,7 @@ writeCleanroom(
   built.sets,
 );
 
-handover(root, [
+handover(root, "backup", [
   "empty the bucket: the backup's turn starts from nothing.",
   "install Python 3 and boto3 if this machine lacks them: the brief tells the\n" +
     "    session not to install anything.",
