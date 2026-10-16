@@ -87,8 +87,9 @@ s3://my-backup-bucket/
   hash. Keep one: given only `objects/`, you have your data but no way to tell what any of it
   was. (This is why snapshots are immutable and never overwritten.)
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
-  local timestamp (`2026-06-12T0915.tsv.gz`). A remote snapshot file is **byte-identical**
-  to its local counterpart — uploaded as-is, one format everywhere.
+  local timestamp (`2026-06-12T0915.tsv.gz`). A snapshot is uploaded **byte for byte**, with
+  no conversion on the way. Whether a tool keeps a local copy too is its own choice; s3cab
+  does, and the two are identical.
 - **A set's name** is lowercase letters, digits and hyphens. With no dot in a name,
   `<set>.info` can't be mistaken for a set, nor collide with a set's folder in a bucket
   copied to disk.
@@ -149,7 +150,9 @@ A value may hold `=` or `#`.
 The rules for writers:
 
 - **Claiming a new set** is a conditional PUT of `<set>.info`, made only while
-  `snapshots/<set>/` is empty. A set with snapshots and no `.info` already exists.
+  `snapshots/<set>/` is empty. A set with snapshots and no `.info` already exists. Claim
+  whenever you like before the first snapshot's upload. s3cab claims when a set is set up,
+  so a `.info` with no snapshots is a set not yet backed up, or whose first backup stopped.
 - **Publishing a snapshot** checks the holder immediately before the snapshot's upload:
   read `<set>.info`, and refuse unless its `OWNER` and `CLAIMED` each match, as text, the
   pair you wrote when you claimed. Never work the pair out again: a renamed machine would
@@ -548,14 +551,24 @@ part of the path is resolved, not just the last:
 - a Windows short name such as `PROGRA~1`, to the full name (`Program Files`);
 - each name's case, to the case on disk.
 
-In Python, `os.path.realpath(path, strict=True)` returns the same path.
+In Python, `os.path.realpath(path, strict=True)` returns the same path, with two traps:
+
+- **On Windows, only through `\\?\`.** Given a plain path, a name ending in a dot or a space
+  resolves to the neighbour without one: `dotdir.` becomes `dotdir`, with no error, and the
+  wrong tree is backed up. Pass it `\\?\` plus the absolute path made with
+  `os.path.normpath` (not `abspath`, which drops the dot too), then strip the `\\?\` it
+  hands back, or turn `\\?\UNC\` back into `\\`.
+- **On macOS, and in a Linux directory that ignores case, it keeps the case as typed.** It
+  never asks the directory how a name is spelled, so look each name up in its parent's
+  listing instead.
 
 That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
 are yours to edit: on Windows paths (a drive letter, or a network share starting `\\` or
 `//`), where two spellings name one file, `@SET DIR` rows are matched against paths
 case-insensitively — so hand-editing a snapshot's `DIR` rows won't stop `restore --output`
-finding where a file belongs. Every other path is matched exactly,
-since a case-sensitive filesystem really can hold both `Photos` and `photos`.
+finding where a file belongs. Every other path is matched exactly, the check that a path is
+in only one row included, since a case-sensitive filesystem really can hold both `Photos` and
+`photos`, and so can a Windows directory set to be case-sensitive.
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
@@ -580,7 +593,8 @@ looking. Restoring to a chosen directory, it writes each file to
 `<output>\Photos\2024\beach.jpg` — the member directory's *name*, not a rebuilt
 `C\Users\me\…` chain. Two `DIR` rows whose names collide (`C:\a\Photos\` and
 `D:\b\Photos\`) both want the same destination directory; s3cab refuses that snapshot rather
-than merging them. **None of this binds you.** A different layout is a different tool making
+than merging them. The snapshot itself is valid, and restores to its recorded paths, so a
+writer has nothing to refuse. **None of this binds you.** A different layout is a different tool making
 a different decision, not a misreading of the format.
 
 **A stored `mtime` is rounded to the nearest millisecond**, a tie to the later one, which is
@@ -621,7 +635,9 @@ always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon
 and the file is that name plus `.tsv.gz`. Names sort in time order except when the clock
 goes back (the end of daylight saving, or a move to another zone): a later snapshot can then
 sort before an earlier one, and s3cab, which takes the last name as the latest, warns when
-it writes one. `START` holds the true order. And a snapshot with **no file rows at all** is
+it writes one. `START` holds the true order. In the hour after the clocks go back, every
+minute comes round twice, so a backup in a minute that already has a snapshot is refused as
+a second snapshot in the same minute. And a snapshot with **no file rows at all** is
 perfectly legal: an empty backup set, not a damaged file.
 
 ### Valid and invalid files
@@ -633,7 +649,7 @@ as much as a snapshot:
 - only types this version knows, other than `@` and `#` ones;
 - every per-path row's path absolute, with no `.` or `..` segment and no tab, CR or LF, under
   a `@SET DIR`;
-- each path in at most one per-path row, whatever its type;
+- each path in at most one per-path row, whatever its type, paths compared exactly;
 - exactly one `@S3CAB SPEC`, one `@CLIENT NAME` and one `@CLIENT VERSION`;
 - each file row's hash 64 lowercase hex characters, its size decimal, its time the
   24-character form, and the same for a `#deleted` row.
@@ -711,7 +727,7 @@ For a restorer, or anything else that reads the files.
 - Ignore every key under a `.`-prefixed top-level folder, and every `snapshots/<set>.info`:
   nothing a restore needs is in either.
 - Read every snapshot and deletion record by the [four reading rules](#reading-the-text-four-rules-that-hold-everywhere):
-  strict UTF-8, split on LF alone, nothing unescaped, the leading fields trimmed and the last
+  strict UTF-8, split on LF alone, no escaping, the leading fields trimmed and the last
   taken verbatim.
 - Decompress a snapshot as gzip.
 - Take a row's type from its first field, trimmed, compared case-sensitively.
@@ -757,9 +773,11 @@ For a restorer, or anything else that reads the files.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.
-- **Restoring on another operating system.** A Linux snapshot can hold two paths differing
-  only in case, or characters Windows forbids, and both collide or fail on Windows. The
-  format records what was there; what to do on arrival is your tool's choice, worth stating.
+- **Restoring on another operating system, or where case is ignored.** A snapshot can hold
+  two paths differing only in case, from Linux or from a Windows directory set to be
+  case-sensitive, and a Linux one can hold characters Windows forbids. The twins collide in
+  an ordinary Windows or macOS directory, and the characters fail on Windows. The format
+  records what was there; what to do on arrival is your tool's choice, worth stating.
   So is whether a download that doesn't hash to its key is still worth writing, clearly
   flagged, or better withheld.
 - **Storage class.** A bucket lifecycle rule that moves `objects/` to an archive tier breaks
@@ -779,7 +797,8 @@ For a restorer, or anything else that reads the files.
     such as the pattern that matched, or nothing. Your tool's own working folders need no
     row;
   - `#error` for an entry whose type couldn't be determined, a file that couldn't be read,
-    and a [link](#links) leading
+    a file whose modification time the 24-character form can't hold (a year past 9999,
+    which NTFS allows), and a [link](#links) leading
     out of the backup or somewhere this computer can't resolve;
   - no row for any other link, a pipe, socket or device, or an entry that vanished between
     being listed and being checked.
@@ -843,7 +862,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   `🎉.txt`. Write bytes, or open the file with `newline="\n"` and `encoding="utf-8"`.
 - **Time zones.** Python's standard library can't name the local IANA zone, and on Windows
   has no zone data without the `tzdata` package. `START`'s zone is written for people, so
-  write the best name you have.
+  write the best name you have. On Windows 10 1903 and later, `ctypes` can ask `icu.dll`'s
+  `ucal_getDefaultTimeZone` for it (`Europe/London`); the registry has only Windows' own
+  name (`GMT Standard Time`).
 - **Rounding a modification time.** A floating-point count of seconds can't hold every
   NTFS tick, so rounding it to the millisecond can put a near-tie on the wrong side. Round
   the integer nanosecond count.
@@ -858,9 +879,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   names an object the repository doesn't hold.
 - Count an object already at its key as stored, without downloading it to check. Wrong
   bytes there are damage, for a check of the whole repository to find.
-- Send no `Content-Encoding` header and no `x-amz-meta-*` metadata, for objects and
-  snapshots alike. A downloader that honours `Content-Encoding: gzip` hands back a
-  snapshot's decompressed text instead of the stored file.
+- Store no `Content-Encoding` and no `x-amz-meta-*` metadata, for objects and snapshots
+  alike. A downloader that honours `Content-Encoding: gzip` hands back a snapshot's
+  decompressed text instead of the stored file.
 - Never upload a snapshot a reader would [refuse whole](#valid-and-invalid-files): one that
   isn't UTF-8 once decompressed, doesn't start with the heading row, doesn't end with the
   `.`, has rows after the `.`, or holds an unknown type starting with neither `@` nor `#`.
@@ -873,7 +894,7 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Claim a new set by creating [`snapshots/<set>.info`](#who-holds-a-set) with a conditional
   PUT, only while `snapshots/<set>/` is empty, and refuse the name otherwise. Write its
   `OWNER`, `CLAIMED` and `CREATED` lines with LF endings, and keep the `OWNER` and `CLAIMED`
-  you wrote.
+  you wrote, wherever your tool keeps its own state.
 - Immediately before uploading a snapshot, read `snapshots/<set>.info`, and refuse unless
   its `OWNER` and `CLAIMED` match, as text, the pair you kept.
 - Take a set over only when asked: rewrite `OWNER` and `CLAIMED` and keep `CREATED`, or,
@@ -891,11 +912,19 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   checks them itself when you send `x-amz-checksum-sha256`, which takes the base64 of the
   binary digest, not the hex key: a mismatch stores nothing.
 - **Multipart checksums.** A multipart object's stored SHA-256 is a checksum of its parts'
-  checksums, not the file's hash, so only downloading it confirms the content.
+  checksums, not the file's hash, so it can't be compared with the key. Check the bytes
+  before they're visible instead:
+  - send each part with its own `x-amz-checksum-sha256`, which S3 checks;
+  - hash the whole file from those same bytes;
+  - send `CompleteMultipartUpload` only if that hash equals the key, and abort the upload
+    otherwise, which leaves nothing stored.
 - **Not overwriting.** `If-None-Match: *` makes a PUT refuse an existing key with 412, and
   can't be raced the way HEAD then PUT can.
 - **Content type.** Python's `mimetypes` reports a `.tsv.gz` file's encoding as `gzip`, and a
   tool that passes that on sets the header the checklist rules out.
+- **`Content-Encoding: aws-chunked`.** boto3 1.36 and later send it on every upload by
+  default, as a transfer encoding, and AWS doesn't store it. Other S3-compatible stores are
+  untested. Supplying `ChecksumSHA256` yourself makes boto3 send a plain body instead.
 - **Printing a path in Python on Windows.** Before Python 3.15, redirected output is encoded
   in the locale's code page, and a path like `café.txt` spelled with a combining accent raises
   `UnicodeEncodeError` between the objects and the snapshot. Run with `-X utf8`.
