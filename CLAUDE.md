@@ -81,6 +81,13 @@ overlap that leaves is accepted over sync machinery
    failure just duplicates the request. Harmless for contributors without Copilot enabled — the
    flag is a no-op for them.
 
+   **Until Copilot review credit returns (about 2026-11-01), a `pr` also runs
+   `/code-review high <number>` on Opus** and posts its findings as one review from
+   `allens-claude-reviewer[bot]` — without `--comment`, which posts as the maintainer (token
+   recipe in the global CLAUDE.md). Not `medium`: both levels get the same review instructions
+   and cost about the same, but `high` explores further and alone caught the serious defect on
+   two of five PRs. Delete this paragraph once Copilot reviews again.
+
    **Nothing enforces this — branch protection on `main` is bypassable.** The ruleset requires a
    pull request and a green `ci gate`, but a maintainer's push is taken anyway: GitHub prints
    `Bypassed rule violations for refs/heads/main` and accepts it. That is deliberate, so
