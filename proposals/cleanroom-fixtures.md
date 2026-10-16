@@ -10,7 +10,7 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 The backup side's gaps are built (the unreadable file, the links, the hard-link pair and FIFO,
 the out-of-range mtimes, the backslash names, the refused sets). What is left reaches the seed
 and the restore fixtures only: the backup clean room has no exclude patterns and no `dirs.txt`
-([cleanroom-harness.md](cleanroom-harness.md)).
+([ADR-0096](../docs/adr/0096-three-implementations-prove-the-format.md)).
 
 ## Gaps
 
@@ -61,7 +61,7 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   category.
 - **A tab, LF or CR in an excluded name**: `edge/odd\nname.jpg` and `edge/odd\rname.jpg` with
   the pattern `odd*name.jpg`. s3cab spells them out (`odd␊name.jpg`). A restorer that reads
-  them raw splits the row. Loud. (With no pattern, such a name is the `tabbed` set a backup
+  them raw splits the row. Loud. (With no pattern, such a name is the `ledger` set a backup
   must refuse.)
 - **"Two snapshots of an unchanged set differ in `@SNAPSHOT NAME`, `START` and `FINISH`,
   and nowhere else" costs no new fixture.** F5 already backs `edge` up twice without touching
@@ -74,8 +74,7 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
 
 - **Does the spec require one `#excluded` row for a whole directory?** s3cab writes a single
   row for one, its path ending with a separator, and format.md describes that row without saying
-  a row per file is wrong. Until it says, `compare-snapshot.mjs` reports a backup that writes a
-  row per file as a note, not a mismatch.
+  a row per file is wrong. No clean room has patterns now, so no checker meets the question.
 - **Unwritten rules that s3cab enforces:**
   - format.md never says overlapping member directories are refused.
   - exclude.md never says that pattern characters other than the wildcard tokens are literal.

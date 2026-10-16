@@ -1,68 +1,26 @@
 /**
- * Check a snapshot room's work (ADR-0096): each set's snapshot, as the session's program
- * wrote it, against `s3cab snapshot` of the same trees.
- *
- *   <root>/cleanroom/sets/<set>/                  dirs.txt and exclude.txt, as built
- *   <root>/cleanroom/sets/<set>/snapshots/*.tsv.gz  what the session's program wrote
- *
- * Run once the session has finished, on the machine it ran on, before the sandbox is
- * destroyed: the trees are the sandbox's, and s3cab's snapshot of them is taken here, in a
- * throwaway home, so s3cab's output never exists while the session could read it.
+ * A snapshot the clean-room backup wrote, against `s3cab snapshot` of the same trees
+ * (ADR-0096). check-backup.mjs downloads each published snapshot and hands it here, with
+ * s3cab's reference taken there and then in a throwaway home, so s3cab's output never
+ * exists while the session could read it.
  *
  * What has to match is ADR-0096's list. File rows are compared as a set, exact in hash,
- * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
- * names or how an `#error` row's message is worded, so those rows are compared by path
- * only; snapshot names and instants differ by run. The session's file is also held to the
- * format's rules: five fields a line, LF endings, the heading row first, the `.` last,
- * and `FILES` and `SIZE` agreeing with its file rows. The padding and `SIZE`'s readable
- * form are recommendations (guide/format.md, "Canonical form"), so a departure there is a
- * note.
+ * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't
+ * fix which pattern an `#excluded` row names or how an `#error` row's message is worded,
+ * so those rows are compared by path only; snapshot names and instants differ by run. The
+ * session's file is also held to the format's rules: five fields a line, LF endings, the
+ * heading row first, the `.` last, and `FILES` and `SIZE` agreeing with its file rows. The
+ * padding and `SIZE`'s readable form are recommendations (guide/format.md, "Canonical
+ * form"), so a departure there is a note.
  *
- * Two more differences are reported as notes, not mismatches, because the spec doesn't
- * decide them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
- * local IANA zone, ADR-0096's first expected case), and an excluded directory written as
- * one row where the other side wrote a row per file in it, or the reverse
- * (proposals/cleanroom-fixtures.md). Either one is for the run's report to discuss.
- *
- * Exits 1 if anything mismatched, 0 if only notes or nothing.
- *
- * Usage:
- *   node scripts/cleanroom/compare-snapshot.mjs <root>
+ * Two more differences are reported as notes, not mismatches, because the spec leaves them
+ * to the writer: `@SET BUCKET` left out, which the spec makes optional, so it is compared
+ * only when written; and the time zone in `@SNAPSHOT START` (Python's standard library
+ * can't name the local IANA zone, ADR-0096's first expected case). Each is for the run's
+ * report to discuss.
  */
-import {
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { cli, sandboxPath } from "./cleanroom.mjs";
 
-const [arg, ...extra] = process.argv.slice(2);
-if (!arg || extra.length > 0) {
-  console.error(
-    "usage: node scripts/cleanroom/compare-snapshot.mjs <root>\n\n" +
-      "e.g. node scripts/cleanroom/compare-snapshot.mjs ~/s3cab.sandbox",
-  );
-  process.exit(2);
-}
-const root = sandboxPath(arg);
-const setsDir = join(root, "cleanroom", "sets");
-if (!existsSync(setsDir)) {
-  console.error(
-    `${setsDir} doesn't exist, so ${root} isn't a snapshot sandbox. Pass the root\n` +
-      "that build-snapshot-cleanroom.mjs built, not the cleanroom inside it.",
-  );
-  process.exit(2);
-}
-
-const snapshotName = /^\d{4}-\d{2}-\d{2}T\d{4}$/;
 const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const sha256 = /^[0-9a-f]{64}$/;
 
@@ -92,7 +50,7 @@ const heading = laidOut([
 /**
  * @typedef {object} Snapshot
  * @property {string} set `@SET NAME`
- * @property {string} bucket `@SET BUCKET`, or "" if it has none
+ * @property {string | undefined} bucket `@SET BUCKET`, or undefined if there is no row
  * @property {string} name `@SNAPSHOT NAME`
  * @property {string} zone `@SNAPSHOT START`'s time zone, or "" if it has none
  * @property {string} size `@SNAPSHOT SIZE`'s value, or "" if it has none
@@ -111,7 +69,7 @@ const heading = laidOut([
  * @param {string[]} notes
  * @returns {Snapshot | undefined} undefined if it can't be read at all
  */
-function parse(gz, problems, notes) {
+export function parse(gz, problems, notes) {
   /** @type {string} */
   let text;
   try {
@@ -141,7 +99,7 @@ function parse(gz, problems, notes) {
   /** @type {Snapshot} */
   const snapshot = {
     set: "",
-    bucket: "",
+    bucket: undefined,
     name: "",
     zone: "",
     size: "",
@@ -249,7 +207,7 @@ function parse(gz, problems, notes) {
   if (!lines.at(-2)?.startsWith("@SNAPSHOT\tFINISH")) {
     problems.push("has no @SNAPSHOT FINISH row just before the .");
   }
-  // Only when present, like every whole-snapshot row: what a snapshot room can write in
+  // Only when present, like every whole-snapshot row: what a clean room can write in
   // them is ADR-0096's open question, but the spec says these two are exact.
   if (declared.FILES !== undefined && declared.FILES !== String(objects)) {
     problems.push(
@@ -274,30 +232,9 @@ function parse(gz, problems, notes) {
 }
 
 /**
- * The files an `#excluded` path covers, read from the sandbox's tree: everything under
- * it if it's a directory, else the path itself. An empty or unreadable directory, or a
- * path that's gone, covers just itself.
- * @param {string} path
- * @returns {string[]}
- */
-function covered(path) {
-  try {
-    if (!lstatSync(path).isDirectory()) {
-      return [path];
-    }
-    const entries = readdirSync(path);
-    return entries.length === 0
-      ? [path]
-      : entries.flatMap((entry) => covered(join(path, entry)));
-  } catch {
-    return [path];
-  }
-}
-
-/**
  * A path or zone as JSON, so what makes two of them differ can be seen: the fixtures'
  * names hold `\v`, U+0085 and edge spaces, and a stray CR prints as nothing at all.
- * @param {string} text
+ * @param {string | undefined} text
  */
 const show = (text) => JSON.stringify(text);
 
@@ -305,7 +242,7 @@ const show = (text) => JSON.stringify(text);
  * Up to ten of `items`, one per line, and how many more there were.
  * @param {string[]} items
  */
-const some = (items) =>
+export const some = (items) =>
   items
     .slice(0, 10)
     .map((item) => `\n      ${item}`)
@@ -313,201 +250,111 @@ const some = (items) =>
   (items.length > 10 ? `\n      … and ${items.length - 10} more` : "");
 
 /**
- * The snapshots in `dir`, by name, oldest first. Only the spec's own file names: the
- * dot-files a run leaves while it works are never part of the set's history.
- * @param {string} dir
+ * The session's snapshot, parsed, against s3cab's: the rows, once {@link parse} has held
+ * the file to the format's rules.
+ * @param {Snapshot} ours the session's snapshot
+ * @param {{ set: string, name: string }} filed the set it is filed under and its name
+ *   without `.tsv.gz`, which its own rows have to agree with
+ * @param {Snapshot} reference s3cab's snapshot of the same trees
+ * @returns {{ mismatches: string[], notes: string[] }}
  */
-const snapshotsIn = (dir) =>
-  existsSync(dir)
-    ? readdirSync(dir)
-        .filter(
-          (entry) =>
-            entry.endsWith(".tsv.gz") &&
-            snapshotName.test(entry.slice(0, -".tsv.gz".length)),
-        )
-        .sort()
-    : [];
-
-const home = mkdtempSync(join(tmpdir(), "s3cab-compare-snapshot-"));
-const { mustWrite } = cli(home);
-let mismatched = false;
-
-try {
-  const setNames = readdirSync(setsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map(({ name }) => name)
-    .sort();
-  for (const set of setNames) {
-    const roomSet = join(setsDir, set);
-    /** @type {string[]} */
-    const mismatches = [];
-    /** @type {string[]} */
-    const notes = [];
-
-    // s3cab's snapshot of the same trees, from the same files the session was given.
-    const homeSet = join(home, "sets", set);
-    mkdirSync(homeSet, { recursive: true });
-    for (const file of ["dirs.txt", "exclude.txt", "env"]) {
-      if (existsSync(join(roomSet, file))) {
-        copyFileSync(join(roomSet, file), join(homeSet, file));
-      }
-    }
-    mustWrite(["snapshot", set], set);
-    const [referenceName = ""] = snapshotsIn(join(homeSet, "snapshots"));
-    /** @type {string[]} */
-    const referenceProblems = [];
-    const reference = parse(
-      readFileSync(join(homeSet, "snapshots", referenceName)),
-      referenceProblems,
-      referenceProblems,
+export function compareSnapshot(ours, filed, reference) {
+  /** @type {string[]} */
+  const mismatches = [];
+  /** @type {string[]} */
+  const notes = [];
+  if (ours.set !== filed.set) {
+    mismatches.push(`@SET NAME names the set '${ours.set}'`);
+  }
+  if (ours.name !== filed.name) {
+    mismatches.push(`@SNAPSHOT NAME names the snapshot '${ours.name}'`);
+  }
+  if (ours.bucket === undefined) {
+    notes.push(
+      `no @SET BUCKET row, which the spec makes optional; s3cab wrote ${show(reference.bucket)}`,
     );
-    if (!reference || referenceProblems.length > 0) {
-      throw new Error(
-        `s3cab's own snapshot of ${set} broke the format:${some(referenceProblems)}`,
-      );
-    }
+  } else if (ours.bucket !== reference.bucket) {
+    mismatches.push(
+      `@SET BUCKET is ${show(ours.bucket)}, where s3cab wrote ${show(reference.bucket)}`,
+    );
+  }
+  if (ours.size !== reference.size) {
+    notes.push(
+      `@SNAPSHOT SIZE is ${show(ours.size)}, where s3cab wrote ${show(reference.size)}`,
+    );
+  }
+  if (ours.zone !== reference.zone) {
+    notes.push(
+      `@SNAPSHOT START's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
+    );
+  }
 
-    const written = snapshotsIn(join(roomSet, "snapshots"));
-    const latest = written.at(-1);
-    if (!latest) {
-      mismatches.push(
-        "no snapshot in snapshots/, where the spec's local side puts a set's snapshots",
-      );
+  const dirsOnlyOurs = ours.dirs.filter((dir) => !reference.dirs.includes(dir));
+  const dirsOnlyTheirs = reference.dirs.filter(
+    (dir) => !ours.dirs.includes(dir),
+  );
+  if (dirsOnlyOurs.length > 0 || dirsOnlyTheirs.length > 0) {
+    mismatches.push(
+      `@SET DIR rows differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
+    );
+  }
+
+  /** @type {string[]} */
+  const missing = [];
+  /** @type {string[]} */
+  const differing = [];
+  for (const [path, theirs] of reference.files) {
+    const row = ours.files.get(path);
+    if (!row) {
+      missing.push(path);
     } else {
-      if (written.length > 1) {
-        notes.push(
-          `${written.length} snapshots; compared the latest, ${latest}`,
-        );
-      }
-      /** @type {string[]} */
-      const problems = [];
-      const ours = parse(
-        readFileSync(join(roomSet, "snapshots", latest)),
-        problems,
-        notes,
-      );
-      mismatches.push(...problems);
-      if (ours) {
-        const name = latest.slice(0, -".tsv.gz".length);
-        if (ours.set !== set) {
-          mismatches.push(`@SET NAME names the set '${ours.set}'`);
-        }
-        if (ours.name !== name) {
-          mismatches.push(`@SNAPSHOT NAME names the snapshot '${ours.name}'`);
-        }
-        if (ours.bucket !== reference.bucket) {
-          mismatches.push(
-            `@SET BUCKET is ${show(ours.bucket)}, where s3cab wrote ${show(reference.bucket)}`,
-          );
-        }
-        if (ours.size !== reference.size) {
-          notes.push(
-            `@SNAPSHOT SIZE is ${show(ours.size)}, where s3cab wrote ${show(reference.size)}`,
-          );
-        }
-        if (ours.zone !== reference.zone) {
-          notes.push(
-            `@SNAPSHOT START's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
-          );
-        }
-
-        const dirsOnlyOurs = ours.dirs.filter(
-          (dir) => !reference.dirs.includes(dir),
-        );
-        const dirsOnlyTheirs = reference.dirs.filter(
-          (dir) => !ours.dirs.includes(dir),
-        );
-        if (dirsOnlyOurs.length > 0 || dirsOnlyTheirs.length > 0) {
-          mismatches.push(
-            `@SET DIR rows differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
-          );
-        }
-
-        /** @type {string[]} */
-        const missing = [];
-        /** @type {string[]} */
-        const differing = [];
-        for (const [path, theirs] of reference.files) {
-          const row = ours.files.get(path);
-          if (!row) {
-            missing.push(path);
-          } else {
-            for (const field of /** @type {const} */ ([
-              "hash",
-              "size",
-              "mtime",
-            ])) {
-              if (row[field] !== theirs[field]) {
-                differing.push(
-                  `${show(path)}: ${field} ${row[field]}, s3cab ${theirs[field]}`,
-                );
-              }
-            }
-          }
-        }
-        const extra = [...ours.files.keys()].filter(
-          (path) => !reference.files.has(path),
-        );
-        if (missing.length > 0) {
-          mismatches.push(
-            `file rows s3cab wrote and this didn't:${some(missing.map(show))}`,
-          );
-        }
-        if (extra.length > 0) {
-          mismatches.push(
-            `file rows this wrote and s3cab didn't:${some(extra.map(show))}`,
-          );
-        }
-        if (differing.length > 0) {
-          mismatches.push(`file rows that differ:${some(differing)}`);
-        }
-
-        const kinds = new Set([
-          ...ours.metadata.keys(),
-          ...reference.metadata.keys(),
-        ]);
-        for (const kind of [...kinds].sort()) {
-          const here = ours.metadata.get(kind) ?? new Set();
-          const there = reference.metadata.get(kind) ?? new Set();
-          const onlyHere = [...here].filter((path) => !there.has(path));
-          const onlyThere = [...there].filter((path) => !here.has(path));
-          if (onlyHere.length === 0 && onlyThere.length === 0) {
-            continue;
-          }
-          if (!["#excluded", "#error"].includes(kind)) {
-            notes.push(
-              `${kind} rows, a kind the spec doesn't name:${some(onlyHere.map(show))}`,
-            );
-            continue;
-          }
-          // The same files excluded, written at a different granularity: both sides'
-          // rows cover the same files once each directory row is expanded.
-          const coveredHere = new Set([...here].flatMap(covered));
-          const coveredThere = new Set([...there].flatMap(covered));
-          const regrained =
-            kind === "#excluded" &&
-            coveredHere.size === coveredThere.size &&
-            [...coveredHere].every((path) => coveredThere.has(path));
-          (regrained ? notes : mismatches).push(
-            `${kind} paths differ${regrained ? ", but only in how a directory is written" : ""}: only here${some(onlyHere.map(show))}\n    only in s3cab's${some(onlyThere.map(show))}`,
+      for (const field of /** @type {const} */ (["hash", "size", "mtime"])) {
+        if (row[field] !== theirs[field]) {
+          differing.push(
+            `${show(path)}: ${field} ${row[field]}, s3cab ${theirs[field]}`,
           );
         }
       }
-    }
-
-    mismatched ||= mismatches.length > 0;
-    console.log(
-      `${set}${latest ? `  ${latest}` : ""}  ${mismatches.length === 0 ? "matches" : `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}`}`,
-    );
-    for (const mismatch of mismatches) {
-      console.log(`  mismatch: ${mismatch}`);
-    }
-    for (const note of notes) {
-      console.log(`  note: ${note}`);
     }
   }
-} finally {
-  rmSync(home, { recursive: true, force: true });
-}
+  const extra = [...ours.files.keys()].filter(
+    (path) => !reference.files.has(path),
+  );
+  if (missing.length > 0) {
+    mismatches.push(
+      `file rows s3cab wrote and this didn't:${some(missing.map(show))}`,
+    );
+  }
+  if (extra.length > 0) {
+    mismatches.push(
+      `file rows this wrote and s3cab didn't:${some(extra.map(show))}`,
+    );
+  }
+  if (differing.length > 0) {
+    mismatches.push(`file rows that differ:${some(differing)}`);
+  }
 
-process.exit(mismatched ? 1 : 0);
+  const kinds = new Set([
+    ...ours.metadata.keys(),
+    ...reference.metadata.keys(),
+  ]);
+  for (const kind of [...kinds].sort()) {
+    const here = ours.metadata.get(kind) ?? new Set();
+    const there = reference.metadata.get(kind) ?? new Set();
+    const onlyHere = [...here].filter((path) => !there.has(path));
+    const onlyThere = [...there].filter((path) => !here.has(path));
+    if (onlyHere.length === 0 && onlyThere.length === 0) {
+      continue;
+    }
+    if (!["#excluded", "#error"].includes(kind)) {
+      notes.push(
+        `${kind} rows, a kind the spec doesn't name:${some(onlyHere.map(show))}`,
+      );
+      continue;
+    }
+    mismatches.push(
+      `${kind} paths differ: only here${some(onlyHere.map(show))}\n    only in s3cab's${some(onlyThere.map(show))}`,
+    );
+  }
+  return { mismatches, notes };
+}

@@ -38,12 +38,12 @@
  * member directories sharing a basename are deliberately absent: s3cab refuses that under
  * `--output`, so the set would have no reference tree); `faults` and `corrupt` are the raw
  * material for the golden set's damage (seed-restore-cleanroom-bucket.mjs), ordinary
- * trees in a backup room. Two sets a backup must **refuse** rather than publish: `no-utf8`,
+ * trees in a backup room. Two sets a backup must **refuse** rather than publish: `scans`,
  * one file whose name has no UTF-8 form (a lone surrogate on Windows, a stray byte
- * elsewhere), and `tabbed`, one file with a tab in its name. Where s3cab snapshots the
- * trees it has exclude patterns, so there the surrogate sits in `edge` under one and the
- * restore fixtures carry its `#excluded` row; the fused backup clean room has none, so
- * there the name is a set of its own.
+ * elsewhere), and `ledger`, one file with a tab in its name. The seed has exclude
+ * patterns, so there the surrogate sits in `edge` under one and the restore fixtures carry
+ * its `#excluded` row; the backup clean room has none, so there the name is a set of its
+ * own.
  *
  * Which platform holds what is declared per entry (`on`), not guessed from the OS: NTFS
  * forbids characters 1–31 and `: * ? " < > |` in a name; `a:b.txt` there makes a file `a`
@@ -105,8 +105,10 @@ export const sets = [
   { name: "spread", dirs: ["alpha", "beta"] },
   { name: "faults", dirs: ["."] },
   { name: "corrupt", dirs: ["."] },
-  { name: "no-utf8", dirs: ["."], refused: true },
-  { name: "tabbed", dirs: ["."], refused: true },
+  // Named like ordinary data on purpose: a label saying what is wrong with the set would
+  // prime the backup room, where finding that out from the spec is the test.
+  { name: "scans", dirs: ["."], refused: true },
+  { name: "ledger", dirs: ["."], refused: true },
 ];
 
 export const setNames = sets.map(({ name }) => name);
@@ -114,9 +116,9 @@ export const setNames = sets.map(({ name }) => name);
 /** The sets the golden set holds: every one s3cab can back up. */
 export const seeded = sets.filter((set) => !set.refused);
 
-// Every set's exclude patterns, wherever s3cab snapshots the trees: the seed, and the
-// snapshot and upload builds while they last. The fused backup clean room gets none, so
-// there `spread`'s near misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
+// Every set's exclude patterns, for the seed, where s3cab snapshots the trees. The backup
+// clean room gets none (ADR-0107: excluding is the tool's own), so there `spread`'s near
+// misses and `edge`'s `ignored.*` are ordinary files. `spread`'s give
 // each rule of guide/exclude.md's grammar a path it drops and a near miss it keeps.
 // `edge`'s is the file a Windows editor leaves: CRLF endings and no newline after the last
 // line, which the bucket holds byte for byte and a reader trims. Its middle line keeps the
@@ -681,15 +683,15 @@ export const fixtures = [
 
   // ── the refused sets: a backup stops and says why ──
   {
-    set: "no-utf8",
-    path: [noUtf8("bad-")],
+    set: "scans",
+    path: [noUtf8("scan-")],
     kind: "file",
     content: text("no UTF-8 form"),
     why: "a name with no UTF-8 form, refused",
   },
   {
-    set: "tabbed",
-    path: ["tab\there.txt"],
+    set: "ledger",
+    path: ["q1\t2026.txt"],
     kind: "file",
     content: text("a tab in the name"),
     on: "posix",
@@ -738,17 +740,40 @@ export const fixtures = [
 ];
 
 /**
- * Every set's member directories under `dir`, absolute, with its expectation. Pure: the
- * build hands the list to the brief, and the checker derives the same list for itself
- * without a file on disk between them. A set this platform couldn't build has no
- * directory, which is how a caller tells.
+ * Every set's member directories under `dir`, absolute, with its expectation.
  * @param {string} dir
  */
-export const setDirs = (dir) =>
+const setDirs = (dir) =>
   sets.map((set) => ({
     ...set,
     dirs: set.dirs.map((member) => join(dir, set.name, member)),
   }));
+
+/**
+ * The sets whose trees are under `dir`: every set but the ones a build removed, since a
+ * set this platform couldn't build has no directory. The build hands this list to the
+ * brief and the checker derives the same one for itself, with no file on disk between.
+ * @param {string} dir
+ */
+export const builtSets = (dir) =>
+  setDirs(dir).filter((set) => existsSync(join(dir, set.name)));
+
+/**
+ * The declared directory an entry lives under: its set's member directory, or the set's
+ * tree, or `outside`. Removing a failed entry never removes this, since it's declared.
+ * @param {string} dir
+ * @param {Fixture} entry
+ */
+function declaredDir(dir, entry) {
+  const tree = join(dir, entry.set);
+  const members = sets
+    .find((set) => set.name === entry.set)
+    ?.dirs.map((member) => join(tree, member));
+  const [first = ""] = entry.path;
+  return (
+    members?.find((member) => join(tree, String(first)) === member) ?? tree
+  );
+}
 
 /**
  * Where an entry lives: its absolute path (bytes when its name is), the directory that
@@ -954,8 +979,8 @@ function pruneEmpty(parent, stop) {
  * that exist, with their member directories, and the groups this platform refused.
  * @param {string} dir
  * @param {{ patterns?: boolean }} [options] `patterns` builds the trees s3cab snapshots
- *   with the exclude patterns above (the seed, the split builds): the entries only they
- *   use, and none of the sets a backup must refuse, which s3cab can't snapshot
+ *   with the exclude patterns above (the seed): the entries only they use, and none of
+ *   the sets a backup must refuse, which s3cab can't snapshot
  */
 export function buildFixtures(dir, { patterns = false } = {}) {
   const refused = new Set(
@@ -1016,7 +1041,7 @@ export function buildFixtures(dir, { patterns = false } = {}) {
   for (const { entry, where } of built) {
     if (failed.has(entry.why)) {
       rmSync(where.abs, { recursive: true, force: true });
-      pruneEmpty(where.parent, join(dir, entry.set));
+      pruneEmpty(where.parent, declaredDir(dir, entry));
     }
   }
   const skipped = [...failed].map(([why, reason]) => `${why} — ${reason}`);
@@ -1026,7 +1051,7 @@ export function buildFixtures(dir, { patterns = false } = {}) {
   // platform, or that s3cab can't snapshot, is absent by design, which is not a failure.
   /** @type {string[]} */
   const absent = [];
-  const present = setDirs(dir).filter((set) => {
+  for (const set of sets) {
     const alive = built.some(
       ({ entry }) => entry.set === set.name && !failed.has(entry.why),
     );
@@ -1040,25 +1065,8 @@ export function buildFixtures(dir, { patterns = false } = {}) {
         );
       }
     }
-    return alive;
-  });
-  return { sets: present, skipped, absent };
-}
-
-/**
- * Write a set's own files into `dir`: `dirs.txt`, and `exclude.txt` where the set has
- * patterns. s3cab's home lays a set out this way.
- * @param {string} dir
- * @param {string} name
- * @param {string[]} dirs the set's member directories
- */
-export function writeSetFiles(dir, name, dirs) {
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "dirs.txt"), dirs.join("\n") + "\n");
-  const exclude = excludes.get(name);
-  if (exclude) {
-    writeFileSync(join(dir, "exclude.txt"), exclude);
   }
+  return { sets: builtSets(dir), skipped, absent };
 }
 
 /**
