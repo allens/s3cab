@@ -4,7 +4,7 @@ description: >-
   Drive s3cab's clean-room exercise (ADR-0096) from the repo session: plan the
   runs, build a sandbox, run it headless, then check, harvest and destroy it. Use
   when asked to start, continue or plan clean-room work: "start clean room",
-  "next clean room", "run the snapshot clean room on Windows". Not for
+  "next clean room", "run the backup clean room on Windows". Not for
   changing the harness itself.
 ---
 
@@ -22,7 +22,7 @@ in the sandbox and waits for.
 
 ## A run is two choices
 
-- **Role**: snapshot, upload, or restore.
+- **Role**: backup or restore.
 - **Platform**: the machine this session runs on. A sandbox is built, run, checked
   and destroyed on one machine.
 
@@ -34,8 +34,7 @@ given; given none, propose the next run and stop for a yes.
 
 Experiments come first, on any model at any effort, until the process runs
 smoothly; then a real set, on one model at `xhigh` (README). Either way the order
-is snapshot, then upload, then restore, each on every platform the user has.
-Snapshot and upload are always separate clean rooms (ADR-0096). During a real set
+is backup, then restore, each on every platform the user has. During a real set
 the spec is frozen: findings are collected, and nothing in `guide/` changes until
 its last run.
 
@@ -56,7 +55,7 @@ Report, and stop.
 
 ## One run
 
-1. **Build** with the role's command from the README. An upload empties the backup
+1. **Build** with the role's command from the README. A backup empties the backup
    bucket first. The sandbox root must not exist: if a stale one does, show what
    is in it and ask before deleting it.
 2. **Run.** Start the README's headless command in the background, from
