@@ -194,17 +194,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   `excludeSuggestions` makes it worse: after two failing runs it suggests exactly such a line,
   which then does nothing. The obstacle to a fix is that the entry's type is unknown at that
   point, and a pattern ending in `/` matches only a directory.
-- **Restoring a Linux or macOS set on Windows turns a `\` in a name into a folder, and may
-  let a name escape `--output`.** A `\` is an ordinary character in a POSIX name; Windows
-  can't hold it. `reroot` (`src/lib/restore.mjs`) splits the path on `/` only, then hands each
-  segment to `join`, which on Windows splits on `\` too: the golden set's `edge/back\slash.txt`
-  restores as `edge\back\slash.txt`, a folder and a file. The clean-room restorer refused the
-  name instead (2026-10-16), and [guide/format.md](../guide/format.md) says neither. So
-  `a\b/c.txt` and `a/b/c.txt` restore to one file, one of them lost without a word. Worse, by
-  reading: the reader's `.`/`..` check (ADR-0101) sees `a\..\..\x` as one segment and passes
-  it, and `join` then resolves the `..` against the output folder. Untested. The reader is the
-  wrong place to fix it, since the name is valid where it was recorded; restore already
-  refuses names the destination can't hold (`putsColonInName`), and `\` belongs beside `:`.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
