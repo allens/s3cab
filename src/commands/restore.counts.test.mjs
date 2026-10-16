@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { platform } from "node:process";
 import { describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
@@ -118,5 +119,20 @@ describe("restore's refusal when a snapshot's paths aren't absolute here", () =>
     await assert.rejects(restore([], { set: "photos" }), {
       message: /has 1,204 paths that aren't absolute on this system/,
     });
+  });
+
+  it("takes a POSIX path as absolute everywhere but Windows", async () => {
+    // Windows' `isAbsolute` takes `/data/…` too, on the current drive, where a
+    // `\` in its names would be read as a separator.
+    snapshot = filesUnder("/data", 1);
+
+    const run = restore([], { set: "photos" });
+    if (platform === "win32") {
+      await assert.rejects(run, {
+        message: /has 1 path that isn't absolute on this system/,
+      });
+    } else {
+      await run;
+    }
   });
 });

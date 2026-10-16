@@ -18,7 +18,8 @@ const putsColonInName = (dest) =>
 
 /**
  * One target's step. `skip` and `refuse` leave `dest` alone; `write` restores
- * content `hash` to it and gives it the snapshot's `mtime`, as stored.
+ * content `hash` to it and gives it the snapshot's `mtime`, as stored. A
+ * `refuse` for a path with no destination at all names the snapshot path.
  * @typedef {{ action: "skip", dest: string }
  *   | { action: "refuse", dest: string }
  *   | { action: "write", dest: string, hash: string, mtime: string }} RestoreStep
@@ -27,8 +28,9 @@ const putsColonInName = (dest) =>
 /**
  * Decide what to do with each restore target, without touching the disk or the
  * network. A target whose destination already exists is `skip`ped unless
- * `overwrite`; one whose name the destination can't hold as a file
- * (`putsColonInName`) is `refuse`d; every other target is a `write`.
+ * `overwrite`; one with no destination (`reroot`'s `undefined`), or whose name
+ * the destination can't hold as a file (`putsColonInName`), is `refuse`d; every
+ * other target is a `write`.
  *
  * Not where identical content is deduplicated, because only the restore loop
  * knows where content actually landed: a write can fail without ending the run
@@ -38,7 +40,7 @@ const putsColonInName = (dest) =>
  * injected so this is unit-testable without touching the filesystem.
  * @param {SnapshotEntries} entries - Source path → `{ hash, mtime }`
  * @param {string[]} targets - Snapshot source paths to restore, in order
- * @param {(source: string) => string} destFor - Maps a source path to its destination
+ * @param {(source: string) => string | undefined} destFor - Maps a source path to its destination
  * @param {object} options
  * @param {(dest: string) => boolean} options.exists - Whether `dest` already exists
  * @param {boolean} [options.overwrite] - Overwrite an existing destination instead of skipping it
@@ -54,7 +56,9 @@ export function planRestore(
   const plan = [];
   for (const source of targets) {
     const dest = destFor(source);
-    if (putsColonInName(dest)) {
+    if (dest === undefined) {
+      plan.push({ dest: source, action: "refuse" });
+    } else if (putsColonInName(dest)) {
       plan.push({ dest, action: "refuse" });
     } else if (exists(dest) && !overwrite) {
       plan.push({ dest, action: "skip" });
@@ -115,7 +119,8 @@ export function selectEntries(paths, filters) {
  * (unit-testable without S3), like `selectEntries`.
  * @param {string[]} dirs - The snapshot's member roots (its `@SET DIR` rows)
  * @param {string} output - The `--output` directory
- * @returns {(path: string) => string} Maps a snapshot path to its destination
+ * @returns {(path: string) => string | undefined} Maps a snapshot path to its
+ *   destination, or `undefined` for one a Windows output can't place
  */
 export function reroot(dirs, output) {
   if (dirs.length === 0) {
@@ -155,6 +160,7 @@ export function reroot(dirs, output) {
   }
 
   const outDir = resolve(output);
+  const windows = foldsCase(outDir);
   return (path) => {
     const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
     const root = roots.find(
@@ -174,8 +180,15 @@ export function reroot(dirs, output) {
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
       );
     }
-    // No `.`/`..` guard here: the snapshot reader refuses any row whose path
-    // has one (ADR-0101), so none reaches a restore.
-    return join(outDir, root.base, ...segments.slice(root.segments.length));
+    const named = [root.base, ...segments.slice(root.segments.length)];
+    // The reader refuses a `.`/`..` segment (ADR-0101), but splits on `/` alone.
+    // Windows also reads a POSIX name's `\` as a separator, so `back\slash.txt`
+    // would land as a folder and `a\..\..\x` outside `<output>`, once `join`
+    // resolves the `..`. Only the names joined here count: a `\` above the root
+    // is dropped with it.
+    if (windows && named.some((segment) => segment.includes("\\"))) {
+      return undefined;
+    }
+    return join(outDir, ...named);
   };
 }

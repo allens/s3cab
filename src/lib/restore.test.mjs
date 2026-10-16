@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { foldsCase } from "./path-match.mjs";
 import { planRestore, reroot, selectEntries } from "./restore.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
@@ -244,6 +245,30 @@ describe("reroot", () => {
       join(resolve("out"), "Photos", "beach.jpg"),
     );
   });
+
+  // Windows reads a `\` as a separator, so a POSIX name holding one has no
+  // place under a Windows output, where `join` would resolve its `..`. Under
+  // any other output it is an ordinary character. `resolve("out")` is
+  // Windows-shaped exactly when this runs on Windows.
+  it("places a POSIX name holding `\\` only under a non-Windows output", () => {
+    const out = resolve("out");
+    const map = reroot(["/home/u/edge/"], "out");
+    for (const name of ["back\\slash.txt", "a\\..\\..\\..\\Windows\\x.txt"]) {
+      assert.equal(
+        map(`/home/u/edge/${name}`),
+        foldsCase(out) ? undefined : join(out, "edge", name),
+      );
+    }
+    assert.equal(map("/home/u/edge/plain.txt"), join(out, "edge", "plain.txt"));
+  });
+
+  it("ignores a `\\` above the root, which is never joined", () => {
+    const map = reroot(["/home/u/we\\ird/photos/"], "out");
+    assert.equal(
+      map("/home/u/we\\ird/photos/a.jpg"),
+      join(resolve("out"), "photos", "a.jpg"),
+    );
+  });
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
@@ -305,6 +330,23 @@ describe("planRestore", () => {
         writeOf(`${root}b.jpg`),
       ]);
     }
+  });
+
+  it("refuses a path with no destination by its snapshot path, --overwrite or not", () => {
+    // `exists` isn't consulted: `--overwrite` can't reach it either.
+    const named = new Map([
+      [
+        "/home/u/a\\..\\x.txt",
+        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
+      ],
+    ]);
+    const plan = planRestore(named, [...named.keys()], () => undefined, {
+      exists: () => true,
+      overwrite: true,
+    });
+    assert.deepEqual(plan, [
+      { dest: "/home/u/a\\..\\x.txt", action: "refuse" },
+    ]);
   });
 
   it("leaves a `:` alone in a POSIX name, where it is an ordinary character", () => {

@@ -129,7 +129,8 @@ Reach for it when:
 - **the original paths don't fit this machine** — a different drive layout, or another OS
   entirely. This is the only mode that accepts paths that aren't absolute on the current
   system; a plain restore of a Windows snapshot on Linux refuses up front rather than
-  scattering files named `C:\Users\…` into your working directory, and points you here.
+  scattering files named `C:\Users\…` into your working directory, and points you here, as
+  does a plain restore of a Linux or macOS snapshot on Windows.
 - **you want to inspect before replacing** — recover an old version alongside the current
   one and diff them, instead of `--overwrite`.
 
@@ -180,6 +181,8 @@ backups of it are refused from then on.
 - **A name this disk refuses is listed, not fatal.** A backup made on Linux can hold names
   Windows refuses — a control character, or any of `: ? * | < > "` — and one made on Windows
   can hold a long name in a non-Latin script that is too long for Linux, which counts bytes.
+  A Linux name holding `\` is listed the same way: Windows would read it as a folder
+  separator, so s3cab refuses it rather than let it land somewhere else.
   Each such file is skipped and listed, with any invisible character spelled out (`\x0c` for a
   form feed); the rest of the restore carries on, and the run exits non-zero. To get them
   back, restore them with `--output` onto a disk that allows the names.

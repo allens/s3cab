@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import { stderr } from "node:process";
+import { platform, stderr } from "node:process";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
+import { foldsCase } from "../lib/path-match.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
@@ -52,9 +53,9 @@ import { shellCommand } from "../lib/style.mjs";
  * `corrupt`, nothing is written for it, the run continues, and it exits 1
  * (guide/format.md's restorer rule). So is a name this filesystem **refuses** —
  * a backup taken on Linux can hold a name Windows forbids, and one taken on
- * Windows a name too long for Linux — reported `refused`, exit 1. (A `:` is
- * refused before anything is written, since NTFS would take it as a stream
- * rather than refuse it — see `planRestore`.) So is a path whose snapshot row
+ * Windows a name too long for Linux — reported `refused`, exit 1. (Some names
+ * are refused before anything is written, since NTFS would misread them rather
+ * than refuse them — see `planRestore`.) So is a path whose snapshot row
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * Only those four degrade; any
  * other failure (network, credentials, a full disk) still aborts, since it is
@@ -137,7 +138,7 @@ export async function restore(paths = [], options = {}) {
   // Where each snapshot path is written. `--output` re-roots under the chosen
   // dir (and so accepts any path, cross-OS included); otherwise files go back to
   // their original absolute location.
-  /** @type {(path: string) => string} */
+  /** @type {(path: string) => string | undefined} */
   let destFor = (path) => path;
   if (options.output) {
     destFor = reroot(dirs, options.output);
@@ -146,8 +147,12 @@ export async function restore(paths = [], options = {}) {
     // A snapshot captured on another OS (Windows paths on POSIX, say) or a
     // hand-edited one would otherwise write files relative to the cwd with
     // surprising names like `C:\Users\…` — refuse up front rather than scatter
-    // them, and point at `--output` for the cross-OS case.
-    const notAbsolute = targets.filter((path) => !isAbsolute(path));
+    // them, and point at `--output` for the cross-OS case. On Windows that means
+    // a Windows-shaped path: `isAbsolute` takes a POSIX `/home/…` too, on the
+    // current drive, with any `\` in its names read as a separator.
+    const notAbsolute = targets.filter((path) =>
+      platform === "win32" ? !foldsCase(path) : !isAbsolute(path),
+    );
     if (notAbsolute.length) {
       throw new Error(
         `Snapshot '${name}' has ${countOf(notAbsolute.length, "path")} that ` +
@@ -370,8 +375,8 @@ export async function restore(paths = [], options = {}) {
  * Whether the filesystem refused to create a path by its **name**. Every code
  * was measured, not assumed: NTFS answers the names it forbids (a control
  * character, any of `?*|<>"`, a component past 255 characters) with `ENOENT`;
- * ext4 answers a component past 255 bytes with `ENAMETOOLONG`. (A `:` never
- * gets this far — NTFS doesn't refuse one, so `planRestore` does.) Only an
+ * ext4 answers a component past 255 bytes with `ENAMETOOLONG`. (A name NTFS
+ * misreads instead never gets this far — see `planRestore`.) Only an
  * error naming a `path` counts, which is what makes it the filesystem's answer
  * rather than a code some other layer happens to share.
  * @param {unknown} error
