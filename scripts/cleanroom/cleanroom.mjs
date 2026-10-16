@@ -74,18 +74,22 @@ const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 /**
- * A sandbox root as typed, made absolute. A leading `~` is expanded here: every usage
+ * A sandbox root as typed, made absolute, and canonical once it exists: s3cab spells
+ * every path it writes canonically, so a root typed with a lowercase drive letter or
+ * through a symlink (macOS's `/tmp`) would otherwise put one spelling in the brief and
+ * another in every row of s3cab's reference. A leading `~` is expanded here: every usage
  * line writes one and PowerShell does not expand it, so node would take it literally and
  * `resolve` would make a directory named `~` under the cwd — which is the repo, the one
  * place a sandbox must never be, reported as a path the operator never typed.
  * @param {string} arg
  */
 export function sandboxPath(arg) {
-  return resolve(
+  const root = resolve(
     arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
       ? join(homedir(), arg.slice(1))
       : arg,
   );
+  return existsSync(root) ? realpathSync.native(root) : root;
 }
 
 /**
@@ -139,7 +143,10 @@ function readRoot(script) {
     return process.exit(2);
   }
 
-  return root;
+  // Made here so the build works from its canonical spelling (sandboxPath), as the
+  // checker will from the one it is given later.
+  mkdirSync(root, { recursive: true });
+  return realpathSync.native(root);
 }
 
 /**

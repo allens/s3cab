@@ -20,12 +20,14 @@
  * - **Objects**: each one hashes to its key. Every object is downloaded to see.
  * - **Headers**: no object or snapshot carries a Content-Encoding or `x-amz-meta-*`; one on
  *   a `.info` is a note, since the checklist names only objects and snapshots.
- * - **Each set, as the fixtures expect it** (`setDirs`): a set s3cab backs up has a
+ * - **Each set, as the fixtures expect it** (`builtSets`): a set s3cab backs up has a
  *   snapshot published, and its latest is compared with s3cab's row for row
  *   (compare-snapshot.mjs). A set a backup must refuse — a name with no UTF-8 form, a tab
  *   in a name — has none, as the spec's "stop without writing a snapshot" says; a `.info`
  *   claimed before the walk refused it is a note, since whether a claim waits for the walk
  *   is a reading.
+ * - **Every published snapshot** is held to the format's rules, the earlier ones of a set
+ *   too: a bad first run stays in the set's history whatever the second wrote.
  * - **Objects first**: every object a published snapshot names is stored.
  * - **`snapshots/<set>.info`**, for every set with a published snapshot: `OWNER`,
  *   `CLAIMED` and `CREATED` lines, each once and ending LF, the instants in `mtime`'s
@@ -53,10 +55,11 @@ import {
 } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
 import { cli, client, listAll, sandboxPath } from "./cleanroom.mjs";
 import { compareSnapshot, parse, some } from "./compare-snapshot.mjs";
-import { setDirs } from "./fixtures.mjs";
+import { builtSets } from "./fixtures.mjs";
+
+/** @import { Snapshot } from "./compare-snapshot.mjs" */
 
 const usage =
   "usage: node --env-file=.env.test scripts/cleanroom/check-backup.mjs <root>\n\n" +
@@ -139,24 +142,13 @@ function infoFields(text) {
   });
 }
 
-/**
- * The hashes a snapshot's file rows name, from their second column.
- * @param {Buffer} gz
- */
-const namedHashes = (gz) =>
-  gunzipSync(gz)
-    .toString("utf8")
-    .split("\n")
-    .map((line) => line.split("\t"))
-    .filter(([type]) => type?.trim() === "-")
-    .map(([, hash]) => hash?.trim() ?? "");
-
 // What the room was handed: the sets this platform could build, each with what a backup
 // has to do with it. The same list the build gave ENVIRONMENT.md, minus nothing.
-const handed = setDirs(fixtures).filter(({ dirs }) =>
-  dirs.every((dir) => existsSync(dir)),
-);
+const handed = builtSets(fixtures);
 const sets = handed.map(({ name }) => name);
+const refused = new Set(
+  handed.filter((set) => set.refused).map(({ name }) => name),
+);
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
@@ -235,26 +227,37 @@ const { mustWrite, snapshotsOf } = cli(home);
 /**
  * s3cab's snapshot of the set's trees, taken now in the throwaway home. The set names
  * the backup bucket, so `@SET BUCKET` compares like with like; `snapshot` never reaches it.
+ * A reference s3cab couldn't take, or that breaks the format itself, is this set's
+ * mismatch, not the run's: the other sets still get their comparison.
  * @param {{ name: string, dirs: string[] }} set
+ * @returns {Snapshot | undefined}
  */
 function reference({ name, dirs }) {
   const dir = join(home, "sets", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "dirs.txt"), dirs.join("\n") + "\n");
   writeFileSync(join(dir, "env"), `S3CAB_BUCKET=${bucket}\n`);
-  mustWrite(["snapshot", name], name);
-  const [written = ""] = snapshotsOf(name);
   /** @type {string[]} */
   const problems = [];
-  const parsed = parse(
-    readFileSync(join(dir, "snapshots", written)),
-    problems,
-    problems,
-  );
-  if (!parsed || problems.length > 0) {
-    throw new Error(
-      `s3cab's own snapshot of ${name} broke the format:${some(problems)}`,
+  /** @type {Snapshot | undefined} */
+  let parsed;
+  try {
+    mustWrite(["snapshot", name], name);
+    const [written = ""] = snapshotsOf(name);
+    parsed = parse(
+      readFileSync(join(dir, "snapshots", written)),
+      problems,
+      problems,
     );
+  } catch (error) {
+    problems.push(error instanceof Error ? error.message : String(error));
+  }
+  if (!parsed || problems.length > 0) {
+    mismatches.push(
+      `s3cab's own snapshot of ${name} couldn't be taken, or broke the format, so ` +
+        `${name} is uncompared:${some(problems)}`,
+    );
+    return undefined;
   }
   return parsed;
 }
@@ -263,6 +266,8 @@ try {
   for (const set of handed) {
     const names = (published.get(set.name) ?? []).sort();
     const latest = names.at(-1);
+    /** @type {Snapshot | undefined} */
+    let theirs;
     if (set.refused) {
       // The spec's "stop without writing a snapshot": what the room's program said when
       // it stopped is in the session's report, not the bucket.
@@ -280,27 +285,32 @@ try {
           `${set.name} has ${names.length} snapshots published; compared the latest, ${latest}`,
         );
       }
-      const label = `snapshots/${set.name}/${latest}.tsv.gz`;
-      const compared = compareSnapshot(
-        await get(label),
-        { set: set.name, name: latest },
-        reference(set),
-      );
-      mismatches.push(
-        ...compared.mismatches.map((text) => `${label}: ${text}`),
-      );
-      notes.push(...compared.notes.map((text) => `${label}: ${text}`));
+      theirs = reference(set);
     }
+    // Every published snapshot is held to the format and to objects-first, the latest to
+    // s3cab's rows too. One download each: `get` records a header on every call.
     for (const name of names) {
       const label = `snapshots/${set.name}/${name}.tsv.gz`;
       /** @type {string[]} */
-      let hashes = [];
-      try {
-        hashes = namedHashes(await get(label));
-      } catch (error) {
-        mismatches.push(`${label} can't be decompressed (${String(error)})`);
+      const problems = [];
+      /** @type {string[]} */
+      const remarks = [];
+      const gz = await get(label);
+      const ours = parse(gz, problems, remarks);
+      mismatches.push(...problems.map((text) => `${label}: ${text}`));
+      notes.push(...remarks.map((text) => `${label}: ${text}`));
+      if (!ours) {
+        continue;
       }
-      const absent = [...new Set(hashes)].filter((hash) => !objects.has(hash));
+      if (name === latest && theirs) {
+        const compared = compareSnapshot(ours, { set: set.name, name }, theirs);
+        mismatches.push(
+          ...compared.mismatches.map((text) => `${label}: ${text}`),
+        );
+        notes.push(...compared.notes.map((text) => `${label}: ${text}`));
+      }
+      const named = new Set([...ours.files.values()].map(({ hash }) => hash));
+      const absent = [...named].filter((hash) => !objects.has(hash));
       if (absent.length > 0) {
         mismatches.push(
           `${label} names objects that aren't stored, so objects-first is broken:` +
@@ -335,11 +345,10 @@ try {
       mismatches.push(`${key} claims a set the room wasn't handed`);
       continue;
     }
-    if (!published.has(set)) {
-      notes.push(
-        `nothing of ${set} is published, and ` +
-          (infos.has(key) ? `${key} claims it anyway` : `no ${key} claims it`),
-      );
+    // A refused set has nothing to publish, so a claim is neither right nor wrong: whether
+    // a claim waits for the walk is a reading. Nothing to say when it didn't claim.
+    if (refused.has(set) && !published.has(set) && infos.has(key)) {
+      notes.push(`${key} claims ${set}, whose walk then stopped`);
     }
     if (!infos.has(key)) {
       if (published.has(set)) {
@@ -349,7 +358,8 @@ try {
       }
       continue;
     }
-    const text = (await get(key)).toString("utf8");
+    const info = await get(key);
+    const text = info.toString("utf8");
     const fields = infoFields(text);
     if (!fields) {
       mismatches.push(
@@ -404,14 +414,26 @@ try {
   const accepting = mkdtempSync(join(tmpdir(), "s3cab-check-backup-accepts-"));
   const accepts = cli(accepting);
   const output = join(accepting, "restored");
-  mkdirSync(output);
-  if (process.platform === "win32") {
-    // `edge`'s case pair restores whole only into a case-sensitive directory, which the
-    // directories restore creates inside it inherit. Anywhere else the pair collides,
-    // which is the disk's doing, not the room's.
-    execFileSync("fsutil", ["file", "setCaseSensitiveInfo", output, "enable"]);
-  }
   try {
+    mkdirSync(output);
+    if (process.platform === "win32") {
+      // `edge`'s case pair restores whole only into a case-sensitive directory, which
+      // the directories restore creates inside it inherit. Anywhere else the pair
+      // collides, which is the disk's doing, not the room's. Where the flag can't be
+      // set, the build dropped the pair too, and the restore has nothing to collide on.
+      try {
+        execFileSync("fsutil", [
+          "file",
+          "setCaseSensitiveInfo",
+          output,
+          "enable",
+        ]);
+      } catch (error) {
+        notes.push(
+          `couldn't make ${output} case-sensitive for s3cab's restore (${error instanceof Error ? error.message : String(error)})`,
+        );
+      }
+    }
     for (const set of sets) {
       if (!published.has(set) && !infos.has(`snapshots/${set}.info`)) {
         continue;

@@ -304,16 +304,18 @@ is fixed; the names Windows reserves (`CON`, `aux.txt`, `nul.txt`), which exist
 on every platform and are hostile to a plain-path open on Windows; the names
 Windows forbids (`: * ? " < > |`, a backslash) on POSIX only; and Windows' own
 trailing dot, hidden and system files, and a case pair in a folder `fsutil` makes
-case-sensitive. Two sets a backup must **refuse** rather than publish: `no-utf8`,
+case-sensitive. Two sets a backup must **refuse** rather than publish: `scans`,
 one name with no UTF-8 form (a lone surrogate on Windows, a stray byte
-elsewhere), and `tabbed`, a tab in a name, POSIX only. s3cab refuses both with
-exit 1 and no snapshot.
+elsewhere), and `ledger`, a tab in a name, POSIX only. s3cab refuses both with
+exit 1 and no snapshot. They are named like ordinary data on purpose: the
+backup room is told each set's name and nothing else, and a label saying what
+is wrong with a set would hand it the refusal the spec is meant to make it find.
 
 The exclude patterns are the seed's, where s3cab snapshots the trees. The backup
 clean room gets none: excluding is the tool's own, not the format's
 ([ADR-0107](../../docs/adr/0107-the-spec-is-the-public-repository-format.md)),
 so there `spread`'s near misses and `edge`'s `ignored.*` are ordinary files, and
-the lone surrogate is the `no-utf8` set rather than an `#excluded` row. `spread`'s
+the lone surrogate is the `scans` set rather than an `#excluded` row. `spread`'s
 give each rule in [guide/exclude.md](../../guide/exclude.md) a path it drops
 and a near miss it keeps; `edge`'s is the file a Windows editor leaves, CRLF
 endings and no final newline, which the spec says travel into the bucket byte
@@ -372,7 +374,8 @@ the trees differently from s3cab. So, in order:
 - every set the room was handed is as the fixture table expects it: a set s3cab
   backs up has a snapshot published, and its latest is compared with s3cab's
   (below); a set a backup must refuse has none;
-- every object a published snapshot names is stored;
+- every published snapshot, the earlier ones of a set too, keeps the format's
+  rules, and every object it names is stored;
 - no object or snapshot carries a `Content-Encoding` or `x-amz-meta-*`;
 - every set with a published snapshot has a `snapshots/<set>.info` of `OWNER`,
   `CLAIMED` and `CREATED` lines, each once and ending LF, the two instants in
@@ -407,13 +410,11 @@ line, LF endings, UTF-8 with no BOM, the heading row first, the `.` last, and
 padding and `SIZE`'s readable form are the format's recommendations, so a file
 that departs from them gets a note, not a mismatch.
 
-Three more differences come back as notes, because the spec hasn't decided
-them or leaves them open: `@SET BUCKET` left out, which the spec makes optional,
-so it is compared only when written; the time zone in `@SNAPSHOT START`, which
-Python's standard library can't name; and an excluded directory written as one
-row where the other side wrote a row for each file in it. Paths print
-JSON-quoted, so a stray CR or one of the fixtures' control characters shows
-instead of printing as nothing.
+Two more differences come back as notes, because the spec leaves them to the
+writer: `@SET BUCKET` left out, which the spec makes optional, so it is compared
+only when written; and the time zone in `@SNAPSHOT START`, which Python's
+standard library can't name. Paths print JSON-quoted, so a stray CR or one of
+the fixtures' control characters shows instead of printing as nothing.
 
 ## seed-restore-cleanroom-bucket.mjs
 

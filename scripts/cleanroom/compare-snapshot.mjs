@@ -13,15 +13,12 @@
  * padding and `SIZE`'s readable form are recommendations (guide/format.md, "Canonical
  * form"), so a departure there is a note.
  *
- * Three more differences are reported as notes, not mismatches, because the spec doesn't
- * decide them: `@SET BUCKET` left out, which the spec makes optional, so it is compared only
- * when written; the time zone in `@SNAPSHOT START` (Python's standard library can't name
- * the local IANA zone, ADR-0096's first expected case); and an excluded directory written
- * as one row where the other side wrote a row per file in it, or the reverse
- * (proposals/cleanroom-fixtures.md). Each is for the run's report to discuss.
+ * Two more differences are reported as notes, not mismatches, because the spec leaves them
+ * to the writer: `@SET BUCKET` left out, which the spec makes optional, so it is compared
+ * only when written; and the time zone in `@SNAPSHOT START` (Python's standard library
+ * can't name the local IANA zone, ADR-0096's first expected case). Each is for the run's
+ * report to discuss.
  */
-import { lstatSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -53,7 +50,7 @@ const heading = laidOut([
 /**
  * @typedef {object} Snapshot
  * @property {string} set `@SET NAME`
- * @property {string} bucket `@SET BUCKET`, or "" if it has none
+ * @property {string | undefined} bucket `@SET BUCKET`, or undefined if there is no row
  * @property {string} name `@SNAPSHOT NAME`
  * @property {string} zone `@SNAPSHOT START`'s time zone, or "" if it has none
  * @property {string} size `@SNAPSHOT SIZE`'s value, or "" if it has none
@@ -102,7 +99,7 @@ export function parse(gz, problems, notes) {
   /** @type {Snapshot} */
   const snapshot = {
     set: "",
-    bucket: "",
+    bucket: undefined,
     name: "",
     zone: "",
     size: "",
@@ -235,32 +232,11 @@ export function parse(gz, problems, notes) {
 }
 
 /**
- * The files an `#excluded` path covers, read from the sandbox's tree: everything under
- * it if it's a directory, else the path itself. An empty or unreadable directory, or a
- * path that's gone, covers just itself.
- * @param {string} path
- * @returns {string[]}
- */
-function covered(path) {
-  try {
-    if (!lstatSync(path).isDirectory()) {
-      return [path];
-    }
-    const entries = readdirSync(path);
-    return entries.length === 0
-      ? [path]
-      : entries.flatMap((entry) => covered(join(path, entry)));
-  } catch {
-    return [path];
-  }
-}
-
-/**
  * A path or zone as JSON, so what makes two of them differ can be seen: the fixtures'
  * names hold `\v`, U+0085 and edge spaces, and a stray CR prints as nothing at all.
- * @param {string} text
+ * @param {string | undefined} text
  */
-export const show = (text) => JSON.stringify(text);
+const show = (text) => JSON.stringify(text);
 
 /**
  * Up to ten of `items`, one per line, and how many more there were.
@@ -274,29 +250,26 @@ export const some = (items) =>
   (items.length > 10 ? `\n      … and ${items.length - 10} more` : "");
 
 /**
- * The session's snapshot against s3cab's: the format's rules first, then the rows.
- * @param {Buffer} gz the session's snapshot, as stored
+ * The session's snapshot, parsed, against s3cab's: the rows, once {@link parse} has held
+ * the file to the format's rules.
+ * @param {Snapshot} ours the session's snapshot
  * @param {{ set: string, name: string }} filed the set it is filed under and its name
  *   without `.tsv.gz`, which its own rows have to agree with
  * @param {Snapshot} reference s3cab's snapshot of the same trees
  * @returns {{ mismatches: string[], notes: string[] }}
  */
-export function compareSnapshot(gz, filed, reference) {
+export function compareSnapshot(ours, filed, reference) {
   /** @type {string[]} */
   const mismatches = [];
   /** @type {string[]} */
   const notes = [];
-  const ours = parse(gz, mismatches, notes);
-  if (!ours) {
-    return { mismatches, notes };
-  }
   if (ours.set !== filed.set) {
     mismatches.push(`@SET NAME names the set '${ours.set}'`);
   }
   if (ours.name !== filed.name) {
     mismatches.push(`@SNAPSHOT NAME names the snapshot '${ours.name}'`);
   }
-  if (ours.bucket === "") {
+  if (ours.bucket === undefined) {
     notes.push(
       `no @SET BUCKET row, which the spec makes optional; s3cab wrote ${show(reference.bucket)}`,
     );
@@ -379,16 +352,8 @@ export function compareSnapshot(gz, filed, reference) {
       );
       continue;
     }
-    // The same files excluded, written at a different granularity: both sides' rows
-    // cover the same files once each directory row is expanded.
-    const coveredHere = new Set([...here].flatMap(covered));
-    const coveredThere = new Set([...there].flatMap(covered));
-    const regrained =
-      kind === "#excluded" &&
-      coveredHere.size === coveredThere.size &&
-      [...coveredHere].every((path) => coveredThere.has(path));
-    (regrained ? notes : mismatches).push(
-      `${kind} paths differ${regrained ? ", but only in how a directory is written" : ""}: only here${some(onlyHere.map(show))}\n    only in s3cab's${some(onlyThere.map(show))}`,
+    mismatches.push(
+      `${kind} paths differ: only here${some(onlyHere.map(show))}\n    only in s3cab's${some(onlyThere.map(show))}`,
     );
   }
   return { mismatches, notes };
