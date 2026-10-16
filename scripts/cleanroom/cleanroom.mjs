@@ -31,13 +31,13 @@
  * prose would rot the way a line number does.
  *
  * A clean room built on Windows gets a Windows brief, because the platform is then the
- * thing under test. Nothing comes as standard there and there is no package archive, so
- * the sentence becomes "installed on this machine, standard library only" — install the
- * toolchain before the run. The brief also pins the session to native Windows: a
- * user-level CLAUDE.md is loaded into every session, and one that routes Windows work
- * through WSL would quietly turn a Windows run into a Linux one. The credentials are
- * written as PowerShell for the same reason — a `.env` of `export` lines invites a shell
- * that isn't Windows.
+ * thing under test. There is no package archive, so the sentence becomes "the .NET
+ * Framework that ships with Windows, standard library only", and ENVIRONMENT.md names
+ * its compiler (ADR-0096: nothing installed). The brief also pins the session to native
+ * Windows: a user-level CLAUDE.md is loaded into every session, and one that routes
+ * Windows work through WSL would quietly turn a Windows run into a Linux one. The
+ * credentials are written as PowerShell for the same reason — a `.env` of `export` lines
+ * invites a shell that isn't Windows.
  *
  * ENVIRONMENT.md names ONE bucket. Copying .env.test across would be handier and is
  * the wrong shape: it also names the crash and conformance buckets, whose suites
@@ -214,6 +214,44 @@ export async function sessionCredentials(bucket) {
 }
 
 /**
+ * The in-box .NET Framework's compiler and Windows PowerShell, as a Windows restorer's
+ * ENVIRONMENT.md names them (ADR-0096: nothing installed). Found at build time rather
+ * than named in the brief, where a version would rot. Without it a session goes looking,
+ * and a look in the home folder for a per-user .NET voids the run.
+ * @returns {string}
+ */
+function csharpToolchain() {
+  const windir = process.env.windir ?? "C:\\Windows";
+  const framework = join(windir, "Microsoft.NET", "Framework64");
+  const csc = readdirSync(framework)
+    .sort()
+    .map((version) => join(framework, version, "csc.exe"))
+    .filter((path) => existsSync(path))
+    .at(-1);
+  const powershell = join(
+    windir,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  if (!csc) {
+    throw new Error(
+      `No csc.exe under ${framework}: this Windows has no .NET Framework 4.`,
+    );
+  }
+  return `## Toolchain
+
+The .NET Framework that ships with Windows, which every Windows machine has. Use it and nothing
+else, even where something newer is installed, and don't look for another: that a stock Windows
+machine is enough is part of what is being tested.
+
+- Compiler: \`${csc}\` (C# 5)
+- Or \`Add-Type\`, in Windows PowerShell: \`${powershell}\`
+`;
+}
+
+/**
  * Write the clean room: the spec, the brief, ENVIRONMENT.md and the bucket's credentials.
  * @param {string} dir
  * @param {"backup" | "restore"} role
@@ -255,11 +293,11 @@ claim was last tested, and I want it tested again by a fresh reader.
 
 Working only from the spec, implement a minimal independent restorer in ${language}. ${
     windows
-      ? `Use the most
-modern version of the language installed on this machine, and nothing beyond its standard library
-— Windows has no package archive to take libraries from. Don't install another toolchain, and don't
-spend the run fighting this one — if something you want isn't in the standard library, pick
-something else.`
+      ? `Use the .NET
+Framework that ships with Windows — \`ENVIRONMENT.md\` says where its compiler is — and nothing
+beyond its standard library, even where something newer is installed. Don't install a toolchain,
+and don't spend the run fighting this one — if something you want isn't in the standard library,
+pick something else.`
       : `Use the most
 modern version of the language that comes as standard on the platform you are running on, and take
 your libraries from what that platform packages. Don't build a compiler or a runtime from source,
@@ -479,7 +517,7 @@ modification times.
 
 Work out for yourself which sets and snapshots the bucket holds — the spec describes the layout,
 and finding your way around from it is part of what is being tested.
-`
+${windows ? `\n${csharpToolchain()}` : ""}`
   }`;
 
   mkdirSync(dir, { recursive: true });
