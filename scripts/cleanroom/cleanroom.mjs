@@ -256,23 +256,19 @@ is being tested.
 }
 
 /**
- * The settings the run's `--settings` passes, written beside the clean room rather than in
- * it: a file the session can reach is one it can loosen mid-run. `strictAllowlist` is
- * honoured only from `--settings` (or user and managed settings), never from a project's.
- * Windows gets no `sandbox` block: Claude Code's shell sandbox doesn't run there, and
- * `failIfUnavailable` would refuse to start the run, so a Windows run's shell is held only
- * by the brief and the audit. `--restricted` drops the user's settings, their
- * `autoMode.environment` with them, so without a line naming the bucket the classifier
- * refuses the backup's closing empty.
+ * The settings the run's `--settings` passes (README.md says what they wall off). Not in the
+ * clean room: where the shell sandbox runs, a file outside it is one the session can't
+ * loosen mid-run; on Windows its shell can still reach it. Not a project settings file
+ * either, which `strictAllowlist` is ignored from. No `sandbox` block on Windows, where
+ * `failIfUnavailable` would refuse to start the run. The bucket line has to stay:
+ * `--restricted` drops the user's `autoMode.environment`, and without one naming the
+ * bucket the classifier refuses the backup's closing empty.
  * @param {"backup" | "restore"} role
  * @param {string} bucket
  */
 function sessionSettings(role, bucket) {
   return {
-    permissions: {
-      blockReadsOutsideWorkingDirectories: true,
-      deny: ["WebFetch", "WebSearch"],
-    },
+    permissions: { blockReadsOutsideWorkingDirectories: true },
     ...(windows
       ? {}
       : {
@@ -298,13 +294,12 @@ function sessionSettings(role, bucket) {
 }
 
 /**
- * The headless run's command, from `<root>/cleanroom`. `--restricted` loads no user
- * settings, so a user-level `additionalDirectories` can't make the home folder a working
- * directory, and it drops every command tool `--tools` doesn't name.
+ * The headless run's command, from `<root>/cleanroom` (README.md says what each flag is
+ * for). No `Bash` on Windows, where it is Git Bash, which the brief rules out.
  * @param {"backup" | "restore"} role
  */
 function runCommand(role) {
-  const tools = `Bash,${windows ? "PowerShell," : ""}Read,Write,Edit,Glob,Grep,TaskStop`;
+  const tools = `${windows ? "PowerShell" : "Bash"},Read,Write,Edit,Glob,Grep,TaskStop`;
   return (
     `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
     (role === "backup" ? " --add-dir ../fixtures" : "") +
@@ -541,7 +536,10 @@ ${region ? `$env:AWS_REGION = '${region}'\n` : ""}$env:BUCKET = '${bucket}'
     : `\`\`\`sh
 . ./${credentialsFile}
 ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
-\`\`\``
+\`\`\`
+
+Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
+A program that ignores that variable can't reach the bucket.`
 }
 
 ## Credentials
@@ -622,6 +620,9 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
   );
   console.log(
     `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
+  );
+  console.log(
+    "  ../session-settings.json  the run's walls, passed with --settings",
   );
 }
 

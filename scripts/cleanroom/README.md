@@ -73,8 +73,9 @@ destroy, then the next.
   session-settings.json   the run's walls, passed with --settings
 ```
 
-A restorer run, end to end — the same commands on every OS (`$HOME` expands in
-PowerShell and sh alike):
+A restorer run, end to end, as on Windows. Elsewhere the commands are the same
+(`$HOME` expands in PowerShell and sh alike), except the run's, which names `Bash`
+in place of `PowerShell`; the build prints the exact one for its role and platform:
 
 ```powershell
 # create
@@ -82,7 +83,7 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3
 # run: headless, from the clean room; follow its transcript (audit-transcript.mjs
 # says where it lands) with Get-Content -Wait -Tail 5
 cd $HOME/s3cab.sandbox/cleanroom
-claude -p --restricted --tools Bash,PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
 cd -
 # check: its restore compared, and its transcript audited
 python3 scripts/cleanroom/compare.py <its-restore-dir> $HOME/s3cab.sandbox/cleanroom/reference/<snapshot> | tee $HOME/s3cab.sandbox/cleanroom/check.txt
@@ -97,9 +98,8 @@ Remove-Item -Recurse $HOME/s3cab.sandbox
 ```
 
 A backup run is the same sequence with its own scripts, and like a restorer, it
-is built and run on every OS. Its run adds `--add-dir ../fixtures`, and the build
-prints the whole command for its role and platform. Its turn starts from an empty
-bucket, which the build leaves for you to empty:
+is built and run on every OS. Its run adds `--add-dir ../fixtures`. Its turn starts
+from an empty bucket, which the build leaves for you to empty:
 
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
@@ -183,7 +183,8 @@ settings out, whose `additionalDirectories` would otherwise make a folder in hom
 working directory of every session. On Linux, WSL and macOS, Claude Code's shell
 sandbox holds every command and every program the session writes and runs: it reads
 nothing in the home folder outside those directories, and reaches no host but
-`*.amazonaws.com`. Linux and WSL need `bubblewrap` and `socat` installed for it, and
+`*.amazonaws.com`, through a proxy `ENVIRONMENT.md` tells the session about, since
+a program that ignores the proxy variables can't connect at all. Linux and WSL need `bubblewrap` and `socat` installed for it, and
 without them the run refuses to start rather than run unwalled. Windows has no shell
 sandbox, so there a session's shell can still read `~/.s3cab` (real snapshots) or
 `~/.claude` (the transcripts and memory of every session that worked on s3cab), and
@@ -208,10 +209,9 @@ would be compacted away. `--permission-mode auto` keeps the classifier reviewing
 each call; with nobody to ask, a blocked call is refused and the run carries on.
 `--session-id` fixes the transcript's name before the run starts, so it can be
 followed from the first line. `--max-budget-usd` caps the spend. `--restricted` drops
-every command tool `--tools` doesn't name, so the list holds what past runs used;
-`PowerShell` is dropped from it off Windows. It also drops the user's
-`autoMode.environment`, so `session-settings.json` names the bucket to the classifier
-itself, or a backup's closing empty is refused.
+every tool `--tools` doesn't name, the web tools among them, so the list holds what
+past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
+would be Git Bash.
 
 `ENVIRONMENT.md` names **one** bucket. Copying `.env.test` across would be
 handier and is the wrong shape: it also names the crash and conformance buckets,
