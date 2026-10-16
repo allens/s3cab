@@ -14,6 +14,9 @@
 # The platforms take turns (`max-parallel: 1`), and runs queue behind one another
 # (the concurrency group): two deletes finishing in the same minute collide on the
 # deletion record, which is named by the minute and never overwritten.
+#
+# After a failed turn, "Re-run all jobs", never "Re-run failed jobs": the failed turn
+# left its sets claimed, and only a fresh `empty if stale` clears them.
 
 name: cleanroom-seed
 

@@ -62,19 +62,33 @@ process.env.AWS_REGION = BucketRegion;
 // missing whatever was added since. A platform's sets missing is the same corpus short.
 const seeded = await seededHash(bucket);
 const missing = await missingSets(bucket);
-if (seeded !== seedHash() || missing.length > 0) {
+const reseed =
+  "Reseed it from main, where the workflow's role may write it:\n" +
+  "\n" +
+  "    gh workflow run cleanroom-seed.yml --ref main\n";
+const measured =
+  "so a restorer written from the spec here would be measured against another golden set.\n";
+if (seeded && seeded !== seedHash()) {
+  // CI seeds from main, so a checkout behind it or on a branch differs as much as a
+  // bucket main has moved past, and only the second is fixed by reseeding.
+  console.error(
+    `The restore bucket '${bucket}' was seeded from a different spec or fixtures than\n` +
+      `this checkout's, ${measured}` +
+      "If this checkout isn't main as it is now, bring it up to date:\n" +
+      "\n" +
+      "    git switch main && git pull\n" +
+      "\n" +
+      `If it is, main has changed since the last seed. ${reseed}`,
+  );
+  process.exit(2);
+}
+if (!seeded || missing.length > 0) {
   console.error(
     `The restore bucket '${bucket}' ${
-      seeded !== seedHash()
-        ? seeded
-          ? "was seeded from a different spec or fixtures than this checkout's"
-          : "carries no stamp from a finished seed"
-        : `holds no snapshot of ${missing.join(", ")}`
-    }, so a\n` +
-      "restorer written from the spec here would be measured against another golden set.\n" +
-      "Reseed it from main, where the workflow's role may write it:\n" +
-      "\n" +
-      "    gh workflow run cleanroom-seed.yml --ref main\n",
+      seeded
+        ? `holds no snapshot of ${missing.join(", ")}`
+        : "carries no stamp from a finished seed"
+    },\n${measured}${reseed}`,
   );
   process.exit(2);
 }

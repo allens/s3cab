@@ -65,9 +65,8 @@ export async function seededHash(bucket) {
  * @param {string} bucket
  */
 export async function missingSets(bucket) {
-  const snapshots = (await listAll(bucket, "snapshots/")).filter((key) =>
-    key.endsWith(".tsv.gz"),
-  );
+  const keys = await listAll(bucket, "snapshots/");
+  const snapshots = keys.filter((key) => key.endsWith(".tsv.gz"));
   return goldenSets.filter(
     (name) => !snapshots.some((key) => key.startsWith(`snapshots/${name}/`)),
   );

@@ -50,9 +50,10 @@ import {
 import {
   buildFixtures,
   excludes,
-  goldenSets,
+  goldenSet,
   oneMinuteBefore,
   platform,
+  platforms,
   reportFixtures,
   withoutTrailer,
 } from "./fixtures.mjs";
@@ -76,12 +77,17 @@ if (mode === "--empty") {
 }
 
 /**
- * Empty the bucket for a new golden set, unless it already holds this checkout's. Under
- * GitHub Actions it sets the step's `reseed` output, which the platforms' turns wait on.
+ * Empty the bucket for a new golden set, unless it already holds this checkout's whole.
+ * Under GitHub Actions it sets the step's `reseed` output, which the platforms' turns
+ * wait on.
  * @param {string} bucket
  */
 async function empty(bucket) {
-  const stale = (await seededHash(bucket)) !== seedHash();
+  // Missing sets too, or a stamped bucket that lost objects could never be reseeded by
+  // the workflow the restore build sends you to.
+  const stamped = await seededHash(bucket);
+  const missing = await missingSets(bucket);
+  const stale = stamped !== seedHash() || missing.length > 0;
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, `reseed=${stale}\n`);
   }
@@ -100,8 +106,10 @@ async function empty(bucket) {
   // is not "may I clear this?" but "is this bucket mine to clear?" — a variable pointing
   // somewhere forgotten, or other work under other names. The set names answer it: a
   // bucket that is a repository holding only our own names is the last seed's and goes;
-  // anything else and we stop and say what we found. A flag would have put that judgement
-  // on the operator at the moment they are least likely to check.
+  // anything else and we stop and say what we found. Ours is any name with a platform's
+  // suffix, not only today's `goldenSets`: a set renamed or removed in the fixtures
+  // leaves the last seed's name behind. A flag would have put that judgement on the
+  // operator at the moment they are least likely to check.
   //
   // Every key is read, not just the `<set>.info` markers: a clear that died partway, going
   // in listing order, can leave a set's snapshots with neither its `.s3cab/sets/<set>/`
@@ -125,13 +133,15 @@ async function empty(bucket) {
   // A folder marker (`snapshots/`, `.s3cab/sets/`), as the S3 console's "Create folder"
   // makes, names no set.
   present.delete("");
-  const foreign = [...present].filter((name) => !goldenSets.includes(name));
+  const foreign = [...present].filter(
+    (name) => !platforms.some((suffix) => name.endsWith(goldenSet("", suffix))),
+  );
   /** @type {string[]} */
   const found = [];
   if (foreign.length > 0) {
     found.push(
-      `${foreign.length} backup set${foreign.length === 1 ? "" : "s"} these ` +
-        `fixtures don't name: ${foreign.join(", ")}`,
+      `${foreign.length} backup set${foreign.length === 1 ? "" : "s"} no ` +
+        `platform's seed would name: ${foreign.join(", ")}`,
     );
   }
   if (strays.length > 0) {
@@ -160,7 +170,7 @@ async function empty(bucket) {
   }
   console.log(
     `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
-      `all of it under these fixtures' set names (${[...present].join(", ")})`,
+      `all of it under the seeds' set names (${[...present].join(", ")})`,
   );
   // 1000 per request is the API's limit, not a batch size worth tuning.
   for (let index = 0; index < keys.length; index += 1000) {
@@ -211,7 +221,7 @@ async function seed({ root, bucket }) {
   const home = join(root, ".s3cab");
   const { mustRun, mustWrite } = cli(home);
   /** @param {string} name a set's name in fixtures.mjs */
-  const own = (name) => `${name}-${platform}`;
+  const own = (name) => goldenSet(name, platform);
 
   /** @param {string} path */
   const sha256 = (path) =>

@@ -132,11 +132,16 @@ export const setNames = sets.map(({ name }) => name);
 export const seeded = sets.filter((set) => !set.refused);
 
 /**
- * The golden set's set names: each platform seeds every set s3cab can back up, suffixed
- * with its name (`edge-linux`), so the three seeds share one bucket and no set.
+ * A set's name in the golden set: each platform seeds every set s3cab can back up,
+ * suffixed with its name (`edge-linux`), so the three seeds share one bucket and no set.
+ * @param {string} name
+ * @param {Platform} suffix
  */
+export const goldenSet = (name, suffix) => `${name}-${suffix}`;
+
+/** Every set name the golden set holds. */
 export const goldenSets = platforms.flatMap((suffix) =>
-  seeded.map(({ name }) => `${name}-${suffix}`),
+  seeded.map(({ name }) => goldenSet(name, suffix)),
 );
 
 // Every set's exclude patterns, for the seed, where s3cab snapshots the trees. The backup
