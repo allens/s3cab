@@ -320,7 +320,8 @@ The same program has to run unchanged on Linux, macOS and Windows. If something 
 can't be done portably with those two, don't reach for another library: record what the spec
 asked for and what stood in the way. That is one of the things being tested.
 
-**Correct, not fast.** No caching between runs, no parallelism.
+**Correct, not fast.** No caching between runs, no parallelism. Whatever the spec says a backup
+keeps between runs, keep in this directory, never in the home folder or anywhere else outside it.
 
 Correct covers everything the spec says a backup records and writes: every rule of the snapshot,
 and its canonical form too; a row for everything the spec says is recorded; objects before the
@@ -332,6 +333,8 @@ endpoint, or a recorded-and-replayed transcript. Every result you report about t
 come from a real request.
 
 Back up every set in \`ENVIRONMENT.md\`, each directory where it is; don't copy anything first.
+Leave the bucket as that command line alone leaves it, with no option of your own added to any
+set's run.
 
 ## Deliverable
 
