@@ -59,7 +59,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -253,6 +253,59 @@ is being tested.
 - Compiler: \`${csc}\` (C# 5)
 - Or \`Add-Type\`, in Windows PowerShell: \`${powershell}\`
 `;
+}
+
+/**
+ * The settings the run's `--settings` passes (README.md says what they wall off). Not in the
+ * clean room: where the shell sandbox runs, a file outside it is one the session can't
+ * loosen mid-run; on Windows its shell can still reach it. Not a project settings file
+ * either, which `strictAllowlist` is ignored from. No `sandbox` block on Windows, where
+ * `failIfUnavailable` would refuse to start the run. The bucket line has to stay:
+ * `--restricted` drops the user's `autoMode.environment`, and without one naming the
+ * bucket the classifier refuses the backup's closing empty.
+ * @param {"backup" | "restore"} role
+ * @param {string} bucket
+ */
+function sessionSettings(role, bucket) {
+  return {
+    permissions: { blockReadsOutsideWorkingDirectories: true },
+    ...(windows
+      ? {}
+      : {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            network: {
+              allowedDomains: ["*.amazonaws.com"],
+              strictAllowlist: true,
+            },
+          },
+        }),
+    autoMode: {
+      environment: [
+        "$defaults",
+        role === "backup"
+          ? `Trusted cloud bucket: s3://${bucket} is this run's disposable test fixture. Writing to it and emptying it is routine.`
+          : `Trusted cloud bucket: s3://${bucket} is this run's read-only test fixture. Listing and reading it is routine.`,
+      ],
+    },
+  };
+}
+
+/**
+ * The headless run's command, from `<root>/cleanroom` (README.md says what each flag is
+ * for). No `Bash` on Windows, where it is Git Bash, which the brief rules out.
+ * @param {"backup" | "restore"} role
+ */
+function runCommand(role) {
+  const tools = `${windows ? "PowerShell" : "Bash"},Read,Write,Edit,Glob,Grep,TaskStop`;
+  return (
+    `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
+    (role === "backup" ? " --add-dir ../fixtures" : "") +
+    ` --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid>` +
+    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go`
+  );
 }
 
 /**
@@ -483,7 +536,10 @@ ${region ? `$env:AWS_REGION = '${region}'\n` : ""}$env:BUCKET = '${bucket}'
     : `\`\`\`sh
 . ./${credentialsFile}
 ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
-\`\`\``
+\`\`\`
+
+Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
+A program that ignores that variable can't reach the bucket.`
 }
 
 ## Credentials
@@ -549,6 +605,12 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
     "utf8",
   );
 
+  writeFileSync(
+    join(dirname(dir), "session-settings.json"),
+    JSON.stringify(sessionSettings(role, bucket), null, 2) + "\n",
+    "utf8",
+  );
+
   const profile = process.env.AWS_PROFILE;
   console.log(`wrote a ${language} ${role} clean room in ${dir}`);
   console.log("  format.md       the spec, byte-for-byte");
@@ -559,22 +621,25 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
   console.log(
     `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
   );
+  console.log(
+    "  ../session-settings.json  the run's walls, passed with --settings",
+  );
 }
 
 /**
  * The closing message: what is left to do by hand, and where to open the session.
  * @param {string} root
+ * @param {"backup" | "restore"} role
  * @param {string[]} todo
  */
-export function handover(root, todo) {
+export function handover(root, role, todo) {
   console.log(
     (todo.length
       ? `\nStill to do before the run:\n${todo.map((item) => `  - ${item}\n`).join("")}`
       : "") +
       `\nRun it headless from ${join(root, "cleanroom")} — not the root beside it, and\n` +
       `never the repo — with the README's command:\n` +
-      `    claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid> \\\n` +
-      `      --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go\n` +
+      `    ${runCommand(role)}\n` +
       `and keep the previous run's report out of it. Diffing the two\n` +
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
       `fix that didn't land.`,

@@ -70,10 +70,12 @@ destroy, then the next.
                reference/ (restore)
   fixtures/    the trees it backs up (backup)
   .s3cab/      s3cab's home while the build runs it (restore)
+  session-settings.json   the run's walls, passed with --settings
 ```
 
-A restorer run, end to end — the same commands on every OS (`$HOME` expands in
-PowerShell and sh alike):
+A restorer run, end to end, as on Windows. Elsewhere the commands are the same
+(`$HOME` expands in PowerShell and sh alike), except the run's, which names `Bash`
+in place of `PowerShell`; the build prints the exact one for its role and platform:
 
 ```powershell
 # create
@@ -81,7 +83,7 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3
 # run: headless, from the clean room; follow its transcript (audit-transcript.mjs
 # says where it lands) with Get-Content -Wait -Tail 5
 cd $HOME/s3cab.sandbox/cleanroom
-claude -p --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
 cd -
 # check: its restore compared, and its transcript audited
 python3 scripts/cleanroom/compare.py <its-restore-dir> $HOME/s3cab.sandbox/cleanroom/reference/<snapshot> | tee $HOME/s3cab.sandbox/cleanroom/check.txt
@@ -96,8 +98,8 @@ Remove-Item -Recurse $HOME/s3cab.sandbox
 ```
 
 A backup run is the same sequence with its own scripts, and like a restorer, it
-is built and run on every OS. Its turn starts from an empty bucket, which the
-build leaves for you to empty:
+is built and run on every OS. Its run adds `--add-dir ../fixtures`. Its turn starts
+from an empty bucket, which the build leaves for you to empty:
 
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
@@ -174,15 +176,26 @@ out of the sandbox too: diffing the lists afterwards is the reader's job. They
 also refuse a sandbox that isn't empty, so nothing from the last run can
 ride along beside the new brief.
 
-Beyond that, the sandbox relies on the session doing as the brief says, and checks
-that it did. Nothing stops a session in `~/s3cab.sandbox` reading `~/.s3cab` (real
-snapshots) or `~/.claude` (the transcripts and memory of every session that worked
-on s3cab); `audit-transcript.mjs` lists every path it touched there, in temp or in
-the repo, and every time it ran s3cab or went to the web from a tool or a shell
-command. Any of those voids the run. A program the session wrote and then ran is not
-audited: its own requests go unseen. If runs keep straying, move the sandbox somewhere more isolated; until then,
-the repo is the one place ruled out outright, because what it leaks arrives before
-the session's first tool call, where no audit sees it.
+Beyond that, the run is walled in by `session-settings.json`, and the audit checks
+what the walls don't hold. `--restricted` confines the file tools to the clean room
+(and, for a backup, the fixtures) on every platform, and keeps the user's own
+settings out, whose `additionalDirectories` would otherwise make a folder in home a
+working directory of every session. On Linux, WSL and macOS, Claude Code's shell
+sandbox holds every command and every program the session writes and runs: it reads
+nothing in the home folder outside those directories, and reaches no host but
+`*.amazonaws.com`, through a proxy `ENVIRONMENT.md` tells the session about, since
+a program that ignores the proxy variables can't connect at all. Linux and WSL need `bubblewrap` and `socat` installed for it, and
+without them the run refuses to start rather than run unwalled. Windows has no shell
+sandbox, so there a session's shell can still read `~/.s3cab` (real snapshots) or
+`~/.claude` (the transcripts and memory of every session that worked on s3cab), and
+reach the web.
+
+`audit-transcript.mjs` lists every path a session touched in home, in temp or in the
+repo, and every time it ran s3cab or went to the web from a tool or a shell command.
+Any of those voids the run. A program the session wrote and then ran is
+not audited: its own requests go unseen, which on Windows nothing else catches. The
+repo is ruled out outright, because what it leaks arrives before the session's first
+tool call, where neither the walls nor the audit see it.
 
 The run is headless (`claude -p`), started from the clean room so its transcript
 lands where the audit looks, and nobody sits in it. `--safe-mode` leaves out every
@@ -195,7 +208,10 @@ survives a run long enough to write a program, where an opening-turn instruction
 would be compacted away. `--permission-mode auto` keeps the classifier reviewing
 each call; with nobody to ask, a blocked call is refused and the run carries on.
 `--session-id` fixes the transcript's name before the run starts, so it can be
-followed from the first line. `--max-budget-usd` caps the spend.
+followed from the first line. `--max-budget-usd` caps the spend. `--restricted` drops
+every tool `--tools` doesn't name, the web tools among them, so the list holds what
+past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
+would be Git Bash.
 
 `ENVIRONMENT.md` names **one** bucket. Copying `.env.test` across would be
 handier and is the wrong shape: it also names the crash and conformance buckets,

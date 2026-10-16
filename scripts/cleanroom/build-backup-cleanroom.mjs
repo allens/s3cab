@@ -47,9 +47,9 @@ writeCleanroom(
   built.sets,
 );
 
-handover(root, [
+handover(root, "backup", [
   "empty the bucket: the backup's turn starts from nothing.",
-  "install Python 3 and boto3 if this machine lacks them: the brief tells the\n" +
-    "    session not to install anything.",
+  "install Python 3 and boto3 if this machine lacks them, outside the home folder,\n" +
+    "    which the run's sandbox hides: the brief tells the session not to install anything.",
   "raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days",
 ]);

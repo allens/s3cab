@@ -172,4 +172,4 @@ if (exits.length > 0) {
   );
 }
 
-handover(root, []);
+handover(root, "restore", []);
