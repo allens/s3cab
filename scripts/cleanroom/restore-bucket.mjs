@@ -60,16 +60,30 @@ export async function seededHash(bucket) {
 }
 
 /**
+ * The bucket's published snapshots: each set's snapshot names, without `.tsv.gz`.
+ * @param {string} bucket
+ */
+export async function snapshotsBySet(bucket) {
+  const keys = await listAll(bucket, "snapshots/");
+  /** @type {Map<string, string[]>} */
+  const bySet = new Map();
+  for (const key of keys) {
+    const [, set, name] = /^snapshots\/([^/]+)\/(.+)\.tsv\.gz$/.exec(key) ?? [];
+    if (set && name) {
+      bySet.set(set, [...(bySet.get(set) ?? []), name]);
+    }
+  }
+  return bySet;
+}
+
+/**
  * The golden set's sets the bucket holds no snapshot of: every platform seeds its own, so
  * a seed that stopped after one platform leaves the others' missing.
  * @param {string} bucket
  */
 export async function missingSets(bucket) {
-  const keys = await listAll(bucket, "snapshots/");
-  const snapshots = keys.filter((key) => key.endsWith(".tsv.gz"));
-  return goldenSets.filter(
-    (name) => !snapshots.some((key) => key.startsWith(`snapshots/${name}/`)),
-  );
+  const snapshots = await snapshotsBySet(bucket);
+  return goldenSets.filter((name) => !snapshots.has(name));
 }
 
 /**

@@ -537,6 +537,11 @@ export function handover(root, todo) {
  * is untouched while ~/.aws credentials keep working. `run` returns the exit code rather
  * than throwing: `faults` restores from a deliberately torn repository, where a nonzero
  * exit is the behaviour under test.
+ *
+ * TRAP: `spawnSync` blocks the event loop, so `client`'s pooled socket can't hear S3 close
+ * it meanwhile. The first request after minutes of runs goes out on the dead socket and,
+ * on Windows, fails with ECONNABORTED, which the SDK doesn't retry. Make a script's own
+ * requests before its long stretch of runs, not between them.
  * @param {string} home
  */
 export function cli(home) {
