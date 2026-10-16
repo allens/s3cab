@@ -159,9 +159,9 @@ bucket's credentials, and nothing else. The language is Python for the backup
 and the platform's canonical one (above) for a restorer, so runs differ by
 reader and by spec version. It also holds `cli`, the subprocess that drives the
 real s3cab for the scripts that need its output. The restorer brief is
-language-neutral apart from one sentence — which names no version and no
-toolchain, leaving the session to find "the most modern version that comes as
-standard" on the machine it's on.
+language-neutral apart from one sentence — which names no version, leaving the
+session to find "the most modern version that comes as standard" on the machine
+it's on. Windows is the exception, below.
 
 The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
@@ -236,12 +236,13 @@ the window closed rather than a signing bug, and to stop and say so. Each build
 mints a fresh window, the permission set's session duration (8 hours here, 12
 being the IAM Identity Center maximum) — several times what a run takes.
 
-Built on Windows, the clean room gets a Windows brief. Nothing comes as standard
-there and there is no package archive, so the toolchain sentence becomes
-"installed on this machine, standard library only" — install it before the run,
-in C# against the .NET Framework that ships with Windows, whose `GZipStream`
-decompresses gzip ([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)).
-The brief also tells the session to
+Built on Windows, the clean room gets a Windows brief. There is no package
+archive, so the toolchain sentence becomes "the .NET Framework that ships with
+Windows, standard library only", even where something newer is installed; its
+`GZipStream` decompresses gzip
+([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)). `ENVIRONMENT.md` names its `csc.exe`, found at
+build time: a session left to find one searches, and a look in the home folder
+voids the run. The brief also tells the session to
 work natively, never through WSL, and the credentials go over as `credentials.ps1`,
 so that a Windows run stays one.
 

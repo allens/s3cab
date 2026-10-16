@@ -172,12 +172,4 @@ if (exits.length > 0) {
   );
 }
 
-handover(
-  root,
-  process.platform === "win32"
-    ? [
-        "install the toolchain: nothing comes as standard on Windows, and the brief\n" +
-          "    tells the session not to install one.",
-      ]
-    : [],
-);
+handover(root, []);

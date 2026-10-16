@@ -147,10 +147,10 @@ Snapshots are gzip ([ADR-0097](0097-gzip-snapshot-compression.md)), which every 
 stack reads; zstd, before it, was the one thing none could:
 
 - **Windows: C# on the .NET Framework that ships with Windows**, so **nothing is installed**.
-  `HttpClient`, `SHA256`/`HMACSHA256` and `GZipStream` are all in the in-box framework. A clean
-  room has to find a way to compile without installing a toolchain: the in-box `csc.exe`, which
-  is limited to C# 5, or `Add-Type` from Windows PowerShell 5.1. Expected traps include long
-  paths, which the .NET Framework needs an opt-in for, and the TLS defaults.
+  `HttpClient`, `SHA256`/`HMACSHA256` and `GZipStream` are all in the in-box framework. The
+  build names its compiler in `ENVIRONMENT.md`: the in-box `csc.exe`, which is limited to C# 5,
+  or `Add-Type` from Windows PowerShell 5.1, even where something newer is installed. Expected
+  traps include long paths, which the .NET Framework needs an opt-in for, and the TLS defaults.
 - **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (`URLSession`),
   SHA-256/HMAC (CryptoKit) and zlib (Compression, raw deflate behind gzip's 10-byte header) come
   with the OS, so **nothing comes from Homebrew**.
