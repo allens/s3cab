@@ -72,8 +72,16 @@ export const repoRoot = realpathSync.native(
  * One client for every script's own requests, through the standard credential chain. It
  * follows a bucket into its own region: at home the restore bucket is CI's, in another
  * region from the personal buckets AWS_REGION names.
+ *
+ * No keep-alive: `cli`'s spawnSync blocks the event loop, so a pooled socket never hears
+ * S3 close it (after ~5 s idle) and the next request writes to it dead — on Windows an
+ * ECONNABORTED the SDK doesn't retry. Not an idle-socket timeout like s3cab's own
+ * (ADR-0091): its timer can't fire while the loop is blocked either.
  */
-export const client = new S3Client({ followRegionRedirects: true });
+export const client = new S3Client({
+  followRegionRedirects: true,
+  requestHandler: { httpsAgent: { keepAlive: false } },
+});
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
