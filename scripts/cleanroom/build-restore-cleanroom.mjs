@@ -31,17 +31,13 @@ import {
   cli,
   client,
   handover,
+  listAll,
   readCommandLine,
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
 import { count, files, goldenSets } from "./fixtures.mjs";
-import {
-  missingSets,
-  seedHash,
-  seededHash,
-  snapshotsBySet,
-} from "./restore-bucket.mjs";
+import { missingSets, seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",
@@ -99,12 +95,6 @@ if (!seeded || missing.length > 0) {
 
 writeCleanroom(cleanroom, "restore", bucket, credentials);
 
-// Every snapshot in the bucket, one tree each, so a clean-room run can tell "I found
-// nothing" from "I never looked". Enumerated from the bucket rather than from s3cab's
-// local history: the damaged `faults` snapshot was published straight to S3 and exists
-// nowhere else. Listed before the runs below, never between them (`cli`'s TRAP).
-const snapshots = await snapshotsBySet(bucket);
-
 // `reattach` is how a second machine gets a set to restore from, and this sandbox's
 // `.s3cab/` starts empty. Every platform's sets: a restorer restores what each backed up.
 for (const name of goldenSets) {
@@ -112,11 +102,20 @@ for (const name of goldenSets) {
   mustRun(["reattach", name, "--bucket", bucket]);
 }
 
+// Every snapshot in the bucket, one tree each, so a clean-room run can tell "I found
+// nothing" from "I never looked". Enumerated from the bucket rather than from s3cab's
+// local history: the damaged `faults` snapshot was published straight to S3 and exists
+// nowhere else.
 mkdirSync(reference, { recursive: true });
 /** @type {string[]} */
 const exits = [];
 for (const name of goldenSets) {
-  for (const snapshot of snapshots.get(name) ?? []) {
+  const prefix = `snapshots/${name}/`;
+  const keys = await listAll(bucket, prefix);
+  const snapshots = keys
+    .filter((key) => key.endsWith(".tsv.gz"))
+    .map((key) => key.slice(prefix.length, -".tsv.gz".length));
+  for (const snapshot of snapshots) {
     const target = join(reference, `${name}-${snapshot}`);
     console.log(`restore ${name} ${snapshot}`);
     const result = run([
