@@ -39,6 +39,7 @@ jobs:
   # lint job checks — lint + format + typecheck — plus the test suite, single-OS.
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -67,6 +68,7 @@ jobs:
   build:
     needs: verify
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     permissions:
       id-token: write # mint the OIDC token for the gated real-S3 round-trip's assume-role
       contents: read
@@ -96,11 +98,11 @@ jobs:
               bin: s3cab,
               archive: s3cab-linux-arm64.tar.gz,
             }
-          # macos-14 is Apple Silicon (arm64). We label the target `macos` rather than
+          # macos-15 is Apple Silicon (arm64). We label the target `macos` rather than
           # the platform's `darwin` — friendlier on a download (the e2e test maps back).
           - {
               target: macos-arm64,
-              runner: macos-14,
+              runner: macos-15,
               bin: s3cab,
               archive: s3cab-macos-arm64.tar.gz,
             }
@@ -124,8 +126,8 @@ jobs:
 
       # Ad-hoc codesign so the binary launches on Apple Silicon (which refuses
       # unsigned binaries). NOTE: ad-hoc signing is enough to RUN, but not to
-      # distribute past Gatekeeper — that needs a Developer ID cert + notarization
-      # (set up later via secrets; see CLAUDE.md known gaps).
+      # distribute past Gatekeeper — that needs a Developer ID cert + notarization,
+      # skipped on purpose (docs/adr/0016-native-executable-build.md, "Distribution").
       - name: Codesign (macOS, ad-hoc)
         if: runner.os == 'macOS'
         run: codesign --force --sign - "dist/${{ matrix.bin }}"
@@ -155,7 +157,7 @@ jobs:
         if: >-
           vars.S3CAB_TEST_BUCKET_INTEGRATION != '' && (github.ref == 'refs/heads/main' ||
           startsWith(github.ref, 'refs/tags/v'))
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
@@ -238,6 +240,7 @@ jobs:
   bundle:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -259,6 +262,7 @@ jobs:
     needs: [build, bundle]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write # create the release + upload assets
     steps:
@@ -278,7 +282,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_name }}"
+          tag="$GITHUB_REF_NAME" # the default env var, not `${{ }}` into the script
           # Mark pre-1.0 (v0.x) or semver-prerelease (v1.2.3-alpha.1) tags as prerelease
           # so they don't show as "Latest" in the Releases UI.
           prerelease=
@@ -290,12 +294,14 @@ jobs:
             --generate-notes \
             $prerelease
 
-  # Publish the npm package (source, not the binary — see CLAUDE.md "npm package").
-  # Runs in parallel with `release`, both gated on a v* tag and on `build` passing.
+  # Publish the npm package: the source tree, not a bundle or binary (fresh-deps.yml's
+  # header is the case for shipping source). Runs in parallel with `release`, both
+  # gated on a v* tag and on `build` passing.
   publish-npm:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write # OIDC, so `npm publish --provenance` can attest the build
@@ -320,9 +326,10 @@ jobs:
       # trusted publisher configured for the `s3cab` package on npmjs.com
       # (publisher: GitHub Actions, repo allens/s3cab, workflow release.yml).
       # OIDC trusted publishing needs npm >= 11.5.1, so refresh npm first (Node's
-      # bundled npm may predate it). Provenance is generated automatically.
+      # bundled npm may predate it) — within the major, so a publish never runs an npm
+      # major nothing here has tried. Provenance is generated automatically.
       - name: Update npm (for OIDC trusted publishing)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       # No build/prepack: we publish the source tree (the `files` allowlist). The
       # dist-tag deliberately differs from the GitHub-release prerelease rule —

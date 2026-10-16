@@ -54,6 +54,12 @@ jobs:
   fresh-deps:
     name: fresh deps
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Shares test-s3cab-ci-integration with ci.yml's s3-integration job, whose comment
+    # explains the same-minute deletion-record collision this group prevents.
+    concurrency:
+      group: s3-integration
+      cancel-in-progress: false
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
       contents: read
@@ -84,12 +90,11 @@ jobs:
       - run: npm test
 
       # A scheduled run's OIDC subject is `repo:<owner>/<repo>:ref:refs/heads/main`,
-      # NOT the `:pull_request` subject ci.yml's s3-integration job uses.
-      # ci/aws/trust-policy.json already allows both, so no AWS change was needed —
-      # but nothing else assumes the role from a branch ref (releases match the tag
-      # statement), so this run is the first to exercise it. If the assume-role step
-      # fails, check the live policy against that file before looking anywhere else.
-      - uses: aws-actions/configure-aws-credentials@v6
+      # NOT the `:pull_request` subject ci.yml's s3-integration job uses;
+      # ci/aws/trust-policy.json allows both (nightly.yml and cleanroom-seed.yml present
+      # the same subject). If the assume-role step fails, check the live policy against
+      # that file before looking anywhere else.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
