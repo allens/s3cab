@@ -497,10 +497,9 @@ fixtures, or missing any platform's sets, which is the cue to reseed. It
 follows the bucket to its own region and names that one in `ENVIRONMENT.md`,
 whatever `AWS_REGION` says: the restore bucket is CI's, in `us-east-1`. The same command
 on every OS, and it has to run on the OS under test: s3cab's Windows restore
-refuses the case-colliding pair, can't create the control-character names, and
-sets mtimes exactly where Linux carries a sub-microsecond error — every one a
-difference `compare.py` would charge a restorer for, against a reference built
-elsewhere.
+refuses the case-colliding pair and can't create the control-character names —
+each a difference `compare.py` would charge a restorer for, against a reference
+built elsewhere.
 
 `reference\` holds what **s3cab itself restored**, not the fixtures. A correct
 restore legitimately differs from its source — no empty directories, no
@@ -526,16 +525,21 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
 ## compare.py
 
 The differential verifier: walks two restored trees with **raw byte paths** and
-compares the path set, per-file SHA-256, and `st_mtime_ns`. Preserved because
-run 1's equivalent wasn't — that harness "was a session artifact and is not
-preserved", which is half the reason its findings could never be re-tested.
+compares the path set, per-file SHA-256, and mtimes to the millisecond. Preserved
+because run 1's equivalent wasn't — that harness "was a session artifact and is
+not preserved", which is half the reason its findings could never be re-tested.
 
 Three details are the whole point. Byte paths, because a comparator that decodes
 to `str` can normalise NFC/NFD apart or choke on the `\v`, `\f` and U+0085
-fixtures. `st_mtime_ns`, because millisecond comparison would have hidden the
-sub-millisecond defect that is run 2's finding 2. And directory mtimes reported
-separately, since both tools create directories implicitly at restore time, so
-those reflect the run rather than the format.
+fixtures. Mtimes charged at the millisecond and only counted below it (`N below
+1 ms` in the summary line), because the reference is s3cab's own restore, and
+s3cab is the imprecise side: it sets times through float seconds, which ext4
+records tens of ns off — run 2's finding 2, resolved in
+[proposals/bugs.md](../../proposals/bugs.md) by promising the millisecond and
+no finer ([guide/format.md](../../guide/format.md)). Charging it failed every
+tree of an exact Linux restorer; dropping it would hide what the count keeps.
+And directory mtimes reported separately, since both tools create directories
+implicitly at restore time, so those reflect the run rather than the format.
 
 **To be rewritten in JavaScript as `compare-restore.mjs`** when the CI matrix is
 built, beside the backup checker above. It is Python only because run 2's
