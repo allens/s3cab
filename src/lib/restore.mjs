@@ -17,32 +17,35 @@ const putsColonInName = (dest) =>
   foldsCase(dest) && dest.slice(win32.parse(dest).root.length).includes(":");
 
 /**
- * One target's step. `skip` and `refuse` leave `dest` alone; `write` restores
- * content `hash` to it and gives it the snapshot's `mtime`, as stored. A
- * `refuse` for a path with no destination at all names the snapshot path.
+ * One target's step. `skip`, `refuse` and `block` leave `dest` alone; `write`
+ * restores content `hash` to it and gives it the snapshot's `mtime`, as stored.
+ * A `refuse` for a path with no destination at all names the snapshot path.
  * @typedef {{ action: "skip", dest: string }
  *   | { action: "refuse", dest: string }
+ *   | { action: "block", dest: string }
  *   | { action: "write", dest: string, hash: string, mtime: string }} RestoreStep
  */
 
 /**
  * Decide what to do with each restore target, without touching the disk or the
- * network. A target whose destination already exists is `skip`ped unless
- * `overwrite`; one with no destination (`reroot`'s `undefined`), or whose name
- * the destination can't hold as a file (`putsColonInName`), is `refuse`d; every
- * other target is a `write`.
+ * network. A target whose destination is already a folder is `block`ed, since
+ * no `overwrite` replaces one, and before a download it couldn't land; one
+ * whose destination exists otherwise is `skip`ped unless `overwrite`; one with
+ * no destination (`reroot`'s `undefined`), or whose name the destination can't
+ * hold as a file (`putsColonInName`), is `refuse`d; every other target is a
+ * `write`.
  *
  * Not where identical content is deduplicated, because only the restore loop
  * knows where content actually landed: a write can fail without ending the run
  * (ADR-0086).
  *
- * Pure and order-preserving, like `selectEntries`/`reroot`: `exists` is
+ * Pure and order-preserving, like `selectEntries`/`reroot`: `stat` is
  * injected so this is unit-testable without touching the filesystem.
  * @param {SnapshotEntries} entries - Source path → `{ hash, mtime }`
  * @param {string[]} targets - Snapshot source paths to restore, in order
  * @param {(source: string) => string | undefined} destFor - Maps a source path to its destination
  * @param {object} options
- * @param {(dest: string) => boolean} options.exists - Whether `dest` already exists
+ * @param {(dest: string) => { isDirectory(): boolean } | undefined} options.stat - What is at `dest` already, or `undefined` for nothing
  * @param {boolean} [options.overwrite] - Overwrite an existing destination instead of skipping it
  * @returns {RestoreStep[]} One step per target, in input order
  */
@@ -50,7 +53,7 @@ export function planRestore(
   entries,
   targets,
   destFor,
-  { exists, overwrite = false },
+  { stat, overwrite = false },
 ) {
   /** @type {RestoreStep[]} */
   const plan = [];
@@ -58,9 +61,16 @@ export function planRestore(
     const dest = destFor(source);
     if (dest === undefined) {
       plan.push({ dest: source, action: "refuse" });
-    } else if (putsColonInName(dest)) {
+      continue;
+    }
+    if (putsColonInName(dest)) {
       plan.push({ dest, action: "refuse" });
-    } else if (exists(dest) && !overwrite) {
+      continue;
+    }
+    const there = stat(dest);
+    if (there?.isDirectory()) {
+      plan.push({ dest, action: "block" });
+    } else if (there && !overwrite) {
       plan.push({ dest, action: "skip" });
     } else {
       const { hash, mtime } = /** @type {Props} */ (entries.get(source));

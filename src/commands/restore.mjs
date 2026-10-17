@@ -1,7 +1,14 @@
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
-import { copyFile, utimes } from "node:fs/promises";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { platform, stderr } from "node:process";
+import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
@@ -57,9 +64,11 @@ import { shellCommand } from "../lib/style.mjs";
  * are refused before anything is written, since NTFS would misread them rather
  * than refuse them — see `planRestore`.) So is a path whose snapshot row
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
- * Only those four degrade; any
- * other failure (network, credentials, a full disk) still aborts, since it is
- * wrong about the *run*, not about one file.
+ * So is a file that something already on disk is in the way of — a file where
+ * one of its folders should be, or a folder where it should be — reported
+ * `blocked`, exit 1. Nothing else about one file degrades: any other failure
+ * (network, credentials, a full disk) still aborts, since it is wrong about
+ * the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -90,6 +99,7 @@ import { shellCommand } from "../lib/style.mjs";
  * @property {string[]} missing - Paths not restored because their content is absent with no explanation
  * @property {string[]} corrupt - Paths not restored because their stored content is damaged (it doesn't hash to its key)
  * @property {string[]} refused - Paths not restored because this filesystem won't create a file by that name (a character it forbids, or longer than it accepts)
+ * @property {string[]} blocked - Paths not restored because something already on disk is in the way: a file where one of its folders should be, or a folder where it should be
  * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
@@ -165,7 +175,10 @@ export async function restore(paths = [], options = {}) {
   }
 
   const plan = planRestore(entries, targets, destFor, {
-    exists: existsSync,
+    // The entry itself, not a link's target: a rename replaces a link to a
+    // folder like any file (ext4; NTFS refuses a directory link, and
+    // `isInTheWay` says so).
+    stat: (dest) => statOrNothing(dest, lstatSync),
     overwrite: options.overwrite,
   });
 
@@ -181,6 +194,8 @@ export async function restore(paths = [], options = {}) {
   const corrupt = [];
   /** @type {string[]} */
   const refused = [];
+  /** @type {string[]} */
+  const blocked = [];
   // Collision detection keys on the filesystem's own equivalence, never on
   // string folding (ADR-0086): a manifest written elsewhere can list two paths
   // this volume cannot tell apart — letter case (Windows, macOS default), or
@@ -189,18 +204,21 @@ export async function restore(paths = [], options = {}) {
   // file's canonical on-disk path is recorded, and a later target that already
   // *exists* (the volume's own answer, whatever its folding rules) and
   // canonicalizes into that record is a collision — reported, never written.
-  // The per-file `realpathSync.native` is deliberate, not the walk-hot-path
-  // mistake: this loop is download-bound, and no pure-string function can say
-  // whether two names are one file — trusting strings is the bug this closes.
+  // A link at the target is no collision, wherever it points: the write's
+  // rename replaces the link, never the file behind it. The per-file
+  // `realpathSync.native` is deliberate, not the walk-hot-path mistake: this
+  // loop is download-bound, and no pure-string function can say whether two
+  // names are one file — trusting strings is the bug this closes.
   /** @type {Set<string>} */
   const writtenCanonical = new Set();
   // What became of each content hash this run has tried to write, shared by
   // every path that holds it. Once content lands, every later path holding it
   // is copied from there rather than downloaded again (#1). Content found
   // absent or corrupt is the same casualty for every later path, so it isn't
-  // tried again. A collision or a refused name is the path's failure, not the
-  // content's, so it records nothing and the next path holding that content
-  // fetches it; nor does a skipped file, whose content is unverified.
+  // tried again. A collision, a refused name or a blocked path is the path's
+  // failure, not the content's, so it records nothing and the next path holding
+  // that content fetches it; nor does a skipped file, whose content is
+  // unverified.
   /**
    * @type {Map<string,
    *   | { kind: "landed", dest: string }
@@ -251,28 +269,30 @@ export async function restore(paths = [], options = {}) {
       skipped.push(step.dest);
     } else if (step.action === "refuse") {
       refused.push(step.dest);
+    } else if (step.action === "block") {
+      blocked.push(step.dest);
     } else if (fate?.kind === "absent") {
       reportAbsent(fate.record, step.dest);
     } else if (fate?.kind === "corrupt") {
       corrupt.push(step.dest);
     } else if (
       existsSync(step.dest) &&
+      !lstatSync(step.dest).isSymbolicLink() &&
       writtenCanonical.has(realpathSync.native(step.dest))
     ) {
       collided.push(step.dest);
     } else {
-      /** @type {"found" | "absent" | "corrupt" | "refused"} */
+      /** @type {"found" | "absent" | "corrupt" | "refused" | "blocked"} */
       let outcome = "found";
       const from = fate?.dest;
       try {
         mkdirSync(dirname(step.dest), { recursive: true });
         if (from !== undefined) {
           try {
-            await copyFile(from, step.dest);
+            await copyFileAtomic(from, step.dest);
           } catch (error) {
-            // A failed copy names its *source* in `path` whichever side
-            // failed, so a refused name and a source gone since it was written
-            // are the same ENOENT. Whether the source is still there tells
+            // A refused name and a source gone since it was written are the
+            // same ENOENT. Whether the source is still there tells
             // them apart: if it is, the name was refused, and the catch below
             // says so; only a vanished source is worth a fetch, which would
             // otherwise download the whole object just to be refused.
@@ -289,15 +309,17 @@ export async function restore(paths = [], options = {}) {
         // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there"),
         // corrupt content (writeFileAtomic's digest check), or a name this
         // filesystem won't create — which can surface from the directory, the
-        // download or a dedup copy. Anything else — a network or credentials
-        // failure, a full disk — is wrong about the whole run, so it
-        // propagates and aborts.
+        // download or a dedup copy — or something on disk in the way. Anything
+        // else — a network or credentials failure, a full disk — is wrong
+        // about the whole run, so it propagates and aborts.
         if (error instanceof IntegrityError) {
           outcome = "corrupt";
         } else if (isObjectNotFound(error)) {
           outcome = "absent";
         } else if (isRefusedName(error)) {
           outcome = "refused";
+        } else if (isInTheWay(error, step.dest)) {
+          outcome = "blocked";
         } else {
           throw error;
         }
@@ -324,6 +346,8 @@ export async function restore(paths = [], options = {}) {
       } else if (outcome === "corrupt") {
         fateByHash.set(step.hash, { kind: "corrupt" });
         corrupt.push(step.dest);
+      } else if (outcome === "blocked") {
+        blocked.push(step.dest);
       } else {
         refused.push(step.dest);
       }
@@ -340,17 +364,18 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Unexplained absence, corrupt content, a name collision or a refused name →
-  // exit 1, the same way `verify` reports findings: set process.exitCode rather
-  // than throw, so the run's report — including every file that *was* restored
-  // — still prints. Deliberately-deleted skips alone leave exit 0 (ADR-0064):
-  // the record proves the gap is intended, and a scripted restore should not
-  // alarm on a decision its owner already made.
+  // Unexplained absence, corrupt content, a name collision, a refused name or a
+  // blocked path → exit 1, the same way `verify` reports findings: set
+  // process.exitCode rather than throw, so the run's report — including every
+  // file that *was* restored — still prints. Deliberately-deleted skips alone
+  // leave exit 0 (ADR-0064): the record proves the gap is intended, and a
+  // scripted restore should not alarm on a decision its owner already made.
   if (
     missing.length ||
     corrupt.length ||
     collided.length ||
     refused.length ||
+    blocked.length ||
     invalid.length
   ) {
     process.exitCode = 1;
@@ -366,6 +391,7 @@ export async function restore(paths = [], options = {}) {
     missing,
     corrupt,
     refused,
+    blocked,
     invalid,
     deleted,
   };
@@ -387,4 +413,42 @@ function isRefusedName(error) {
     typeof errno?.path === "string" &&
     ["ENOENT", "ENAMETOOLONG"].includes(errno.code ?? "")
   );
+}
+
+/**
+ * Whether something already on disk is in the way of `dest`. Measured on NTFS
+ * and ext4: a file where one of its folders should be is `EEXIST` from the
+ * `mkdir` when it is the file's own folder, `ENOTDIR` when it is one further
+ * up, on both; a folder where the file should be is `EPERM` on NTFS and
+ * `EISDIR` on ext4, named for the *source* of the rename either way, and so
+ * on NTFS is a directory link or junction, even one whose folder is gone.
+ * `EPERM` is also plain permission denied, so that answer counts only when
+ * `dest` really is a folder, or a link.
+ * @param {unknown} error
+ * @param {string} dest
+ */
+function isInTheWay(error, dest) {
+  const code = /** @type {NodeJS.ErrnoException | undefined} */ (error)?.code;
+  return (
+    code === "EEXIST" ||
+    code === "ENOTDIR" ||
+    ((code === "EISDIR" || code === "EPERM") &&
+      (statOrNothing(dest)?.isDirectory() === true ||
+        statOrNothing(dest, lstatSync)?.isSymbolicLink() === true))
+  );
+}
+
+/**
+ * What is at `path`, or `undefined` for nothing — or for a `stat` that fails,
+ * as `existsSync` reads one, so a check never replaces the error it was asked
+ * about with its own.
+ * @param {string} path
+ * @param {typeof statSync} [stat] - `lstatSync` for the entry itself
+ */
+function statOrNothing(path, stat = statSync) {
+  try {
+    return stat(path, { throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
 }

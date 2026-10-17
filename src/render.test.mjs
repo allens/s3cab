@@ -1528,6 +1528,7 @@ const restoreResult = (over) => ({
   missing: [],
   corrupt: [],
   refused: [],
+  blocked: [],
   invalid: [],
   deleted: [],
   ...over,
@@ -1665,6 +1666,27 @@ describe("renderRestore", () => {
     );
     assert.doesNotMatch(text, /[\f\u0085]/);
     // The constructive fix (ADR-0030): somewhere the names can exist.
+    assert.match(
+      text,
+      /\n {2}s3cab restore --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("names every file something on disk was in the way of, and how to get it anyway", () => {
+    const text = renderRestore(
+      restoreResult({ blocked: ["/home/me/a", "/home/me/b/c.txt"] }),
+    );
+    assert.match(
+      text,
+      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.ok(
+      text.includes(
+        "\nCould not restore 2 files — something already on this disk is in " +
+          "the way (a file where a folder should be, or a folder where the " +
+          "file should be):\n  /home/me/a\n  /home/me/b/c.txt\n",
+      ),
+    );
     assert.match(
       text,
       /\n {2}s3cab restore --set photos <path> --output <directory>$/,

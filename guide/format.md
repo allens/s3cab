@@ -572,15 +572,16 @@ in only one row included, since a case-sensitive filesystem really can hold both
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
-claim `…\trees\edgeX\file.txt`. Split both the directory and the path into segments and drop
-empty ones, which is what makes the trailing separator, or a doubled one, harmless. Which
-separators count depends on the path, not the machine reading it: a Windows path splits on
-`/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary character in a
-filename — so a Windows snapshot reads correctly on a POSIX machine, and the reverse. Where
-several directories match, the **longest wins**, so a member directory nested inside another
-takes precedence over its parent. A path under no `DIR` at all has nowhere to land, so its
-row is [refused](#valid-and-invalid-files) rather than guessed at; only a hand-edited
-snapshot can hold one.
+claim `…\trees\edgeX\file.txt`. Ignore the separators a `DIR` ends with, then split both the
+directory and the path into segments: a valid path has no empty segment, so a `DIR` with a
+doubled separator anywhere after its root matches nothing, and every path under it is
+refused. Which separators count depends on the path, not the machine reading it: a Windows
+path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary
+character in a filename — so a Windows snapshot reads correctly on a POSIX machine, and the
+reverse. Where several directories match, the **longest wins**, so a member directory nested
+inside another takes precedence over its parent. A path under no `DIR` at all has nowhere to
+land, so its row is [refused](#valid-and-invalid-files) rather than guessed at; only a
+hand-edited snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
@@ -647,8 +648,14 @@ as much as a snapshot:
 
 - UTF-8 with LF endings, the heading row first and the `.` last;
 - only types this version knows, other than `@` and `#` ones;
-- every per-path row's path absolute, with no `.` or `..` segment and no tab, CR or LF, under
-  a `@SET DIR`;
+- every per-path row's path absolute, with no tab, CR or LF;
+- every segment of a path past its root (`/`, `C:\`, or a share's `\\`) a name: not empty, so
+  no trailing or doubled separator, and not `.` or `..`;
+- every per-path row's path strictly inside a `@SET DIR`: under one, and never any `DIR`
+  itself, a nested one included;
+- no file row's path running through another's as a folder, paths compared exactly:
+  `/home/me/a` and `/home/me/a/b.txt` can't both be files, since a restore can't make `a`
+  both;
 - each path in at most one per-path row, whatever its type, paths compared exactly;
 - exactly one `@S3CAB SPEC`, one `@CLIENT NAME` and one `@CLIENT VERSION`;
 - each file row's hash 64 lowercase hex characters, its size decimal, its time the
@@ -661,16 +668,17 @@ of three things:
   end with the `.`, has rows after the `.`, or holds an unknown type starting with neither `@`
   nor `#`. Each means the file isn't what it claims, was cut short, or comes from a newer
   s3cab, and restoring part of it would pass for a full restore.
-- **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, a path
-  that isn't absolute, a `.` or `..` segment, a path under no `@SET DIR`, or a path in two
-  file rows. **Both of those rows are refused, so no reader guesses**: a first-wins and a
-  last-wins reader would restore different bytes from one file, and neither would report
-  anything wrong. A `..` segment matters most, since a hand-added one would walk a naive
-  restorer out of its output directory. A `#` row repeating a file row's path also makes
-  the file invalid, but changes nothing a restore writes, so a reader that skips `#` rows
-  needn't check for it. This is the same
-  ["restore everything you can, then report"](#reading) that governs a
-  missing object: rows are independent lines, so one can't damage its neighbours.
+- **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, or a
+  file row whose path breaks one of the path rules above. Where a rule is about two file rows
+  (one path in both, or one running through the other), **both rows are refused, so no
+  reader guesses**: a first-wins and a last-wins reader would restore different bytes from
+  one file, and neither would report anything wrong. A row refused for any other reason
+  blocks nothing, since it lands nowhere. A `..` segment matters most, since a hand-added one
+  would walk a naive restorer out of its output directory. A `#` row repeating a file row's
+  path also makes the file invalid, but changes nothing a restore writes, so a reader that
+  skips `#` rows needn't check for it. This is the same
+  ["restore everything you can, then report"](#reading) that governs a missing object: a bad
+  row costs its own path, or the two paths in conflict, and nothing else.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count, or an `@S3CAB SPEC`, `@CLIENT NAME` or
   `@CLIENT VERSION` row missing or repeated.
