@@ -19,7 +19,7 @@ const inside = (child, parent) => {
   );
 };
 // What ends a path in a command's text.
-const edge = "\\s\"'`;|&(),=";
+const edge = "\\s\"'`;|&(),=<>";
 const watched = [homedir(), tmpdir(), repoRoot];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
@@ -75,7 +75,7 @@ const named = new RegExp(
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
     // A bare `~` followed by a regex or a quoted string is awk's or perl's match operator
     // (`$1 ~ /^@SET/`), not home.
-    String.raw`|(?<=^|[\s"'(=,])~(?=[\\/]|\s*($|[;&|)}])|\s+[^\s/"'])|\$(HOME|USERPROFILE)\b|\$\{HOME\}|\$\{?env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
+    String.raw`|(?<=^|[\s"'(=,<>])~(?=[\\/]|\s*($|[;&|)}])|\s+[^\s/"'])|\$(HOME|USERPROFILE)\b|\$\{HOME\}|\$\{?env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
 // The path the match is part of, not just the watched prefix: `$env:USERPROFILE\.dotnet`,
@@ -129,14 +129,12 @@ export function strayFinders(allowed) {
     `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`,
     "gi",
   );
-  // Nothing is cut from a command holding a `..` anywhere: what's left after the cut no
-  // longer names home (`~/s3cab.sandbox/../.aws`). Not a check of each path's own `..`,
-  // since quoting, escaped spaces and split arguments (`Join-Path ~/s3cab.sandbox ../..`)
-  // each hid a climb-out from one.
-  const climbs = new RegExp(
-    `(^|[\\\\/${edge}])\\.\\.(?=[\\\\/${edge}]|$)`,
-    "m",
-  );
+  // Nothing is cut from a command holding a `..` anywhere, escaped or quoted ones (`.\.`,
+  // `"."."`) included: what's left after the cut no longer names home
+  // (`~/s3cab.sandbox/../.aws`). Not a check of each path's own `..`, since quoting, escaped
+  // spaces, redirects (`>../x`) and split arguments (`Join-Path ~/s3cab.sandbox ../..`) each
+  // hid a climb-out from one. `...` isn't a climb.
+  const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
   return {
     /** @param {string} path */
     strayPath: (path) =>

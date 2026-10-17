@@ -51,6 +51,21 @@ test("a command holding `..` keeps the sandbox path it names, however it climbs"
       "Get-Content (Join-Path ~/s3cab.sandbox work/../../.aws/credentials)",
       "~/s3cab.sandbox",
     ],
+    ["cd ~/s3cab.sandbox; echo hi >../leak.txt", "~/s3cab.sandbox"],
+    [
+      "cd ~/s3cab.sandbox; cd..; Get-Content .aws/credentials",
+      "~/s3cab.sandbox",
+    ],
+    [
+      "Set-Location ~/s3cab.sandbox; Get-Content -Path:..\\.aws\\credentials",
+      "~/s3cab.sandbox",
+    ],
+    ["cat ~/s3cab.sandbox/{..,}/.aws/credentials", "~/s3cab.sandbox/{.."],
+    [
+      "cat ~/s3cab.sandbox/.\\./.aws/credentials",
+      "~/s3cab.sandbox/.\\./.aws/credentials",
+    ],
+    ['cat ~/s3cab.sandbox/"."./.aws/credentials', "~/s3cab.sandbox/"],
     // A false alarm, taken over a miss.
     ["cd ~/s3cab.sandbox/work\nls src/../lib", "~/s3cab.sandbox/work"],
   ])) {
@@ -85,6 +100,8 @@ test("a tilde is home, not as awk's operator", () => {
   assert.equal(strayCommand("find ~ -name '*.tsv'"), "~");
   assert.equal(strayCommand("Get-ChildItem ~ -Recurse"), "~");
   assert.equal(strayCommand("Set-Location ~\nls"), "~");
+  assert.equal(strayCommand("cat <~/.aws/credentials"), "~/.aws/credentials");
+  assert.equal(strayCommand("echo x >~/leak.txt"), "~/leak.txt");
   assert.equal(strayCommand("cd ~; cat .aws/credentials"), "~");
   assert.equal(strayCommand("(cd ~) ; ls"), "~");
   assert.equal(strayCommand("Get-ChildItem .\\a,~\\.aws"), "~\\.aws");

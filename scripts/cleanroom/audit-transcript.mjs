@@ -7,7 +7,8 @@
  * A stray is any of:
  * - a tool that took a path in the home folder, temp or the repo, outside the root and
  *   the session's own scratchpad and tool output;
- * - a shell command naming one of those, or running s3cab itself;
+ * - a shell command naming one of those, or running s3cab itself. The command is read as
+ *   text, so a path built while it runs (in a variable, from an encoded string) isn't caught;
  * - any web search or fetch: the brief forbids looking the tool up, and no role needs
  *   the web to do its work. From the shell that is a URL whose host isn't an S3
  *   endpoint, any mention of a host serving s3cab's source or docs, or `gh`. A curl to
