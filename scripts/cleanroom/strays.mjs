@@ -94,7 +94,7 @@ const wholePath = (text, match) => {
   }
   return text.slice(start, end);
 };
-// Wherever it follows a space or a separator, prose included (`so s3cab withholds too`): a
+// After a space, a separator, a quote or a slash, prose included (`so s3cab withholds too`): a
 // missed run voids the audit, and a false alarm costs a glance at the input printed beside
 // it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
 // Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
