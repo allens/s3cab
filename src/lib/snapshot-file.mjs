@@ -868,7 +868,7 @@ export async function parseCompressedSnapshotStream(
  * both are refused, so no reader guesses between them.
  * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the closing `.`, and drop a final line with no LF after it — a row torn mid-write can look perfectly well-formed, so only its LF vouches for it. Off everywhere else, because for a *snapshot* both are the damage the `.` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the closing `.`, and drop a final line with no LF after it, even one cut inside a character — a row torn mid-write can look perfectly well-formed, so only its LF vouches for it. Off everywhere else, because for a *snapshot* both are the damage the `.` exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
  * @returns {Promise<Snapshot>}
  * @throws {AssertionError} When the whole file is refused — truncation
  *   (ADR-0082) among the rest — which `isCorruptSnapshotError` classifies as
@@ -1089,18 +1089,25 @@ export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
  * stays in its line, where it refuses the row (ADR-0101). Bytes that aren't
  * UTF-8 refuse the file with the parser's AssertionError, so
  * `isCorruptSnapshotError` reads them as damage. The last piece is whatever
- * follows the final LF: "" when the stream ends with one.
+ * follows the final LF: "" when the stream ends with one. A stream that ends
+ * inside a character (a killed run's work file is cut wherever the OS stopped
+ * writing, between the bytes of an `é` as readily as between rows) ends that
+ * piece with U+FFFD instead. It has no LF, so the parser takes it as any cut
+ * line: a tolerant read drops it, a strict one refuses the file as truncated.
+ * Not "": a stray byte after a snapshot's closing `.` would then pass unseen.
  * @param {AsyncIterable<Uint8Array>} input
  * @returns {AsyncGenerator<string>}
  */
 async function* utf8Lines(input) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  /** @param {Uint8Array} [bytes] */
+  /** @param {Uint8Array} [bytes] - A chunk, or nothing for the flush at the end */
   const decode = (bytes) => {
     try {
       return bytes ? decoder.decode(bytes, { stream: true }) : decoder.decode();
     } catch {
-      return assert.fail("Not an s3cab snapshot: the file isn't UTF-8 text");
+      return bytes
+        ? assert.fail("Not an s3cab snapshot: the file isn't UTF-8 text")
+        : "�";
     }
   };
   let rest = "";

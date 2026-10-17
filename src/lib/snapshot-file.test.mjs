@@ -403,6 +403,49 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
   });
 
+  // A cut inside a character: the bytes of `é` are C3 A9, and the file stops after C3.
+  const cutInsideCharacter = Buffer.concat([
+    Buffer.from(
+      [
+        HEADING,
+        DIR,
+        fileRow(hashA, 12, "/home/me/a.txt"),
+        "-\tx\t1\tx\t/home/me/caf",
+      ].join("\n"),
+    ),
+    Buffer.from([0xc3]),
+  ]);
+
+  it("drops a last row cut inside a character", async () => {
+    const { entries } = await parseSnapshotStream(
+      Readable.from([cutInsideCharacter]),
+      { tolerant: true },
+    );
+
+    assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
+  });
+
+  it("refuses a snapshot cut inside a character as truncated, not as non-UTF-8", async () => {
+    await assert.rejects(
+      parseSnapshotStream(Readable.from([cutInsideCharacter])),
+      /Truncated snapshot/,
+    );
+  });
+
+  it("refuses a stray lead byte after a snapshot's closing line", async () => {
+    // What decoding the dangling byte to "" would let through.
+    const text = snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"));
+
+    await assert.rejects(
+      parseSnapshotStream(
+        Readable.from([
+          Buffer.concat([Buffer.from(text), Buffer.from([0xc3])]),
+        ]),
+      ),
+      /rows follow the closing/,
+    );
+  });
+
   it("keeps a work file's last row once its LF is written", async () => {
     // A gracefully parked file stops after a whole row and its LF, with no `.`.
     const text = [
