@@ -22,12 +22,7 @@ import {
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
-import {
-  foldsCase,
-  normalize,
-  pathMatcher,
-  preparePath,
-} from "./path-match.mjs";
+import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -868,9 +863,9 @@ export async function parseCompressedSnapshotStream(
  * doesn't open with the heading row, doesn't end with `.`, or holds a type
  * this version doesn't know that starts with neither `@` nor `#` — content a
  * restore would miss (ADR-0103). One path is refused, and the rest still read,
- * for a malformed `-` row, a path that isn't absolute, holds a tab, a CR or a
- * `.`/`..` segment, ends with a separator, is a `@SET DIR` itself or is under
- * no `@SET DIR`, and a path two such rows name:
+ * for a malformed `-` row, a path that isn't absolute, holds a tab or a CR,
+ * has an empty, `.` or `..` segment, or isn't strictly inside a `@SET DIR`,
+ * and a path two such rows name, or that one names as a folder of the other's:
  * both are refused, so no reader guesses between them.
  * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
@@ -1030,17 +1025,51 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   );
 
   // After the read, not per row: only a whole file says which `@SET DIR` rows
-  // there are. A path equal to a DIR passes `underDir`, but names the member
-  // folder itself, which a restore can't write a file over.
+  // and which other paths there are. The file rows must fit in one tree as
+  // files. So each lies strictly inside a DIR: its folder is, not the path
+  // itself, or a row naming the DIR would pass. Both passes judge a row by its
+  // folder, and a snapshot lists a folder's files together, so each answer is
+  // kept for the next row: without that, the passes cost a 100k-row read 20%
+  // (POSIX paths) to 40% (Windows) more; with it, nothing measurable.
   const underDir = pathMatcher(dirs) ?? (() => false);
-  const dirPaths = new Set(
-    dirs.map((dir) => normalize(dir).replace(/\/+$/, "")),
-  );
+  /** @param {string} path */
+  const folderOf = (path) => path.slice(0, -preparePath(path).base.length);
+  /** @type {string | undefined} */
+  let folder;
+  let inside = false;
   for (const path of entries.keys()) {
-    if (dirPaths.has(normalize(path))) {
-      refuse(path, "its path is one of the snapshot's @SET DIR rows");
-    } else if (!underDir(path)) {
-      refuse(path, "its path is under none of the snapshot's @SET DIR rows");
+    const here = folderOf(path);
+    if (here !== folder) {
+      folder = here;
+      inside = underDir(here);
+    }
+    if (!inside) {
+      refuse(
+        path,
+        "its path isn't inside any of the snapshot's @SET DIR folders",
+      );
+    }
+  }
+  // And no path left runs through another as a folder. Not the rows refused
+  // above: they land nowhere, so they block nothing. Paths compare exactly,
+  // like the repeated-path check: two spellings of one name are the
+  // destination's collision, not the file's.
+  const files = new Set(entries.keys());
+  folder = undefined;
+  /** @type {string | undefined} */
+  let blocker;
+  for (const path of files) {
+    const here = folderOf(path);
+    if (here !== folder) {
+      folder = here;
+      const separator = foldsCase(here) ? /[\\/]/g : /\//g;
+      blocker = [...here.matchAll(separator)]
+        .map(({ index }) => here.slice(0, index))
+        .find((above) => files.has(above));
+    }
+    if (blocker !== undefined) {
+      refuse(blocker, "another row's path runs through it as a folder");
+      refuse(path, "a folder in its path is another row's file");
     }
   }
   // Elsewhere a refused path is one with no row (ADR-0101): read like an
@@ -1086,12 +1115,13 @@ function pathFault(path) {
   if (path.includes("\t")) {
     return "its path holds a tab";
   }
-  const segments = preparePath(path).path.split("/");
-  if (segments.some((segment) => segment === "." || segment === "..")) {
-    return "its path has a . or .. segment";
-  }
-  if (segments.at(-1) === "") {
-    return "its path ends with a separator";
+  // Past its root (`/`, `C:/`, or a share's `//`), every segment names a file
+  // or folder: an empty one is a trailing or doubled separator.
+  const unified = preparePath(path).path;
+  const root = unified.startsWith("//") ? 2 : foldsCase(unified) ? 3 : 1;
+  const segments = unified.slice(root).split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) {
+    return "its path has an empty, . or .. segment";
   }
   return undefined;
 }
