@@ -113,6 +113,19 @@ The checker runs before the sandbox is destroyed, on the machine that built it:
 it reads the trees the clean room was handed, and takes s3cab's own snapshot of
 them there and then.
 
+**macOS runs in GitHub Actions**, a backup only for now
+([.github/workflows/cleanroom.yml](../../.github/workflows/cleanroom.yml)): one job
+builds, runs, checks and audits, then uploads the clean room with its transcript.
+The session signs in with the `CLAUDE_CODE_OAUTH_TOKEN` secret, from
+`claude setup-token`; mint one per batch of runs and revoke it after. The artifact
+is public, so download it as soon as the run ends, then delete it:
+
+```sh
+gh workflow run cleanroom.yml --ref main -f role=backup -f effort=low
+gh run download <run-id> --dir ~/s3cab.experiments/<date>-backup-macos-<model>-<effort>
+gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
+```
+
 **Every run is kept**, real or experiment, in `~/s3cab.experiments/`, one folder
 per run named for its date, role, platform, model and effort. What moves there is
 the clean room, minus its credentials, with the checker's and the audit's output
