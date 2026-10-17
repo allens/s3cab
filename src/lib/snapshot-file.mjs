@@ -22,7 +22,12 @@ import {
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
-import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
+import {
+  foldsCase,
+  normalize,
+  pathMatcher,
+  preparePath,
+} from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -864,7 +869,8 @@ export async function parseCompressedSnapshotStream(
  * this version doesn't know that starts with neither `@` nor `#` — content a
  * restore would miss (ADR-0103). One path is refused, and the rest still read,
  * for a malformed `-` row, a path that isn't absolute, holds a tab, a CR or a
- * `.`/`..` segment or is under no `@SET DIR`, and a path two such rows name:
+ * `.`/`..` segment, ends with a separator, is a `@SET DIR` itself or is under
+ * no `@SET DIR`, and a path two such rows name:
  * both are refused, so no reader guesses between them.
  * @param {AsyncIterable<Uint8Array>} input - A decompressed snapshot TSV stream
  * @param {object} [options]
@@ -1024,10 +1030,16 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   );
 
   // After the read, not per row: only a whole file says which `@SET DIR` rows
-  // there are.
+  // there are. A path equal to a DIR passes `underDir`, but names the member
+  // folder itself, which a restore can't write a file over.
   const underDir = pathMatcher(dirs) ?? (() => false);
+  const dirPaths = new Set(
+    dirs.map((dir) => normalize(dir).replace(/\/+$/, "")),
+  );
   for (const path of entries.keys()) {
-    if (!underDir(path)) {
+    if (dirPaths.has(normalize(path))) {
+      refuse(path, "its path is one of the snapshot's @SET DIR rows");
+    } else if (!underDir(path)) {
       refuse(path, "its path is under none of the snapshot's @SET DIR rows");
     }
   }
@@ -1077,6 +1089,9 @@ function pathFault(path) {
   const segments = preparePath(path).path.split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) {
     return "its path has a . or .. segment";
+  }
+  if (segments.at(-1) === "") {
+    return "its path ends with a separator";
   }
   return undefined;
 }

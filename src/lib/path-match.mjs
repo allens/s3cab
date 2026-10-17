@@ -86,7 +86,7 @@ export function preparePath(path) {
  * @param {string} p
  * @returns {string}
  */
-const normalize = (p) => {
+export const normalize = (p) => {
   const { path, foldCase } = preparePath(p);
   return foldCase ? path.toLowerCase() : path;
 };

@@ -662,10 +662,10 @@ of three things:
   nor `#`. Each means the file isn't what it claims, was cut short, or comes from a newer
   s3cab, and restoring part of it would pass for a full restore.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, a path
-  that isn't absolute, a `.` or `..` segment, a path under no `@SET DIR`, or a path in two
-  file rows. **Both of those rows are refused, so no reader guesses**: a first-wins and a
-  last-wins reader would restore different bytes from one file, and neither would report
-  anything wrong. A `..` segment matters most, since a hand-added one would walk a naive
+  that isn't absolute, a `.` or `..` segment, a path ending with a separator, a path that is
+  a `@SET DIR` itself or is under none, or a path in two file rows. **Both of those rows are
+  refused, so no reader guesses**: a first-wins and a last-wins reader would restore different
+  bytes from one file, and neither would report anything wrong. A `..` segment matters most, since a hand-added one would walk a naive
   restorer out of its output directory. A `#` row repeating a file row's path also makes
   the file invalid, but changes nothing a restore writes, so a reader that skips `#` rows
   needn't check for it. This is the same
