@@ -84,7 +84,7 @@ def main(mine: str, ref: str) -> int:
         problems.append(f"SYMLINKS present: mine={ml} ref={rl}")
     tag = os.path.basename(ref.rstrip('/'))
     if problems:
-        print(f"== {tag}: {len(problems)} difference(s)")
+        print(f"== {tag}: {len(problems)} difference(s); {below_ms} below 1 ms")
         for x in problems:
             print("   " + x)
         return 1

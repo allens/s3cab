@@ -4,7 +4,7 @@
  * why a move was flagged, or undefined.
  */
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
@@ -13,8 +13,13 @@ const fold = (path) => (windows ? path.toLowerCase() : path);
 /** @param {string} child @param {string} parent */
 const inside = (child, parent) => {
   const rel = relative(fold(parent), fold(child));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
 };
+// What ends a path in a command's text.
+const edge = "\\s\"'`;|&(),=";
 const watched = [homedir(), tmpdir(), repoRoot];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
@@ -43,39 +48,32 @@ const aliases = (path) => [
 const named = new RegExp(
   watched.map(spellings).join("|") +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
-    // A bare `~` is home only where its command ends (`cd ~`, `cd ~ && …`): one with an
-    // operand after it is awk's or perl's match operator (`$1 ~ /^@SET/`).
-    String.raw`|(^|[\s"'(=])~(?=[\\/]|\s*($|[;&|)]))|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
+    // A bare `~` followed by a regex or a quoted string is awk's or perl's match operator
+    // (`$1 ~ /^@SET/`), not home.
+    String.raw`|(?<=^|[\s"'(=])~(?=[\\/]|\s*$|\s+[^\s/"'])|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
 // The path the match is part of, not just the watched prefix: `$env:USERPROFILE\.dotnet`,
 // not `$env:USERPROFILE`. A path with a space in it is cut at the space.
 /** @param {string} text @param {RegExpMatchArray} match */
 const wholePath = (text, match) => {
-  const edge = /[\s"'`;|&(),=]/;
+  const ends = new RegExp(`[${edge}]`);
   let start = match.index ?? 0;
-  // The tilde alternative matches its leading separator too.
-  while (edge.test(text[start] ?? "")) {
-    start++;
-  }
-  let end = (match.index ?? 0) + match[0].length;
-  while (start > 0 && !edge.test(text[start - 1] ?? "")) {
+  let end = start + match[0].length;
+  while (start > 0 && !ends.test(text[start - 1] ?? "")) {
     start--;
   }
-  while (end < text.length && !edge.test(text[end] ?? "")) {
+  while (end < text.length && !ends.test(text[end] ?? "")) {
     end++;
   }
   return text.slice(start, end);
 };
-// Only in command position, after a line start or a separator, since sessions write `s3cab`
-// in prose (`so s3cab withholds too`) and in regex filters (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
-// Heredoc bodies are prose, so they're cut first. Case-insensitive, since Windows runs `S3CAB`
-// too. `@` admits a version (`npm view s3cab@latest`).
+// Wherever it follows a space or a separator, prose included (`so s3cab withholds too`): a
+// missed run voids the audit, and a false alarm costs a glance at the input printed beside
+// it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
+// Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(^|[;&|(`])\s*((npx|pnpx|bunx|node)\s+|npm\s+\w+\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&@])/im;
-// A bash heredoc to its closing word, or a PowerShell here-string to its closing `'@`/`"@`.
-const heredocs =
-  /<<-?\s*(['"]?)(\w+)\1.*\n[\s\S]*?^\s*\2\s*$|@(['"])\s*\n[\s\S]*?^\3@/gm;
+  /(?<=^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&@])/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -87,7 +85,7 @@ const sourceHosts =
 // Keyed on the subcommand, so a variable named `gh` isn't one. Not `git`: a clone from the
 // web names its URL, and one between local folders isn't the web.
 const runsGh =
-  /(^|[\s;&|(`])gh(\.exe)?\s+(api|repo|browse|gist|release|search|pr|issue|run|workflow)\b/im;
+  /(?<=^|[\s;&|(`])gh(\.exe)?\s+(api|repo|browse|gist|release|search|pr|issue|run|workflow)\b/im;
 /** @param {string} command */
 const reachesWeb = (command) => {
   const rest = command.replaceAll(formatUrl, "");
@@ -96,14 +94,17 @@ const reachesWeb = (command) => {
       .map(([, host = ""]) => host)
       .find((host) => host !== "" && !s3Host.test(host)) ??
     rest.match(sourceHosts)?.[0] ??
-    rest.match(runsGh)?.[0].replace(/^[\s;&|(`]+/, "")
+    rest.match(runsGh)?.[0]
   );
 };
 
 /** @param {string[]} allowed the places the session may use: the root and its own scratch */
 export function strayFinders(allowed) {
+  // Cut only a whole allowed path, and not one that climbs back out
+  // (`~/s3cab.sandbox/../.aws`), since what's left after the cut no longer names home.
   const allowedSpelled = new RegExp(
-    allowed.flatMap(aliases).map(spellings).join("|"),
+    `(${allowed.flatMap(aliases).map(spellings).join("|")})` +
+      `(?=[\\\\/${edge}]|$)(?![^${edge}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`,
     "gi",
   );
   return {
@@ -120,10 +121,7 @@ export function strayFinders(allowed) {
       const place = rest.match(named);
       return (
         (place && wholePath(rest, place)) ||
-        command
-          .replace(heredocs, "")
-          .match(runsS3cab)?.[0]
-          .replace(/^[\s;&|(`]+/, "") ||
+        command.match(runsS3cab)?.[0] ||
         reachesWeb(command)
       );
     },

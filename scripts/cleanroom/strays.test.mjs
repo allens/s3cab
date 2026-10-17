@@ -18,7 +18,19 @@ test("a command is reported as the path in it that left the sandbox", () => {
 
 test("a path is a stray in the home folder but not in the sandbox", () => {
   assert.equal(strayPath(join(homedir(), ".dotnet", "x")), true);
+  assert.equal(strayPath(join(homedir(), "..notes", "x")), true);
   assert.equal(strayPath(join(root, "cleanroom", "x")), false);
+});
+
+test("a command naming the sandbox is a stray only once it leaves it", () => {
+  assert.equal(strayCommand("ls ~/s3cab.sandbox/cleanroom"), undefined);
+  for (const path of [
+    "~/s3cab.sandbox/../.aws/credentials",
+    "$env:USERPROFILE\\s3cab.sandbox\\..\\.s3cab\\sets\\x",
+    "~/s3cab.sandbox.old/cleanroom",
+  ]) {
+    assert.equal(strayCommand(`cat ${path}`), path);
+  }
 });
 
 test("a command reaching the web is reported as its host", () => {
@@ -32,9 +44,12 @@ test("a command reaching the web is reported as its host", () => {
   );
 });
 
-test("a tilde is home at the end of a command or before a slash, not as awk's operator", () => {
+test("a tilde is home, not as awk's operator", () => {
   assert.equal(strayCommand("ls ~/foo"), "~/foo");
   assert.equal(strayCommand("cd ~ && ls"), "~");
+  assert.equal(strayCommand("find ~ -name '*.tsv'"), "~");
+  assert.equal(strayCommand("Get-ChildItem ~ -Recurse"), "~");
+  assert.equal(strayCommand("Set-Location ~\nls"), "~");
   assert.equal(
     strayCommand(
       "aws s3 cp s3://b/k - --quiet | zcat | awk -F'\\t' '$1 ~ /^@SET/ && $2 ~ /DIR/ { print $3 }'",
@@ -45,17 +60,24 @@ test("a tilde is home at the end of a command or before a slash, not as awk's op
 
 test("a command running s3cab is reported as that run", () => {
   assert.equal(strayCommand("cd x; npx s3cab --help"), "npx s3cab");
-  assert.equal(strayCommand("s3cab restore x"), "s3cab");
-  assert.equal(strayCommand("npm view s3cab@latest"), "npm view s3cab");
+  assert.equal(strayCommand("npm view s3cab@latest"), "s3cab");
+  for (const command of [
+    "npx -y s3cab restore x",
+    "sudo s3cab list",
+    "env FOO=1 s3cab list",
+    "for s in a b; do s3cab list $s; done",
+    "1..3 | % { s3cab list }",
+    "bash <<'EOF'\ns3cab list\nEOF",
+  ]) {
+    assert.equal(strayCommand(command), "s3cab", command);
+  }
 });
 
-test("s3cab named in prose or a regex isn't a run of it", () => {
-  for (const command of [
-    "cat > NOTES.md <<'EOF'\nG09: the reference tree also lacks the file,\n     so s3cab withholds too.\ns3cab refuses the snapshot.\nEOF",
-    "@'\ns3cab refuses the snapshot.\n'@ | Set-Content NOTES.md",
-    "echo 'Refused whole by my restorer (exit 2) and by s3cab (empty reference dir)'",
-    "Get-Content x | ? { $_ -notmatch '^  @(CLIENT|SNAPSHOT|S3CAB|SET) ' }",
-  ]) {
-    assert.equal(strayCommand(command), undefined, command);
-  }
+test("s3cab as a regex alternative isn't a run of it", () => {
+  assert.equal(
+    strayCommand(
+      "Get-Content x | ? { $_ -notmatch '^  @(CLIENT|SNAPSHOT|S3CAB|SET) ' }",
+    ),
+    undefined,
+  );
 });
