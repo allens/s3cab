@@ -74,22 +74,21 @@ overlap that leaves is accepted over sync machinery
    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)) — asserting tests for changed behaviour
    are a per-PR obligation, checked by reading the diff. Assert about the *result*, not that the
    line executed.
-5. **Open PRs with `npm run pr`** — it is `gh pr create --reviewer "@copilot"`, so the review is
-   requested by construction rather than by remembering; pass the rest through
-   (`npm run pr -- --fill`). Then move on: don't verify or re-request, because
-   `gh pr view --json reviewRequests` reads **empty even on success** and treating that as
-   failure just duplicates the request. Harmless for contributors without Copilot enabled — the
-   flag is a no-op for them.
+5. **Open PRs with `gh pr create`.** The maintainer reviews every one with
+   **`/code-review high <number>` on Opus** and posts its findings as one review from
+   `allens-claude-reviewer[bot]` — not with `--comment`, which posts as the maintainer. Not
+   `medium`: `high` explores further at about the same cost. A contributor without that setup
+   needn't run it.
 
-   **Until Copilot review credit returns (about 2026-11-01), a `pr` also runs
-   `/code-review high <number>` on Opus** and posts its findings as one review from
-   `allens-claude-reviewer[bot]` — without `--comment`, which posts as the maintainer (token
-   recipe in the global CLAUDE.md). Not `medium`: both levels get the same review instructions
-   and cost about the same, but `high` explores further and alone caught the serious defect on
-   two of five PRs. Delete this paragraph once Copilot reviews again.
+   **Copilot reviews only on request**, since its credit is scarce:
+   `gh pr create --reviewer "@copilot"`. Ask at creation: adding Copilot to a PR already open is
+   untested. Don't verify the request: `gh pr view --json reviewRequests` reads **empty even on
+   success**, and treating that as failure just duplicates it. The review arriving is the
+   confirmation.
 
-   **Nothing enforces this — branch protection on `main` is bypassable.** The ruleset requires a
-   pull request and a green `ci gate`, but a maintainer's push is taken anyway: GitHub prints
+   **Nothing enforces a PR — branch protection on `main` is bypassable.** It requires a pull
+   request with a green `ci gate`, the branch up to date with `main`, and every conversation
+   resolved, but an admin's push is taken anyway: GitHub prints
    `Bypassed rule violations for refs/heads/main` and accepts it. That is deliberate, so
    doc-only work lands on `main` without ceremony. The cost is that a `src/` change meets no
    barrier either and the notice scrolls past in the push output — so a PR for anything beyond
