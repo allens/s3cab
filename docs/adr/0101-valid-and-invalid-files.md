@@ -1,6 +1,6 @@
 # Valid and invalid files: refuse the file, refuse one path, or ignore the row
 
-**Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
+**Status:** accepted & implemented (proposed 2026-10-11), amended 2026-10-17; partly superseded by
 [0103](0103-row-marks-and-unrecorded-links.md): the type names, and an unknown `@` or `#` type is
 skipped while any other refuses the file; and by [0106](0106-a-lone-dot-ends-every-file.md): a
 valid file ends with a lone `.` line where it ended with `END`. Supersedes
@@ -80,3 +80,24 @@ refuses both rows, not last-wins; and the hash, size and time are checked, where
 so content only it names would look orphaned and be deleted. This is the unreadable-snapshot
 interlock again, for one path instead of a whole file. It refuses to act on an invalid deletion
 record at all, not only to compact it.
+
+## Amendment (2026-10-17): the file rows must fit one tree as files
+
+The path rules state one property instead of listing bad shapes: the file rows must be able to
+exist side by side as files, inside the member directories. So a valid file also has:
+
+- **no empty segment** past a path's root, which covers a trailing and a doubled separator, beside
+  the `.` and `..` it already refused;
+- **every path strictly inside a `DIR`**: under one, and never any `DIR` itself, a nested one
+  included;
+- **no file row's path running through another's as a folder**, refusing both rows, as for a path
+  in two rows.
+
+A row refused for any other reason blocks nothing, since it lands nowhere. Not a longer list of
+shapes: a list leaves out whichever shape nobody thought of, and a reader built from the spec
+then guesses at it.
+
+**Restore also degrades, rather than aborts, when something on disk is in the way**, a file where a
+folder of the path should be or a folder where the file should be, reported `blocked`. The rules
+above can't see the destination: two spellings of one name, or a file already there before the
+restore, still meet there.

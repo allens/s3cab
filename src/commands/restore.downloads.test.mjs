@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -526,6 +528,149 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
       [dest("gone.txt"), dest("gone-copy.txt")],
     );
     assert.deepEqual(result.missing, [dest("last.txt")]);
+    assert.equal(process.exitCode, 1);
+  });
+});
+
+describe("restore when something on disk is in the way", () => {
+  it("skips a file whose folder is a file on disk, restores the rest, and exits 1", async () => {
+    // A real disk's answer, not a faked error, on NTFS and ext4 alike: EEXIST
+    // for a file in the place of the file's own folder, ENOTDIR for one higher.
+    mkdirSync(join(output, "data"));
+    writeFileSync(dest("first.txt"), "a file, not a folder");
+    snapshot = {
+      entries: new Map([
+        ["/data/first.txt/inner.txt", { ...at, hash: "aaa" }],
+        ["/data/first.txt/deeper/inner.txt", { ...at, hash: "bbb" }],
+        ["/data/last.txt", { ...at, hash: "ccc" }],
+      ]),
+      dirs: ["/data"],
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.blocked, [
+      dest(join("first.txt", "inner.txt")),
+      dest(join("first.txt", "deeper", "inner.txt")),
+    ]);
+    assert.deepEqual(result.restored, [dest("last.txt")]);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("skips a file whose place is a folder on disk before downloading it, --overwrite or not", async () => {
+    // Not "skipped, rerun with --overwrite": that can't replace a folder, and
+    // would download the whole object only to fail at the rename.
+    for (const overwrite of [false, true]) {
+      fetched = [];
+      mkdirSync(join(output, "data", "gone.txt"), { recursive: true });
+      mkdirSync(join(output, "data", "gone-copy.txt"), { recursive: true });
+
+      const result = await restore([], { set: "photos", output, overwrite });
+
+      assert.deepEqual(result.blocked, [
+        dest("gone.txt"),
+        dest("gone-copy.txt"),
+      ]);
+      assert.deepEqual(fetched, ["aaa", "ccc"]);
+      assert.equal(process.exitCode, 1);
+      rmSync(join(output, "data"), { recursive: true });
+    }
+  });
+
+  it("treats a link to a folder at the destination as a file, not a folder", async (t) => {
+    // Skipped like any existing file, and under --overwrite replaced where the
+    // disk allows it: ext4 renames over the link, NTFS refuses with EPERM.
+    mkdirSync(join(output, "elsewhere"));
+    mkdirSync(join(output, "data"));
+    try {
+      symlinkSync(join(output, "elsewhere"), dest("first.txt"), "dir");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    const plain = await restore([], { set: "photos", output });
+    assert.deepEqual(plain.skipped, [dest("first.txt")]);
+    assert.deepEqual(plain.blocked, []);
+
+    const over = await restore([], { set: "photos", output, overwrite: true });
+    if (process.platform === "win32") {
+      assert.deepEqual(over.blocked, [dest("first.txt")]);
+    } else {
+      assert.ok(over.restored.includes(dest("first.txt")));
+      assert.ok(lstatSync(dest("first.txt")).isFile());
+    }
+  });
+
+  it("treats a junction to a folder that's gone as in the way on NTFS, and replaces it elsewhere", async () => {
+    // A junction needs no privilege on Windows; elsewhere the type is ignored
+    // and it's a plain dangling link, which the rename replaces.
+    mkdirSync(join(output, "data"));
+    mkdirSync(join(output, "gone-folder"));
+    symlinkSync(join(output, "gone-folder"), dest("first.txt"), "junction");
+    rmSync(join(output, "gone-folder"), { recursive: true });
+
+    const plain = await restore([], { set: "photos", output });
+    assert.deepEqual(plain.skipped, [dest("first.txt")]);
+
+    const over = await restore([], { set: "photos", output, overwrite: true });
+    if (process.platform === "win32") {
+      assert.deepEqual(over.blocked, [dest("first.txt")]);
+    } else {
+      assert.ok(over.restored.includes(dest("first.txt")));
+      assert.ok(lstatSync(dest("first.txt")).isFile());
+    }
+  });
+
+  it("replaces a link at a copied path under --overwrite, never writing through it", async (t) => {
+    // `gone-copy.txt` shares `gone.txt`'s content, so it is copied from it.
+    mkdirSync(join(output, "data"));
+    writeFileSync(join(output, "outside.txt"), "precious");
+    try {
+      symlinkSync(join(output, "outside.txt"), dest("gone-copy.txt"), "file");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    const result = await restore([], {
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.ok(result.restored.includes(dest("gone-copy.txt")));
+    assert.ok(lstatSync(dest("gone-copy.txt")).isFile());
+    assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
+    assert.equal(readFileSync(join(output, "outside.txt"), "utf8"), "precious");
+  });
+
+  it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {
+    // A real disk's answer again: EPERM on NTFS, EISDIR on ext4, named for the
+    // source of the rename or the copy. The folders appear after the plan, as
+    // another row's folder would.
+    afterFetch = (hash) => {
+      if (hash === "bbb") {
+        mkdirSync(dest("gone-copy.txt"));
+        mkdirSync(dest("last.txt"));
+      }
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("gone.txt")]);
+    assert.deepEqual(result.blocked, [
+      dest("gone-copy.txt"), // copied from gone.txt
+      dest("last.txt"), // downloaded
+    ]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
     assert.equal(process.exitCode, 1);
   });
 });

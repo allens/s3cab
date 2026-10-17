@@ -317,10 +317,34 @@ describe("parseSnapshotStream", () => {
         /holds a tab/,
       ],
       [
+        "a path that ends with a separator",
+        fileRow(hashA, 12, "/home/me/x/"),
+        "/home/me/x/",
+        /empty, \. or \.\. segment/,
+      ],
+      [
+        "a doubled separator",
+        fileRow(hashA, 12, "/home/me//x"),
+        "/home/me//x",
+        /empty, \. or \.\. segment/,
+      ],
+      [
+        "a path that ends with a backslash, in a Windows-shaped path",
+        fileRow(hashA, 12, "C:\\Users\\x\\"),
+        "C:\\Users\\x\\",
+        /empty, \. or \.\. segment/,
+      ],
+      [
+        "a path that is a @SET DIR itself",
+        fileRow(hashA, 12, "/home/me"),
+        "/home/me",
+        /isn't inside any of the snapshot's @SET DIR folders/,
+      ],
+      [
         "a path under no @SET DIR",
         fileRow(hashA, 12, "/srv/other/x"),
         "/srv/other/x",
-        /none of the snapshot's @SET DIR rows/,
+        /isn't inside any of the snapshot's @SET DIR folders/,
       ],
     ]) {
       it(`for ${what}`, async () => {
@@ -354,6 +378,107 @@ describe("parseSnapshotStream", () => {
         [["/home/me/twice.txt", "it appears in two rows of the snapshot"]],
       );
     });
+
+    it("for a path that is a Windows @SET DIR under another spelling", async () => {
+      const { entries, refused } = await parse(
+        [
+          HEADING,
+          "@SET\tDIR\t\t\tC:\\Users\\Me\\",
+          START,
+          fileRow(hashA, 12, "C:\\Users\\Me\\a.txt"),
+          fileRow(hashB, 34, "c:/users/me"),
+          TERMINATOR,
+        ].join("\n"),
+      );
+      assert.deepEqual([...entries.keys()], ["C:\\Users\\Me\\a.txt"]);
+      assert.deepEqual(
+        [...refused],
+        [
+          [
+            "c:/users/me",
+            "its path isn't inside any of the snapshot's @SET DIR folders",
+          ],
+        ],
+      );
+    });
+
+    it("for a path that is a nested @SET DIR, though inside the outer one", async () => {
+      const { entries, refused } = await parse(
+        [
+          HEADING,
+          DIR,
+          "@SET\tDIR\t\t\t/home/me/a/",
+          START,
+          fileRow(hashA, 12, "/home/me/a"),
+          fileRow(hashB, 34, "/home/me/b.txt"),
+          TERMINATOR,
+        ].join("\n"),
+      );
+      assert.deepEqual([...entries.keys()], ["/home/me/b.txt"]);
+      assert.deepEqual(
+        [...refused],
+        [["/home/me/a", "its path is one of the snapshot's @SET DIR folders"]],
+      );
+    });
+
+    it("for a file row that another row's path runs through, refusing both", async () => {
+      // A restore can't make `a` both a file and the folder `b.txt` sits in,
+      // however deep the second row reaches below it.
+      const { entries, refused } = await parse(
+        snapshotOf(
+          fileRow(hashA, 12, "/home/me/ok.txt"),
+          fileRow(hashA, 12, "/home/me/a/b/c.txt"),
+          fileRow(hashB, 34, "/home/me/a"),
+        ),
+      );
+      assert.deepEqual([...entries.keys()], ["/home/me/ok.txt"]);
+      assert.deepEqual(
+        [...refused],
+        [
+          ["/home/me/a", "another row's path runs through it as a folder"],
+          ["/home/me/a/b/c.txt", "a folder in its path is another row's file"],
+        ],
+      );
+    });
+
+    it("but not for a name that only begins like another row's", async () => {
+      const { entries, refused } = await parse(
+        snapshotOf(
+          fileRow(hashA, 12, "/home/me/a"),
+          fileRow(hashB, 34, "/home/me/a b/c.txt"),
+          fileRow(hashB, 34, "/home/me/ab.txt"),
+        ),
+      );
+      assert.equal(entries.size, 3);
+      assert.equal(refused.size, 0);
+    });
+  });
+
+  it("reads a POSIX name ending in a backslash, an ordinary character there", async () => {
+    const { entries, refused } = await parse(
+      snapshotOf(fileRow(hashA, 12, "/home/me/x\\")),
+    );
+    assert.deepEqual([...entries.keys()], ["/home/me/x\\"]);
+    assert.equal(refused.size, 0);
+  });
+
+  it("reads a path on a network share, and one directly in a root DIR", async () => {
+    const { entries, refused } = await parse(
+      [
+        HEADING,
+        "@SET\tDIR\t\t\t\\\\nas\\photos\\",
+        "@SET\tDIR\t\t\t/",
+        START,
+        fileRow(hashA, 12, "\\\\nas\\photos\\2024\\beach.jpg"),
+        fileRow(hashB, 34, "/x.txt"),
+        TERMINATOR,
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      [...entries.keys()],
+      ["\\\\nas\\photos\\2024\\beach.jpg", "/x.txt"],
+    );
+    assert.equal(refused.size, 0);
   });
 
   it("reads a work file's whole rows, dropping the one it died mid-write", async () => {

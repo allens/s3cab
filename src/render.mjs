@@ -1304,8 +1304,8 @@ export function renderUpload(result, { color = false } = {}) {
  * snapshot, then one block per reason a requested file wasn't written. All
  * lists are given in full, never truncated: each entry is a file the user asked
  * for and didn't get, so name them all and say what to do about it
- * (`--overwrite` for the skipped, a separate `--output` for the collided and the
- * refused, an earlier `--snapshot` for the invalid rows, `upload --force` of a
+ * (`--overwrite` for the skipped, a separate `--output` for the collided, the
+ * refused and the blocked, an earlier `--snapshot` for the invalid rows, `upload --force` of a
  * surviving copy for the corrupt, `verify` for
  * the missing — ADR-0030's constructive fix). The deliberately deleted need no
  * fix: the deletion record explains them. The missing block comes last so it is
@@ -1327,6 +1327,7 @@ export function renderRestore(
     missing,
     corrupt,
     refused,
+    blocked,
     invalid,
     deleted,
   },
@@ -1344,6 +1345,7 @@ export function renderRestore(
     missing.length ||
     corrupt.length ||
     refused.length ||
+    blocked.length ||
     invalid.length ||
     deleted.length
   ) {
@@ -1414,6 +1416,25 @@ export function renderRestore(
         ...refused.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Restore them onto a disk that allows the names:",
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+      ].join("\n"),
+    );
+  }
+  if (blocked.length) {
+    // A file or folder already on disk, from this run or before it, holds the
+    // place one of these needs: a file where a folder of its path should be,
+    // or a folder where the file itself should be.
+    const heading =
+      `Could not restore ${formatCount(blocked.length)} ` +
+      `${plural(blocked.length, "file")} — something already on this disk is ` +
+      `in the way (a file where a folder should be, or a folder where the ` +
+      `file should be):`;
+    sections.push(
+      [
+        heading,
+        ...blocked.map((path) => `  ${withVisibleControls(path)}`),
+        "",
+        "Move what's in the way and restore again, or restore them into an empty directory:",
         `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
       ].join("\n"),
     );
