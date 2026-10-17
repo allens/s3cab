@@ -35,6 +35,11 @@ test("a command naming the sandbox is a stray only once it leaves it", () => {
     strayCommand('cat "$HOME/s3cab.sandbox/my dir/../../.aws/credentials"'),
     "$HOME/s3cab.sandbox/my",
   );
+  assert.equal(
+    strayCommand("cd ~/s3cab.sandbox/work\nls src/../lib"),
+    undefined,
+  );
+  assert.equal(strayCommand("ls ~/s3cab.sandbox/a ./b/../c"), undefined);
 });
 
 test("each spelling of home is home", () => {
@@ -89,10 +94,17 @@ test("a command running s3cab is reported as that run", () => {
     "Invoke-Expression 's3cab list'",
     "% {s3cab list}",
     "./s3cab list",
+    '& "s3cab" list',
+    "Invoke-Expression 's3cab'",
+    "s3cab>out.txt",
   ]) {
     assert.equal(strayCommand(command), "s3cab", command);
   }
   assert.equal(strayCommand(".\\s3cab.exe list"), "s3cab.exe");
+  assert.equal(
+    strayCommand('Start-Process -FilePath "s3cab.exe" -ArgumentList "list"'),
+    "s3cab.exe",
+  );
   assert.equal(strayCommand("node ./src/s3cab.mjs list"), "s3cab.mjs");
   assert.equal(strayCommand("s3cab.ps1 list"), "s3cab.ps1");
 });

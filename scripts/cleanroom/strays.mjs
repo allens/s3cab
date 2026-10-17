@@ -99,7 +99,7 @@ const wholePath = (text, match) => {
 // it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
 // Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=^|[\s;&|(`"'{\\/])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@])/im;
+  /(?<=^|[\s;&|(`"'{\\/])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@"'>])/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -128,9 +128,11 @@ const reachesWeb = (command) => {
 export function strayFinders(allowed) {
   // Cut only a whole allowed path, and not one that climbs back out
   // (`~/s3cab.sandbox/../.aws`), since what's left after the cut no longer names home.
+  const spelled = `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`;
+  /** @param {string} stop where the path ends */
+  const staysIn = (stop) => `(?![^${stop}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`;
   const allowedSpelled = new RegExp(
-    `(${allowed.flatMap(aliases).map(spellings).join("|")})` +
-      `(?=[\\\\/${edge}]|$)(?![^${breaks}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`,
+    `(?<=["'])${spelled}${staysIn(breaks)}|(?<!["'])${spelled}${staysIn(edge)}`,
     "gi",
   );
   return {
