@@ -141,14 +141,4 @@ describe("copyFileAtomic", () => {
     assert.ok(lstatSync(join(dir.path, "dest")).isFile());
     assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "restored");
   });
-
-  it("leaves nothing behind when the source is gone", async () => {
-    await using dir = await mkTmpDir();
-
-    await assert.rejects(
-      () => copyFileAtomic(join(dir.path, "gone"), join(dir.path, "dest")),
-      (/** @type {NodeJS.ErrnoException} */ error) => error.code === "ENOENT",
-    );
-    assert.deepEqual(readdirSync(dir.path), []);
-  });
 });

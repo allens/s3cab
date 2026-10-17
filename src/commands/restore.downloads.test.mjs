@@ -392,10 +392,9 @@ describe("restore with a name this disk refuses", () => {
   });
 
   it("restores a copy whose source vanished mid-run, rather than calling its name refused", async () => {
-    // A failed copy names its source in `path` whichever side failed, so a
-    // source deleted after it was restored gives the same error as a refused
-    // destination: ENOENT with a path. Only the source's absence tells them
-    // apart.
+    // A source deleted after it was restored fails the copy with ENOENT and a
+    // path, as a refused destination fails the rename after it. Only the
+    // source's absence tells them apart.
     snapshot = {
       entries: new Map([
         ["/data/a-source.txt", { ...at, hash: "aaa" }],
@@ -650,6 +649,38 @@ describe("restore when something on disk is in the way", () => {
     assert.ok(lstatSync(dest("gone-copy.txt")).isFile());
     assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
     assert.equal(readFileSync(join(output, "outside.txt"), "utf8"), "precious");
+  });
+
+  it("replaces a link to a file restored earlier in the run under --overwrite, rather than calling it collided", async (t) => {
+    snapshot = {
+      entries: new Map([
+        ["/data/a.txt", { ...at, hash: "aaa" }],
+        ["/data/b.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+    mkdirSync(join(output, "data"));
+    writeFileSync(dest("a.txt"), "old");
+    try {
+      symlinkSync(dest("a.txt"), dest("b.txt"), "file");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    const result = await restore([], {
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(result.collided, []);
+    assert.ok(lstatSync(dest("b.txt")).isFile());
+    assert.equal(readFileSync(dest("b.txt"), "utf8"), "bbb");
+    assert.equal(readFileSync(dest("a.txt"), "utf8"), "aaa");
   });
 
   it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {

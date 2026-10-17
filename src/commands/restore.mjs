@@ -204,7 +204,8 @@ export async function restore(paths = [], options = {}) {
   // file's canonical on-disk path is recorded, and a later target that already
   // *exists* (the volume's own answer, whatever its folding rules) and
   // canonicalizes into that record is a collision — reported, never written.
-  // The per-file `realpathSync.native` is deliberate, not the walk-hot-path
+  // A link at the target is no collision, wherever it points: the write's
+  // rename replaces the link, never the file behind it. The per-file `realpathSync.native` is deliberate, not the walk-hot-path
   // mistake: this loop is download-bound, and no pure-string function can say
   // whether two names are one file — trusting strings is the bug this closes.
   /** @type {Set<string>} */
@@ -275,6 +276,7 @@ export async function restore(paths = [], options = {}) {
       corrupt.push(step.dest);
     } else if (
       existsSync(step.dest) &&
+      !lstatSync(step.dest).isSymbolicLink() &&
       writtenCanonical.has(realpathSync.native(step.dest))
     ) {
       collided.push(step.dest);
