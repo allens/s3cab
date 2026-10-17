@@ -248,8 +248,8 @@ standard-credential-chain model are
 Four layout notes the README and code don't carry:
 
 - **Standalone dev utilities live in [scripts/](scripts/)** — ad-hoc tools run by hand with
-  `node`, outside the package and the test suite: benchmarks, `setup-test-bucket.mjs`, preserved
-  rejected spikes. Not "scratch" as in disposable — a script earns its place. Never a parked
+  `node`, outside the package, though a test beside one runs in `npm test`: benchmarks,
+  `setup-test-bucket.mjs`, preserved rejected spikes. Not "scratch" as in disposable — a script earns its place. Never a parked
   sandbox under `src/` or `test/`. **A script that exists only to serve a skill is the
   exception and lives with it** (`.claude/skills/<skill>/`), so a vendored skill stays
   self-contained — `sweep.mjs` beside the over-engineering skill is the one today. That

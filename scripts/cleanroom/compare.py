@@ -2,9 +2,14 @@
 """Differential verifier: compare a restored tree against the reference tree.
 
 Byte-level comparison of: the set of paths (as raw bytes), file contents, and
-file mtimes (st_mtime_ns). Directory mtimes are reported separately: both tools
-create directories implicitly at restore time, so their mtimes reflect the run,
-not the format. Symlinks anywhere are reported (the format stores none).
+file mtimes to the millisecond. guide/format.md promises no finer, and the
+reference is the imprecise side: s3cab sets times through fs.utimes float
+seconds, which ext4 records tens of ns off (the resolved mtime-precision entry
+in proposals/bugs.md), so an exact restorer differs from it below 1 ms forever.
+Those are counted in the summary, not charged. Directory mtimes are reported
+separately: both tools create directories implicitly at restore time, so their
+mtimes reflect the run, not the format. Symlinks anywhere are reported (the
+format stores none).
 """
 import os, sys, hashlib
 
@@ -36,6 +41,9 @@ def walk(root: bytes):
             files[p[cut:]] = (st.st_size, st.st_mtime_ns, h.hexdigest())
     return files, dirs, links
 
+def ms(ns: int) -> int:
+    return (ns + 500_000) // 1_000_000
+
 def show(b: bytes) -> str:
     return repr(b)[1:]  # repr keeps control chars visible
 
@@ -55,6 +63,7 @@ def main(mine: str, ref: str) -> int:
     mf, md, ml = walk(root(mine))
     rf, rd, rl = walk(root(ref))
     problems = []
+    below_ms = 0
     for p in sorted(rf.keys() - mf.keys()):
         problems.append(f"MISSING in mine: {show(p)}")
     for p in sorted(mf.keys() - rf.keys()):
@@ -63,8 +72,10 @@ def main(mine: str, ref: str) -> int:
         (msz, mmt, mh), (rsz, rmt, rh) = mf[p], rf[p]
         if mh != rh or msz != rsz:
             problems.append(f"CONTENT differs: {show(p)} mine={msz}B/{mh[:12]} ref={rsz}B/{rh[:12]}")
-        if mmt != rmt:
+        if ms(mmt) != ms(rmt):
             problems.append(f"MTIME differs:   {show(p)} mine={mmt} ref={rmt} (ns)")
+        elif mmt != rmt:
+            below_ms += 1
     for p in sorted(rd - md):
         problems.append(f"DIR missing in mine: {show(p)}")
     for p in sorted(md - rd):
@@ -73,11 +84,11 @@ def main(mine: str, ref: str) -> int:
         problems.append(f"SYMLINKS present: mine={ml} ref={rl}")
     tag = os.path.basename(ref.rstrip('/'))
     if problems:
-        print(f"== {tag}: {len(problems)} difference(s)")
+        print(f"== {tag}: {len(problems)} difference(s); {below_ms} below 1 ms")
         for x in problems:
             print("   " + x)
         return 1
-    print(f"== {tag}: IDENTICAL ({len(rf)} files, {len(rd)} dirs)")
+    print(f"== {tag}: IDENTICAL ({len(rf)} files, {len(rd)} dirs; {below_ms} below 1 ms)")
     return 0
 
 if __name__ == '__main__':
