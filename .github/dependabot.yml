@@ -17,8 +17,10 @@ updates:
         dependency-type: development
     open-pull-requests-limit: 5
 
-  # GitHub Actions — keeps the pinned actions/* and setup-node in ci.yml /
-  # release.yml current (supply-chain surface + avoids deprecated runner images).
+  # GitHub Actions — keeps every workflow's `uses:` current: the actions/* ones ride
+  # a major tag, aws-actions/configure-aws-credentials a commit SHA whose `# vX.Y.Z`
+  # comment Dependabot bumps alongside it. Supply-chain surface; it does not touch
+  # `runs-on` labels, so a retiring runner image is found by hand.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

@@ -30,10 +30,11 @@ on:
 permissions:
   contents: read
 
-# Supersede in-flight runs for the same ref (e.g. rapid pushes to a PR branch).
+# Supersede in-flight runs for the same ref (e.g. rapid pushes to a PR branch) —
+# except on main, where a cancelled run leaves a merged commit with no verdict.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   # Match release.yml: pin to the engines floor so CI runs the version we ship on.
@@ -42,6 +43,7 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -54,14 +56,15 @@ jobs:
       # Coverage report (advisory — NOT a gate). Emits the coverage table so the number is
       # visible in the CI log, but it never fails the build due to coverage thresholds: a
       # percentage rewards assertion-free tests (it measures execution, not verification), so
-      # coverage quality is judged by review instead (CLAUDE.md's coverage-by-review convention — the
-      # `/review` skill's Standards axis and Copilot code review via .github/copilot-instructions.md). Runs
-      # once here, OS-independent like lint, rather than across the matrix.
+      # coverage quality is judged in code review instead (ADR-0020; the reviewer is steered by
+      # .github/copilot-instructions.md). Runs once here, OS-independent like lint, rather than
+      # across the matrix.
       - run: npm run test:coverage:report
 
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -70,8 +73,8 @@ jobs:
         # though the lint job's coverage report also runs the suite on Linux — the small
         # double-run is worth a dedicated `test (ubuntu-latest)` result (the `ci gate`
         # job aggregates all three OSes for branch protection anyway).
-        # macos-14 is Apple Silicon; mirrors the release build targets.
-        os: [ubuntu-latest, windows-latest, macos-14]
+        # macos-15 is Apple Silicon; mirrors the release build targets.
+        os: [ubuntu-latest, windows-latest, macos-15]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -95,6 +98,7 @@ jobs:
   exe:
     name: exe smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -139,6 +143,8 @@ jobs:
     name: s3 integration
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # A hung run here holds the group below, and with it every PR's gate.
+    timeout-minutes: 15
     # One real-bucket run at a time, repo-wide. This suite assumes it owns
     # test-s3cab-ci-integration, and some of what it exercises is bucket-global rather
     # than test-local: two deletes finishing inside the same minute collide on the
@@ -150,14 +156,15 @@ jobs:
     #
     # `cancel-in-progress: false` — a run queued behind this one must not evict the run
     # that holds the bucket. It does NOT make the job uncancellable: pushing again to
-    # the same PR still cancels the whole run via the workflow-level group above
-    # (`cancel-in-progress: true`), which a job-level setting cannot override, so a
-    # mid-transfer kill remains possible from that direction — unchanged by this group,
-    # and the tidy-up is the same as for any cancelled run. Note also that GitHub keeps
-    # only ONE job pending per group: a third run arriving while one waits cancels the
-    # waiting one, and `ci gate` treats a cancelled job as failure (fail-closed by
-    # design), so that PR needs a re-run. Accepted — an obvious "cancelled, re-run me"
-    # beats an intermittent corruption-shaped error in a log nobody re-reads.
+    # the same PR still cancels the whole run via the workflow-level group above (it
+    # cancels in progress on every ref but main), which a job-level setting cannot
+    # override, so a mid-transfer kill remains possible from that direction — unchanged
+    # by this group, and the tidy-up is the same as for any cancelled run. Note also
+    # that GitHub keeps only ONE job pending per group: a third run arriving while one
+    # waits cancels the waiting one, and `ci gate` treats a cancelled job as failure
+    # (fail-closed by design), so that PR needs a re-run. Accepted — an obvious
+    # "cancelled, re-run me" beats an intermittent corruption-shaped error in a log
+    # nobody re-reads.
     concurrency:
       group: s3-integration
       cancel-in-progress: false
@@ -170,7 +177,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
@@ -186,6 +193,7 @@ jobs:
     needs: [lint, test, exe, s3-integration]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # ASSERT SUCCESS; NEVER BLOCKLIST FAILURE — and note the step carries no
       # `if:`, so it runs on every outcome including ones nobody anticipated.

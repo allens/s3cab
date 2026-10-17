@@ -13,9 +13,9 @@
 #
 # Step length is a real cost knob, not a free one: the runner re-restores every
 # accumulated snapshot after each bucket-writing step, so per-sequence time
-# grows superlinearly with length (measured: ~0.4 s at 25 steps, ~1.3 s at 30,
-# ~2 s at 40). 2000 × 30 is ~45 min on a dev box; the job timeout allows for a
-# CI Windows runner taking roughly double that.
+# grows superlinearly with length. 2000 × 30 takes about 4 minutes on the Linux
+# runner and 4–8 on Windows (runs 38871443628 and 38383688321); the job timeout
+# is a few times the slow end.
 #
 # Not part of the `ci gate` required check on purpose: a nightly discovery
 # should page a human, not wedge unrelated PRs. A red run here is a real
@@ -40,7 +40,7 @@ jobs:
   model:
     name: model sweep (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 150
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +90,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the conformance bucket's region
@@ -125,7 +125,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the crash bucket's region

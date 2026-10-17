@@ -249,7 +249,7 @@ async function seed({ root, bucket }) {
   if (skipped.length > 0) {
     console.error(
       `\nNot seeding: the golden set has to hold every fixture declared for ${platform}.\n` +
-        "The bucket is untouched.",
+        "This turn wrote nothing to the bucket.",
     );
     process.exit(2);
   }
