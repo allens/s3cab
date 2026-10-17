@@ -46,7 +46,8 @@ and nothing else below needs special handling. (A set's `.info` file has
 - **UTF-8, no BOM**, always, whatever machine wrote the file. A path is stored as its UTF-8
   bytes even on Windows, where the operating system itself holds names as UTF-16. Decode
   strictly: a decode error means the file is damaged, not that some other encoding is worth
-  trying.
+  trying. A BOM someone's editor added is the one exception a reader may forgive, and s3cab
+  does: it reads past one at the start of a file.
 - **Every file in the format ends its lines with LF** (`\n`), never CRLF, and the last line
   is terminated like the rest. Split on LF *exactly*: a legal filename can hold other
   characters that some line splitters break on, which cuts a path in half and never says
@@ -563,12 +564,13 @@ In Python, `os.path.realpath(path, strict=True)` returns the same path, with two
   listing instead.
 
 That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
-are yours to edit: on Windows paths (a drive letter, or a network share starting `\\` or
-`//`), where two spellings name one file, `@SET DIR` rows are matched against paths
-case-insensitively — so hand-editing a snapshot's `DIR` rows won't stop `restore --output`
-finding where a file belongs. Every other path is matched exactly, the check that a path is
-in only one row included, since a case-sensitive filesystem really can hold both `Photos` and
-`photos`, and so can a Windows directory set to be case-sensitive.
+are yours to edit: on Windows paths (a drive letter followed by `\` or `/`, or a network
+share starting `\\` or `//`), where two spellings name one file, `@SET DIR` rows are matched
+against paths case-insensitively, both lowercased by Unicode's default case mapping — so
+hand-editing a snapshot's `DIR` rows won't stop `restore --output` finding where a file
+belongs. Every other path is matched exactly, the check that a path is in only one row
+included, since a case-sensitive filesystem really can hold both `Photos` and `photos`, and
+so can a Windows directory set to be case-sensitive.
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
@@ -595,29 +597,32 @@ looking. Restoring to a chosen directory, it writes each file to
 `C\Users\me\…` chain. Two `DIR` rows whose names collide (`C:\a\Photos\` and
 `D:\b\Photos\`) both want the same destination directory; s3cab refuses that snapshot rather
 than merging them. The snapshot itself is valid, and restores to its recorded paths, so a
-writer has nothing to refuse. **None of this binds you.** A different layout is a different tool making
-a different decision, not a misreading of the format.
+writer has nothing to refuse. **None of this binds you.** A different layout is a different
+tool making a different decision, not a misreading of the format.
 
 **A stored `mtime` is rounded to the nearest millisecond**, a tie to the later one, which is
 coarser than some filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds.
-Two consequences to build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
-tree compares clean against the snapshot it came from and re-backing it up re-uploads
-nothing — and compare at that resolution, not finer: below the millisecond two restores can
-disagree without either being wrong. But a restored file can also sit up to half a
-millisecond either side of a *surviving original*, which any mtime-sensitive tool will report
-as a difference.
+Two consequences to build against. A restore reproduces the *stored* value **to the
+millisecond**, so a restored tree compares clean against the snapshot it came from and
+re-backing it up re-uploads nothing — and compare at that resolution, not finer: below the
+millisecond two restores can disagree without either being wrong. Compare times **rounded**
+to the nearest millisecond, not truncated: a restore that lands a little below the stored
+instant still holds it. But a restored file can also sit up to half a millisecond either
+side of a *surviving original*, which any mtime-sensitive tool will report as a difference.
 
 ### The last line
 
 **The last line of every snapshot and deletion record is exactly `.`, and it means the file
 is complete.** A file without it was cut short, whatever the cause, so one check catches
 every kind. It is a terminator, not a row: the one line without five fields, and whose first
-field isn't a type. Like every line it ends with LF. gzip
-does notice a cut-short file, but only at the end: `gunzip -c` and Python's `gzip` module
-both hand over every line they can decompress *before* reporting the cut, so a reader that
-processes rows as they arrive has already seen a byte *prefix* of the original, which would
-otherwise read as a valid, smaller snapshot. A snapshot without the `.` is damaged goods —
-treat it as truncated, not as complete. Concretely: **don't restore from it**. The rows that
+field isn't a type. Like every line it ends with LF, so a `.` without its LF doesn't count:
+the file was cut there. gzip does notice a cut-short file, but only at the end: `gunzip -c`
+and Python's `gzip` module both hand over every line they can decompress *before* reporting
+the cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of
+the original, which would otherwise read as a valid, smaller snapshot. And gzip can't notice
+a snapshot whose text was cut before it was compressed: that is complete gzip, and only the
+`.` catches it. A snapshot without the `.` is damaged goods — treat it as truncated, not as
+complete. Concretely: **don't restore from it**. The rows that
 survive a cut are a valid-looking prefix, so restoring them produces a tree that looks
 finished and silently isn't; refuse the snapshot, say why, and let the reader reach for an
 intact one. (A reader that only wants the file rows can still skip every other line;
@@ -674,14 +679,17 @@ of three things:
   reader guesses**: a first-wins and a last-wins reader would restore different bytes from
   one file, and neither would report anything wrong. A row refused for any other reason
   blocks nothing, since it lands nowhere. A `..` segment matters most, since a hand-added one
-  would walk a naive restorer out of its output directory. A `#` row repeating a file row's
-  path also makes the file invalid, but changes nothing a restore writes, so a reader that
-  skips `#` rows needn't check for it. This is the same
-  ["restore everything you can, then report"](#reading) that governs a missing object: a bad
-  row costs its own path, or the two paths in conflict, and nothing else.
+  would walk a naive restorer out of its output directory. A `@SET DIR` row isn't checked for
+  one, and needn't be: a file row under it holds its segments, so a `DIR` with a `.` or `..`
+  refuses every row beneath it. A `#` row repeating a file row's path also makes the file
+  invalid, but changes nothing a restore writes, so a reader that skips `#` rows needn't
+  check for it. This is the same ["restore everything you can, then report"](#reading) that
+  governs a missing object: a bad row costs its own path, or the two paths in conflict, and
+  nothing else.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count, or an `@S3CAB SPEC`, `@CLIENT NAME` or
-  `@CLIENT VERSION` row missing or repeated.
+  `@CLIENT VERSION` row missing or repeated. s3cab doesn't count an `@` or `#` row's fields:
+  it reads the columns it needs by position, and the last as the rest of the line.
 
 Outside a restore, s3cab reads a refused path as one with no row: `backup` hashes the file
 again, `compare` lists it as unreadable, as it does for an `#error` row, and `verify` reports
@@ -746,12 +754,17 @@ For a restorer, or anything else that reads the files.
 - Place each file row under the `@SET DIR` it falls in, [matched by whole segments, the
   longest winning](#paths). Where it lands from there is your tool's decision.
 - Fetch each file row's content from `objects/<hash>`, and check that what you downloaded
-  hashes to that key.
+  hashes to that key. The hash decides: s3cab never compares the size column with the
+  download.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
   read as one set. A hash a record lists was [deliberately deleted](#the-deletion-record);
-  any other miss is damage, and so is a download that doesn't hash to its key.
+  any other miss is damage, and so is a download that doesn't hash to its key. A miss is a
+  404. s3cab stops the whole restore on any other failure, a 403 included: S3 answers 403
+  for a missing key when the caller may not list the bucket, and the records can't tell
+  that from a permissions fault.
 - Restore everything you can, then report. Skip a deliberately deleted file and say so, with
-  its date. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
+  its date; that alone isn't damage, and s3cab exits 0 when deliberate deletions are all
+  that's missing. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
   tool that stops dead at file 3 of 400 is materially worse than one that recovers 397 and
   names the three.
 - Set each restored file's modification time to the stored one, [to the
@@ -769,15 +782,23 @@ For a restorer, or anything else that reads the files.
   removes `\x1c` to `\x1f` and U+0085, and keeps a byte-order mark.
 - **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
   before reporting a cut-short file, which is why the `.` matters. Python's `gzip.decompress`
-  also joins several gzip streams into one without a word.
+  also joins several gzip streams into one without a word, and so does s3cab's own reader;
+  bytes after the stream that aren't gzip make it refuse the file.
 - **Windows paths: go through `\\?\`.** Prefixed with `\\?\`, an absolute path is taken
-  exactly as written. Without it, Windows drops a trailing space or dot from a name, so a
-  file restored as `notes.` lands as `notes` with no error, and a path past 260 characters
-  (`MAX_PATH`) fails. Re-rooting under an output directory makes a deep tree deeper.
+  exactly as written, reserved names such as `CON` and `aux.txt` included. Without it,
+  Windows drops a trailing space or dot from a name, so a file restored as `notes.` lands as
+  `notes` with no error, and a path past 260 characters (`MAX_PATH`) fails. Re-rooting under
+  an output directory makes a deep tree deeper.
+- **`\\?\` in a .NET Framework program built with bare `csc`.** It runs with the old path
+  handling, which throws on `\\?\` and on a path past 260 characters. Add
+  `[assembly: TargetFramework(".NETFramework,Version=v4.8")]` to the source, or set
+  `Switch.System.IO.UseLegacyPathHandling=false` and `Switch.System.IO.BlockLongPaths=false`
+  in the program's `.config` file.
 - **Setting a modification time.** A fraction like `.674` has no exact representation in a
   floating-point count of seconds, which is how some platforms take a timestamp, so a
-  restored file can land tens of nanoseconds off its row. s3cab's own restore does, where the
-  filesystem keeps nanoseconds; setting the time through a nanosecond interface is exact.
+  restored file can land up to about a hundred nanoseconds off its row. s3cab's own restore
+  does, where the filesystem keeps nanoseconds; setting the time through a nanosecond
+  interface is exact.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.
@@ -786,10 +807,15 @@ For a restorer, or anything else that reads the files.
   case-sensitive, and a Linux one can hold characters Windows forbids. The twins collide in
   an ordinary Windows or macOS directory, and most of the characters fail on Windows. Some
   names Windows misreads instead: `\` is a separator to it, so `a\..\x` climbs out of the
-  output directory like a hand-added `..`, and s3cab refuses such a name. The format
-  records what was there; what to do on arrival is your tool's choice, worth stating.
-  So is whether a download that doesn't hash to its key is still worth writing, clearly
-  flagged, or better withheld.
+  output directory like a hand-added `..`. The format records what was there; what to do on
+  arrival is your tool's choice, worth stating, and so is whether a download that doesn't
+  hash to its key is still worth writing, clearly flagged, or better withheld. s3cab's:
+  - of paths the destination holds as one file, by letter case or by macOS's Unicode
+    normalization, the first row restores and each later one is reported, exit 1;
+  - a name the destination won't create is reported, exit 1, and the rest restore;
+  - a name Windows would misread rather than refuse, one holding `\` or `:`, is refused
+    before anything is written, and reported the same way;
+  - a download that doesn't hash to its key is withheld.
 - **Storage class.** A bucket lifecycle rule that moves `objects/` to an archive tier breaks
   a plain download for every tool, s3cab included.
 
