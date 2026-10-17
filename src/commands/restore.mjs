@@ -5,9 +5,10 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { copyFile, utimes } from "node:fs/promises";
+import { utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { platform, stderr } from "node:process";
+import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
@@ -175,7 +176,8 @@ export async function restore(paths = [], options = {}) {
 
   const plan = planRestore(entries, targets, destFor, {
     // The entry itself, not a link's target: a rename replaces a link to a
-    // folder like any file (ext4; NTFS refuses, and `isInTheWay` says so).
+    // folder like any file (ext4; NTFS refuses a directory link, and
+    // `isInTheWay` says so).
     stat: (dest) => statOrNothing(dest, lstatSync),
     overwrite: options.overwrite,
   });
@@ -284,11 +286,10 @@ export async function restore(paths = [], options = {}) {
         mkdirSync(dirname(step.dest), { recursive: true });
         if (from !== undefined) {
           try {
-            await copyFile(from, step.dest);
+            await copyFileAtomic(from, step.dest);
           } catch (error) {
-            // A failed copy names its *source* in `path` whichever side
-            // failed, so a refused name and a source gone since it was written
-            // are the same ENOENT. Whether the source is still there tells
+            // A refused name and a source gone since it was written are the
+            // same ENOENT. Whether the source is still there tells
             // them apart: if it is, the name was refused, and the catch below
             // says so; only a vanished source is worth a fetch, which would
             // otherwise download the whole object just to be refused.
@@ -416,9 +417,10 @@ function isRefusedName(error) {
  * and ext4: a file where one of its folders should be is `EEXIST` from the
  * `mkdir` when it is the file's own folder, `ENOTDIR` when it is one further
  * up, on both; a folder where the file should be is `EPERM` on NTFS and
- * `EISDIR` on ext4, named for the *source* of the rename or copy either way.
+ * `EISDIR` on ext4, named for the *source* of the rename either way, and so
+ * on NTFS is a directory link or junction, even one whose folder is gone.
  * `EPERM` is also plain permission denied, so that answer counts only when
- * `dest` really is a folder.
+ * `dest` really is a folder, or a link.
  * @param {unknown} error
  * @param {string} dest
  */
@@ -428,7 +430,8 @@ function isInTheWay(error, dest) {
     code === "EEXIST" ||
     code === "ENOTDIR" ||
     ((code === "EISDIR" || code === "EPERM") &&
-      statOrNothing(dest)?.isDirectory() === true)
+      (statOrNothing(dest)?.isDirectory() === true ||
+        statOrNothing(dest, lstatSync)?.isSymbolicLink() === true))
   );
 }
 

@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { writeFileAtomic } from "./atomic-file.mjs";
+import { copyFileAtomic, writeFileAtomic } from "./atomic-file.mjs";
 import { IntegrityError } from "./error.mjs";
 
 // writeFileAtomic takes its source stream as a parameter — that seam is what
@@ -107,6 +113,41 @@ describe("writeFileAtomic", () => {
       (/** @type {NodeJS.ErrnoException} */ error) =>
         ["ENOENT", "ENAMETOOLONG"].includes(error.code ?? "") &&
         typeof error.path === "string",
+    );
+    assert.deepEqual(readdirSync(dir.path), []);
+  });
+});
+
+describe("copyFileAtomic", () => {
+  const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+
+  it("replaces a link at the destination rather than writing through it", async (t) => {
+    await using dir = await mkTmpDir();
+    writeFileSync(join(dir.path, "source"), "restored");
+    writeFileSync(join(dir.path, "elsewhere"), "precious");
+    try {
+      symlinkSync(join(dir.path, "elsewhere"), join(dir.path, "dest"), "file");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    await copyFileAtomic(join(dir.path, "source"), join(dir.path, "dest"));
+
+    assert.equal(readFileSync(join(dir.path, "elsewhere"), "utf8"), "precious");
+    assert.ok(lstatSync(join(dir.path, "dest")).isFile());
+    assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "restored");
+  });
+
+  it("leaves nothing behind when the source is gone", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      () => copyFileAtomic(join(dir.path, "gone"), join(dir.path, "dest")),
+      (/** @type {NodeJS.ErrnoException} */ error) => error.code === "ENOENT",
     );
     assert.deepEqual(readdirSync(dir.path), []);
   });

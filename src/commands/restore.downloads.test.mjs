@@ -605,6 +605,53 @@ describe("restore when something on disk is in the way", () => {
     }
   });
 
+  it("treats a junction to a folder that's gone as in the way on NTFS, and replaces it elsewhere", async () => {
+    // A junction needs no privilege on Windows; elsewhere the type is ignored
+    // and it's a plain dangling link, which the rename replaces.
+    mkdirSync(join(output, "data"));
+    mkdirSync(join(output, "gone-folder"));
+    symlinkSync(join(output, "gone-folder"), dest("first.txt"), "junction");
+    rmSync(join(output, "gone-folder"), { recursive: true });
+
+    const plain = await restore([], { set: "photos", output });
+    assert.deepEqual(plain.skipped, [dest("first.txt")]);
+
+    const over = await restore([], { set: "photos", output, overwrite: true });
+    if (process.platform === "win32") {
+      assert.deepEqual(over.blocked, [dest("first.txt")]);
+    } else {
+      assert.ok(over.restored.includes(dest("first.txt")));
+      assert.ok(lstatSync(dest("first.txt")).isFile());
+    }
+  });
+
+  it("replaces a link at a copied path under --overwrite, never writing through it", async (t) => {
+    // `gone-copy.txt` shares `gone.txt`'s content, so it is copied from it.
+    mkdirSync(join(output, "data"));
+    writeFileSync(join(output, "outside.txt"), "precious");
+    try {
+      symlinkSync(join(output, "outside.txt"), dest("gone-copy.txt"), "file");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    const result = await restore([], {
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.ok(result.restored.includes(dest("gone-copy.txt")));
+    assert.ok(lstatSync(dest("gone-copy.txt")).isFile());
+    assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
+    assert.equal(readFileSync(join(output, "outside.txt"), "utf8"), "precious");
+  });
+
   it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {
     // A real disk's answer again: EPERM on NTFS, EISDIR on ext4, named for the
     // source of the rename or the copy. The folders appear after the plan, as

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { rename, rm } from "node:fs/promises";
+import { copyFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { IntegrityError } from "./error.mjs";
@@ -40,16 +40,8 @@ import { IntegrityError } from "./error.mjs";
  *   is left at `destPath` or in the temp)
  */
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
-  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
-  // the name pushes a legal name near the filesystem's 255 limit past it.
-  // Derived from the name, so a retry still overwrites its own leftover.
-  const nameDigest = createHash("sha256")
-    .update(basename(destPath))
-    .digest("hex")
-    .slice(0, 16);
-  const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
   const hasher = hash ? createHash("sha256") : undefined;
-  try {
+  await land(destPath, async (tmpPath) => {
     // Tee every chunk to disk unchanged, hashing en route only when verifying.
     await pipeline(
       source,
@@ -70,6 +62,38 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
         );
       }
     }
+  });
+}
+
+/**
+ * Copy the file at `from` to `destPath` atomically, the same way: into the
+ * sibling temp, then renamed into place. Not a plain `copyFile` onto
+ * `destPath`, which writes *through* a link already there, into wherever it
+ * points (measured on NTFS and ext4), where the rename replaces the link.
+ * @param {string} from - An existing file
+ * @param {string} destPath - Where to write the copy (parent must exist)
+ * @returns {Promise<void>}
+ */
+export const copyFileAtomic = (from, destPath) =>
+  land(destPath, (tmpPath) => copyFile(from, tmpPath));
+
+/**
+ * Run `write` against a temp sibling of `destPath`, then rename the temp into
+ * place; on any failure remove the temp and rethrow.
+ * @param {string} destPath
+ * @param {(tmpPath: string) => Promise<void>} write
+ */
+async function land(destPath, write) {
+  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
+  // the name pushes a legal name near the filesystem's 255 limit past it.
+  // Derived from the name, so a retry still overwrites its own leftover.
+  const nameDigest = createHash("sha256")
+    .update(basename(destPath))
+    .digest("hex")
+    .slice(0, 16);
+  const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
+  try {
+    await write(tmpPath);
     await rename(tmpPath, destPath);
   } catch (error) {
     // The cleanup's own failure is dropped: the caller needs the error that
