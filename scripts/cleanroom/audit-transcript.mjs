@@ -16,6 +16,8 @@
  *   held in a variable, a scheme-less host not on the list, and a URL in a file the
  *   session wrote and then ran, which is what a restorer is.
  * Paths elsewhere (a toolchain under Program Files, /usr) are not strays.
+ * Each is listed as what matched, then the tool and the start of its input; strays.mjs
+ * decides.
  *
  * Claude Code keeps a session's transcripts under `projects/<cwd, every character but
  * a letter or digit turned to ->/` in its config directory, subagents' in a
@@ -24,8 +26,9 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
-import { repoRoot, sandboxPath } from "./cleanroom.mjs";
+import { join, relative, resolve } from "node:path";
+import { sandboxPath } from "./cleanroom.mjs";
+import { strayFinders } from "./strays.mjs";
 
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
@@ -72,103 +75,27 @@ if (transcripts.length === 0) {
 }
 
 // The session's own scratchpad and saved tool output, both named for its session id, are
-// its to use. An earlier run's sit beside them under the same folder and are strays.
-// (Scratchpad path measured on Windows only.)
+// its to use. An earlier run's sit beside them under the same folder and are strays. The
+// temp folder is `claude` on Windows and `claude-<uid>` on Linux. Measured: the scratchpad
+// on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`), the tool output on Linux
+// (`/tmp/claude-<uid>/<folder>/<id>/tasks`); not the other two, nor macOS.
 const sessions = transcripts.map(
   (file) =>
     relative(projects, file)
       .split(/[\\/]/)[1]
       ?.replace(/\.jsonl$/, "") ?? "",
 );
+const uid = process.getuid?.();
+const temps = uid === undefined ? ["claude"] : ["claude", `claude-${uid}`];
 const own = folders.flatMap((folder) =>
   sessions.flatMap((id) => [
     join(projects, folder, id),
-    join(tmpdir(), "claude", folder, id),
+    ...temps.map((temp) => join(tmpdir(), temp, folder, id)),
   ]),
 );
 const allowed = [root, ...own];
 
-const windows = process.platform === "win32";
-/** @param {string} path */
-const fold = (path) => (windows ? path.toLowerCase() : path);
-/** @param {string} child @param {string} parent */
-const inside = (child, parent) => {
-  const rel = relative(fold(parent), fold(child));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-};
-const watched = [homedir(), tmpdir(), repoRoot];
-/** @param {string} path */
-const strayPath = (path) =>
-  !allowed.some((place) => inside(path, place)) &&
-  watched.some((place) => inside(path, place));
-
-// A command can't be resolved the way a path can, so it is read as text: the allowed
-// places' spellings are taken out, then anything still naming a watched place is a stray.
-/** A path in either slash direction, as a regex source. @param {string} path */
-const spellings = (path) =>
-  [path, path.replaceAll("\\", "/")]
-    .map((spelling) => spelling.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-// A session names its own scratchpad as `$env:TEMP\claude\…` as readily as by full path.
-// Only allowed places get these aliases, so a bare `$env:TEMP` still reads as temp.
-/** @type {[string, string[]][]} */
-const variables = [
-  [tmpdir(), ["$env:TEMP", "$env:TMP", "%TEMP%", "%TMP%", "$TMPDIR"]],
-  [homedir(), ["$env:USERPROFILE", "$env:HOME", "%USERPROFILE%", "$HOME", "~"]],
-];
-/** @param {string} path */
-const aliases = (path) => [
-  path,
-  ...variables.flatMap(([prefix, names]) =>
-    inside(path, prefix)
-      ? names.map((name) => name + path.slice(prefix.length))
-      : [],
-  ),
-];
-const allowedSpelled = new RegExp(
-  allowed.flatMap(aliases).map(spellings).join("|"),
-  "gi",
-);
-const named = new RegExp(
-  watched.map(spellings).join("|") +
-    // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
-    String.raw`|(^|[\s"'(=])~(?=[\\/\s]|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
-  "i",
-);
-// Case-insensitive, since Windows runs `S3CAB` too, though it also flags a bare `S3CAB` in an
-// environment-variable filter (`-match '^(AWS_|S3CAB)'`). If that false alarm recurs, report
-// other-case matches as a note rather than going case-sensitive.
-// `@` admits a version (`npm view s3cab@latest`).
-const runsS3cab =
-  /(^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&|)@])/im;
-const formatUrl = "s3cab.plantegral.com/guide/format";
-// A host ends at the first character a host can't hold, so a query string or a variable
-// after it isn't read as part of it. One that starts with a variable reads as empty.
-const urlHosts = /\bhttps?:\/\/([^\s/'"`)\\?#:;,|<>&$%{]*)/gi;
-const s3Host = /(^|\.)s3[.-]([a-z0-9-]+\.)*amazonaws\.com$/i;
-// The npm package ships src/ and guide/, so its registry and CDNs serve s3cab too.
-const sourceHosts =
-  /\b(github\.(com|io)|githubusercontent\.com|plantegral\.com|pages\.dev|npmjs\.(com|org)|unpkg\.com|jsdelivr\.net)\b/i;
-// Keyed on the subcommand, so a variable named `gh` isn't one. Not `git`: a clone from the
-// web names its URL, and one between local folders isn't the web.
-const runsGh =
-  /(^|[\s;&|(`])gh(\.exe)?\s+(api|repo|browse|gist|release|search|pr|issue|run|workflow)\b/im;
-/** @param {string} command */
-const reachesWeb = (command) => {
-  const rest = command.replaceAll(formatUrl, "");
-  return (
-    [...rest.matchAll(urlHosts)].some(
-      ([, host = ""]) => host !== "" && !s3Host.test(host),
-    ) ||
-    sourceHosts.test(rest) ||
-    runsGh.test(rest)
-  );
-};
-/** @param {string} command */
-const strayCommand = (command) =>
-  named.test(command.replace(allowedSpelled, "")) ||
-  runsS3cab.test(command) ||
-  reachesWeb(command);
+const { strayPath, strayCommand } = strayFinders(allowed);
 
 const fields = {
   input: "input_tokens",
@@ -215,13 +142,20 @@ for (const file of transcripts) {
         .concat(block.name === "Glob" ? [input.pattern] : [])
         .filter((path) => typeof path === "string")
         .map((path) => resolve(base, path));
-      if (
-        paths.some(strayPath) ||
-        (typeof input.command === "string" && strayCommand(input.command)) ||
-        block.name === "WebFetch" ||
-        block.name === "WebSearch"
-      ) {
-        strays.push(`  ${block.name}: ${JSON.stringify(input).slice(0, 300)}`);
+      // What matched, so the line says why: the path, the part of the command, or the
+      // web tool's own target.
+      const why =
+        paths.find(strayPath) ??
+        (typeof input.command === "string"
+          ? strayCommand(input.command)
+          : undefined) ??
+        (block.name === "WebFetch" || block.name === "WebSearch"
+          ? String(input.url ?? input.query ?? block.name)
+          : undefined);
+      if (why !== undefined) {
+        strays.push(
+          `  ${why} | ${block.name}: ${JSON.stringify(input).slice(0, 300)}`,
+        );
       }
     }
   }
