@@ -3,7 +3,7 @@
 **Status:** accepted
 
 Good, *asserting* tests for new or changed behaviour are a per-PR obligation, checked by
-**reading the diff** (the `/review` skill's Standards axis, and Copilot review via
+**reading the diff** (the `/code-review` run on every PR, and Copilot when requested, via
 [.github/copilot-instructions.md](../../.github/copilot-instructions.md)) — not by a CI
 threshold. CI still **emits** the coverage number (the `lint` job's `test:coverage:report`
 step) as advisory output; it never fails the build on coverage.

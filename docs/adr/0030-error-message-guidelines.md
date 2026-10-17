@@ -68,7 +68,7 @@ the parenthetical; the two fixes are explicit and the command is exact.
 
 ## Consequences
 
-- The `/review` Standards axis and Copilot review ([.github/copilot-instructions.md](../../.github/copilot-instructions.md))
+- The `/code-review` run on every PR, and Copilot when requested ([.github/copilot-instructions.md](../../.github/copilot-instructions.md)),
   check new/changed user-facing messages against the heuristic, the same way they check
   test coverage ([0020](0020-coverage-review-not-gate.md)) — by reading the diff, not a linter.
   A jargon-first headline or a dead-end message (no fix) is a review finding.

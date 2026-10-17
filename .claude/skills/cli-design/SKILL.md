@@ -20,7 +20,7 @@ s3cab is a **backup CLI for a casual but technical user** (someone who can stand
 an S3-compatible service, not a git-native developer) — largely non-interactive, run both
 by hand and from scripts/cron — so the guidance below is filtered to that case
 and anchored to the ADRs where s3cab has already decided something. Apply it; a
-violation is a review finding (the `/code-review` Standards axis + Copilot).
+violation is a review finding (the `/code-review` run on every PR, and Copilot when requested).
 
 > **Deep dive when the distilled rule isn't enough.** The full source is one big
 > markdown file:

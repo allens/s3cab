@@ -85,7 +85,8 @@ publish credential.
    git checkout -b chore/release-0.1.0-alpha.1
    npm version 0.1.0-alpha.1 --no-git-tag-version   # edits package.json + lock, no commit/tag
    git commit -am "chore: release 0.1.0-alpha.1" && git push -u origin HEAD
-   npm run pr -- --fill && gh pr merge --squash      # once ci gate is green
+   gh pr create --fill
+   gh pr merge --squash    # once ci gate is green and the review's threads are resolved
    ```
 3. **Tag the merged commit** on `main` with the matching `v` tag and push the tag (tags aren't
    branch-protected):

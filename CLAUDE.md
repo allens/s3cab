@@ -74,16 +74,15 @@ overlap that leaves is accepted over sync machinery
    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)) — asserting tests for changed behaviour
    are a per-PR obligation, checked by reading the diff. Assert about the *result*, not that the
    line executed.
-5. **Open PRs with `npm run pr`** (pass the rest through: `npm run pr -- --fill`), and review
-   every one with **`/code-review high <number>` on Opus**, its findings posted as one review
-   from `allens-claude-reviewer[bot]` — without `--comment`, which posts as the maintainer (the
-   token recipe and the rest of the PR loop are in the maintainer's global CLAUDE.md). Not
-   `medium`: both levels get the same review instructions and cost about the same, but `high`
-   explores further and alone caught the serious defect on two of five PRs.
+5. **Open PRs with `gh pr create`.** The maintainer reviews every one with
+   **`/code-review high <number>` on Opus** and posts its findings as one review from
+   `allens-claude-reviewer[bot]` — not with `--comment`, which posts as the maintainer. Not
+   `medium`: `high` explores further at about the same cost. A contributor without that setup
+   needn't run it.
 
    **Copilot reviews only on request**, since its credit is scarce:
-   `npm run pr -- --reviewer "@copilot"`. Request it at creation, the one path known to work,
-   and don't verify the request: `gh pr view --json reviewRequests` reads **empty even on
+   `gh pr create --reviewer "@copilot"`. Ask at creation: adding Copilot to a PR already open is
+   untested. Don't verify the request: `gh pr view --json reviewRequests` reads **empty even on
    success**, and treating that as failure just duplicates it. The review arriving is the
    confirmation.
 
