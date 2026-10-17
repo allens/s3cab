@@ -31,6 +31,20 @@ test("a command naming the sandbox is a stray only once it leaves it", () => {
   ]) {
     assert.equal(strayCommand(`cat ${path}`), path);
   }
+  assert.equal(
+    strayCommand('cat "$HOME/s3cab.sandbox/my dir/../../.aws/credentials"'),
+    "$HOME/s3cab.sandbox/my",
+  );
+});
+
+test("each spelling of home is home", () => {
+  for (const path of [
+    "${HOME}/.aws/credentials",
+    "${env:USERPROFILE}\\.aws\\credentials",
+    "$USERPROFILE/.aws/credentials",
+  ]) {
+    assert.equal(strayCommand(`cat ${path}`), path);
+  }
 });
 
 test("a command reaching the web is reported as its host", () => {
@@ -50,6 +64,9 @@ test("a tilde is home, not as awk's operator", () => {
   assert.equal(strayCommand("find ~ -name '*.tsv'"), "~");
   assert.equal(strayCommand("Get-ChildItem ~ -Recurse"), "~");
   assert.equal(strayCommand("Set-Location ~\nls"), "~");
+  assert.equal(strayCommand("cd ~; cat .aws/credentials"), "~");
+  assert.equal(strayCommand("(cd ~) ; ls"), "~");
+  assert.equal(strayCommand("Get-ChildItem .\\a,~\\.aws"), "~\\.aws");
   assert.equal(
     strayCommand(
       "aws s3 cp s3://b/k - --quiet | zcat | awk -F'\\t' '$1 ~ /^@SET/ && $2 ~ /DIR/ { print $3 }'",
@@ -68,9 +85,16 @@ test("a command running s3cab is reported as that run", () => {
     "for s in a b; do s3cab list $s; done",
     "1..3 | % { s3cab list }",
     "bash <<'EOF'\ns3cab list\nEOF",
+    'bash -c "s3cab list"',
+    "Invoke-Expression 's3cab list'",
+    "% {s3cab list}",
+    "./s3cab list",
   ]) {
     assert.equal(strayCommand(command), "s3cab", command);
   }
+  assert.equal(strayCommand(".\\s3cab.exe list"), "s3cab.exe");
+  assert.equal(strayCommand("node ./src/s3cab.mjs list"), "s3cab.mjs");
+  assert.equal(strayCommand("s3cab.ps1 list"), "s3cab.ps1");
 });
 
 test("s3cab as a regex alternative isn't a run of it", () => {

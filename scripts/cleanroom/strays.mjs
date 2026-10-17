@@ -18,8 +18,9 @@ const inside = (child, parent) => {
     (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
   );
 };
-// What ends a path in a command's text.
-const edge = "\\s\"'`;|&(),=";
+// What ends a path in a command's text. A quoted path runs on past a space.
+const breaks = "\"'`;|&(),=";
+const edge = `\\s${breaks}`;
 const watched = [homedir(), tmpdir(), repoRoot];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
@@ -33,8 +34,33 @@ const spellings = (path) =>
 // Only allowed places get these aliases, so a bare `$env:TEMP` still reads as temp.
 /** @type {[string, string[]][]} */
 const variables = [
-  [tmpdir(), ["$env:TEMP", "$env:TMP", "%TEMP%", "%TMP%", "$TMPDIR"]],
-  [homedir(), ["$env:USERPROFILE", "$env:HOME", "%USERPROFILE%", "$HOME", "~"]],
+  [
+    tmpdir(),
+    [
+      "$env:TEMP",
+      "$env:TMP",
+      "${env:TEMP}",
+      "${env:TMP}",
+      "%TEMP%",
+      "%TMP%",
+      "$TMPDIR",
+      "${TMPDIR}",
+    ],
+  ],
+  [
+    homedir(),
+    [
+      "$env:USERPROFILE",
+      "$env:HOME",
+      "${env:USERPROFILE}",
+      "${env:HOME}",
+      "%USERPROFILE%",
+      "$USERPROFILE",
+      "$HOME",
+      "${HOME}",
+      "~",
+    ],
+  ],
 ];
 /** @param {string} path */
 const aliases = (path) => [
@@ -50,7 +76,7 @@ const named = new RegExp(
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
     // A bare `~` followed by a regex or a quoted string is awk's or perl's match operator
     // (`$1 ~ /^@SET/`), not home.
-    String.raw`|(?<=^|[\s"'(=])~(?=[\\/]|\s*$|\s+[^\s/"'])|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
+    String.raw`|(?<=^|[\s"'(=,])~(?=[\\/]|\s*($|[;&|)}])|\s+[^\s/"'])|\$(HOME|USERPROFILE)\b|\$\{HOME\}|\$\{?env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
 // The path the match is part of, not just the watched prefix: `$env:USERPROFILE\.dotnet`,
@@ -73,7 +99,7 @@ const wholePath = (text, match) => {
 // it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
 // Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=^|[\s;&|(`])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.mjs)?(?=$|[\s;&@])/im;
+  /(?<=^|[\s;&|(`"'{\\/])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@])/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -104,7 +130,7 @@ export function strayFinders(allowed) {
   // (`~/s3cab.sandbox/../.aws`), since what's left after the cut no longer names home.
   const allowedSpelled = new RegExp(
     `(${allowed.flatMap(aliases).map(spellings).join("|")})` +
-      `(?=[\\\\/${edge}]|$)(?![^${edge}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`,
+      `(?=[\\\\/${edge}]|$)(?![^${breaks}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`,
     "gi",
   );
   return {
