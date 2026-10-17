@@ -282,7 +282,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="$GITHUB_REF_NAME" # the default env var, not `${{ }}` into the script
+          tag="$GITHUB_REF_NAME" # the default env var, not an expression spliced into the script
           # Mark pre-1.0 (v0.x) or semver-prerelease (v1.2.3-alpha.1) tags as prerelease
           # so they don't show as "Latest" in the Releases UI.
           prerelease=

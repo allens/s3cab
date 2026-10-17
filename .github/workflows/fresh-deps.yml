@@ -55,11 +55,9 @@ jobs:
     name: fresh deps
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Shares test-s3cab-ci-integration with ci.yml's s3-integration job, whose comment
-    # explains the same-minute deletion-record collision this group prevents.
-    concurrency:
-      group: s3-integration
-      cancel-in-progress: false
+    # Not in ci.yml's `s3-integration` group, though it shares that bucket: the group
+    # keeps one pending job, so a waiting weekly run would cancel a PR's gate or be
+    # cancelled unseen, against a collision that needs two deletes in the same minute.
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
       contents: read

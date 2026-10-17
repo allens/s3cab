@@ -12,8 +12,7 @@ only records **what this project uses**.
 - [`policy.json`](policy.json) — least-privilege IAM policy for the CI role, scoped
   to the `test-s3cab-ci-*` wildcard (the test-bucket naming convention in
   [docs/integration-testing.md](../../docs/integration-testing.md) makes the prefix
-  the safety boundary), which is every bucket CI touches: integration, conformance,
-  crash and the clean-room buckets (`test-s3cab-ci-cleanroom-restore`, `-backup`).
+  the safety boundary), which covers every bucket in the table below.
   `Get/Put/Delete` on objects + `ListBucket` for the integration suite (`Delete` because
   test teardown deletes), plus version and lifecycle actions so a versioned conformance
   bucket runs under the same role — deliberately **no** `PutBucketVersioning`, so no
@@ -26,7 +25,7 @@ only records **what this project uses**.
   - `repo:allens/s3cab:ref:refs/heads/main` — every job that runs from `main` itself:
     release.yml's per-platform round-trip on a **`workflow_dispatch`** run (the
     dispatch-first, tag-when-green dry run), nightly.yml's conformance and crash tiers,
-    fresh-deps.yml's weekly run, and cleanroom-seed.yml's seed.
+    fresh-deps.yml's weekly run, and all three of cleanroom-seed.yml's jobs.
   - `repo:allens/s3cab:ref:refs/tags/v*` — release.yml's round-trip on a **`v*` tag** push
     (a `StringLike` wildcard on the tag; only a maintainer can push a tag).
 

@@ -249,8 +249,7 @@ async function seed({ root, bucket }) {
   if (skipped.length > 0) {
     console.error(
       `\nNot seeding: the golden set has to hold every fixture declared for ${platform}.\n` +
-        "This turn wrote nothing, so the bucket stays as --empty left it: emptied and\n" +
-        "unstamped, refused by every restore build until a seed from a fixed main finishes.",
+        "This turn wrote nothing to the bucket.",
     );
     process.exit(2);
   }
