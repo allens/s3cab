@@ -59,8 +59,7 @@ import { shellCommand } from "../lib/style.mjs";
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * So is a file that something already on disk is in the way of — a file where
  * one of its folders should be, or a folder where it should be — reported
- * `blocked`, exit 1. Only those five degrade; any
- * other failure (network, credentials, a full disk) still aborts, since it is
+ * `blocked`, exit 1. Nothing else about one file degrades: any other failure (network, credentials, a full disk) still aborts, since it is
  * wrong about the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
@@ -168,7 +167,7 @@ export async function restore(paths = [], options = {}) {
   }
 
   const plan = planRestore(entries, targets, destFor, {
-    exists: existsSync,
+    stat: statOrNothing,
     overwrite: options.overwrite,
   });
 
@@ -257,6 +256,8 @@ export async function restore(paths = [], options = {}) {
       skipped.push(step.dest);
     } else if (step.action === "refuse") {
       refused.push(step.dest);
+    } else if (step.action === "block") {
+      blocked.push(step.dest);
     } else if (fate?.kind === "absent") {
       reportAbsent(fate.record, step.dest);
     } else if (fate?.kind === "corrupt") {
@@ -418,6 +419,20 @@ function isInTheWay(error, dest) {
     code === "EEXIST" ||
     code === "ENOTDIR" ||
     ((code === "EISDIR" || code === "EPERM") &&
-      statSync(dest, { throwIfNoEntry: false })?.isDirectory() === true)
+      statOrNothing(dest)?.isDirectory() === true)
   );
+}
+
+/**
+ * What is at `path`, or `undefined` for nothing — or for a `stat` that fails,
+ * as `existsSync` reads one, so a check never replaces the error it was asked
+ * about with its own.
+ * @param {string} path
+ */
+function statOrNothing(path) {
+  try {
+    return statSync(path, { throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
 }

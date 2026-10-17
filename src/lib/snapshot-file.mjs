@@ -22,7 +22,7 @@ import {
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
-import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
+import { foldsCase, pathKey, pathMatcher, preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -1027,27 +1027,37 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // After the read, not per row: only a whole file says which `@SET DIR` rows
   // and which other paths there are. The file rows must fit in one tree as
   // files. So each lies strictly inside a DIR: its folder is, not the path
-  // itself, or a row naming the DIR would pass. Both passes judge a row by its
-  // folder, and a snapshot lists a folder's files together, so each answer is
-  // kept for the next row: without that, the passes cost a 100k-row read 20%
-  // (POSIX paths) to 40% (Windows) more; with it, nothing measurable.
+  // itself, or a row naming the DIR would pass. And none is a DIR, which with
+  // nested DIRs can still lie inside the outer one; only a folder that holds a
+  // DIR can hold such a row. Both passes judge a row by its folder, and a
+  // snapshot lists a folder's files together, so each answer is kept for the
+  // next row: without that, the passes cost a 100k-row read 20% (POSIX paths)
+  // to 40% (Windows) more; with it, nothing measurable.
   const underDir = pathMatcher(dirs) ?? (() => false);
+  const dirKeys = new Set(dirs.map(pathKey));
+  const dirParents = new Set(
+    [...dirKeys].map((key) => key.slice(0, key.lastIndexOf("/"))),
+  );
   /** @param {string} path */
   const folderOf = (path) => path.slice(0, -preparePath(path).base.length);
   /** @type {string | undefined} */
   let folder;
   let inside = false;
+  let holdsDir = false;
   for (const path of entries.keys()) {
     const here = folderOf(path);
     if (here !== folder) {
       folder = here;
       inside = underDir(here);
+      holdsDir = dirParents.has(pathKey(here));
     }
     if (!inside) {
       refuse(
         path,
         "its path isn't inside any of the snapshot's @SET DIR folders",
       );
+    } else if (holdsDir && dirKeys.has(pathKey(path))) {
+      refuse(path, "its path is one of the snapshot's @SET DIR folders");
     }
   }
   // And no path left runs through another as a folder. Not the rows refused

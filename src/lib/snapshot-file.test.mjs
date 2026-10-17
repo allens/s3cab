@@ -402,6 +402,25 @@ describe("parseSnapshotStream", () => {
       );
     });
 
+    it("for a path that is a nested @SET DIR, though inside the outer one", async () => {
+      const { entries, refused } = await parse(
+        [
+          HEADING,
+          DIR,
+          "@SET\tDIR\t\t\t/home/me/a/",
+          START,
+          fileRow(hashA, 12, "/home/me/a"),
+          fileRow(hashB, 34, "/home/me/b.txt"),
+          TERMINATOR,
+        ].join("\n"),
+      );
+      assert.deepEqual([...entries.keys()], ["/home/me/b.txt"]);
+      assert.deepEqual(
+        [...refused],
+        [["/home/me/a", "its path is one of the snapshot's @SET DIR folders"]],
+      );
+    });
+
     it("for a file row that another row's path runs through, refusing both", async () => {
       // A restore can't make `a` both a file and the folder `b.txt` sits in,
       // however deep the second row reaches below it.

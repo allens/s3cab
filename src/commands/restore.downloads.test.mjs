@@ -555,20 +555,45 @@ describe("restore when something on disk is in the way", () => {
     assert.equal(process.exitCode, 1);
   });
 
-  it("skips a file whose place is a folder on disk under --overwrite", async () => {
-    // EPERM on NTFS, EISDIR on ext4: replacing a folder with a file is refused
-    // at the download's rename, and at a dedup copy for `gone-copy.txt`.
-    mkdirSync(join(output, "data", "gone.txt"), { recursive: true });
-    mkdirSync(join(output, "data", "gone-copy.txt"));
+  it("skips a file whose place is a folder on disk before downloading it, --overwrite or not", async () => {
+    // Not "skipped, rerun with --overwrite": that can't replace a folder, and
+    // would download the whole object only to fail at the rename.
+    for (const overwrite of [false, true]) {
+      fetched = [];
+      mkdirSync(join(output, "data", "gone.txt"), { recursive: true });
+      mkdirSync(join(output, "data", "gone-copy.txt"), { recursive: true });
 
-    const result = await restore([], {
-      set: "photos",
-      output,
-      overwrite: true,
-    });
+      const result = await restore([], { set: "photos", output, overwrite });
 
-    assert.deepEqual(result.blocked, [dest("gone.txt"), dest("gone-copy.txt")]);
-    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
+      assert.deepEqual(result.blocked, [
+        dest("gone.txt"),
+        dest("gone-copy.txt"),
+      ]);
+      assert.deepEqual(fetched, ["aaa", "ccc"]);
+      assert.equal(process.exitCode, 1);
+      rmSync(join(output, "data"), { recursive: true });
+    }
+  });
+
+  it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {
+    // A real disk's answer again: EPERM on NTFS, EISDIR on ext4, named for the
+    // source of the rename or the copy. The folders appear after the plan, as
+    // another row's folder would.
+    afterFetch = (hash) => {
+      if (hash === "bbb") {
+        mkdirSync(dest("gone-copy.txt"));
+        mkdirSync(dest("last.txt"));
+      }
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("gone.txt")]);
+    assert.deepEqual(result.blocked, [
+      dest("gone-copy.txt"), // copied from gone.txt
+      dest("last.txt"), // downloaded
+    ]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
     assert.equal(process.exitCode, 1);
   });
 });

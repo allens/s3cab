@@ -272,8 +272,8 @@ describe("reroot", () => {
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
-// target it decides skip / refuse / write, with no disk or network access —
-// `exists` is injected so these run with a fake filesystem.
+// target it decides skip / refuse / block / write, with no disk or network
+// access — `stat` is injected so these run with a fake filesystem.
 describe("planRestore", () => {
   const destFor = (/** @type {string} */ source) => source;
   /** @type {SnapshotEntries} */
@@ -287,17 +287,19 @@ describe("planRestore", () => {
     hash: "h1",
     mtime: "2026-01-01T00:00Z",
   });
+  const FILE = { isDirectory: () => false };
+  const FOLDER = { isDirectory: () => true };
 
   it("writes every target, a repeated hash included — dedupe is the restore loop's", () => {
     const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-      exists: () => false,
+      stat: () => undefined,
     });
     assert.deepEqual(plan, [writeOf("/a.jpg"), writeOf("/b.jpg")]);
   });
 
   it("skips a target whose destination already exists", () => {
     const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-      exists: (dest) => dest === "/a.jpg",
+      stat: (dest) => (dest === "/a.jpg" ? FILE : undefined),
     });
     assert.deepEqual(plan, [
       { dest: "/a.jpg", action: "skip" },
@@ -307,15 +309,30 @@ describe("planRestore", () => {
 
   it("overwrite writes over an existing destination instead of skipping it", () => {
     const plan = planRestore(entries, ["/a.jpg"], destFor, {
-      exists: (dest) => dest === "/a.jpg",
+      stat: (dest) => (dest === "/a.jpg" ? FILE : undefined),
       overwrite: true,
     });
     assert.deepEqual(plan, [writeOf("/a.jpg")]);
   });
 
+  it("blocks a target whose destination is a folder, --overwrite or not", () => {
+    // Not a skip: rerunning with --overwrite can't replace a folder, and would
+    // download the whole object only to fail at the rename.
+    for (const overwrite of [false, true]) {
+      const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
+        stat: (dest) => (dest === "/a.jpg" ? FOLDER : undefined),
+        overwrite,
+      });
+      assert.deepEqual(plan, [
+        { dest: "/a.jpg", action: "block" },
+        writeOf("/b.jpg"),
+      ]);
+    }
+  });
+
   it("refuses a `:` in a Windows name — under either root", () => {
     // NTFS would take `a:b.jpg` as a stream of a file `a`; the drive's own `:`
-    // and a UNC root are not names. `exists` isn't consulted for the refused
+    // and a UNC root are not names. `stat` isn't consulted for the refused
     // one: a stream left by an earlier restore must not read as "already here".
     for (const root of ["C:\\out\\", "\\\\nas\\share\\"]) {
       const named = new Map([
@@ -323,7 +340,7 @@ describe("planRestore", () => {
         [`${root}b.jpg`, { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
       ]);
       const plan = planRestore(named, [...named.keys()], destFor, {
-        exists: (dest) => dest.includes("a:b"),
+        stat: (dest) => (dest.includes("a:b") ? FILE : undefined),
       });
       assert.deepEqual(plan, [
         { dest: `${root}a:b.jpg`, action: "refuse" },
@@ -333,7 +350,7 @@ describe("planRestore", () => {
   });
 
   it("refuses a path with no destination by its snapshot path, --overwrite or not", () => {
-    // `exists` isn't consulted: `--overwrite` can't reach it either.
+    // `stat` isn't consulted: `--overwrite` can't reach it either.
     const named = new Map([
       [
         "/home/u/a\\..\\x.txt",
@@ -341,7 +358,7 @@ describe("planRestore", () => {
       ],
     ]);
     const plan = planRestore(named, [...named.keys()], () => undefined, {
-      exists: () => true,
+      stat: () => FILE,
       overwrite: true,
     });
     assert.deepEqual(plan, [
@@ -354,7 +371,7 @@ describe("planRestore", () => {
       ["/a:b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
     ]);
     const plan = planRestore(named, ["/a:b.jpg"], destFor, {
-      exists: () => false,
+      stat: () => undefined,
     });
     assert.deepEqual(plan, [writeOf("/a:b.jpg")]);
   });

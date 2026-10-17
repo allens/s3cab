@@ -92,6 +92,14 @@ const normalize = (p) => {
 };
 
 /**
+ * The form `pathMatcher` compares a folder in: normalized, any trailing
+ * separator dropped. Two paths with one key name one place.
+ * @param {string} folder
+ * @returns {string}
+ */
+export const pathKey = (folder) => normalize(folder).replace(/\/+$/, "");
+
+/**
  * Build the "does this path fall under any of these folders?" predicate — a
  * folder matches a path that equals it or lies under it (a `/`-boundary prefix),
  * separators unified and case folded for a Windows-shaped path, a trailing
@@ -104,9 +112,7 @@ const normalize = (p) => {
  *   is given, or all are blank
  */
 export function pathMatcher(folders) {
-  const needles = folders
-    .filter((folder) => folder.trim() !== "")
-    .map((folder) => normalize(folder).replace(/\/+$/, ""));
+  const needles = folders.filter((folder) => folder.trim() !== "").map(pathKey);
   if (needles.length === 0) {
     return undefined;
   }

@@ -572,16 +572,16 @@ in only one row included, since a case-sensitive filesystem really can hold both
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
-claim `…\trees\edgeX\file.txt`. Split both the directory and the path into segments, dropping
-only the empty one after a `DIR`'s closing separator: a valid path has no empty segment, so a
-`DIR` holding a doubled separator matches nothing, and every path under it is refused. Which
-separators count depends on the path, not the machine reading it: a Windows path splits on
-`/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary character in a
-filename — so a Windows snapshot reads correctly on a POSIX machine, and the reverse. Where
-several directories match, the **longest wins**, so a member directory nested inside another
-takes precedence over its parent. A path under no `DIR` at all has nowhere to land, so its
-row is [refused](#valid-and-invalid-files) rather than guessed at; only a hand-edited
-snapshot can hold one.
+claim `…\trees\edgeX\file.txt`. Ignore the separators a `DIR` ends with, then split both the
+directory and the path into segments: a valid path has no empty segment, so a `DIR` with a
+doubled separator anywhere before its end matches nothing, and every path under it is
+refused. Which separators count depends on the path, not the machine reading it: a Windows
+path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary
+character in a filename — so a Windows snapshot reads correctly on a POSIX machine, and the
+reverse. Where several directories match, the **longest wins**, so a member directory nested
+inside another takes precedence over its parent. A path under no `DIR` at all has nowhere to
+land, so its row is [refused](#valid-and-invalid-files) rather than guessed at; only a
+hand-edited snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
@@ -652,8 +652,9 @@ as much as a snapshot:
 - every segment of a path past its root (`/`, `C:\`, or a share's `\\`) a name: not empty, so
   no trailing or doubled separator, and not `.` or `..`;
 - every per-path row's path strictly inside a `@SET DIR`: under one, never the `DIR` itself;
-- no file row's path running through another's as a folder: `/home/me/a` and
-  `/home/me/a/b.txt` can't both be files, since a restore can't make `a` both;
+- no file row's path running through another's as a folder, paths compared exactly:
+  `/home/me/a` and `/home/me/a/b.txt` can't both be files, since a restore can't make `a`
+  both;
 - each path in at most one per-path row, whatever its type, paths compared exactly;
 - exactly one `@S3CAB SPEC`, one `@CLIENT NAME` and one `@CLIENT VERSION`;
 - each file row's hash 64 lowercase hex characters, its size decimal, its time the
