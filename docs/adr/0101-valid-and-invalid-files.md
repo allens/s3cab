@@ -88,7 +88,8 @@ exist side by side as files, inside the member directories. So a valid file also
 
 - **no empty segment** past a path's root, which covers a trailing and a doubled separator, beside
   the `.` and `..` it already refused;
-- **every path strictly inside a `DIR`**: under one, never the `DIR` itself;
+- **every path strictly inside a `DIR`**: under one, and never any `DIR` itself, a nested one
+  included;
 - **no file row's path running through another's as a folder**, refusing both rows, as for a path
   in two rows.
 

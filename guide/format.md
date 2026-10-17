@@ -574,7 +574,7 @@ in only one row included, since a case-sensitive filesystem really can hold both
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
 claim `…\trees\edgeX\file.txt`. Ignore the separators a `DIR` ends with, then split both the
 directory and the path into segments: a valid path has no empty segment, so a `DIR` with a
-doubled separator anywhere before its end matches nothing, and every path under it is
+doubled separator anywhere after its root matches nothing, and every path under it is
 refused. Which separators count depends on the path, not the machine reading it: a Windows
 path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary
 character in a filename — so a Windows snapshot reads correctly on a POSIX machine, and the
@@ -651,7 +651,8 @@ as much as a snapshot:
 - every per-path row's path absolute, with no tab, CR or LF;
 - every segment of a path past its root (`/`, `C:\`, or a share's `\\`) a name: not empty, so
   no trailing or doubled separator, and not `.` or `..`;
-- every per-path row's path strictly inside a `@SET DIR`: under one, never the `DIR` itself;
+- every per-path row's path strictly inside a `@SET DIR`: under one, and never any `DIR`
+  itself, a nested one included;
 - no file row's path running through another's as a folder, paths compared exactly:
   `/home/me/a` and `/home/me/a/b.txt` can't both be files, since a restore can't make `a`
   both;

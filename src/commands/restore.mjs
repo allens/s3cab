@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { platform, stderr } from "node:process";
@@ -59,8 +65,9 @@ import { shellCommand } from "../lib/style.mjs";
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * So is a file that something already on disk is in the way of — a file where
  * one of its folders should be, or a folder where it should be — reported
- * `blocked`, exit 1. Nothing else about one file degrades: any other failure (network, credentials, a full disk) still aborts, since it is
- * wrong about the *run*, not about one file.
+ * `blocked`, exit 1. Nothing else about one file degrades: any other failure
+ * (network, credentials, a full disk) still aborts, since it is wrong about
+ * the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -167,7 +174,9 @@ export async function restore(paths = [], options = {}) {
   }
 
   const plan = planRestore(entries, targets, destFor, {
-    stat: statOrNothing,
+    // The entry itself, not a link's target: a rename replaces a link to a
+    // folder like any file (ext4; NTFS refuses, and `isInTheWay` says so).
+    stat: (dest) => statOrNothing(dest, lstatSync),
     overwrite: options.overwrite,
   });
 
@@ -428,10 +437,11 @@ function isInTheWay(error, dest) {
  * as `existsSync` reads one, so a check never replaces the error it was asked
  * about with its own.
  * @param {string} path
+ * @param {typeof statSync} [stat] - `lstatSync` for the entry itself
  */
-function statOrNothing(path) {
+function statOrNothing(path, stat = statSync) {
   try {
-    return statSync(path, { throwIfNoEntry: false });
+    return stat(path, { throwIfNoEntry: false });
   } catch {
     return undefined;
   }

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -572,6 +574,34 @@ describe("restore when something on disk is in the way", () => {
       assert.deepEqual(fetched, ["aaa", "ccc"]);
       assert.equal(process.exitCode, 1);
       rmSync(join(output, "data"), { recursive: true });
+    }
+  });
+
+  it("treats a link to a folder at the destination as a file, not a folder", async (t) => {
+    // Skipped like any existing file, and under --overwrite replaced where the
+    // disk allows it: ext4 renames over the link, NTFS refuses with EPERM.
+    mkdirSync(join(output, "elsewhere"));
+    mkdirSync(join(output, "data"));
+    try {
+      symlinkSync(join(output, "elsewhere"), dest("first.txt"), "dir");
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") {
+        t.skip("creating a symlink needs a privilege this account lacks");
+        return;
+      }
+      throw error;
+    }
+
+    const plain = await restore([], { set: "photos", output });
+    assert.deepEqual(plain.skipped, [dest("first.txt")]);
+    assert.deepEqual(plain.blocked, []);
+
+    const over = await restore([], { set: "photos", output, overwrite: true });
+    if (process.platform === "win32") {
+      assert.deepEqual(over.blocked, [dest("first.txt")]);
+    } else {
+      assert.ok(over.restored.includes(dest("first.txt")));
+      assert.ok(lstatSync(dest("first.txt")).isFile());
     }
   });
 
