@@ -167,17 +167,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   a valid row holding a false time, and restore sets it. Likely libuv. Once Node reads it right,
   `toISOString` writes `+010000-…`, a row s3cab's own reader refuses: the
   [Writing checklist](../guide/format.md#writing-a-snapshot) makes a time past 9999 an `#error`.
-- **A killed run whose work file is cut inside a multi-byte character blocks every later
-  backup of the set.** The tolerant read that recovers the work file
-  (`readParkedLookup` → `parseSnapshotStream({ tolerant: true })`, `src/lib/snapshot-file.mjs`)
-  decompresses with `Z_SYNC_FLUSH`, so it gets the bytes up to the cut, mid-row by design.
-  `utf8Lines` ends with a strict `decoder.decode()` that tolerance never reaches: if the cut
-  lands inside a character such as `é`, that last decode throws (`TypeError: The encoded data
-  was not valid for encoding utf-8`, checked under node 26.10.0), surfacing as "Not an s3cab
-  snapshot", and `readBaseline` (`src/lib/snapshot.mjs`) calls the read without a catch. The
-  user has to delete the parked file by hand. Accented file names are common in photo
-  libraries. A tolerant read should drop an undecodable tail, as it already drops the torn line.
-  Not yet reproduced end to end.
 - **"fits every frame to the terminal's width" fails in a checkout with a short path.** The test
   (`src/lib/snapshot.progress.test.mjs`) sets a 60-column terminal and asserts that some frame
   was cut short with `…`, on the premise that the temp directory's paths are longer than that.
