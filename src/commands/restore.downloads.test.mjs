@@ -530,6 +530,49 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
   });
 });
 
+describe("restore when something on disk is in the way", () => {
+  it("skips a file whose folder is a file on disk, restores the rest, and exits 1", async () => {
+    // A real disk's answer, not a faked error, on NTFS and ext4 alike: EEXIST
+    // for a file in the place of the file's own folder, ENOTDIR for one higher.
+    mkdirSync(join(output, "data"));
+    writeFileSync(dest("first.txt"), "a file, not a folder");
+    snapshot = {
+      entries: new Map([
+        ["/data/first.txt/inner.txt", { ...at, hash: "aaa" }],
+        ["/data/first.txt/deeper/inner.txt", { ...at, hash: "bbb" }],
+        ["/data/last.txt", { ...at, hash: "ccc" }],
+      ]),
+      dirs: ["/data"],
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.blocked, [
+      dest(join("first.txt", "inner.txt")),
+      dest(join("first.txt", "deeper", "inner.txt")),
+    ]);
+    assert.deepEqual(result.restored, [dest("last.txt")]);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("skips a file whose place is a folder on disk under --overwrite", async () => {
+    // EPERM on NTFS, EISDIR on ext4: replacing a folder with a file is refused
+    // at the download's rename, and at a dedup copy for `gone-copy.txt`.
+    mkdirSync(join(output, "data", "gone.txt"), { recursive: true });
+    mkdirSync(join(output, "data", "gone-copy.txt"));
+
+    const result = await restore([], {
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(result.blocked, [dest("gone.txt"), dest("gone-copy.txt")]);
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
+    assert.equal(process.exitCode, 1);
+  });
+});
+
 describe("restore with a snapshot row the reader refused (ADR-0101)", () => {
   const reason = "its hash isn't 64 lowercase hex digits";
 

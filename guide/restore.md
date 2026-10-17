@@ -186,6 +186,10 @@ backups of it are refused from then on.
   Each such file is skipped and listed, with any invisible character spelled out (`\x0c` for a
   form feed); the rest of the restore carries on, and the run exits non-zero. To get them
   back, restore them with `--output` onto a disk that allows the names.
+- **Something in the way is listed, not fatal.** When a file already on disk sits where one
+  of a restored file's folders should be, or a folder sits where the file should be, that
+  file is skipped and listed, the rest carries on, and the run exits non-zero. Move what's
+  in the way and restore again, or restore into an empty `--output` directory.
 - **Everything referenced should be there.** A snapshot only ever reaches the bucket _after_
   every object it references, so any snapshot you can see is complete and restorable. That
   invariant is part of the [format spec](format.md) — and if something has removed content
