@@ -2,7 +2,7 @@
 
 **Proposed, reviewed once.** My idea: run the clean-room *sessions* themselves in GitHub
 Actions — **macOS only**, the one platform I can't easily run locally. Windows and Linux stay on
-my machine, where runs use my subscription; a CI run bills the API key, which costs far more.
+my machine. Both kinds of run use my subscription ([The Claude credential](#the-claude-credential)).
 Builds on [cleanroom-harness.md](cleanroom-harness.md). Seeding the restore fixtures per platform is
 [cleanroom-seeding.md](cleanroom-seeding.md).
 
@@ -31,8 +31,11 @@ trees. Triggered by hand (`workflow_dispatch`), with role, platform, model and e
    session keys into the clean room as it does locally.
 2. **Delete what the session mustn't see:** the checkout with its `node_modules`, and the npm
    cache.
-3. **Run the session:** install `claude`, then the same `claude -p --safe-mode …` from
-   `~/s3cab.sandbox/cleanroom`. The API key goes to this step alone; the GitHub token to none.
+3. **Run the session:** install `claude` at a pinned version, then the same
+   `claude -p --safe-mode …` from `~/s3cab.sandbox/cleanroom`. The Claude token goes to this
+   step alone; the GitHub token to none. The session's output goes to a file kept with the
+   clean room, never to the job log. Not `anthropics/claude-code-action`: it is built for Claude
+   working *on* the repo, so it checks out the repo and hands Claude a GitHub token and tools.
 4. **Check out again and check:** `npm ci`, the role's checker, `audit-transcript.mjs`.
 5. **Keep:** delete the credentials, upload the clean room with `check.txt` and `audit.txt` as a
    build artifact. Harvesting stays human: download it and read the report.
@@ -71,8 +74,8 @@ Each is reachable during step 3, and needs handling or the audit watching it:
   `Runner.Worker` process's memory, which holds every secret in the job and the job's
   `GITHUB_TOKEN`, as the tj-actions compromise did in March 2025. Without root, it can still
   read the environment of the job's other processes (`/proc/<pid>/environ`, `ps -E`). So "the
-  API key goes to this step alone; the GitHub token to none" holds for the workflow file, not
-  for the session.
+  Claude token goes to this step alone; the GitHub token to none" holds for the workflow file,
+  not for the session.
 - **The job can mint its own OIDC token.** `id-token: write`, which steps 1 and 4 need, puts
   `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` on the runner. The token
   names the owner, repo and workflow, and assumes `s3cab-ci`, whose policy covers every
@@ -106,8 +109,26 @@ instead:
 - **Decide what the artifact may carry.** On a public repo anyone signed in to GitHub can
   download it, for 90 days by default. It holds whatever the session wrote, keys copied into its
   own scripts included. The transcript lives in `~/.claude/projects`, outside the clean room, so
-  it is lost with the runner unless uploaded too, and it holds the API key if the session ever
-  ran `env`.
+  it is lost with the runner unless uploaded too, and it holds the Claude token if the session
+  ever ran `env`.
+
+## The Claude credential
+
+- **A subscription token**, from `claude setup-token` on my machine, stored as a
+  `CLAUDE_CODE_OAUTH_TOKEN` secret. Max's monthly API allowance would suit too, once it is
+  available; switching is a change of secret, nothing more.
+- **One token per batch of runs, revoked by hand afterwards.** Neither kind rolls automatically:
+  minting a token needs a browser sign-in, and no command or API revokes one. The Admin API
+  can archive an API key but not create one, and an admin key in the job would be worse to leak
+  than the key it protects.
+- **A leak is an accident, not an attack:** the session reads only the brief and the spec. The
+  routes are the session printing its environment, the job log (public on a public repo; GitHub
+  masks a secret's exact text, not a re-encoded or split copy), and the artifact.
+- **What a leaked token does.** A subscription token runs Claude against my plan's limits until
+  revoked: no bill unless the plan's extra usage is on (keep it off), but my own use is locked
+  out, and use from strangers' machines can look like credential sharing. An API key costs money
+  up to its workspace's Console spend limit, and revokes in one click. `--max-budget-usd` caps
+  our own run only; a thief doesn't pass it.
 
 ## Before it can run
 
@@ -116,7 +137,7 @@ instead:
   wildcard already covers them; the platform repo's Terraform needs the buckets and the role's
   longer session. The restore bucket is also the one every home run reads
   ([cleanroom-seeding.md](cleanroom-seeding.md)), so home identities get read-only access to it.
-- An `ANTHROPIC_API_KEY` secret; spend capped by `--max-budget-usd` as now.
+- The `CLAUDE_CODE_OAUTH_TOKEN` secret ([The Claude credential](#the-claude-credential)).
 - A concurrency group on the backup bucket, since backup runs take turns emptying it. Restore runs
   only read, so they can run side by side. A group keeps one pending run by default and cancels
   it when another arrives; `queue: max` keeps up to 100.
@@ -142,8 +163,9 @@ uses — is refined when this is built, not here.
   room needs a venv or a flag.
 - **The image is not a stock Mac:** it ships full Xcode and Homebrew with many packages, so
   "comes as standard" and "nothing from Homebrew" can't be observed as they can on a new Mac.
-- **Unverified:** `--permission-mode auto` under API-key billing in `-p` mode; on a Windows run,
-  `fsutil file setCaseSensitiveInfo` on the runner's `D:\` volume.
+- **Unverified:** a `CLAUDE_CODE_OAUTH_TOKEN` signing in a `-p` run on a hosted runner, and
+  `--permission-mode auto` with it; a setup token's lifetime (said to be a year) and where to
+  revoke one; on a Windows run, `fsutil file setCaseSensitiveInfo` on the runner's `D:\` volume.
 
 ## Checked
 
