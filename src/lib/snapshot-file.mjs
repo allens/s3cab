@@ -988,7 +988,7 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   /** @type {string | undefined} */
   let held;
 
-  for await (const line of utf8Lines(input, { tolerant })) {
+  for await (const line of utf8Lines(input)) {
     if (held !== undefined) {
       parseLine(held);
     }
@@ -1089,29 +1089,25 @@ export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
  * stays in its line, where it refuses the row (ADR-0101). Bytes that aren't
  * UTF-8 refuse the file with the parser's AssertionError, so
  * `isCorruptSnapshotError` reads them as damage. The last piece is whatever
- * follows the final LF: "" when the stream ends with one. A `tolerant` read
- * (the parser's flag) lets that last piece end inside a character: a killed
- * run's work file is cut wherever the OS stopped writing, between the bytes of
- * an `é` as readily as between rows, and the parser drops the LF-less last
- * line anyway, so the dangling bytes go with it.
+ * follows the final LF: "" when the stream ends with one. A stream that ends
+ * inside a character (a killed run's work file is cut wherever the OS stopped
+ * writing, between the bytes of an `é` as readily as between rows) ends that
+ * piece with U+FFFD instead. It has no LF, so the parser takes it as any cut
+ * line: a tolerant read drops it, a strict one refuses the file as truncated.
+ * Not "": a stray byte after a snapshot's closing `.` would then pass unseen.
  * @param {AsyncIterable<Uint8Array>} input
- * @param {{ tolerant: boolean }} options
  * @returns {AsyncGenerator<string>}
  */
-async function* utf8Lines(input, { tolerant }) {
+async function* utf8Lines(input) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   /** @param {Uint8Array} [bytes] - A chunk, or nothing for the flush at the end */
   const decode = (bytes) => {
     try {
       return bytes ? decoder.decode(bytes, { stream: true }) : decoder.decode();
     } catch {
-      // Only the flush can fail on a sequence the stream *ends inside*; a chunk
-      // fails on bytes that are not UTF-8 at all, which no read tolerates.
-      assert(
-        tolerant && !bytes,
-        "Not an s3cab snapshot: the file isn't UTF-8 text",
-      );
-      return "";
+      return bytes
+        ? assert.fail("Not an s3cab snapshot: the file isn't UTF-8 text")
+        : "�";
     }
   };
   let rest = "";

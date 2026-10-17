@@ -7,16 +7,16 @@ import { describe, it } from "node:test";
 import { constants, gunzipSync, gzipSync } from "node:zlib";
 import {
   parseCompressedSnapshotStream,
-  parseSnapshotStream,
   readParkedLookup,
 } from "./snapshot-file.mjs";
 import { readBaseline } from "./snapshot.mjs";
 
 /** @import { BackupSet } from "./sets.mjs" */
 
-// A killed run's work file is cut wherever the OS stopped writing, which can be
-// between the two bytes of a character such as `é` in a path. The tolerant read
-// drops that torn tail with the LF-less last line; a strict read still refuses it.
+// A killed run's work file is gzip cut wherever the OS stopped writing, which
+// can be between the two bytes of a character such as `é` in a path. The plain
+// text cases are in snapshot-file.test.mjs; these cut a real gzip stream and
+// read it through every reader that recovers a work file.
 
 const hash = "a".repeat(64);
 const HEADING =
@@ -28,8 +28,8 @@ const START = "@SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
 const fileRow = (path, size) =>
   `-\t${hash}\t${size}\t2026-06-01T12:00:00.000Z\t${path}`;
 
-// Distinct accented names, so the compressor emits mostly literals (a repeated
-// name is a long match, and a cut inside one never lands between an `é`'s bytes).
+// Distinct accented names, so the compressor emits mostly literals and many
+// byte offsets of the gzip stream are candidate cuts.
 let seed = 1;
 const letters = "abcdefghijklmnopqrstuvwxyzéüñ";
 const paths = Array.from({ length: 400 }, () => {
@@ -43,11 +43,19 @@ const text =
   [HEADING, DIR, START, ...paths.map((p, i) => fileRow(p, i + 1))].join("\n") +
   "\n";
 
-/**
- * Whether `bytes` stop inside a character.
- * @param {Uint8Array} bytes
- */
-const endsMidCharacter = (bytes) => {
+// At `withSnapshotFile`'s settings, so the cut lands as it would in a work file.
+const whole = gzipSync(Buffer.from(text), {
+  level: 9,
+  memLevel: 9,
+  strategy: constants.Z_FILTERED,
+});
+
+/** What the tolerant gunzip gives for the first `cut` bytes of the stream. */
+const inflate = (/** @type {number} */ cut) =>
+  gunzipSync(whole.subarray(0, cut), { finishFlush: constants.Z_SYNC_FLUSH });
+
+/** Whether `bytes` stop inside a character. */
+const endsMidCharacter = (/** @type {Uint8Array} */ bytes) => {
   try {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return false;
@@ -57,50 +65,37 @@ const endsMidCharacter = (bytes) => {
 };
 
 /**
- * A work file as the backup pass writes it (gzip at the settings of
- * `withSnapshotFile`), cut at the first byte offset where the tolerant gunzip's
- * output stops inside a character.
+ * The paths a recovering read should keep from the first `cut` bytes: the rows
+ * whose LF made it out of the decompressor.
+ * @param {number} cut
  */
-const tornWorkFile = () => {
-  const whole = gzipSync(Buffer.from(text), {
-    level: 9,
-    memLevel: 9,
-    strategy: constants.Z_FILTERED,
-  });
-  // From the end, so that many whole rows precede the cut.
-  for (let cut = whole.length - 9; cut > 20; cut--) {
-    const torn = whole.subarray(0, cut);
-    const inflated = gunzipSync(torn, { finishFlush: constants.Z_SYNC_FLUSH });
-    if (endsMidCharacter(inflated)) {
-      return torn;
-    }
-  }
-  throw new Error(
-    "fixture: no cut of the gzip stream lands inside a character",
-  );
+const rowsBefore = (cut) => {
+  const inflated = inflate(cut);
+  const rows = inflated
+    .subarray(0, inflated.lastIndexOf(0x0a) + 1)
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.startsWith("-\t")).length;
+  return paths.slice(0, rows);
 };
 
-/** The whole rows before the cut, as paths. */
-const recoveredPaths = (/** @type {Map<string, unknown>} */ entries) => [
-  ...entries.keys(),
-];
+// From the end, so that many whole rows precede the cut.
+let tornAt = whole.length - 9;
+while (tornAt > 20 && !endsMidCharacter(inflate(tornAt))) {
+  tornAt--;
+}
+assert.ok(
+  tornAt > 20,
+  "fixture: no cut of the gzip stream lands inside a character",
+);
+const torn = whole.subarray(0, tornAt);
+const expected = rowsBefore(tornAt);
 
 describe("a work file cut inside a multi-byte character", () => {
   it("control: the same stream cut between characters reads fine", async () => {
     // Proves the fixture's only fault is where the cut lands.
-    const whole = gzipSync(Buffer.from(text), {
-      level: 9,
-      memLevel: 9,
-      strategy: constants.Z_FILTERED,
-    });
-    let cut = tornWorkFile().length;
-    while (
-      endsMidCharacter(
-        gunzipSync(whole.subarray(0, cut), {
-          finishFlush: constants.Z_SYNC_FLUSH,
-        }),
-      )
-    ) {
+    let cut = tornAt;
+    while (endsMidCharacter(inflate(cut))) {
       cut--;
     }
 
@@ -109,68 +104,39 @@ describe("a work file cut inside a multi-byte character", () => {
       { tolerant: true },
     );
 
-    assert.ok(entries.size > 0);
+    assert.deepEqual([...entries.keys()], rowsBefore(cut));
   });
 
-  // The bytes of `é` are C3 A9; the file stops after C3.
-  const tornText = Buffer.concat([
-    Buffer.from(
-      [
-        HEADING,
-        DIR,
-        fileRow("/home/me/a.txt", 1),
-        "-\tx\t1\tx\t/home/me/caf",
-      ].join("\n"),
-    ),
-    Buffer.from([0xc3]),
-  ]);
-
-  it("parseSnapshotStream (tolerant) drops the torn tail", async () => {
-    const { entries } = await parseSnapshotStream(Readable.from([tornText]), {
-      tolerant: true,
-    });
-
-    assert.deepEqual(recoveredPaths(entries), ["/home/me/a.txt"]);
-  });
-
-  it("parseSnapshotStream (strict) still refuses it as not UTF-8", async () => {
-    await assert.rejects(
-      parseSnapshotStream(Readable.from([tornText])),
-      /isn't UTF-8/,
-    );
-  });
-
-  it("parseCompressedSnapshotStream (tolerant) reads a gzip cut inside a character", async () => {
-    const torn = tornWorkFile();
-
+  it("parseCompressedSnapshotStream (tolerant) keeps every row before the cut", async () => {
     const { entries } = await parseCompressedSnapshotStream(
       Readable.from([torn]),
       { tolerant: true },
     );
 
-    const recovered = recoveredPaths(entries);
-    assert.ok(recovered.length > 0, "the rows before the cut must survive");
-    assert.deepEqual(recovered, paths.slice(0, recovered.length));
+    assert.ok(expected.length > 0, "the fixture must leave whole rows");
+    assert.deepEqual([...entries.keys()], expected);
   });
 
   it("readParkedLookup reads it", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    writeFileSync(join(dir.path, ".snapshot.lookup.tsv.gz"), tornWorkFile());
+    writeFileSync(join(dir.path, ".snapshot.lookup.tsv.gz"), torn);
 
     const parked = await readParkedLookup(dir.path);
 
-    assert.ok((parked?.entries.size ?? 0) > 0);
+    assert.deepEqual([...(parked?.entries.keys() ?? [])], expected);
   });
 
-  it("readBaseline (--resume) adopts it and carries on", async () => {
+  it("readBaseline (--resume) adopts it and carries on", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    writeFileSync(join(dir.path, ".snapshot.tsv.gz"), tornWorkFile());
+    writeFileSync(join(dir.path, ".snapshot.tsv.gz"), torn);
+    const warn = t.mock.method(console, "warn", () => {});
     const set = /** @type {BackupSet} */ (
       /** @type {unknown} */ ({ snapshotsDir: dir.path })
     );
 
     const baseline = await readBaseline(set, { resume: true });
 
-    assert.ok((baseline.lookup?.entries.size ?? 0) > 0);
+    assert.deepEqual([...(baseline.lookup?.entries.keys() ?? [])], expected);
+    assert.equal(warn.mock.callCount(), 1);
   });
 });
