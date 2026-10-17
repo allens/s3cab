@@ -31,15 +31,31 @@ test("a command naming the sandbox is a stray only once it leaves it", () => {
   ]) {
     assert.equal(strayCommand(`cat ${path}`), path);
   }
-  assert.equal(
-    strayCommand('cat "$HOME/s3cab.sandbox/my dir/../../.aws/credentials"'),
-    "$HOME/s3cab.sandbox/my",
-  );
-  assert.equal(
-    strayCommand("cd ~/s3cab.sandbox/work\nls src/../lib"),
-    undefined,
-  );
-  assert.equal(strayCommand("ls ~/s3cab.sandbox/a ./b/../c"), undefined);
+});
+
+test("a command holding `..` keeps the sandbox path it names, however it climbs", () => {
+  for (const [command, reported] of /** @type {[string, string][]} */ ([
+    [
+      'cat "$HOME/s3cab.sandbox/my dir/../../.aws/credentials"',
+      "$HOME/s3cab.sandbox/my",
+    ],
+    [
+      "cat ~/s3cab.sandbox/my\\ dir/../../.aws/credentials",
+      "~/s3cab.sandbox/my\\",
+    ],
+    [
+      'dotnet run -- "--out=~/s3cab.sandbox/my dir/../../.aws/credentials"',
+      "~/s3cab.sandbox/my",
+    ],
+    [
+      "Get-Content (Join-Path ~/s3cab.sandbox work/../../.aws/credentials)",
+      "~/s3cab.sandbox",
+    ],
+    // A false alarm, taken over a miss.
+    ["cd ~/s3cab.sandbox/work\nls src/../lib", "~/s3cab.sandbox/work"],
+  ])) {
+    assert.equal(strayCommand(command), reported, command);
+  }
 });
 
 test("each spelling of home is home", () => {

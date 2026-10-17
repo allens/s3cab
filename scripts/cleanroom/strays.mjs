@@ -18,9 +18,8 @@ const inside = (child, parent) => {
     (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
   );
 };
-// What ends a path in a command's text. A quoted path runs on past a space.
-const breaks = "\"'`;|&(),=";
-const edge = `\\s${breaks}`;
+// What ends a path in a command's text.
+const edge = "\\s\"'`;|&(),=";
 const watched = [homedir(), tmpdir(), repoRoot];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
@@ -126,14 +125,17 @@ const reachesWeb = (command) => {
 
 /** @param {string[]} allowed the places the session may use: the root and its own scratch */
 export function strayFinders(allowed) {
-  // Cut only a whole allowed path, and not one that climbs back out
-  // (`~/s3cab.sandbox/../.aws`), since what's left after the cut no longer names home.
-  const spelled = `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`;
-  /** @param {string} stop where the path ends */
-  const staysIn = (stop) => `(?![^${stop}]*[\\\\/]\\.\\.(?=[\\\\/${edge}]|$))`;
   const allowedSpelled = new RegExp(
-    `(?<=["'])${spelled}${staysIn(breaks)}|(?<!["'])${spelled}${staysIn(edge)}`,
+    `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`,
     "gi",
+  );
+  // Nothing is cut from a command holding a `..` anywhere: what's left after the cut no
+  // longer names home (`~/s3cab.sandbox/../.aws`). Not a check of each path's own `..`,
+  // since quoting, escaped spaces and split arguments (`Join-Path ~/s3cab.sandbox ../..`)
+  // each hid a climb-out from one.
+  const climbs = new RegExp(
+    `(^|[\\\\/${edge}])\\.\\.(?=[\\\\/${edge}]|$)`,
+    "m",
   );
   return {
     /** @param {string} path */
@@ -145,7 +147,9 @@ export function strayFinders(allowed) {
      * @returns {string | undefined}
      */
     strayCommand: (command) => {
-      const rest = command.replace(allowedSpelled, "");
+      const rest = climbs.test(command)
+        ? command
+        : command.replace(allowedSpelled, "");
       const place = rest.match(named);
       return (
         (place && wholePath(rest, place)) ||
