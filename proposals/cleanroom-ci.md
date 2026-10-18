@@ -96,7 +96,8 @@ instead:
 
 - **Decided: Claude Code's shell sandbox, not a dedicated non-admin user.** The sandbox hides
   the home folder (the checkout, `RUNNER_TEMP`) and reaches no host but AWS, so no OIDC token
-  can be minted, and `env -i` keeps the job's variables out. A second user wouldn't keep the
+  can be minted, and `env -i` keeps the job's variables out, passing only paths, the user's
+  name and the Claude token. A second user wouldn't keep the
   Claude token from the session's shell, which inherits it from `claude` either way.
 - **Narrow the clean room's keys** with `configure-aws-credentials`' `inline-session-policy`:
   the role's one bucket, read-only for a restore run. That bounds what the OIDC role and a
