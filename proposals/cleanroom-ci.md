@@ -1,10 +1,10 @@
 # Clean rooms in GitHub Actions
 
-**A macOS backup run is built** ([cleanroom.yml](../.github/workflows/cleanroom.yml)); a
-restore run waits for a check that runs the session's program (below). My idea: run the
-clean-room *sessions* themselves in GitHub
-Actions — **macOS only**, the one platform I can't easily run locally. Windows and Linux stay on
-my machine. Both kinds of run use my subscription ([The Claude credential](#the-claude-credential)).
+**macOS backup and restore runs are built** ([cleanroom.yml](../.github/workflows/cleanroom.yml));
+a restore runs in one phase, as at home, since the two-phase restore below isn't built.
+My idea: run the clean-room *sessions* themselves in GitHub Actions — **macOS only**, the one
+platform I can't easily run locally. Windows and Linux stay on my machine. Both kinds of run use
+my subscription ([The Claude credential](#the-claude-credential)).
 Builds on [cleanroom-harness.md](cleanroom-harness.md). Seeding the restore fixtures per platform is
 [cleanroom-seeding.md](cleanroom-seeding.md).
 

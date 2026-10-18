@@ -16,9 +16,8 @@ on:
   workflow_dispatch:
     inputs:
       role:
-        description: Restore needs a check that runs the session's program; not built yet.
         type: choice
-        options: [backup]
+        options: [backup, restore]
       model:
         type: string
         default: claude-opus-5-5
@@ -31,9 +30,10 @@ permissions:
   contents: read
 
 # Backup runs take turns emptying the one bucket. `queue: max`, or a third dispatch
-# cancels the second, which is still pending.
+# cancels the second, which is still pending. Restore runs only read theirs, so each is
+# a group of its own.
 concurrency:
-  group: cleanroom-backup
+  group: cleanroom-${{ inputs.role == 'backup' && 'backup' || github.run_id }}
   cancel-in-progress: false
   queue: max
 
@@ -41,7 +41,12 @@ env:
   # Match ci.yml: pin to the engines floor.
   NODE_VERSION: "26.10.0"
   CLAUDE_CODE_VERSION: "2.1.301"
+  ROLE: ${{ inputs.role }}
   S3CAB_TEST_BUCKET_CLEANROOM_BACKUP: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
+  S3CAB_TEST_BUCKET_CLEANROOM_RESTORE: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE }}
+  # The role's bucket, the one the clean room's keys reach. Tested for restore, so an unset
+  # variable falls through to the bucket a backup run empties, never to the restore fixtures.
+  BUCKET: ${{ inputs.role == 'restore' && vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE || vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
   SANDBOX: /Users/runner/s3cab.sandbox
 
 defaults:
@@ -71,19 +76,22 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1 # the backup bucket's region
+          aws-region: us-east-1 # both clean-room buckets' region
           role-duration-seconds: 21600 # the s3cab-ci role's MaxSessionDuration
-          # These keys go into the clean room: the backup bucket alone, not every
-          # test-s3cab-ci-* bucket the role reaches.
+          # These keys go into the clean room: the role's bucket alone, not every
+          # test-s3cab-ci-* bucket the role reaches, and the restore bucket read-only.
           inline-session-policy: >-
-            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",
-            "Resource":["arn:aws:s3:::${{ env.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}",
-            "arn:aws:s3:::${{ env.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}/*"]}]}
-      - run: aws s3 rm "s3://$S3CAB_TEST_BUCKET_CLEANROOM_BACKUP/" --recursive
-      # Outside the home folder, which the sandbox hides from the session's python3.
-      - run: /opt/homebrew/bin/python3 -m pip install --break-system-packages boto3
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+            "Action":${{ inputs.role == 'backup' && '"s3:*"' || '["s3:Get*","s3:List*"]' }},
+            "Resource":["arn:aws:s3:::${{ env.BUCKET }}","arn:aws:s3:::${{ env.BUCKET }}/*"]}]}
+      - if: inputs.role == 'backup'
+        run: aws s3 rm "s3://$BUCKET/" --recursive
+      # A backup clean room's Python: outside the home folder, which the sandbox hides
+      # from the session's python3.
+      - if: inputs.role == 'backup'
+        run: /opt/homebrew/bin/python3 -m pip install --break-system-packages boto3
       - run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
-      - run: node scripts/cleanroom/build-backup-cleanroom.mjs "$SANDBOX"
+      - run: node "scripts/cleanroom/build-$ROLE-cleanroom.mjs" "$SANDBOX"
 
       - name: delete the checkout and the npm cache
         run: |
@@ -103,11 +111,13 @@ jobs:
           # Without USER and LOGNAME the session's shell reads LOGNAME as root, not runner,
           # and Python's getpass.getuser() with it.
           user=$(id -un)
+          fixtures=()
+          if [ "$ROLE" = backup ]; then fixtures=(--add-dir ../fixtures); fi
           env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$user" LOGNAME="$user" \
             PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
-              --settings ../session-settings.json --add-dir ../fixtures \
+              --settings ../session-settings.json "${fixtures[@]}" \
               --safe-mode --append-system-prompt-file CLAUDE.md --session-id "$session_id" \
               --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 go \
             > ../session.log 2>&1
@@ -121,7 +131,15 @@ jobs:
         run: npm ci
       - name: check
         if: always()
-        run: node scripts/cleanroom/check-backup.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/check.txt"
+        timeout-minutes: 40 # leaves the audit and the upload time to run
+        run: |
+          # check-restore runs the session's restorer outside the sandbox, with this
+          # step's environment: a restorer that prints it would put these, which mint an
+          # OIDC token for s3cab-ci, into check.txt. Not a wall against a restorer that sets
+          # out to escape: the session reads only the brief and the spec, so a leak is an
+          # accident, not an attack.
+          unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          node "scripts/cleanroom/check-$ROLE.mjs" "$SANDBOX" | tee "$SANDBOX/cleanroom/check.txt"
       - name: audit
         if: always()
         run: node scripts/cleanroom/audit-transcript.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/audit.txt"
@@ -135,7 +153,7 @@ jobs:
           cp ~/.claude/projects/*/"$SESSION_ID.jsonl" "$RUNNER_TEMP/keep/"
       # The artifact is public: refuse it if any of the job's secrets is in it. The AWS
       # keys are replaced first, since the session is handed them and may well print
-      # them; they reach only the backup bucket, and not for long. Nothing hands the
+      # them; they reach only the role's bucket, and not for long. Nothing hands the
       # session the other two.
       - name: search for secrets
         id: search
@@ -162,10 +180,14 @@ jobs:
               exit 1
             fi
           done
+      # One file, not the tree: upload-artifact refuses a path holding " : < > | * ?, and
+      # a restore's trees hold the edge set's names with them.
+      - if: always() && steps.search.outcome == 'success'
+        run: tar -czf "$RUNNER_TEMP/cleanroom.tgz" -C "$RUNNER_TEMP/keep" .
       # Even when the check or the audit failed: that run is the one worth reading.
       - if: always() && steps.search.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: cleanroom-${{ inputs.role }}-macos-${{ inputs.model }}-${{ inputs.effort }}
-          path: ${{ runner.temp }}/keep
+          path: ${{ runner.temp }}/cleanroom.tgz
           retention-days: 1 # GitHub's minimum; delete it as soon as it's downloaded
