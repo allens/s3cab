@@ -100,7 +100,9 @@ jobs:
         run: |
           session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
           echo "SESSION_ID=$session_id" >> "$GITHUB_ENV"
-          env -i HOME="$HOME" TMPDIR="$TMPDIR" \
+          # USER and LOGNAME, or the session finds LOGNAME saying root while it runs as
+          # runner, and spends the run working around it.
+          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$(id -un)" LOGNAME="$(id -un)" \
             PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
