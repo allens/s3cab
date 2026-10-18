@@ -114,7 +114,7 @@ The checker runs before the sandbox is destroyed, on the machine that built it:
 it reads the trees the clean room was handed, and takes s3cab's own snapshot of
 them there and then.
 
-**macOS runs in GitHub Actions**, a backup only for now
+**macOS runs in GitHub Actions**, a backup or a restore
 ([.github/workflows/cleanroom.yml](../../.github/workflows/cleanroom.yml)): one job
 builds, runs, checks and audits, then uploads the clean room with its transcript.
 The session signs in with the `CLAUDE_CODE_OAUTH_TOKEN` secret, from
