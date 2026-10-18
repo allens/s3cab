@@ -10,8 +10,11 @@ Those are counted in the summary, not charged. Directory mtimes are reported
 separately: both tools create directories implicitly at restore time, so their
 mtimes reflect the run, not the format. Symlinks anywhere are reported (the
 format stores none).
+
+Exits 0 when the trees match, 1 when they differ (a path in mine it can't read
+is a difference), and 2 when it fails itself, the reference unreadable included.
 """
-import os, sys, hashlib
+import os, sys, hashlib, traceback
 
 def fail(error: OSError):
     raise error  # else os.walk reads an unopenable folder as empty, and two pass as IDENTICAL
@@ -60,7 +63,12 @@ def root(path: str) -> bytes:
     return os.fsencode(path)
 
 def main(mine: str, ref: str) -> int:
-    mf, md, ml = walk(root(mine))
+    tag = os.path.basename(ref.rstrip('/'))
+    try:
+        mf, md, ml = walk(root(mine))
+    except OSError as error:
+        print(f"== {tag}: unreadable in mine: {error}")
+        return 1
     rf, rd, rl = walk(root(ref))
     problems = []
     below_ms = 0
@@ -82,7 +90,6 @@ def main(mine: str, ref: str) -> int:
         problems.append(f"DIR extra in mine:   {show(p)}")
     if ml or rl:
         problems.append(f"SYMLINKS present: mine={ml} ref={rl}")
-    tag = os.path.basename(ref.rstrip('/'))
     if problems:
         print(f"== {tag}: {len(problems)} difference(s); {below_ms} below 1 ms")
         for x in problems:
@@ -92,4 +99,9 @@ def main(mine: str, ref: str) -> int:
     return 0
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    try:
+        code = main(sys.argv[1], sys.argv[2])
+    except Exception:
+        traceback.print_exc()  # not left uncaught: Python exits 1 for that, which reads as a difference
+        code = 2
+    sys.exit(code)

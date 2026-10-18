@@ -38,7 +38,8 @@ on all three. Nothing here is distributed; it lives in the repo as evidence.
 maintained, and improved every run as findings come in: the seed script, the two
 build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
 `restore-bucket.mjs`), and the checkers, `check-backup.mjs` with
-`compare-snapshot.mjs`, `compare.py` and `audit-transcript.mjs`.
+`compare-snapshot.mjs`, `check-restore.mjs` with `compare.py`, and
+`audit-transcript.mjs`.
 A clean room's program is frozen — never updated, because its value is being a
 fixed reading of the spec on a given date — and kept only while it reads the
 current format. Then it goes, and its report links the last commit that held it.
@@ -85,8 +86,8 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3
 cd $HOME/s3cab.sandbox/cleanroom
 claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
 cd -
-# check: its restore compared, and its transcript audited
-python3 scripts/cleanroom/compare.py <its-restore-dir> $HOME/s3cab.sandbox/cleanroom/reference/<snapshot> | tee $HOME/s3cab.sandbox/cleanroom/check.txt
+# check: its restorer run on every snapshot and compared, and its transcript audited
+node --env-file=.env.test scripts/cleanroom/check-restore.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
 node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
 # keep: the clean room, minus its credentials, into the experiments folder
 Remove-Item $HOME/s3cab.sandbox/cleanroom/credentials.*
@@ -523,6 +524,11 @@ subprocess to produce them, with `S3CAB_HOME` pointed at the sandbox's `.s3cab\`
 so your own `~/.s3cab` is untouched while `~/.aws` keeps working. It reattaches
 each set first.
 
+The brief fixes the restorer's command line, `s3cab-restore <bucket> <set> <dir>
+[<snapshot>]` (`.exe` on Windows), and the layout under `<dir>` as s3cab's own, so the
+checker can run it. Each restore's exit goes to `reference-exits.json`, beside the clean
+room, for the checker to compare.
+
 `faults` and `corrupt` restore with a nonzero exit, which the script reports as
 expected rather than failing — and their reference trees are whatever s3cab
 wrote before it gave up, since a partial tree is the honest reference for a
@@ -533,6 +539,15 @@ handed over.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
+```
+
+## check-restore.mjs
+
+Runs the session's `s3cab-restore` against every reference tree; what it checks is in
+its doc comment.
+
+```sh
+node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>
 ```
 
 ## compare.py
@@ -563,3 +578,4 @@ nanosecond mtimes (`lstat` with `bigint: true`).
 python3 scripts/cleanroom/compare.py <my-restore-dir> <reference-dir>
 ```
 
+On Windows, run it as `python`, as check-restore.mjs does.

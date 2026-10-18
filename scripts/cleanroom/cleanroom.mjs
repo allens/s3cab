@@ -84,6 +84,8 @@ export const client = new S3Client({
 });
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
+/** What the restorer brief has the session build, in the clean room, for check-restore.mjs. */
+export const restoreProgram = windows ? "s3cab-restore.exe" : "s3cab-restore";
 
 /**
  * A sandbox root as typed, made absolute, and canonical once it exists: s3cab spells
@@ -386,7 +388,15 @@ request.
 If authenticated requests defeat you altogether, stop and report that rather than spending the run
 on it. That answer is a result too.
 
-Given a bucket and a snapshot, reconstruct the files byte-for-byte.
+Given a bucket, a set and a directory, reconstruct the set's files byte-for-byte under that
+directory. Build it as \`${restoreProgram}\` in this directory, taking
+
+    ${windows ? ".\\" : "./"}${restoreProgram} <bucket> <set> <dir> [<snapshot>]
+
+with the credentials and region from the environment, as \`ENVIRONMENT.md\` sets them, and the
+set's latest snapshot when none is named. Lay the files out as the spec describes s3cab's own
+restore to a chosen directory. When you finish, leave it built from your final source, so that
+command line runs it.
 
 Then verify it differentially, against the bucket and the reference restores described in
 \`ENVIRONMENT.md\`. For each snapshot, compare your output against the reference tree
