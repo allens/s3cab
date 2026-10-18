@@ -109,9 +109,10 @@ for (const name of goldenSets) {
 mkdirSync(reference, { recursive: true });
 /** @type {string[]} */
 const exits = [];
-/** @type {Record<string, number>} each reference tree's exit, for check-restore.mjs */
+/** @type {Record<string, Record<string, number>>} each reference tree's exit, by set and snapshot, for check-restore.mjs */
 const codes = {};
 for (const name of goldenSets) {
+  codes[name] = {};
   const prefix = `snapshots/${name}/`;
   const keys = await listAll(bucket, prefix);
   const snapshots = keys
@@ -129,7 +130,7 @@ for (const name of goldenSets) {
       "--output",
       target,
     ]);
-    codes[`${name}-${snapshot}`] = result.code;
+    codes[name][snapshot] = result.code;
     if (result.code !== 0) {
       // Its own report, minus the progress counter: a set that is not broken on
       // purpose needs reading. Both streams, because restore lists the files it

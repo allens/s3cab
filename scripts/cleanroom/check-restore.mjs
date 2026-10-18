@@ -2,20 +2,19 @@
  * Check a restore clean room's work (ADR-0096): run the restorer the session built,
  * `cleanroom/s3cab-restore` (`.exe` on Windows), once per snapshot build-restore-cleanroom.mjs
  * restored a reference tree from, and compare each tree it writes with that reference
- * (compare.py). Then once per set with no snapshot named, against the reference of the set's
- * last snapshot name, which s3cab takes as the latest.
+ * (compare.py). Then, for each set with more than one snapshot, once with no snapshot named,
+ * against the reference of the set's last snapshot name, which s3cab takes as the latest.
  *
- *   <root>/check/<set>-<snapshot>/   what the restorer wrote, and its output beside it
+ *   <root>/cleanroom/check/<set>-<snapshot>/   what the restorer wrote, and its output beside it
  *
  * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which the
- * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux an `edge`
- * set's disagreement is a note, since what a restore does with a name the disk won't hold is
- * the tool's choice (guide/format.md).
+ * build leaves beside the clean room: nonzero for `faults` and `corrupt`. A crash or a
+ * timeout is a mismatch whatever s3cab's exit was.
  *
  * The restorer is handed the bucket's credentials as static keys resolved here, not the
  * clean room's, which may have expired by the time the session finishes.
  *
- * Exits 1 if anything mismatched, 0 if only notes or nothing.
+ * Exits 1 if anything mismatched, 2 if the check itself couldn't run.
  *
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>
@@ -23,22 +22,21 @@
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { spawnSync } from "node:child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import {
   client,
-  listAll,
   readBucket,
   restoreProgram,
   sandboxPath,
   sessionCredentials,
 } from "./cleanroom.mjs";
-import { goldenSets } from "./fixtures.mjs";
 
 const usage =
   "usage: node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>\n\n" +
@@ -63,7 +61,7 @@ if (!existsSync(exitsFile)) {
   );
   process.exit(2);
 }
-/** @type {Record<string, number>} */
+/** @type {Record<string, Record<string, number>>} */
 const codes = JSON.parse(readFileSync(exitsFile, "utf8"));
 const program = join(cleanroom, restoreProgram);
 if (!existsSync(program)) {
@@ -87,45 +85,45 @@ const env = {
   BUCKET: bucket,
 };
 
-const out = join(root, "check");
+const out = join(cleanroom, "check");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
 
 /** @type {string[]} */
 const mismatches = [];
-/** @type {string[]} */
-const notes = [];
 
 /**
- * Run the restorer once, into `<root>/check/<label>`, and compare what it wrote with the
- * reference tree of `<set>-<snapshot>`.
+ * Run the restorer once, into `<root>/cleanroom/check/<label>`, and compare what it wrote
+ * with the reference tree of `<set>-<snapshot>`.
  * @param {string} set
  * @param {string} snapshot the reference to compare with
+ * @param {number} expected s3cab's exit restoring it
  * @param {string} label
  * @param {string[]} named the snapshot argument, or none for the latest
  */
-function check(set, snapshot, label, named) {
+function check(set, snapshot, expected, label, named) {
   const dir = join(out, label);
+  // Into a file, not a pipe: spawnSync kills a child whose piped output passes maxBuffer.
+  const log = openSync(join(out, `${label}.log`), "w");
   const result = spawnSync(program, [bucket, set, dir, ...named], {
     cwd: cleanroom,
     env,
-    encoding: "utf8",
+    stdio: ["ignore", log, log],
+    timeout: 20 * 60 * 1000,
   });
-  writeFileSync(
-    join(out, `${label}.log`),
-    `${result.stdout ?? ""}${result.stderr ?? ""}`,
-  );
+  closeSync(log);
   if (result.error) {
     mismatches.push(`${label}: couldn't run it (${result.error.message})`);
     return;
   }
-  const code = result.status ?? 1;
-  const expected = codes[`${set}-${snapshot}`];
-  if ((code === 0) !== (expected === 0)) {
-    (process.platform !== "linux" && set.startsWith("edge-")
-      ? notes
-      : mismatches
-    ).push(`${label}: exit ${code}, where s3cab's was ${expected}`);
+  if (result.signal) {
+    mismatches.push(`${label}: killed by ${result.signal}`);
+    return;
+  }
+  if ((result.status === 0) !== (expected === 0)) {
+    mismatches.push(
+      `${label}: exit ${result.status}, where s3cab's was ${expected}`,
+    );
   }
 
   // A restore with nothing to write may make no directory, and the build made the
@@ -140,8 +138,12 @@ function check(set, snapshot, label, named) {
     ],
     { encoding: "utf8" },
   );
+  if (compared.error) {
+    console.error(`couldn't run compare.py (${compared.error.message})`);
+    process.exit(2);
+  }
   console.log(`-- ${label}`);
-  process.stdout.write(compared.stdout ?? "");
+  process.stdout.write(compared.stdout);
   if (compared.status !== 0) {
     mismatches.push(
       `${label}: not the reference tree${compared.stderr ? ` (${compared.stderr.trim()})` : ""}`,
@@ -149,19 +151,14 @@ function check(set, snapshot, label, named) {
   }
 }
 
-for (const set of goldenSets) {
-  const prefix = `snapshots/${set}/`;
-  const keys = await listAll(bucket, prefix);
-  const snapshots = keys
-    .filter((key) => key.endsWith(".tsv.gz"))
-    .map((key) => key.slice(prefix.length, -".tsv.gz".length))
-    .sort();
-  for (const snapshot of snapshots) {
-    check(set, snapshot, `${set}-${snapshot}`, [snapshot]);
+for (const [set, exits] of Object.entries(codes)) {
+  const snapshots = Object.entries(exits).sort(([a], [b]) => (a < b ? -1 : 1));
+  for (const [snapshot, expected] of snapshots) {
+    check(set, snapshot, expected, `${set}-${snapshot}`, [snapshot]);
   }
   const latest = snapshots.at(-1);
-  if (latest) {
-    check(set, latest, `${set}-latest`, []);
+  if (latest && snapshots.length > 1) {
+    check(set, ...latest, `${set}-latest`, []);
   }
 }
 
@@ -173,7 +170,4 @@ console.log(
 for (const mismatch of mismatches) {
   console.log(`  mismatch: ${mismatch}`);
 }
-for (const note of notes) {
-  console.log(`  note: ${note}`);
-}
-process.exit(mismatches.length > 0 ? 1 : 0);
+process.exitCode = mismatches.length > 0 ? 1 : 0;

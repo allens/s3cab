@@ -530,13 +530,8 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
 
 ## check-restore.mjs
 
-Checks a restore clean room's work: runs the session's `s3cab-restore` once per
-snapshot into `<root>/check/`, and once per set with no snapshot named, compared with
-the reference of the set's last snapshot name, s3cab's latest. Each tree goes to
-`compare.py`, and each exit is held to s3cab's, zero or not; off Linux an `edge` set's
-disagreement is a note, as what a restore does with a name the disk won't hold is the
-tool's choice. The restorer gets static keys resolved at check time, since the clean
-room's may have expired.
+Runs the session's `s3cab-restore` against every reference tree; what it checks is in
+its doc comment.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>
