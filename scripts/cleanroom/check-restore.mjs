@@ -1,6 +1,6 @@
 /**
  * Check a restore clean room's work (ADR-0096): run the restorer the session built,
- * `cleanroom/s3cab-restore` (`.exe` on Windows), once per snapshot build-restore-cleanroom.mjs
+ * `cleanroom/s3cab-restore` (`.exe` on Windows), once per snapshot phase2-restore-cleanroom.mjs
  * restored a reference tree from, and compare each tree it writes with that reference
  * (compare.py). Then, for each set with more than one snapshot, once with no snapshot named,
  * against the reference of the set's last snapshot name, which s3cab takes as the latest.
@@ -10,8 +10,8 @@
  *
  * That output is printed too, so the clean room's `check.txt` keeps it.
  *
- * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which the
- * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux, an
+ * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which phase 2
+ * leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux, an
  * `edge` set that s3cab exited nonzero on may exit zero as a note, since what a restore does
  * with a name the disk won't hold is the tool's choice (guide/format.md); its tree must still
  * match. A signal or a timeout is a mismatch whatever s3cab's exit was.
@@ -62,8 +62,9 @@ const cleanroom = join(root, "cleanroom");
 const exitsFile = join(root, "reference-exits.json");
 if (!existsSync(exitsFile)) {
   console.error(
-    `${exitsFile} doesn't exist, so ${root} isn't a restore sandbox. Pass the root\n` +
-      "that build-restore-cleanroom.mjs built, not the cleanroom inside it.",
+    `${exitsFile} doesn't exist, so ${root} isn't a restore sandbox handed its\n` +
+      "references. Pass the root phase2-restore-cleanroom.mjs ran on, not the cleanroom\n" +
+      "inside it.",
   );
   process.exit(2);
 }

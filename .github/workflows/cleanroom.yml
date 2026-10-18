@@ -98,8 +98,10 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE" ~/.npm
           mkdir "$GITHUB_WORKSPACE"
 
+      # A restore's two phases share the 300 minutes a backup's one has, which leave the
+      # checks and the upload time to run.
       - name: session
-        timeout-minutes: 300 # leaves the checks and the upload time to run
+        timeout-minutes: ${{ inputs.role == 'restore' && 200 || 300 }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           MODEL: ${{ inputs.model }}
@@ -121,6 +123,41 @@ jobs:
               --safe-mode --append-system-prompt-file CLAUDE.md --session-id "$session_id" \
               --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 go \
             > ../session.log 2>&1
+
+      # A restore's references are built only now, from a second checkout, so none existed
+      # while phase 1 ran. The checkout goes again before the session resumes.
+      - if: inputs.role == 'restore'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - if: inputs.role == 'restore'
+        run: npm ci
+      - if: inputs.role == 'restore'
+        run: node scripts/cleanroom/phase2-restore-cleanroom.mjs "$SANDBOX"
+      - name: delete the checkout and the npm cache again
+        if: inputs.role == 'restore'
+        run: |
+          rm -rf "$GITHUB_WORKSPACE" ~/.npm
+          mkdir "$GITHUB_WORKSPACE"
+      - name: session, phase 2
+        if: inputs.role == 'restore'
+        timeout-minutes: 100
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        working-directory: ${{ env.SANDBOX }}/cleanroom
+        run: |
+          user=$(id -un)
+          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$user" LOGNAME="$user" \
+            PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+            CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+            claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
+              --settings ../session-settings.json \
+              --safe-mode --append-system-prompt-file CLAUDE.md --resume "$SESSION_ID" \
+              --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 \
+              "read PHASE2.md" \
+            > ../session-phase2.log 2>&1
 
       # The checkers run s3cab at the commit under test.
       - if: always()
@@ -149,7 +186,8 @@ jobs:
         run: |
           rm -f "$SANDBOX/cleanroom/credentials.env"
           mkdir -p "$RUNNER_TEMP/keep"
-          cp -R "$SANDBOX/cleanroom" "$SANDBOX/session.log" "$RUNNER_TEMP/keep/"
+          cp -R "$SANDBOX/cleanroom" "$SANDBOX"/session*.log "$RUNNER_TEMP/keep/"
+          if [ -d "$SANDBOX/phase1" ]; then cp -R "$SANDBOX/phase1" "$RUNNER_TEMP/keep/"; fi
           cp ~/.claude/projects/*/"$SESSION_ID.jsonl" "$RUNNER_TEMP/keep/"
       # The artifact is public: refuse it if any of the job's secrets is in it. The AWS
       # keys are replaced first, since the session is handed them and may well print
