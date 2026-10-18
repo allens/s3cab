@@ -10,9 +10,9 @@
  * The restorer's output is printed too, so the clean room's `check.txt` keeps it.
  *
  * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which the
- * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux an `edge`
- * set's disagreement is a note, since what a restore does with a name the disk won't hold is
- * the tool's choice (guide/format.md); its tree must still match. A signal or a timeout is a
+ * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux, an `edge`
+ * set that s3cab exited nonzero on may exit zero as a note, since what a restore does with a
+ * name the disk won't hold is the tool's choice (guide/format.md); its tree must still match. A signal or a timeout is a
  * mismatch whatever s3cab's exit was.
  *
  * The restorer is handed the bucket's credentials as static keys resolved here, not the
@@ -168,16 +168,11 @@ function check(set, snapshot, expected, label, named) {
     ],
     { encoding: "utf8" },
   );
-  // compare.py exits 1 for a difference and writes nothing to stderr; anything else is
-  // the harness failing, not the restorer.
-  const harness =
-    compared.error ||
-    compared.stderr ||
-    (compared.status !== 0 && compared.status !== 1);
-  if (harness) {
+  if (compared.status !== 0 && compared.status !== 1) {
     console.error(
-      `couldn't run compare.py (${compared.error?.message ?? (compared.stderr.trim() || `exit ${compared.status}`)})`,
+      `couldn't run compare.py (${compared.error?.message ?? compared.signal ?? `exit ${compared.status}`})`,
     );
+    process.stderr.write(compared.stderr ?? "");
     process.exit(2);
   }
   process.stdout.write(compared.stdout);

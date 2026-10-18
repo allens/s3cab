@@ -566,4 +566,3 @@ python3 scripts/cleanroom/compare.py <my-restore-dir> <reference-dir>
 ```
 
 On Windows, run it as `python`, as check-restore.mjs does.
-
