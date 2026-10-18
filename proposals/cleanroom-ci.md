@@ -1,6 +1,8 @@
 # Clean rooms in GitHub Actions
 
-**Proposed, reviewed once.** My idea: run the clean-room *sessions* themselves in GitHub
+**A macOS backup run is built** ([cleanroom.yml](../.github/workflows/cleanroom.yml)); a
+restore run waits for a check that runs the session's program (below). My idea: run the
+clean-room *sessions* themselves in GitHub
 Actions — **macOS only**, the one platform I can't easily run locally. Windows and Linux stay on
 my machine. Both kinds of run use my subscription ([The Claude credential](#the-claude-credential)).
 Builds on [cleanroom-harness.md](cleanroom-harness.md). Seeding the restore fixtures per platform is
@@ -92,10 +94,11 @@ Each is reachable during step 3, and needs handling or the audit watching it:
 *Reviewer's suggestion.* Deleting files can't reach process memory, so wall the session off
 instead:
 
-- **Run `claude` as a dedicated non-admin user**, created in the job (the runner's `sudo` can
-  create it), whose home holds only the sandbox, with an allowlist of environment variables
-  (`env -i …`). Unverified: creating a user on a hosted macOS runner (`sysadminctl -addUser`),
-  and whether the runner's home is readable by another user.
+- **Decided: Claude Code's shell sandbox, not a dedicated non-admin user.** The sandbox hides
+  the home folder (the checkout, `RUNNER_TEMP`) and reaches no host but AWS, so no OIDC token
+  can be minted, and `env -i` keeps the job's variables out, passing only paths, the user's
+  name and the Claude token. A second user wouldn't keep the
+  Claude token from the session's shell, which inherits it from `claude` either way.
 - **Narrow the clean room's keys** with `configure-aws-credentials`' `inline-session-policy`:
   the role's one bucket, read-only for a restore run. That bounds what the OIDC role and a
   leaked key reach.
@@ -106,11 +109,12 @@ instead:
   deadline into `ENVIRONMENT.md`.
 - **Time out the session step** (`timeout-minutes`, at most 360) early enough that the check
   and keep steps still run, whatever the session step's outcome.
-- **Decide what the artifact may carry.** On a public repo anyone signed in to GitHub can
-  download it, for 90 days by default. It holds whatever the session wrote, keys copied into its
-  own scripts included. The transcript lives in `~/.claude/projects`, outside the clean room, so
-  it is lost with the runner unless uploaded too, and it holds the Claude token if the session
-  ever ran `env`.
+- **Decided: a plain artifact, kept one day and deleted once downloaded.** On a public repo
+  anyone signed in to GitHub can download it. It holds the clean room, the transcript and the
+  session's output, so it is uploaded only if none of the job's secrets is in it: the Claude
+  token, the AWS keys and the role ARN. The AWS keys are replaced first, since the session is
+  handed them and may print them. The runner holds nothing else of mine. Not encrypted:
+  the passphrase would be one more secret in the same job.
 
 ## The Claude credential
 
@@ -156,8 +160,9 @@ uses — is refined when this is built, not here.
   `reference/` is somewhere the session's user can't read, or the references are built from a
   second checkout between the phases. Both phases fit inside the 6 hours, with the checks after,
   and the harvested program is phase 2's.
-- **boto3 on macOS:** Homebrew's Python refuses a plain `pip install` (PEP 668), so the backup
-  room needs a venv or a flag.
+- **boto3 on macOS:** Homebrew's Python refuses a plain `pip install` (PEP 668), so the
+  workflow passes `--break-system-packages`; a venv or `--user` would land in the home folder,
+  which the sandbox hides.
 - **The image is not a stock Mac:** it ships full Xcode and Homebrew with many packages, so
   "comes as standard" and "nothing from Homebrew" can't be observed as they can on a new Mac.
 - **Unverified:** a `CLAUDE_CODE_OAUTH_TOKEN` signing in a `-p` run on a hosted runner, and
