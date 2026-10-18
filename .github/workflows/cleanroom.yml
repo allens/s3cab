@@ -133,8 +133,11 @@ jobs:
         if: always()
         timeout-minutes: 40 # leaves the audit and the upload time to run
         run: |
-          # check-restore runs the session's restorer outside the sandbox. With these it
-          # could mint an OIDC token and assume s3cab-ci without the session policy.
+          # check-restore runs the session's restorer outside the sandbox, with this
+          # step's environment: a restorer that prints it would put these, which mint an
+          # OIDC token for s3cab-ci, into check.txt. Not a wall against a restorer that sets
+          # out to escape: the session reads only the brief and the spec, so a leak is an
+          # accident, not an attack.
           unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
           node "scripts/cleanroom/check-$ROLE.mjs" "$SANDBOX" | tee "$SANDBOX/cleanroom/check.txt"
       - name: audit

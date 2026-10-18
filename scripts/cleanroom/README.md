@@ -124,7 +124,7 @@ is public, so download it as soon as the run ends, then delete it. It holds one
 
 ```sh
 gh workflow run cleanroom.yml --ref main -f role=backup -f effort=low
-gh run download <run-id> --dir ~/s3cab.experiments/<date>-<role>-macos-<model>-<effort>
+gh run download <run-id> -n cleanroom-<role>-macos-<model>-<effort> --dir ~/s3cab.experiments/<date>-<role>-macos-<model>-<effort>
 tar -xzf ~/s3cab.experiments/<that folder>/cleanroom.tgz -C ~/s3cab.experiments/<that folder>
 gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 ```
