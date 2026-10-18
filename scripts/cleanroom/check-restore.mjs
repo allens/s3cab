@@ -125,10 +125,16 @@ function check(set, snapshot, expected, label, named) {
     env,
     stdio: ["ignore", log, log],
     timeout: minutes * 60 * 1000,
+    killSignal: "SIGKILL",
   });
   closeSync(log);
   console.log(`-- ${label}`);
-  process.stdout.write(readFileSync(logFile, "utf8"));
+  // Raw bytes: a restorer may print the `edge` sets' names, which aren't all UTF-8.
+  const said = readFileSync(logFile);
+  process.stdout.write(said);
+  if (said.length > 0 && said.at(-1) !== 0x0a) {
+    process.stdout.write("\n");
+  }
   const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
   if (error?.code === "ETIMEDOUT") {
     mismatches.push(`${label}: timed out after ${minutes} minutes`);
@@ -143,7 +149,7 @@ function check(set, snapshot, expected, label, named) {
     return;
   }
   if ((result.status === 0) !== (expected === 0)) {
-    (process.platform !== "linux" && set.startsWith("edge-")
+    (process.platform !== "linux" && set.startsWith("edge-") && expected !== 0
       ? notes
       : mismatches
     ).push(`${label}: exit ${result.status}, where s3cab's was ${expected}`);
@@ -162,15 +168,21 @@ function check(set, snapshot, expected, label, named) {
     ],
     { encoding: "utf8" },
   );
-  if (compared.error) {
-    console.error(`couldn't run compare.py (${compared.error.message})`);
+  // compare.py exits 1 for a difference and writes nothing to stderr; anything else is
+  // the harness failing, not the restorer.
+  const harness =
+    compared.error ||
+    compared.stderr ||
+    (compared.status !== 0 && compared.status !== 1);
+  if (harness) {
+    console.error(
+      `couldn't run compare.py (${compared.error?.message ?? (compared.stderr.trim() || `exit ${compared.status}`)})`,
+    );
     process.exit(2);
   }
   process.stdout.write(compared.stdout);
-  if (compared.status !== 0) {
-    mismatches.push(
-      `${label}: not the reference tree${compared.stderr ? ` (${compared.stderr.trim()})` : ""}`,
-    );
+  if (compared.status === 1) {
+    mismatches.push(`${label}: not the reference tree`);
   }
 }
 
