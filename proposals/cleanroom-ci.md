@@ -111,7 +111,8 @@ instead:
 - **Decided: a plain artifact, kept one day and deleted once downloaded.** On a public repo
   anyone signed in to GitHub can download it. It holds the clean room, the transcript and the
   session's output, so it is uploaded only if none of the job's secrets is in it: the Claude
-  token, the AWS keys and the role ARN. The runner holds nothing else of mine. Not encrypted:
+  token, the AWS keys and the role ARN. The AWS keys are replaced first, since the session is
+  handed them and may print them. The runner holds nothing else of mine. Not encrypted:
   the passphrase would be one more secret in the same job.
 
 ## The Claude credential

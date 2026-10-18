@@ -30,10 +30,12 @@ on:
 permissions:
   contents: read
 
-# Backup runs take turns emptying the one bucket.
+# Backup runs take turns emptying the one bucket. `queue: max`, or a third dispatch
+# cancels the second, which is still pending.
 concurrency:
   group: cleanroom-backup
   cancel-in-progress: false
+  queue: max
 
 env:
   # Match ci.yml: pin to the engines floor.
@@ -128,7 +130,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/keep"
           cp -R "$SANDBOX/cleanroom" "$SANDBOX/session.log" "$RUNNER_TEMP/keep/"
           cp ~/.claude/projects/*/"$SESSION_ID.jsonl" "$RUNNER_TEMP/keep/"
-      # The artifact is public: refuse it if any of the job's secrets is in it.
+      # The artifact is public: refuse it if any of the job's secrets is in it. The AWS
+      # keys are replaced first, since the session is handed them and may well print
+      # them; they reach only the backup bucket, and not for long. Nothing hands the
+      # session the other two.
       - name: search for secrets
         id: search
         if: always()
@@ -136,9 +141,19 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
         run: |
-          for secret in CLAUDE_CODE_OAUTH_TOKEN AWS_ROLE_ARN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+          secrets="CLAUDE_CODE_OAUTH_TOKEN AWS_ROLE_ARN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
+          for secret in $secrets; do
             # An empty value would match every file.
             [ -n "${!secret}" ] || { echo "$secret is empty, so it can't be searched for"; exit 1; }
+          done
+          for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+            # perl's \Q, because a secret key holds `/` and `+`. `|| true`: grep exits 1
+            # on no match, which pipefail would make the step's failure.
+            { grep -rlF -- "${!secret}" "$RUNNER_TEMP/keep" || true; } | while IFS= read -r file; do
+              VALUE="${!secret}" NAME="$secret" perl -pi -e 's/\Q$ENV{VALUE}\E/<$ENV{NAME}>/g' "$file"
+            done
+          done
+          for secret in $secrets; do
             if grep -rqF -- "${!secret}" "$RUNNER_TEMP/keep"; then
               echo "$secret is in the clean room or its transcript: not uploading it"
               exit 1
