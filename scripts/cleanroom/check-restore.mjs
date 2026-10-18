@@ -5,16 +5,21 @@
  * (compare.py). Then, for each set with more than one snapshot, once with no snapshot named,
  * against the reference of the set's last snapshot name, which s3cab takes as the latest.
  *
- *   <root>/cleanroom/check/<set>-<snapshot>/   what the restorer wrote, and its output beside it
+ *   <root>/check/<set>-<snapshot>/   what the restorer wrote, and its output beside it
+ *
+ * The restorer's output is printed too, so the clean room's `check.txt` keeps it.
  *
  * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which the
- * build leaves beside the clean room: nonzero for `faults` and `corrupt`. A crash or a
- * timeout is a mismatch whatever s3cab's exit was.
+ * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux an `edge`
+ * set's disagreement is a note, since what a restore does with a name the disk won't hold is
+ * the tool's choice (guide/format.md); its tree must still match. A signal or a timeout is a
+ * mismatch whatever s3cab's exit was.
  *
  * The restorer is handed the bucket's credentials as static keys resolved here, not the
  * clean room's, which may have expired by the time the session finishes.
  *
- * Exits 1 if anything mismatched, 2 if the check itself couldn't run.
+ * Exits 1 if anything mismatched, 2 if the check itself couldn't run, 0 if only notes or
+ * nothing.
  *
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>
@@ -63,6 +68,12 @@ if (!existsSync(exitsFile)) {
 }
 /** @type {Record<string, Record<string, number>>} */
 const codes = JSON.parse(readFileSync(exitsFile, "utf8"));
+if (!Object.values(codes).some((exits) => Object.keys(exits).length > 0)) {
+  console.error(
+    `${exitsFile} lists no snapshots, so there is nothing to check.`,
+  );
+  process.exit(2);
+}
 const program = join(cleanroom, restoreProgram);
 if (!existsSync(program)) {
   console.log(
@@ -85,16 +96,19 @@ const env = {
   BUCKET: bucket,
 };
 
-const out = join(cleanroom, "check");
+const out = join(root, "check");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
+const minutes = 20;
 
 /** @type {string[]} */
 const mismatches = [];
+/** @type {string[]} */
+const notes = [];
 
 /**
- * Run the restorer once, into `<root>/cleanroom/check/<label>`, and compare what it wrote
- * with the reference tree of `<set>-<snapshot>`.
+ * Run the restorer once, into `<root>/check/<label>`, and compare what it wrote with the
+ * reference tree of `<set>-<snapshot>`.
  * @param {string} set
  * @param {string} snapshot the reference to compare with
  * @param {number} expected s3cab's exit restoring it
@@ -104,16 +118,24 @@ const mismatches = [];
 function check(set, snapshot, expected, label, named) {
   const dir = join(out, label);
   // Into a file, not a pipe: spawnSync kills a child whose piped output passes maxBuffer.
-  const log = openSync(join(out, `${label}.log`), "w");
+  const logFile = join(out, `${label}.log`);
+  const log = openSync(logFile, "w");
   const result = spawnSync(program, [bucket, set, dir, ...named], {
     cwd: cleanroom,
     env,
     stdio: ["ignore", log, log],
-    timeout: 20 * 60 * 1000,
+    timeout: minutes * 60 * 1000,
   });
   closeSync(log);
-  if (result.error) {
-    mismatches.push(`${label}: couldn't run it (${result.error.message})`);
+  console.log(`-- ${label}`);
+  process.stdout.write(readFileSync(logFile, "utf8"));
+  const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
+  if (error?.code === "ETIMEDOUT") {
+    mismatches.push(`${label}: timed out after ${minutes} minutes`);
+    return;
+  }
+  if (error) {
+    mismatches.push(`${label}: couldn't run it (${error.message})`);
     return;
   }
   if (result.signal) {
@@ -121,16 +143,18 @@ function check(set, snapshot, expected, label, named) {
     return;
   }
   if ((result.status === 0) !== (expected === 0)) {
-    mismatches.push(
-      `${label}: exit ${result.status}, where s3cab's was ${expected}`,
-    );
+    (process.platform !== "linux" && set.startsWith("edge-")
+      ? notes
+      : mismatches
+    ).push(`${label}: exit ${result.status}, where s3cab's was ${expected}`);
   }
 
   // A restore with nothing to write may make no directory, and the build made the
   // reference an empty one, so that "nothing" compares.
   mkdirSync(dir, { recursive: true });
+  // Not python3 on Windows: there it is usually the Store alias, which runs and exits 9009.
   const compared = spawnSync(
-    "python3",
+    process.platform === "win32" ? "python" : "python3",
     [
       join(import.meta.dirname, "compare.py"),
       dir,
@@ -142,7 +166,6 @@ function check(set, snapshot, expected, label, named) {
     console.error(`couldn't run compare.py (${compared.error.message})`);
     process.exit(2);
   }
-  console.log(`-- ${label}`);
   process.stdout.write(compared.stdout);
   if (compared.status !== 0) {
     mismatches.push(
@@ -169,5 +192,8 @@ console.log(
 );
 for (const mismatch of mismatches) {
   console.log(`  mismatch: ${mismatch}`);
+}
+for (const note of notes) {
+  console.log(`  note: ${note}`);
 }
 process.exitCode = mismatches.length > 0 ? 1 : 0;

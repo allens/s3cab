@@ -395,7 +395,8 @@ directory. Build it as \`${restoreProgram}\` in this directory, taking
 
 with the credentials and region from the environment, as \`ENVIRONMENT.md\` sets them, and the
 set's latest snapshot when none is named. Lay the files out as the spec describes s3cab's own
-restore to a chosen directory. When you finish, leave it built from your final source, so that command line runs it.
+restore to a chosen directory. When you finish, leave it built from your final source, so that
+command line runs it.
 
 Then verify it differentially, against the bucket and the reference restores described in
 \`ENVIRONMENT.md\`. For each snapshot, compare your output against the reference tree
