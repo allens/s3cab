@@ -119,7 +119,7 @@ jobs:
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
               --settings ../session-settings.json "${fixtures[@]}" \
               --safe-mode --append-system-prompt-file CLAUDE.md --session-id "$session_id" \
-              --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 15 go \
+              --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 go \
             > ../session.log 2>&1
 
       # The checkers run s3cab at the commit under test.

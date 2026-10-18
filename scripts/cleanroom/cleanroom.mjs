@@ -306,7 +306,7 @@ function runCommand(role) {
     `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
     (role === "backup" ? " --add-dir ../fixtures" : "") +
     ` --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid>` +
-    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 15 go`
+    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 30 go`
   );
 }
 
