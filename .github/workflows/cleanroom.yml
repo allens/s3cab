@@ -1,0 +1,168 @@
+# A clean-room session on a macOS runner (proposals/cleanroom-ci.md): build the sandbox,
+# run the headless session in it, check and audit it, and upload the clean room.
+#
+# Dispatch it from main only (`gh workflow run cleanroom.yml --ref main`): the s3cab-ci
+# role trusts main's OIDC subject, so a run from any other branch fails at the
+# assume-role. Download the artifact as soon as the run ends, then delete it.
+#
+# The session runs inside Claude Code's shell sandbox (session-settings.json), which hides
+# the home folder (the checkout, RUNNER_TEMP) and reaches no host but AWS, and with an
+# emptied environment, so none of the job's variables reach it. The Claude token is the
+# one secret its shell inherits.
+
+name: cleanroom
+
+on:
+  workflow_dispatch:
+    inputs:
+      role:
+        description: Restore needs a check that runs the session's program; not built yet.
+        type: choice
+        options: [backup]
+      model:
+        type: string
+        default: claude-opus-5-5
+      effort:
+        type: choice
+        options: [low, medium, high, xhigh, max]
+        default: low
+
+permissions:
+  contents: read
+
+# Backup runs take turns emptying the one bucket. `queue: max`, or a third dispatch
+# cancels the second, which is still pending.
+concurrency:
+  group: cleanroom-backup
+  cancel-in-progress: false
+  queue: max
+
+env:
+  # Match ci.yml: pin to the engines floor.
+  NODE_VERSION: "26.10.0"
+  CLAUDE_CODE_VERSION: "2.1.301"
+  S3CAB_TEST_BUCKET_CLEANROOM_BACKUP: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
+  SANDBOX: /Users/runner/s3cab.sandbox
+
+defaults:
+  run:
+    shell: bash # -eo pipefail, so a `| tee` keeps the checker's exit
+
+jobs:
+  run:
+    name: ${{ inputs.role }} (${{ inputs.model }}, ${{ inputs.effort }})
+    runs-on: macos-15
+    timeout-minutes: 360 # GitHub's ceiling for a hosted job
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      # Taken before the assume-role, so it errs early. The SDK reads it as the keys'
+      # expiry, and the build writes it into ENVIRONMENT.md; configure-aws-credentials
+      # exports none.
+      - run: echo "AWS_CREDENTIAL_EXPIRATION=$(date -u -v+6H +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the backup bucket's region
+          role-duration-seconds: 21600 # the s3cab-ci role's MaxSessionDuration
+          # These keys go into the clean room: the backup bucket alone, not every
+          # test-s3cab-ci-* bucket the role reaches.
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",
+            "Resource":["arn:aws:s3:::${{ env.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}",
+            "arn:aws:s3:::${{ env.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}/*"]}]}
+      - run: aws s3 rm "s3://$S3CAB_TEST_BUCKET_CLEANROOM_BACKUP/" --recursive
+      # Outside the home folder, which the sandbox hides from the session's python3.
+      - run: /opt/homebrew/bin/python3 -m pip install --break-system-packages boto3
+      - run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+      - run: node scripts/cleanroom/build-backup-cleanroom.mjs "$SANDBOX"
+
+      - name: delete the checkout and the npm cache
+        run: |
+          rm -rf "$GITHUB_WORKSPACE" ~/.npm
+          mkdir "$GITHUB_WORKSPACE"
+
+      - name: session
+        timeout-minutes: 300 # leaves the checks and the upload time to run
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        working-directory: ${{ env.SANDBOX }}/cleanroom
+        run: |
+          session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          echo "SESSION_ID=$session_id" >> "$GITHUB_ENV"
+          env -i HOME="$HOME" TMPDIR="$TMPDIR" \
+            PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+            CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+            claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
+              --settings ../session-settings.json --add-dir ../fixtures \
+              --safe-mode --append-system-prompt-file CLAUDE.md --session-id "$session_id" \
+              --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 15 go \
+            > ../session.log 2>&1
+
+      # The checkers run s3cab at the commit under test.
+      - if: always()
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - if: always()
+        run: npm ci
+      - name: check
+        if: always()
+        run: node scripts/cleanroom/check-backup.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/check.txt"
+      - name: audit
+        if: always()
+        run: node scripts/cleanroom/audit-transcript.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/audit.txt"
+
+      - name: gather
+        if: always()
+        run: |
+          rm -f "$SANDBOX/cleanroom/credentials.env"
+          mkdir -p "$RUNNER_TEMP/keep"
+          cp -R "$SANDBOX/cleanroom" "$SANDBOX/session.log" "$RUNNER_TEMP/keep/"
+          cp ~/.claude/projects/*/"$SESSION_ID.jsonl" "$RUNNER_TEMP/keep/"
+      # The artifact is public: refuse it if any of the job's secrets is in it. The AWS
+      # keys are replaced first, since the session is handed them and may well print
+      # them; they reach only the backup bucket, and not for long. Nothing hands the
+      # session the other two.
+      - name: search for secrets
+        id: search
+        if: always()
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          secrets="CLAUDE_CODE_OAUTH_TOKEN AWS_ROLE_ARN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
+          for secret in $secrets; do
+            # An empty value would match every file.
+            [ -n "${!secret}" ] || { echo "$secret is empty, so it can't be searched for"; exit 1; }
+          done
+          for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+            # perl's \Q, because a secret key holds `/` and `+`. `|| true`: grep exits 1
+            # on no match, which pipefail would make the step's failure.
+            { grep -rlF -- "${!secret}" "$RUNNER_TEMP/keep" || true; } | while IFS= read -r file; do
+              VALUE="${!secret}" NAME="$secret" perl -pi -e 's/\Q$ENV{VALUE}\E/<$ENV{NAME}>/g' "$file"
+            done
+          done
+          for secret in $secrets; do
+            if grep -rqF -- "${!secret}" "$RUNNER_TEMP/keep"; then
+              echo "$secret is in the clean room or its transcript: not uploading it"
+              exit 1
+            fi
+          done
+      # Even when the check or the audit failed: that run is the one worth reading.
+      - if: always() && steps.search.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cleanroom-${{ inputs.role }}-macos-${{ inputs.model }}-${{ inputs.effort }}
+          path: ${{ runner.temp }}/keep
+          retention-days: 1 # GitHub's minimum; delete it as soon as it's downloaded
