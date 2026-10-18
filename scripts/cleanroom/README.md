@@ -84,7 +84,7 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3
 # run: headless, from the clean room; follow its transcript (audit-transcript.mjs
 # says where it lands) with Get-Content -Wait -Tail 5
 cd $HOME/s3cab.sandbox/cleanroom
-claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 15 go
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 go
 cd -
 # check: its restorer run on every snapshot and compared, and its transcript audited
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
