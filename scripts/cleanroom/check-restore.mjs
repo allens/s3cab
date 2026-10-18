@@ -5,15 +5,16 @@
  * (compare.py). Then, for each set with more than one snapshot, once with no snapshot named,
  * against the reference of the set's last snapshot name, which s3cab takes as the latest.
  *
- *   <root>/check/<set>-<snapshot>/   what the restorer wrote, and its output beside it
+ *   <root>/check/<set>-<snapshot>/   what the restorer wrote, and its and compare.py's
+ *                                    output beside it
  *
- * The restorer's output is printed too, so the clean room's `check.txt` keeps it.
+ * That output is printed too, so the clean room's `check.txt` keeps it.
  *
  * Its exit has to agree with s3cab's, zero or not, from `reference-exits.json`, which the
- * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux, an `edge`
- * set that s3cab exited nonzero on may exit zero as a note, since what a restore does with a
- * name the disk won't hold is the tool's choice (guide/format.md); its tree must still match. A signal or a timeout is a
- * mismatch whatever s3cab's exit was.
+ * build leaves beside the clean room: nonzero for `faults` and `corrupt`. Off Linux, an
+ * `edge` set that s3cab exited nonzero on may exit zero as a note, since what a restore does
+ * with a name the disk won't hold is the tool's choice (guide/format.md); its tree must still
+ * match. A signal or a timeout is a mismatch whatever s3cab's exit was.
  *
  * The restorer is handed the bucket's credentials as static keys resolved here, not the
  * clean room's, which may have expired by the time the session finishes.
@@ -114,6 +115,7 @@ const notes = [];
  * @param {number} expected s3cab's exit restoring it
  * @param {string} label
  * @param {string[]} named the snapshot argument, or none for the latest
+ * @returns {boolean} false if compare.py itself failed, so the check can't go on
  */
 function check(set, snapshot, expected, label, named) {
   const dir = join(out, label);
@@ -127,6 +129,42 @@ function check(set, snapshot, expected, label, named) {
     timeout: minutes * 60 * 1000,
     killSignal: "SIGKILL",
   });
+  const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
+  /** @type {string | undefined} */
+  let broke;
+  if (error?.code === "ETIMEDOUT") {
+    mismatches.push(`${label}: timed out after ${minutes} minutes`);
+  } else if (error) {
+    mismatches.push(`${label}: couldn't run it (${error.message})`);
+  } else if (result.signal) {
+    mismatches.push(`${label}: killed by ${result.signal}`);
+  } else {
+    if ((result.status === 0) !== (expected === 0)) {
+      (process.platform !== "linux" && set.startsWith("edge-") && expected !== 0
+        ? notes
+        : mismatches
+      ).push(`${label}: exit ${result.status}, where s3cab's was ${expected}`);
+    }
+    // A restore with nothing to write may make no directory, and the build made the
+    // reference an empty one, so that "nothing" compares.
+    mkdirSync(dir, { recursive: true });
+    // Not python3 on Windows: there it is usually the Store alias, which runs and exits 9009.
+    const compared = spawnSync(
+      process.platform === "win32" ? "python" : "python3",
+      [
+        join(import.meta.dirname, "compare.py"),
+        dir,
+        join(cleanroom, "reference", `${set}-${snapshot}`),
+      ],
+      { stdio: ["ignore", log, log] },
+    );
+    if (compared.status === 1) {
+      mismatches.push(`${label}: not the reference tree`);
+    } else if (compared.status !== 0) {
+      broke =
+        compared.error?.message ?? compared.signal ?? `exit ${compared.status}`;
+    }
+  }
   closeSync(log);
   console.log(`-- ${label}`);
   // Raw bytes: a restorer may print the `edge` sets' names, which aren't all UTF-8.
@@ -135,72 +173,40 @@ function check(set, snapshot, expected, label, named) {
   if (said.length > 0 && said.at(-1) !== 0x0a) {
     process.stdout.write("\n");
   }
-  const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
-  if (error?.code === "ETIMEDOUT") {
-    mismatches.push(`${label}: timed out after ${minutes} minutes`);
-    return;
+  if (broke) {
+    console.log(`couldn't run compare.py (${broke})`);
+    return false;
   }
-  if (error) {
-    mismatches.push(`${label}: couldn't run it (${error.message})`);
-    return;
-  }
-  if (result.signal) {
-    mismatches.push(`${label}: killed by ${result.signal}`);
-    return;
-  }
-  if ((result.status === 0) !== (expected === 0)) {
-    (process.platform !== "linux" && set.startsWith("edge-") && expected !== 0
-      ? notes
-      : mismatches
-    ).push(`${label}: exit ${result.status}, where s3cab's was ${expected}`);
-  }
-
-  // A restore with nothing to write may make no directory, and the build made the
-  // reference an empty one, so that "nothing" compares.
-  mkdirSync(dir, { recursive: true });
-  // Not python3 on Windows: there it is usually the Store alias, which runs and exits 9009.
-  const compared = spawnSync(
-    process.platform === "win32" ? "python" : "python3",
-    [
-      join(import.meta.dirname, "compare.py"),
-      dir,
-      join(cleanroom, "reference", `${set}-${snapshot}`),
-    ],
-    { encoding: "utf8" },
-  );
-  if (compared.status !== 0 && compared.status !== 1) {
-    console.error(
-      `couldn't run compare.py (${compared.error?.message ?? compared.signal ?? `exit ${compared.status}`})`,
-    );
-    process.stderr.write(compared.stderr ?? "");
-    process.exit(2);
-  }
-  process.stdout.write(compared.stdout);
-  if (compared.status === 1) {
-    mismatches.push(`${label}: not the reference tree`);
-  }
+  return true;
 }
 
-for (const [set, exits] of Object.entries(codes)) {
+let stopped = false;
+sets: for (const [set, exits] of Object.entries(codes)) {
   const snapshots = Object.entries(exits).sort(([a], [b]) => (a < b ? -1 : 1));
   for (const [snapshot, expected] of snapshots) {
-    check(set, snapshot, expected, `${set}-${snapshot}`, [snapshot]);
+    stopped = !check(set, snapshot, expected, `${set}-${snapshot}`, [snapshot]);
+    if (stopped) {
+      break sets;
+    }
   }
   const latest = snapshots.at(-1);
   if (latest && snapshots.length > 1) {
-    check(set, ...latest, `${set}-latest`, []);
+    stopped = !check(set, ...latest, `${set}-latest`, []);
+    if (stopped) {
+      break;
+    }
   }
 }
 
-console.log(
+const found =
   mismatches.length === 0
     ? "matches"
-    : `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}`,
-);
+    : `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}`;
+console.log(stopped ? `${found} before compare.py failed` : found);
 for (const mismatch of mismatches) {
   console.log(`  mismatch: ${mismatch}`);
 }
 for (const note of notes) {
   console.log(`  note: ${note}`);
 }
-process.exitCode = mismatches.length > 0 ? 1 : 0;
+process.exitCode = stopped ? 2 : mismatches.length > 0 ? 1 : 0;
