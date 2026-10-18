@@ -119,11 +119,13 @@ them there and then.
 builds, runs, checks and audits, then uploads the clean room with its transcript.
 The session signs in with the `CLAUDE_CODE_OAUTH_TOKEN` secret, from
 `claude setup-token`; mint one per batch of runs and revoke it after. The artifact
-is public, so download it as soon as the run ends, then delete it:
+is public, so download it as soon as the run ends, then delete it. It holds one
+`cleanroom.tgz`:
 
 ```sh
 gh workflow run cleanroom.yml --ref main -f role=backup -f effort=low
-gh run download <run-id> --dir ~/s3cab.experiments/<date>-backup-macos-<model>-<effort>
+gh run download <run-id> --dir ~/s3cab.experiments/<date>-<role>-macos-<model>-<effort>
+tar -xzf ~/s3cab.experiments/<that folder>/cleanroom.tgz -C ~/s3cab.experiments/<that folder>
 gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 ```
 
