@@ -7,8 +7,8 @@
 #
 # The session runs inside Claude Code's shell sandbox (session-settings.json), which hides
 # the home folder (the checkout, RUNNER_TEMP) and reaches no host but AWS, and with an
-# emptied environment, so none of the job's variables reach it. The Claude token is the
-# one secret its shell inherits.
+# emptied environment, so none of the job's variables reach it: only the paths it needs,
+# the user's name and the Claude token, the one secret its shell inherits.
 
 name: cleanroom
 
@@ -100,9 +100,10 @@ jobs:
         run: |
           session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
           echo "SESSION_ID=$session_id" >> "$GITHUB_ENV"
-          # USER and LOGNAME, or the session finds LOGNAME saying root while it runs as
-          # runner, and spends the run working around it.
-          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$(id -un)" LOGNAME="$(id -un)" \
+          # Without USER and LOGNAME the session's shell reads LOGNAME as root, not runner,
+          # and Python's getpass.getuser() with it.
+          user=$(id -un)
+          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$user" LOGNAME="$user" \
             PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
