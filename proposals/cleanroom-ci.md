@@ -152,9 +152,6 @@ uses — is refined when this is built, not here.
 
 *Reviewer's additions:*
 
-- **The restore check.** The harness fixes the restorer's command line
-  (`s3cab-restore <bucket> <set> <dir> [<snapshot>]`), so the checker can choose the output
-  directory, but nothing says how the session's program is built and started.
 - **The two-phase restore** (the harness's) is not in the steps above. Phase 1 has to run while
   `reference/` is somewhere the session's user can't read, or the references are built from a
   second checkout between the phases. Both phases fit inside the 6 hours, with the checks after,

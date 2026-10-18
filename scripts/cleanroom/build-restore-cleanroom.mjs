@@ -25,7 +25,7 @@
  *   node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
  */
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
-import { mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   cli,
@@ -109,6 +109,8 @@ for (const name of goldenSets) {
 mkdirSync(reference, { recursive: true });
 /** @type {string[]} */
 const exits = [];
+/** @type {Record<string, number>} each reference tree's exit, for check-restore.mjs */
+const codes = {};
 for (const name of goldenSets) {
   const prefix = `snapshots/${name}/`;
   const keys = await listAll(bucket, prefix);
@@ -127,6 +129,7 @@ for (const name of goldenSets) {
       "--output",
       target,
     ]);
+    codes[`${name}-${snapshot}`] = result.code;
     if (result.code !== 0) {
       // Its own report, minus the progress counter: a set that is not broken on
       // purpose needs reading. Both streams, because restore lists the files it
@@ -150,6 +153,12 @@ for (const name of goldenSets) {
     mkdirSync(target, { recursive: true });
   }
 }
+
+// Beside cleanroom/, not in it: which restores s3cab refused is the session's to work out.
+writeFileSync(
+  join(root, "reference-exits.json"),
+  JSON.stringify(codes, null, 2) + "\n",
+);
 
 console.log(`\nreference trees in ${reference}`);
 for (const entry of readdirSync(reference)) {
