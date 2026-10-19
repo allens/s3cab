@@ -187,6 +187,6 @@ if (exits.length > 0) {
   );
 }
 console.log(
-  `\nResume the session from ${cleanroom}, with the spec-only phase's session id:\n` +
+  `\nResume the same session from ${cleanroom}, with its session id:\n` +
     `    ${runCommand("restore", true)}`,
 );

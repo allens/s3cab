@@ -365,7 +365,7 @@ export function writeCredentials(dir, credentials, bucket, region) {
  * resumed session is told to read. Written only once `reference/` is in, so the spec-only
  * phase can't learn of it.
  * @param {string} dir
- * @param {Credentials} credentials the keys the reconcile phase renewed
+ * @param {Credentials} credentials the keys renewed for the reconcile phase
  */
 export function writeReconcile(dir, credentials) {
   const expiry = expiryOf(credentials);

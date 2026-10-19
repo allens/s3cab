@@ -5,10 +5,10 @@ written in separate clean rooms, on every platform; amended 2026-10-12: the clea
 proof only, with no readability goal; amended 2026-10-16: the clean-room backup is one program
 again, walk to bucket, and the harness for it is built; and the golden set is seeded by GitHub
 Actions on all three platforms, into one bucket every run reads; amended 2026-10-18: a restore
-clean room runs in two phases, spec-only and reconcile, s3cab's reference restores shown only in the second, its first
-report kept from before them). The model is settled. The clean-room
-backup program is not yet written, and the restorers exist only as frozen clean-room runs. Partly
-superseded by [0107](0107-the-spec-is-the-public-repository-format.md): the spec is format.md
+clean room runs a spec-only phase and then a reconcile phase, s3cab's reference restores shown
+only in the reconcile phase and the spec-only report kept from before them). The model is
+settled. The clean-room backup program is not yet written, and the restorers exist only as
+frozen clean-room runs. Partly superseded by [0107](0107-the-spec-is-the-public-repository-format.md): the spec is format.md
 alone, so a clean-room backup needs neither s3cab's exclude syntax nor its config files.
 
 **s3cab is the tool.** It both backs up and restores. Beside it sit two kinds of **clean-room

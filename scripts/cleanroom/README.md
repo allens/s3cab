@@ -542,13 +542,12 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
 
 ## reconcile-restore-cleanroom.mjs
 
-Runs between a restore's two phases, once the spec-only session has exited. It
-copies the clean room, minus its credentials, to `spec-only\`, writes it fresh
-keys (the build's may have lapsed by the time you run this), and nothing else of
-the build's, so the reconcile phase reads the spec and brief the spec-only phase
-did. Then it builds the
-`reference\` trees a restorer's output is compared to, one per snapshot of every
-platform's sets, and writes `RECONCILE.md`, which the resumed session is told to
+Runs between a restore's two phases, once the session's spec-only phase has
+exited. It copies the clean room, minus its credentials, to `spec-only\`, writes
+it fresh keys (the build's may have lapsed by the time you run this), and
+nothing else of the build's, so the reconcile phase reads the spec and brief the
+spec-only phase did. Then it builds the `reference\` trees a restorer's output
+is compared to, one per snapshot of every platform's sets, and writes `RECONCILE.md`, which the resumed session is told to
 read. It prints the command that resumes the session. The same command on every
 OS, and it has to run on the OS under test: s3cab's Windows restore refuses the
 case-colliding pair and can't create the control-character names — each a

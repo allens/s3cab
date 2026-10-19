@@ -8,8 +8,7 @@
  *                       Never the session's to see, which is why it is beside cleanroom/
  *
  * No reference trees yet: the spec-only phase writes the restorer and its report without
- * them, and
- * reconcile-restore-cleanroom.mjs builds them once it has exited.
+ * them, and reconcile-restore-cleanroom.mjs builds them once it has exited.
  *
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
