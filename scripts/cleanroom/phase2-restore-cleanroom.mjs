@@ -1,6 +1,7 @@
 /**
  * Between a restore clean room's two phases (ADR-0096): keep the clean room as phase 1 left
- * it, then hand it s3cab's own restores of every snapshot to compare against, and PHASE2.md.
+ * it, then hand it fresh keys, s3cab's own restores of every snapshot to compare against,
+ * and PHASE2.md.
  *
  *   <root>/phase1/               the clean room as phase 1 left it, credentials removed, so
  *                                its report provably predates every reference
@@ -31,6 +32,9 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
@@ -42,6 +46,8 @@ import {
   readBucket,
   runCommand,
   sandboxPath,
+  sessionCredentials,
+  writeCleanroom,
   writePhase2,
 } from "./cleanroom.mjs";
 import { count, files, goldenSets } from "./fixtures.mjs";
@@ -70,7 +76,7 @@ if (!existsSync(join(root, ".s3cab"))) {
   );
   process.exit(2);
 }
-if (existsSync(frozen) || existsSync(reference)) {
+if (existsSync(frozen)) {
   console.error(
     `${root} has been handed its references already, and a second freeze would\n` +
       "overwrite the report phase 1 left.",
@@ -78,23 +84,35 @@ if (existsSync(frozen) || existsSync(reference)) {
   process.exit(2);
 }
 
-cpSync(cleanroom, frozen, {
-  recursive: true,
-  filter: (path) => basename(path) !== credentialsFile,
-});
-console.log(`phase 1's clean room kept in ${frozen}`);
-
-const { run } = cli(join(root, ".s3cab"));
+// Before the freeze, which blocks a rerun: a lapsed SSO session fails here with nothing
+// written.
+const credentials = await sessionCredentials(bucket);
 // The bucket's own region, as the build named it in ENVIRONMENT.md.
 const { BucketRegion } = await client.send(
   new HeadBucketCommand({ Bucket: bucket }),
 );
 process.env.AWS_REGION = BucketRegion;
 
+cpSync(cleanroom, frozen, {
+  recursive: true,
+  filter: (path) => basename(path) !== credentialsFile,
+});
+console.log(`phase 1's clean room kept in ${frozen}`);
+
+// Fresh keys and their expiry, since when phase 2 starts is the operator's to choose and
+// the build's may have lapsed by then. The brief keeps its times: audit-transcript.mjs
+// counts the transcripts written since the brief was, and phase 1's have to count.
+const brief = statSync(join(cleanroom, "CLAUDE.md"));
+writeCleanroom(cleanroom, "restore", bucket, credentials);
+utimesSync(join(cleanroom, "CLAUDE.md"), brief.atime, brief.mtime);
+
+const { run } = cli(join(root, ".s3cab"));
+
 // Every snapshot in the bucket, one tree each, so a clean-room run can tell "I found
 // nothing" from "I never looked". Enumerated from the bucket rather than from s3cab's
 // local history: the damaged `faults` snapshot was published straight to S3 and exists
-// nowhere else.
+// nowhere else. A reference/ phase 1 made of its own is kept in phase1/.
+rmSync(reference, { recursive: true, force: true });
 mkdirSync(reference);
 /** @type {string[]} */
 const exits = [];

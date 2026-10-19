@@ -125,14 +125,15 @@ jobs:
             > ../session.log 2>&1
 
       # A restore's references are built only now, from a second checkout, so none existed
-      # while phase 1 ran. The checkout goes again before the session resumes.
-      - if: inputs.role == 'restore'
+      # while phase 1 ran: even after a phase 1 that failed, so its restorer is still
+      # checked. The checkout goes again before the session resumes.
+      - if: always() && inputs.role == 'restore'
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - if: inputs.role == 'restore'
+      - if: always() && inputs.role == 'restore'
         run: npm ci
-      - if: inputs.role == 'restore'
+      - if: always() && inputs.role == 'restore'
         run: node scripts/cleanroom/phase2-restore-cleanroom.mjs "$SANDBOX"
       - name: delete the checkout and the npm cache again
         if: inputs.role == 'restore'

@@ -543,7 +543,8 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
 ## phase2-restore-cleanroom.mjs
 
 Runs between a restore's two phases, once phase 1's session has exited. It
-copies the clean room, minus its credentials, to `phase1\`, then builds the
+copies the clean room, minus its credentials, to `phase1\`, writes it fresh keys
+(the build's may have lapsed by the time you run this), then builds the
 `reference\` trees a restorer's output is compared to, one per snapshot of every
 platform's sets, and writes `PHASE2.md`, which the resumed session is told to
 read. It prints the command that resumes the session. The same command on every
