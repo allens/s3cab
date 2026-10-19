@@ -1,15 +1,15 @@
 /**
- * Between a restore clean room's two phases (ADR-0096): keep the clean room as phase 1 left
- * it, then hand it fresh keys, s3cab's own restores of every snapshot to compare against,
- * and PHASE2.md.
+ * Between a restore clean room's spec-only and reconcile phases (ADR-0096): keep the clean
+ * room as the spec-only phase left it, then hand it fresh keys, s3cab's own restores of every
+ * snapshot to compare against, and RECONCILE.md.
  *
- *   <root>/phase1/               the clean room as phase 1 left it, credentials removed, so
- *                                its report provably predates every reference
+ *   <root>/spec-only/            the clean room as the spec-only phase left it, credentials
+ *                                removed, so its report provably predates every reference
  *   <root>/cleanroom/reference/  what s3cab itself restores from every snapshot in the bucket
  *   <root>/reference-exits.json  each of those restores' exit, for check-restore.mjs
  *
- * Built only now, not with the clean room, so no reference exists anywhere while phase 1
- * runs: on Windows nothing but the brief keeps a session inside its clean room.
+ * Built only now, not with the clean room, so no reference exists anywhere while the
+ * spec-only phase runs: on Windows nothing but the brief keeps a session inside its clean room.
  *
  * It has to run on the platform under test: what a *correct* restore leaves behind differs
  * by platform — names NTFS refuses are absent, the case-colliding pair restores as one file,
@@ -24,7 +24,7 @@
  * being right.
  *
  * Usage:
- *   node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs <root>
+ *   node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs <root>
  */
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import {
@@ -46,26 +46,26 @@ import {
   sandboxPath,
   sessionCredentials,
   writeCredentials,
-  writePhase2,
+  writeReconcile,
 } from "./cleanroom.mjs";
 import { count, files, goldenSets } from "./fixtures.mjs";
 
 const usage =
-  "usage: node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs <root>\n\n" +
-  "e.g. node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs ~/s3cab.sandbox";
+  "usage: node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs <root>\n\n" +
+  "e.g. node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs ~/s3cab.sandbox";
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
   console.error(usage);
   process.exit(2);
 }
 const bucket = readBucket(
-  "phase2-restore-cleanroom.mjs",
+  "reconcile-restore-cleanroom.mjs",
   "S3CAB_TEST_BUCKET_CLEANROOM_RESTORE",
   arg,
 );
 const root = sandboxPath(arg);
 const cleanroom = join(root, "cleanroom");
-const frozen = join(root, "phase1");
+const frozen = join(root, "spec-only");
 const reference = join(cleanroom, "reference");
 if (!existsSync(join(root, ".s3cab"))) {
   console.error(
@@ -77,7 +77,7 @@ if (!existsSync(join(root, ".s3cab"))) {
 if (existsSync(frozen)) {
   console.error(
     `${root} has been handed its references already, and a second freeze would\n` +
-      "overwrite the report phase 1 left.",
+      "overwrite the report the spec-only phase left.",
   );
   process.exit(2);
 }
@@ -95,11 +95,12 @@ cpSync(cleanroom, frozen, {
   recursive: true,
   filter: (path) => basename(path) !== credentialsFile,
 });
-console.log(`phase 1's clean room kept in ${frozen}`);
+console.log(`the spec-only phase's clean room kept in ${frozen}`);
 
-// Fresh keys, since when phase 2 starts is the operator's to choose and the build's may
-// have lapsed by then; PHASE2.md states their expiry. Not the whole clean room again:
-// that would hand phase 2 this tree's spec and brief, not the ones phase 1 read.
+// Fresh keys, since when the reconcile phase starts is the operator's to choose and the
+// build's may have lapsed by then; RECONCILE.md states their expiry. Not the whole clean
+// room again: that would hand the reconcile phase this tree's spec and brief, not the ones
+// the spec-only phase read.
 writeCredentials(cleanroom, credentials, bucket, BucketRegion);
 
 const { run } = cli(join(root, ".s3cab"));
@@ -107,7 +108,7 @@ const { run } = cli(join(root, ".s3cab"));
 // Every snapshot in the bucket, one tree each, so a clean-room run can tell "I found
 // nothing" from "I never looked". Enumerated from the bucket rather than from s3cab's
 // local history: the damaged `faults` snapshot was published straight to S3 and exists
-// nowhere else. A reference/ phase 1 made of its own is kept in phase1/.
+// nowhere else. A reference/ the spec-only phase made of its own is kept in spec-only/.
 rmSync(reference, { recursive: true, force: true });
 mkdirSync(reference);
 /** @type {string[]} */
@@ -163,7 +164,7 @@ writeFileSync(
   join(root, "reference-exits.json"),
   JSON.stringify(codes, null, 2) + "\n",
 );
-writePhase2(cleanroom, credentials);
+writeReconcile(cleanroom, credentials);
 
 console.log(`\nreference trees in ${reference}`);
 for (const entry of readdirSync(reference)) {
@@ -186,6 +187,6 @@ if (exits.length > 0) {
   );
 }
 console.log(
-  `\nResume the session from ${cleanroom}, with phase 1's session id:\n` +
+  `\nResume the session from ${cleanroom}, with the spec-only phase's session id:\n` +
     `    ${runCommand("restore", true)}`,
 );

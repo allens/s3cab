@@ -61,8 +61,8 @@ Report, and stop.
 2. **Run.** Start the README's headless command in the background, from
    `<root>/cleanroom`, with a fresh `--session-id` and the user's model and effort.
    Give the user the tail command for that session's transcript, then wait for the
-   notification that it exited. A restore has a second phase: run
-   `phase2-restore-cleanroom.mjs`, read any unexpected nonzero exit it lists, then
+   notification that it exited. A restore has a reconcile phase: run
+   `reconcile-restore-cleanroom.mjs`, read any unexpected nonzero exit it lists, then
    resume the same session with the command it prints, and wait again.
 3. **Check** with the role's checker and `audit-transcript.mjs`, before anything is
    moved or deleted, each output saved into the clean room as the README shows. Show
@@ -75,7 +75,7 @@ Report, and stop.
    - *anything else is an experiment*: nothing enters the repo. List what the report
      found as harness faults and spec errors to fix.
 5. **Keep and destroy.** Either way, move the clean room, credentials deleted, and a
-   restore's `phase1/` to
+   restore's `spec-only/` to
    `~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>/` (README), then
    destroy the sandbox, and stop.
 
