@@ -737,6 +737,8 @@ substitute: it is a content hash only for single-part uploads to AWS.
    $gz = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($f), [IO.Compression.CompressionMode]::Decompress)
    $out = [IO.File]::Create(($f -replace "\.gz$", "")); $gz.CopyTo($out); $out.Close(); $gz.Close()
    ```
+   Then check that the `.tsv`'s last line is `.`, which is all that proves the rows are all
+   there: `GZipStream` can stop short [without a word](#reading).
 3. Open the `.tsv` — a text editor or a spreadsheet — and find your file's row, one of those
    starting `-`.
 4. Download `objects/<its-hash>` from the bucket. That is your file, byte for byte; the row
@@ -779,9 +781,10 @@ For a restorer, or anything else that reads the files.
   404. s3cab stops the whole restore on any other failure, a 403 included: S3 answers 403
   for a missing key when the caller may not list the bucket, and the records can't tell
   that from a permissions fault.
-- Retry a request before giving up on a dropped connection, a throttling answer or a 5xx:
-  none of them says anything about the file. s3cab retries a dropped connection for two
-  minutes, and the other two as the AWS SDK does.
+- Retry a request before giving up on a dropped connection or a 5xx, which is also how S3
+  throttles (`503 SlowDown`): neither says anything about the file. s3cab retries a dropped
+  connection for two minutes from the first failure, and a 5xx up to three attempts in all,
+  each wait random, under a ceiling that doubles every time.
 - Restore everything you can, then report. Skip a deliberately deleted file and say so, with
   its date; that alone isn't damage, and s3cab exits 0 when deliberate deletions are all
   that's missing. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
@@ -808,7 +811,9 @@ For a restorer, or anything else that reads the files.
 - **gzip.** `gunzip -c` and Python's `gzip` module hand over every line they can decompress
   before reporting a cut-short file, which is why the `.` matters. Python's `gzip.decompress`
   also joins several gzip streams into one without a word, and so does s3cab's own reader;
-  bytes after the stream that aren't gzip make it refuse the file.
+  bytes after the stream that aren't gzip make it refuse the file. .NET's `GZipStream`
+  reports even less: it stops after the first stream, and under PowerShell 7 it hands back
+  nothing at all, with no error, for a file cut short.
 - **Windows paths: go through `\\?\`.** Prefixed with `\\?\`, an absolute path is taken
   exactly as written, reserved names such as `CON` and `aux.txt` included. Without it,
   Windows drops a trailing space or dot from a name, so a file restored as `notes.` lands as
@@ -982,7 +987,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   - send `CompleteMultipartUpload` only if that hash equals the key, and abort the upload
     otherwise, which leaves nothing stored.
 - **Not overwriting.** `If-None-Match: *` makes a PUT refuse an existing key with 412, and
-  can't be raced the way HEAD then PUT can.
+  can't be raced the way HEAD then PUT can. boto3 1.34, the version Ubuntu 24.04 packages,
+  has no `IfNoneMatch` parameter: add the header in a `before-call` event handler for
+  `PutObject` and `CompleteMultipartUpload`.
 - **Content type.** Python's `mimetypes` reports a `.tsv.gz` file's encoding as `gzip`, and a
   tool that passes that on sets the header the checklist rules out.
 - **`Content-Encoding: aws-chunked`.** boto3 1.36 and later send it on every upload by
