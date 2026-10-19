@@ -36,7 +36,7 @@ on all three. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
 maintained, and improved every run as findings come in: the seed script, the two
-build scripts and the restore's phase-2 script, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
+build scripts and the restore's reconcile script, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
 `restore-bucket.mjs`), and the checkers, `check-backup.mjs` with
 `compare-snapshot.mjs`, `check-restore.mjs` with `compare.py`, and
 `audit-transcript.mjs`.
@@ -68,23 +68,23 @@ destroy, then the next.
 ```text
 ~/s3cab.sandbox/
   cleanroom/   the session opens here: spec, brief, credentials, and from
-               a restore's phase 2, reference/ and PHASE2.md
+               a restore's reconcile phase, reference/ and RECONCILE.md
   fixtures/    the trees it backs up (backup)
-  phase1/      the clean room as a restore's phase 1 left it (restore)
+  spec-only/   the clean room as a restore's spec-only phase left it (restore)
   .s3cab/      s3cab's home while the scripts run it (restore)
   session-settings.json   the run's walls, passed with --settings
 ```
 
 A restore runs in **two phases**, the reference restores shown only in the
-second. Phase 1 writes the restorer and its report from the spec and the bucket
-alone. Then `phase2-restore-cleanroom.mjs` keeps the clean room as it stands in
-`phase1/`, so that report provably predates every reference, builds the
-references, and the same session is resumed to compare against them and report
-each difference in a section of its own. The references are built only after
-phase 1, rather than hidden during it, because on Windows only the brief keeps
-a session inside its clean room. That section against phase 1's list shows
-what references in sight from the start would have hidden; the harvested
-program is phase 2's.
+second. The **spec-only phase** writes the restorer and its report from the spec
+and the bucket alone. Then `reconcile-restore-cleanroom.mjs` keeps the clean room
+as it stands in `spec-only/`, so that report provably predates every reference,
+and builds the references. In the **reconcile phase** the same session is resumed
+to compare against them and account for each difference in a section of its own.
+The references are built only after the spec-only phase, rather than hidden
+during it, because on Windows only the brief keeps a session inside its clean
+room. That section against the spec-only list shows what references in sight
+from the start would have hidden; the harvested program is the reconcile phase's.
 
 A restorer run, end to end, as on Windows. Elsewhere the commands are the same
 (`$HOME` expands in PowerShell and sh alike), except the run's, which names `Bash`
@@ -98,11 +98,11 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3
 cd $HOME/s3cab.sandbox/cleanroom
 claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 go
 cd -
-# between the phases: phase 1 kept, the references built and PHASE2.md written
-node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs $HOME/s3cab.sandbox
-# run phase 2: the same session resumed, from the clean room
+# between the phases: the spec-only clean room kept, the references built and RECONCILE.md written
+node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs $HOME/s3cab.sandbox
+# run the reconcile phase: the same session resumed, from the clean room
 cd $HOME/s3cab.sandbox/cleanroom
-claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 "read PHASE2.md"
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 "read RECONCILE.md"
 cd -
 # check: its restorer run on every snapshot and compared, and its transcript audited
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
@@ -111,7 +111,7 @@ node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3ca
 Remove-Item $HOME/s3cab.sandbox/cleanroom/credentials.*
 New-Item -ItemType Directory -Force $HOME/s3cab.experiments
 Move-Item $HOME/s3cab.sandbox/cleanroom $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh
-Move-Item $HOME/s3cab.sandbox/phase1 $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh/phase1
+Move-Item $HOME/s3cab.sandbox/spec-only $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh/spec-only
 # harvest, if it was a real set's run: its program and report into the repo
 # destroy
 Remove-Item -Recurse $HOME/s3cab.sandbox
@@ -525,12 +525,12 @@ latest; it exists only in S3.
 
 ## build-restore-cleanroom.mjs
 
-Builds a restore sandbox from the golden set: phase 1's clean room, with no
+Builds a restore sandbox from the golden set: the spec-only clean room, with no
 reference trees. It refuses a bucket stamped from another spec or other
 fixtures, or missing any platform's sets, which is the cue to reseed. It
 follows the bucket to its own region and names that one in `ENVIRONMENT.md`,
 whatever `AWS_REGION` says: the restore bucket is CI's, in `us-east-1`. It
-reattaches every set into the sandbox's `.s3cab\`, for phase 2's references.
+reattaches every set into the sandbox's `.s3cab\`, for the reconcile phase's references.
 
 The brief fixes the restorer's command line, `s3cab-restore <bucket> <set> <dir>
 [<snapshot>]` (`.exe` on Windows), and the layout under `<dir>` as s3cab's own, so the
@@ -540,14 +540,14 @@ checker can run it.
 node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
 ```
 
-## phase2-restore-cleanroom.mjs
+## reconcile-restore-cleanroom.mjs
 
-Runs between a restore's two phases, once phase 1's session has exited. It
-copies the clean room, minus its credentials, to `phase1\`, writes it fresh keys
-(the build's may have lapsed by the time you run this), and nothing else of the
-build's, so phase 2 reads the spec and brief phase 1 did. Then it builds the
-`reference\` trees a restorer's output is compared to, one per snapshot of every
-platform's sets, and writes `PHASE2.md`, which the resumed session is told to
+Runs between a restore's two phases, once the session's spec-only phase has
+exited. It copies the clean room, minus its credentials, to `spec-only\`, writes
+it fresh keys (the build's may have lapsed by the time you run this), and
+nothing else of the build's, so the reconcile phase reads the spec and brief the
+spec-only phase did. Then it builds the `reference\` trees a restorer's output
+is compared to, one per snapshot of every platform's sets, and writes `RECONCILE.md`, which the resumed session is told to
 read. It prints the command that resumes the session. The same command on every
 OS, and it has to run on the OS under test: s3cab's Windows restore refuses the
 case-colliding pair and can't create the control-character names — each a
@@ -573,7 +573,7 @@ short reference tree is expected and has to be read before the session is
 resumed.
 
 ```sh
-node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs <root>
+node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs <root>
 ```
 
 ## check-restore.mjs

@@ -4,11 +4,11 @@
  *
  *   <root>/cleanroom/   the session's: spec, brief, credentials
  *   <root>/.s3cab/      s3cab's home, with every golden set reattached for
- *                       phase2-restore-cleanroom.mjs to restore the references from. Never the
- *                       session's to see, which is why it is beside cleanroom/
+ *                       reconcile-restore-cleanroom.mjs to restore the references from.
+ *                       Never the session's to see, which is why it is beside cleanroom/
  *
- * No reference trees yet: phase 1 writes the restorer and its report without them, and
- * phase2-restore-cleanroom.mjs builds them once it has exited.
+ * No reference trees yet: the spec-only phase writes the restorer and its report without
+ * them, and reconcile-restore-cleanroom.mjs builds them once it has exited.
  *
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>

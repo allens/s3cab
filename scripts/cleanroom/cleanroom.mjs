@@ -298,20 +298,21 @@ function sessionSettings(role, bucket) {
 /**
  * The headless run's command, from `<root>/cleanroom` (README.md says what each flag is
  * for). No `Bash` on Windows, where it is Git Bash, which the brief rules out. A restore's
- * second phase resumes the first's session, with the brief appended again: whether the first
- * process's appended prompt survives `--resume` is unverified, and the transcript can't show it.
+ * reconcile phase resumes the spec-only phase's session, with the brief appended again:
+ * whether the first process's appended prompt survives `--resume` is unverified, and the
+ * transcript can't show it.
  * @param {"backup" | "restore"} role
- * @param {boolean} [phase2] a restore's second phase
+ * @param {boolean} [reconcile] a restore's reconcile phase
  */
-export function runCommand(role, phase2 = false) {
+export function runCommand(role, reconcile = false) {
   const tools = `${windows ? "PowerShell" : "Bash"},Read,Write,Edit,Glob,Grep,TaskStop`;
   return (
     `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
     (role === "backup" ? " --add-dir ../fixtures" : "") +
     ` --safe-mode --append-system-prompt-file CLAUDE.md` +
-    (phase2 ? " --resume <uuid>" : " --session-id <uuid>") +
+    (reconcile ? " --resume <uuid>" : " --session-id <uuid>") +
     ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 30` +
-    (phase2 ? ' "read PHASE2.md"' : " go")
+    (reconcile ? ' "read RECONCILE.md"' : " go")
   );
 }
 
@@ -360,15 +361,16 @@ export function writeCredentials(dir, credentials, bucket, region) {
 }
 
 /**
- * What a restore's second phase is to do, as `PHASE2.md` in the clean room, which the resumed
- * session is told to read. Written only once `reference/` is in, so phase 1 can't learn of it.
+ * What a restore's reconcile phase is to do, as `RECONCILE.md` in the clean room, which the
+ * resumed session is told to read. Written only once `reference/` is in, so the spec-only
+ * phase can't learn of it.
  * @param {string} dir
- * @param {Credentials} credentials the keys phase 2 renewed
+ * @param {Credentials} credentials the keys renewed for the reconcile phase
  */
-export function writePhase2(dir, credentials) {
+export function writeReconcile(dir, credentials) {
   const expiry = expiryOf(credentials);
   writeFileSync(
-    join(dir, "PHASE2.md"),
+    join(dir, "RECONCILE.md"),
     `# The reference restores
 
 \`reference/\` now holds one directory per snapshot in the bucket, restored by the tool itself and
@@ -708,7 +710,7 @@ export function handover(root, role, todo) {
       `fix that didn't land.` +
       (role === "restore"
         ? "\n\nOnce it exits, hand it the references, which prints the command that resumes it:\n" +
-          `    node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs ${root}`
+          `    node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs ${root}`
         : ""),
   );
 }
