@@ -366,10 +366,11 @@ export function writePhase2(dir, credentials) {
     `# The reference restores
 
 \`reference/\` now holds one directory per snapshot in the bucket, restored by the tool itself and
-named for the set and snapshot it came from. An empty one is a snapshot the tool restored no file
-from: the directory is there so every snapshot has one, and the tool itself creates nothing in that
-case, so no directory at all matches it. Your report as it stood has been copied out, so what you
-found without the references stays on record whatever you change from here.
+named for the set and snapshot it came from. An empty reference directory means the tool restored no
+file from that snapshot: the directory is there so every snapshot has one, and the tool itself
+creates nothing in that case, so no directory, or an empty one, matches it. Your report as it stood
+has been copied out, so what you found without the references stays on record whatever you change
+from here.
 
 For each snapshot, compare your restorer's output with its reference byte-for-byte, including paths
 and modification times. Investigate every difference: a mismatch is either a bug in your restorer
