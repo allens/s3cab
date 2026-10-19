@@ -131,13 +131,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   still hold a year past 9999, which `toISOString` writes as `+010000-…`, 27 characters, a row
   s3cab's own reader refuses. The wrapped Windows value can't be told from a real date in range,
   so the fix may not be possible within builtins.
-- **An mtime just under a half-millisecond tie rounds the wrong way.** `fileProps` formats
-  `stat.mtime`, a `Date` built from the float `mtimeMs`, and near today's dates that float can't
-  hold .4999ms, so it becomes .5 and rounds up: an NTFS mtime of 4999 ticks past the second is
-  stored as `.001`, where [guide/format.md](../guide/format.md)'s nearest millisecond is `.000`.
-  Only values within about one 100ns tick of a tie are affected, but a clean-room writer that
-  rounds exactly disagrees with s3cab on them. Reading `{ bigint: true }` and rounding `mtimeNs`
-  would be exact; its cost on the walk's hot path is unmeasured.
 - **Column 2 is padded by UTF-16 units, not code points.** [guide/format.md](../guide/format.md)'s
   canonical form counts a character as a code point, as exclude.md's `?` does; `formatLine`
   (`src/lib/snapshot-file.mjs`) pads with `padEnd(64)`, which counts UTF-16 units, so an
