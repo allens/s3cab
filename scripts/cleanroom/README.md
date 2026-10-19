@@ -278,7 +278,7 @@ promise of a kind a documented format can't be — and it is why the earlier
 Python run doesn't answer this, having used boto3.
 
 Credentials go over as static keys in `credentials.env` (`credentials.ps1` on
-Windows), resolved through the
+Windows), with the bucket's region and name, resolved through the
 SDK chain at build time — `AWS_PROFILE` would be useless to a restorer with no
 SDK to read `~/.aws/config` with. They are session credentials, so the run must
 sign `x-amz-security-token` too, and they expire: `ENVIRONMENT.md` states the

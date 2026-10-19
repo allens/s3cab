@@ -329,11 +329,15 @@ function expiryOf(credentials) {
  * The bucket's keys, in a file of their own in the clean room, so the secret sits in one
  * obviously-disposable file rather than inside prose the session may quote back into a
  * report. Single-quoted because a session token is base64 and a shell would otherwise be
- * free to read it.
+ * free to read it. The region and bucket go in it too, not as lines for the session to run:
+ * under `blockReadsOutsideWorkingDirectories`, Claude Code's PowerShell parser refuses a
+ * command that sets `$env:` itself, where dot-sourcing a file passes.
  * @param {string} dir
  * @param {Credentials} credentials
+ * @param {string} bucket
+ * @param {string | undefined} region
  */
-export function writeCredentials(dir, credentials) {
+export function writeCredentials(dir, credentials, bucket, region) {
   const assign = windows
     ? (/** @type {string} */ name, /** @type {string} */ value) =>
         `$env:${name} = '${value}'`
@@ -347,6 +351,8 @@ export function writeCredentials(dir, credentials) {
       ...(credentials.sessionToken
         ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
         : []),
+      ...(region ? [assign("AWS_REGION", region)] : []),
+      assign("BUCKET", bucket),
       "",
     ].join("\n"),
     "utf8",
@@ -613,24 +619,16 @@ ${
 }
 It is the only bucket this exercise touches.
 
-${
-  windows
-    ? `\`\`\`powershell
-. .\\${credentialsFile}
-${region ? `$env:AWS_REGION = '${region}'\n` : ""}$env:BUCKET = '${bucket}'
-\`\`\`
-
-Your shell refuses a command that sets an environment variable itself, and nothing a command
-sets lasts into the next one. So put these lines in a \`.ps1\` file in this folder and dot-source
-it at the start of each command that needs them: \`. .\\env.ps1; <command>\`.`
-    : `\`\`\`sh
-. ./${credentialsFile}
-${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
-\`\`\`
+Start every command that reaches the bucket with \`. ${windows ? ".\\" : "./"}${credentialsFile};\`, which sets
+the keys${region ? ", `AWS_REGION`" : ""} and \`BUCKET\`. Nothing a command sets lasts into the next one${
+    windows
+      ? `, and a
+command that sets an environment variable itself is refused here.`
+      : `.
 
 Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
 A program that ignores that variable can't reach the bucket.`
-}
+  }
 
 ## Credentials
 
@@ -668,7 +666,7 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
   cpSync(join(repoRoot, "guide", "format.md"), join(dir, "format.md"));
   writeFileSync(join(dir, "CLAUDE.md"), brief, "utf8");
   writeFileSync(join(dir, "ENVIRONMENT.md"), environment, "utf8");
-  writeCredentials(dir, credentials);
+  writeCredentials(dir, credentials, bucket, region);
 
   writeFileSync(
     join(dirname(dir), "session-settings.json"),
