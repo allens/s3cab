@@ -189,6 +189,17 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   native ext4 never shows it. `land`'s cleanup is `rm(tmpPath, { force: true })` with every
   error swallowed, so a failed delete leaves no trace. Unconfirmed: that DrvFs refuses or
   defers the delete while the write stream `pipeline` destroyed is still closing.
+- **`restore` doesn't notice a modification time the destination clamped.** APFS keeps
+  nothing past April 2262: `utimes` for a year-2300 time succeeds and stores 2262 (measured
+  on macOS 15, the `edge` fixtures' `mtime-2300.txt`). The restore loop
+  in `src/commands/restore.mjs` never reads the time back, so the file counts as restored
+  and the exit is 0 on its account, against [guide/format.md](../guide/format.md)'s promise
+  that a restore reproduces the stored time. A `stat` after `utimes` would catch it.
+- **`restore --output` names a root member directory oddly.** `reroot`
+  (`src/lib/restore.mjs`) names the folder by the `@SET DIR`'s last segment, which a root
+  lacks: a `/` member's files land straight in `<output>`, and a `C:\` member's under a
+  folder named `C:`, which a Windows `--output` refuses. [guide/format.md](../guide/format.md)
+  doesn't say either.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
