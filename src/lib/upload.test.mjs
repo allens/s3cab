@@ -11,7 +11,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
-import { fileProps, isoMillis } from "./file-props.mjs";
+import { fileProps, statProps } from "./file-props.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
@@ -149,7 +149,7 @@ mock.module("./file-props.mjs", {
       }
       return props;
     },
-    isoMillis,
+    statProps,
   },
 });
 const {

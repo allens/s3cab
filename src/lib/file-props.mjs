@@ -34,21 +34,24 @@ import { pipeline } from "node:stream/promises";
 const EMPTY_DIGEST = crypto.hash("sha256", "", "hex");
 
 /**
- * A modification time as a snapshot stores it: rounded to the nearest
- * millisecond, a tie to the later one, in the 24-character ISO form.
+ * A file's size and modification time as a snapshot stores them: the mtime
+ * rounded to the nearest millisecond, a tie to the later one, in the
+ * 24-character ISO form. Both `fileProps` and upload's `fileChange` compare
+ * these with a stored row, so both take them from here: a file the two derive
+ * differently reads as changed and fails its upload.
  *
  * Not `stat.mtime.toISOString()`: that `Date` is built from the float
  * `mtimeMs`, which near today's dates can't hold .4999ms, so an NTFS mtime one
  * tick short of a tie reads as the tie and rounds up. Hence the integer
  * nanoseconds, with floor division, so a time before 1970 rounds the same way.
- * @param {bigint} mtimeNs - From an `lstat` taken with `{ bigint: true }`
- * @returns {string}
+ * @param {Pick<BigIntStats, "size" | "mtimeNs">} stat - From an `lstat` taken with `{ bigint: true }`
+ * @returns {Pick<Props, "size" | "mtime">}
  */
-export function isoMillis(mtimeNs) {
-  const halfUp = mtimeNs + 500_000n;
+export function statProps(stat) {
+  const halfUp = stat.mtimeNs + 500_000n;
   const ms =
     halfUp >= 0n ? halfUp / 1_000_000n : -((999_999n - halfUp) / 1_000_000n);
-  return new Date(Number(ms)).toISOString();
+  return { size: Number(stat.size), mtime: new Date(Number(ms)).toISOString() };
 }
 
 /**
@@ -118,8 +121,7 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
     throw new Error(`Not a regular file: ${path}`);
   }
 
-  const size = Number(stat.size);
-  const mtimeIso = isoMillis(stat.mtimeNs);
+  const { size, mtime: mtimeIso } = statProps(stat);
 
   const stored = lookup?.entries.get(path);
   if (

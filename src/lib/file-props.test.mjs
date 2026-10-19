@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { hash } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, it } from "node:test";
-import { fileProps, isoMillis } from "./file-props.mjs";
+import { fileProps, statProps } from "./file-props.mjs";
 
 /** @import { Props } from "./snapshot-file.mjs" */
 /** @import { HashProgress, HashSource } from "./file-props.mjs" */
@@ -20,20 +20,29 @@ const lookupOf = (
   /** @type {number | undefined} */ baselineMs = undefined,
 ) => ({ entries: new Map([[path, props]]), baselineMs });
 
-describe("isoMillis", () => {
+describe("statProps", () => {
   const second = BigInt(MTIME.getTime()) * 1_000_000n;
+  const mtimeOf = (/** @type {bigint} */ mtimeNs) =>
+    statProps({ size: 12n, mtimeNs }).mtime;
+
+  it("gives the size as a number", () => {
+    assert.deepEqual(statProps({ size: 12n, mtimeNs: second }), {
+      size: 12,
+      mtime: MTIME_ISO,
+    });
+  });
 
   it("rounds one NTFS tick short of a tie down", () => {
-    assert.equal(isoMillis(second + 499_900n), "2025-01-15T10:30:00.000Z");
+    assert.equal(mtimeOf(second + 499_900n), "2025-01-15T10:30:00.000Z");
   });
 
   it("rounds a tie to the later millisecond", () => {
-    assert.equal(isoMillis(second + 500_000n), "2025-01-15T10:30:00.001Z");
+    assert.equal(mtimeOf(second + 500_000n), "2025-01-15T10:30:00.001Z");
   });
 
   it("rounds a time before 1970 the same way", () => {
-    assert.equal(isoMillis(-500_000n), "1970-01-01T00:00:00.000Z");
-    assert.equal(isoMillis(-500_001n), "1969-12-31T23:59:59.999Z");
+    assert.equal(mtimeOf(-500_000n), "1970-01-01T00:00:00.000Z");
+    assert.equal(mtimeOf(-500_001n), "1969-12-31T23:59:59.999Z");
   });
 });
 

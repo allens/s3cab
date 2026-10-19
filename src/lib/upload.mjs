@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { ContentMismatchError, isENOENT } from "./error.mjs";
-import { fileProps, isoMillis } from "./file-props.mjs";
+import { fileProps, statProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
@@ -475,9 +475,8 @@ export async function fileChange(path, recorded) {
       ? { reason: "removed" }
       : { reason: "unreadable", cause: error };
   }
-  const changed =
-    Number(current.size) !== recorded.size ||
-    isoMillis(current.mtimeNs) !== recorded.mtime;
+  const { size, mtime } = statProps(current);
+  const changed = size !== recorded.size || mtime !== recorded.mtime;
   return changed ? { reason: "changed" } : undefined;
 }
 
