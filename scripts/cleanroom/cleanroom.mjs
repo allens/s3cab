@@ -618,7 +618,11 @@ ${
     ? `\`\`\`powershell
 . .\\${credentialsFile}
 ${region ? `$env:AWS_REGION = '${region}'\n` : ""}$env:BUCKET = '${bucket}'
-\`\`\``
+\`\`\`
+
+Your shell refuses a command that sets an environment variable itself, and nothing a command
+sets lasts into the next one. So put these lines in a \`.ps1\` file in this folder and dot-source
+it at the start of each command that needs them: \`. .\\env.ps1; <command>\`.`
     : `\`\`\`sh
 . ./${credentialsFile}
 ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
