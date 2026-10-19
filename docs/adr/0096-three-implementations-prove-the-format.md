@@ -153,7 +153,8 @@ stack reads; zstd, before it, was the one thing none could:
   build names its compiler in `ENVIRONMENT.md`: the in-box `csc.exe`, which is limited to C# 5,
   or `Add-Type` from Windows PowerShell 5.1, even where something newer is installed. Expected
   traps include long paths, which the .NET Framework needs an opt-in for, and the TLS defaults.
-- **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (`URLSession`),
+- **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (the system
+  libcurl, since inside the run's sandbox `URLSession` reaches neither `trustd` nor the proxy),
   SHA-256/HMAC (CryptoKit) and zlib (Compression, raw deflate behind gzip's 10-byte header) come
   with the OS, so **nothing comes from Homebrew**.
 - **Linux: C**, the language POSIX specifies and the system is built in: libcurl, OpenSSL and

@@ -575,7 +575,7 @@ ${
     : ""
 }
 - **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
-  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : " is"} and says nothing about the format.
+  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : process.platform === "darwin" ? " is, and which HTTP client works," : " is"} and says nothing about the format.
   If you find yourself wanting more than those, that is itself a finding: record what you needed
   and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
@@ -629,7 +629,20 @@ command that sets an environment variable itself is refused here.`
       : `.
 
 Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
-A program that ignores that variable can't reach the bucket.`
+A program that ignores that variable can't reach the bucket.${
+          process.platform === "darwin" && !python
+            ? `
+
+URLSession doesn't work here: it ignores \`HTTPS_PROXY\`, its \`connectionProxyDictionary\` can't
+answer the proxy's request for the credentials in it, and its certificate check fails
+(\`errSecInternalComponent\`) because the sandbox blocks \`trustd\`. The libcurl that ships with
+macOS works: it reads \`HTTPS_PROXY\` itself, and its LibreSSL backend checks certificates against
+\`/etc/ssl/cert.pem\` instead. Select that backend with
+\`curl_global_sslset(CURLSSLBACKEND_OPENSSL, nil, nil)\` before any other libcurl call,
+\`curl_easy_init\` included: any later and it returns \`CURLSSLSET_TOO_LATE\`, leaving the backend
+that needs \`trustd\`.`
+            : ""
+        }`
   }
 
 ## Credentials
