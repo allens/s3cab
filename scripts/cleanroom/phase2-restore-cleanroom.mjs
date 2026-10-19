@@ -33,8 +33,6 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
-  statSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
@@ -47,7 +45,7 @@ import {
   runCommand,
   sandboxPath,
   sessionCredentials,
-  writeCleanroom,
+  writeCredentials,
   writePhase2,
 } from "./cleanroom.mjs";
 import { count, files, goldenSets } from "./fixtures.mjs";
@@ -99,12 +97,10 @@ cpSync(cleanroom, frozen, {
 });
 console.log(`phase 1's clean room kept in ${frozen}`);
 
-// Fresh keys and their expiry, since when phase 2 starts is the operator's to choose and
-// the build's may have lapsed by then. The brief keeps its times: audit-transcript.mjs
-// counts the transcripts written since the brief was, and phase 1's have to count.
-const brief = statSync(join(cleanroom, "CLAUDE.md"));
-writeCleanroom(cleanroom, "restore", bucket, credentials);
-utimesSync(join(cleanroom, "CLAUDE.md"), brief.atime, brief.mtime);
+// Fresh keys, since when phase 2 starts is the operator's to choose and the build's may
+// have lapsed by then; PHASE2.md states their expiry. Not the whole clean room again:
+// that would hand phase 2 this tree's spec and brief, not the ones phase 1 read.
+writeCredentials(cleanroom, credentials);
 
 const { run } = cli(join(root, ".s3cab"));
 
@@ -167,7 +163,7 @@ writeFileSync(
   join(root, "reference-exits.json"),
   JSON.stringify(codes, null, 2) + "\n",
 );
-writePhase2(cleanroom);
+writePhase2(cleanroom, credentials);
 
 console.log(`\nreference trees in ${reference}`);
 for (const entry of readdirSync(reference)) {

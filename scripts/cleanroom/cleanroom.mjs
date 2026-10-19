@@ -315,12 +315,52 @@ export function runCommand(role, phase2 = false) {
   );
 }
 
+/** @typedef {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} Credentials */
+
+/**
+ * When the keys expire, to the second, as the clean room is told.
+ * @param {Credentials} credentials
+ */
+function expiryOf(credentials) {
+  return credentials.expiration?.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * The bucket's keys, in a file of their own in the clean room, so the secret sits in one
+ * obviously-disposable file rather than inside prose the session may quote back into a
+ * report. Single-quoted because a session token is base64 and a shell would otherwise be
+ * free to read it.
+ * @param {string} dir
+ * @param {Credentials} credentials
+ */
+export function writeCredentials(dir, credentials) {
+  const assign = windows
+    ? (/** @type {string} */ name, /** @type {string} */ value) =>
+        `$env:${name} = '${value}'`
+    : (/** @type {string} */ name, /** @type {string} */ value) =>
+        `export ${name}='${value}'`;
+  writeFileSync(
+    join(dir, credentialsFile),
+    [
+      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
+      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
+      ...(credentials.sessionToken
+        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
+        : []),
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 /**
  * What a restore's second phase is to do, as `PHASE2.md` in the clean room, which the resumed
  * session is told to read. Written only once `reference/` is in, so phase 1 can't learn of it.
  * @param {string} dir
+ * @param {Credentials} credentials the keys phase 2 renewed
  */
-export function writePhase2(dir) {
+export function writePhase2(dir, credentials) {
+  const expiry = expiryOf(credentials);
   writeFileSync(
     join(dir, "PHASE2.md"),
     `# The reference restores
@@ -336,7 +376,14 @@ the restorer built from your final source.
 
 Add a section to your report headed *Differences from the reference*: every difference you found,
 what caused it, and whether it was your bug or a gap in the spec.
-`,
+${
+  expiry
+    ? `
+The keys in \`${credentialsFile}\` are new. They expire at ${expiry}, which replaces the time
+\`ENVIRONMENT.md\` gives.
+`
+    : ""
+}`,
     "utf8",
   );
 }
@@ -346,7 +393,7 @@ what caused it, and whether it was your bug or a gap in the spec.
  * @param {string} dir
  * @param {"backup" | "restore"} role
  * @param {string} bucket
- * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} credentials
+ * @param {Credentials} credentials
  * @param {{ name: string, dirs: string[] }[]} [sets] for a backup, each set and its member
  *   directories, which ENVIRONMENT.md lists: the room has no set files (ADR-0107)
  */
@@ -549,9 +596,7 @@ ${sets
   )
   .join("\n")}
 `;
-  const expiry = credentials.expiration
-    ?.toISOString()
-    .replace(/\.\d{3}Z$/, "Z");
+  const expiry = expiryOf(credentials);
   const environment = `# Environment
 
 ## The bucket
@@ -616,26 +661,7 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
   cpSync(join(repoRoot, "guide", "format.md"), join(dir, "format.md"));
   writeFileSync(join(dir, "CLAUDE.md"), brief, "utf8");
   writeFileSync(join(dir, "ENVIRONMENT.md"), environment, "utf8");
-  // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
-  // rather than inside prose the session may quote back into a report. Single-quoted
-  // because a session token is base64 and a shell would otherwise be free to read it.
-  const assign = windows
-    ? (/** @type {string} */ name, /** @type {string} */ value) =>
-        `$env:${name} = '${value}'`
-    : (/** @type {string} */ name, /** @type {string} */ value) =>
-        `export ${name}='${value}'`;
-  writeFileSync(
-    join(dir, credentialsFile),
-    [
-      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
-      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
-      ...(credentials.sessionToken
-        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
-        : []),
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  writeCredentials(dir, credentials);
 
   writeFileSync(
     join(dirname(dir), "session-settings.json"),
