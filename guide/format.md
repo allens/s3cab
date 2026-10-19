@@ -594,11 +594,23 @@ looking. Restoring to a chosen directory, it writes each file to
 `<output>/<name of the DIR that matched>/<the rest of the path below that DIR>`. So under a
 `@SET DIR` of `C:\Users\me\Photos\`, a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
 `<output>\Photos\2024\beach.jpg` — the member directory's *name*, not a rebuilt
-`C\Users\me\…` chain. Two `DIR` rows whose names collide (`C:\a\Photos\` and
-`D:\b\Photos\`) both want the same destination directory; s3cab refuses that snapshot rather
-than merging them. The snapshot itself is valid, and restores to its recorded paths, so a
-writer has nothing to refuse. **None of this binds you.** A different layout is a different
-tool making a different decision, not a misreading of the format.
+`C\Users\me\…` chain. In detail:
+
+- The folder takes the `DIR` row's spelling, and the rest of the path the file row's, even
+  where a Windows `DIR` matched a path spelled in another case.
+- Folders are made only as files land in them, so a member directory with no files restored
+  leaves no folder at all.
+- Two `DIR` rows whose names collide, compared ignoring letter case (`C:\a\Photos\` and
+  `D:\b\photos\`), both want the same destination directory; s3cab refuses that snapshot
+  rather than merging them. The snapshot itself is valid, and restores to its recorded paths,
+  so a writer has nothing to refuse.
+- A file already at a destination is left alone and reported as skipped, unless the restore
+  was asked to overwrite. Something in the way, a folder where a file should land or a file
+  where one of its folders should be, is reported, exit 1. Nothing else already in
+  `<output>` is touched.
+
+**None of this binds you.** A different layout is a different tool making a different
+decision, not a misreading of the format.
 
 **A stored `mtime` is rounded to the nearest millisecond**, a tie to the later one, which is
 coarser than some filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds.
@@ -677,9 +689,10 @@ of three things:
   file row whose path breaks one of the path rules above. Where a rule is about two file rows
   (one path in both, or one running through the other), **both rows are refused, so no
   reader guesses**: a first-wins and a last-wins reader would restore different bytes from
-  one file, and neither would report anything wrong. A row refused for any other reason
-  blocks nothing, since it lands nowhere. A `..` segment matters most, since a hand-added one
-  would walk a naive restorer out of its output directory. A `@SET DIR` row isn't checked for
+  one file, and neither would report anything wrong. Check one path running through
+  another last, among the rows every other check let through: a row refused for any other
+  reason blocks nothing, since it lands nowhere. A `..` segment matters most, since a
+  hand-added one would walk a naive restorer out of its output directory. A `@SET DIR` row isn't checked for
   one, and needn't be: a file row under it holds its segments, so a `DIR` with a `.` or `..`
   refuses every row beneath it. A `#` row repeating a file row's path also makes the file
   invalid, but changes nothing a restore writes, so a reader that skips `#` rows needn't
@@ -746,6 +759,10 @@ For a restorer, or anything else that reads the files.
   strict UTF-8, split on LF alone, no escaping, the leading fields trimmed and the last
   taken verbatim.
 - Decompress a snapshot as gzip.
+- Asked for a set's latest snapshot, s3cab takes the key under `snapshots/<set>/` whose
+  [name](#the-last-line) sorts last, ignoring any key not named `YYYY-MM-DDTHHMM.tsv.gz`,
+  and doesn't fall back to an earlier one when that one is refused. Neither the upload time
+  nor `START` decides.
 - Take a row's type from its first field, trimmed, compared case-sensitively.
 - Check every snapshot and deletion record as [valid and invalid files](#valid-and-invalid-files)
   sets out: refuse the whole file, refuse one path and carry on, or ignore the row. A file
@@ -762,6 +779,9 @@ For a restorer, or anything else that reads the files.
   404. s3cab stops the whole restore on any other failure, a 403 included: S3 answers 403
   for a missing key when the caller may not list the bucket, and the records can't tell
   that from a permissions fault.
+- Retry a request before giving up on a dropped connection, a throttling answer or a 5xx:
+  none of them says anything about the file. s3cab retries a dropped connection for two
+  minutes, and the other two as the AWS SDK does.
 - Restore everything you can, then report. Skip a deliberately deleted file and say so, with
   its date; that alone isn't damage, and s3cab exits 0 when deliberate deletions are all
   that's missing. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
@@ -775,7 +795,12 @@ For a restorer, or anything else that reads the files.
 
 - **Line splitters.** Python's `str.splitlines()` breaks on `\v`, `\f`, `\x1c`, `\x1d`,
   `\x1e`, U+0085, U+2028 and U+2029 as well as LF, and other languages' "split on any line
-  break" helpers do much the same. Any of them can occur in a legal filename.
+  break" helpers do much the same. Any of them can occur in a legal filename. Swift goes
+  the other way: a `Character` holds `\r\n` as one, so splitting a `String` on `"\n"`
+  leaves a CRLF file as one long line. Split the bytes on LF instead.
+- **Strings that compare by meaning.** Swift's `String` equality and hashing treat the two
+  spellings of `café` as one, so a set or dictionary keyed on paths merges two rows NTFS
+  keeps apart, and the check that a path is in only one row misfires. Compare paths as bytes.
 - **The heading row's column 4.** It holds the word `time`, not an instant, so a reader that
   checks column 4 of every `@` row as an instant refuses every file at its first line.
 - **Trimming in Python.** `str.strip()` isn't quite the trim for the leading fields: it also
@@ -798,7 +823,9 @@ For a restorer, or anything else that reads the files.
   floating-point count of seconds, which is how some platforms take a timestamp, so a
   restored file can land up to about a hundred nanoseconds off its row. s3cab's own restore
   does, where the filesystem keeps nanoseconds; setting the time through a nanosecond
-  interface is exact.
+  interface is exact. A time the destination can't hold fails without an error: APFS keeps
+  nothing past April 2262, so setting a year-2300 time succeeds and stores 2262. Read the
+  time back. s3cab's own restore doesn't yet, so it reports nothing wrong.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.
