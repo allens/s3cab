@@ -629,7 +629,17 @@ command that sets an environment variable itself is refused here.`
       : `.
 
 Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
-A program that ignores that variable can't reach the bucket.`
+A program that ignores that variable can't reach the bucket.${
+          language === "Swift"
+            ? `
+
+URLSession doesn't work here: it ignores \`HTTPS_PROXY\`, can't answer the proxy's request for
+the credentials in it, and its certificate check fails (\`errSecInternalComponent\`) because the
+sandbox blocks \`trustd\`. The libcurl that ships with macOS works: it reads \`HTTPS_PROXY\` itself,
+and with its LibreSSL backend selected (\`curl_global_sslset(CURLSSLBACKEND_OPENSSL, nil, nil)\`)
+it checks certificates against \`/etc/ssl/cert.pem\` instead.`
+            : ""
+        }`
   }
 
 ## Credentials
