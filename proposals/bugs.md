@@ -106,8 +106,8 @@ there is nothing to fix within builtins
 [guide/format.md](../guide/format.md)'s "a restore reproduces the *stored* value exactly"; it now
 promises the *millisecond*, tells a reader to compare at that resolution and no finer, and says the
 two can disagree below it without either being wrong. Both consequences the paragraph draws were
-always true and are unchanged — `fileProps` formats from `stat.mtime.toISOString()`, so 674.000024ms
-renders `.674Z`, a restored tree compares clean against its snapshot and re-backing it up re-uploads
+always true and are unchanged — `fileProps` rounds the exact nanoseconds to the millisecond, so
+674.000024ms renders `.674Z`, a restored tree compares clean against its snapshot and re-backing it up re-uploads
 nothing. Two things worth keeping. Run 2's C++ restorer set times through a nanosecond interface and
 was **exact**: 1261 of its 1269 files differed from s3cab's own restore, the 8 matches being
 precisely the `.000` values, so s3cab was the imprecise side and a spec demanding an exact match
