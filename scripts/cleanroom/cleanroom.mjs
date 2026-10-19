@@ -379,8 +379,8 @@ what caused it, and whether it was your bug or a gap in the spec.
 ${
   expiry
     ? `
-The keys in \`${credentialsFile}\` are new. They expire at ${expiry}, which replaces the time
-\`ENVIRONMENT.md\` gives.
+The keys in \`${credentialsFile}\` expire at ${expiry}, which replaces the time \`ENVIRONMENT.md\`
+gives.
 `
     : ""
 }`,
