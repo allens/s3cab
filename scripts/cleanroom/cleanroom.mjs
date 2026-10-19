@@ -83,7 +83,7 @@ export const client = new S3Client({
   requestHandler: { httpsAgent: { keepAlive: false } },
 });
 const windows = process.platform === "win32";
-const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
+export const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 /** What the restorer brief has the session build, in the clean room, for check-restore.mjs. */
 export const restoreProgram = windows ? "s3cab-restore.exe" : "s3cab-restore";
 
@@ -297,16 +297,94 @@ function sessionSettings(role, bucket) {
 
 /**
  * The headless run's command, from `<root>/cleanroom` (README.md says what each flag is
- * for). No `Bash` on Windows, where it is Git Bash, which the brief rules out.
+ * for). No `Bash` on Windows, where it is Git Bash, which the brief rules out. A restore's
+ * second phase resumes the first's session, with the brief appended again: whether the first
+ * process's appended prompt survives `--resume` is unverified, and the transcript can't show it.
  * @param {"backup" | "restore"} role
+ * @param {boolean} [phase2] a restore's second phase
  */
-function runCommand(role) {
+export function runCommand(role, phase2 = false) {
   const tools = `${windows ? "PowerShell" : "Bash"},Read,Write,Edit,Glob,Grep,TaskStop`;
   return (
     `claude -p --restricted --tools ${tools} --settings ../session-settings.json` +
     (role === "backup" ? " --add-dir ../fixtures" : "") +
-    ` --safe-mode --append-system-prompt-file CLAUDE.md --session-id <uuid>` +
-    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 30 go`
+    ` --safe-mode --append-system-prompt-file CLAUDE.md` +
+    (phase2 ? " --resume <uuid>" : " --session-id <uuid>") +
+    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 30` +
+    (phase2 ? ' "read PHASE2.md"' : " go")
+  );
+}
+
+/** @typedef {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} Credentials */
+
+/**
+ * When the keys expire, to the second, as the clean room is told.
+ * @param {Credentials} credentials
+ */
+function expiryOf(credentials) {
+  return credentials.expiration?.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * The bucket's keys, in a file of their own in the clean room, so the secret sits in one
+ * obviously-disposable file rather than inside prose the session may quote back into a
+ * report. Single-quoted because a session token is base64 and a shell would otherwise be
+ * free to read it.
+ * @param {string} dir
+ * @param {Credentials} credentials
+ */
+export function writeCredentials(dir, credentials) {
+  const assign = windows
+    ? (/** @type {string} */ name, /** @type {string} */ value) =>
+        `$env:${name} = '${value}'`
+    : (/** @type {string} */ name, /** @type {string} */ value) =>
+        `export ${name}='${value}'`;
+  writeFileSync(
+    join(dir, credentialsFile),
+    [
+      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
+      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
+      ...(credentials.sessionToken
+        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
+        : []),
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+/**
+ * What a restore's second phase is to do, as `PHASE2.md` in the clean room, which the resumed
+ * session is told to read. Written only once `reference/` is in, so phase 1 can't learn of it.
+ * @param {string} dir
+ * @param {Credentials} credentials the keys phase 2 renewed
+ */
+export function writePhase2(dir, credentials) {
+  const expiry = expiryOf(credentials);
+  writeFileSync(
+    join(dir, "PHASE2.md"),
+    `# The reference restores
+
+\`reference/\` now holds one directory per snapshot in the bucket, restored by the tool itself and
+named for the set and snapshot it came from. Your report as it stood has been copied out, so what
+you found without the references stays on record whatever you change from here.
+
+For each snapshot, compare your restorer's output with its reference byte-for-byte, including paths
+and modification times. Investigate every difference: a mismatch is either a bug in your restorer
+or a gap in the spec, and which one it is matters more than fixing it. Fix what is yours, and leave
+the restorer built from your final source.
+
+Add a section to your report headed *Differences from the reference*: every difference you found,
+what caused it, and whether it was your bug or a gap in the spec.
+${
+  expiry
+    ? `
+The keys in \`${credentialsFile}\` expire at ${expiry}, which replaces the time \`ENVIRONMENT.md\`
+gives.
+`
+    : ""
+}`,
+    "utf8",
   );
 }
 
@@ -315,7 +393,7 @@ function runCommand(role) {
  * @param {string} dir
  * @param {"backup" | "restore"} role
  * @param {string} bucket
- * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} credentials
+ * @param {Credentials} credentials
  * @param {{ name: string, dirs: string[] }[]} [sets] for a backup, each set and its member
  *   directories, which ENVIRONMENT.md lists: the room has no set files (ADR-0107)
  */
@@ -398,11 +476,8 @@ set's latest snapshot when none is named. Lay the files out as the spec describe
 restore to a chosen directory. When you finish, leave it built from your final source, so that
 command line runs it.
 
-Then verify it differentially, against the bucket and the reference restores described in
-\`ENVIRONMENT.md\`. For each snapshot, compare your output against the reference tree
-byte-for-byte, including paths and modification times. Investigate every difference: a mismatch is
-either a bug in your restorer or a gap in the spec, and which one it is matters more than fixing
-it.
+Then test it against the bucket: restore every snapshot, and check what it wrote against what the
+spec says a restore leaves.
 
 ## Deliverable
 
@@ -521,9 +596,7 @@ ${sets
   )
   .join("\n")}
 `;
-  const expiry = credentials.expiration
-    ?.toISOString()
-    .replace(/\.\d{3}Z$/, "Z");
+  const expiry = expiryOf(credentials);
   const environment = `# Environment
 
 ## The bucket
@@ -579,12 +652,6 @@ ${setList}`
       : ` The restorer itself must not use it —
 see CLAUDE.md.
 
-## The reference restores
-
-\`reference/\` holds one directory per snapshot, restored by the tool itself, named for the set and
-snapshot it came from. Those are what you compare against, byte-for-byte, including paths and
-modification times.
-
 Work out for yourself which sets and snapshots the bucket holds — the spec describes the layout,
 and finding your way around from it is part of what is being tested.
 ${windows ? `\n${csharpToolchain()}` : ""}`
@@ -594,26 +661,7 @@ ${windows ? `\n${csharpToolchain()}` : ""}`
   cpSync(join(repoRoot, "guide", "format.md"), join(dir, "format.md"));
   writeFileSync(join(dir, "CLAUDE.md"), brief, "utf8");
   writeFileSync(join(dir, "ENVIRONMENT.md"), environment, "utf8");
-  // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
-  // rather than inside prose the session may quote back into a report. Single-quoted
-  // because a session token is base64 and a shell would otherwise be free to read it.
-  const assign = windows
-    ? (/** @type {string} */ name, /** @type {string} */ value) =>
-        `$env:${name} = '${value}'`
-    : (/** @type {string} */ name, /** @type {string} */ value) =>
-        `export ${name}='${value}'`;
-  writeFileSync(
-    join(dir, credentialsFile),
-    [
-      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
-      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
-      ...(credentials.sessionToken
-        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
-        : []),
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  writeCredentials(dir, credentials);
 
   writeFileSync(
     join(dirname(dir), "session-settings.json"),
@@ -652,7 +700,11 @@ export function handover(root, role, todo) {
       `    ${runCommand(role)}\n` +
       `and keep the previous run's report out of it. Diffing the two\n` +
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
-      `fix that didn't land.`,
+      `fix that didn't land.` +
+      (role === "restore"
+        ? "\n\nOnce it exits, hand it the references, which prints the command that resumes it:\n" +
+          `    node --env-file=.env.test scripts/cleanroom/phase2-restore-cleanroom.mjs ${root}`
+        : ""),
   );
 }
 

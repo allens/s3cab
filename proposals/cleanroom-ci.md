@@ -1,7 +1,7 @@
 # Clean rooms in GitHub Actions
 
 **macOS backup and restore runs are built** ([cleanroom.yml](../.github/workflows/cleanroom.yml));
-a restore runs in one phase, as at home, since the two-phase restore below isn't built.
+a restore's references are built from a second checkout between its two phases.
 My idea: run the clean-room *sessions* themselves in GitHub Actions — **macOS only**, the one
 platform I can't easily run locally. Windows and Linux stay on my machine. Both kinds of run use
 my subscription ([The Claude credential](#the-claude-credential)).
@@ -156,10 +156,6 @@ uses — is refined when this is built, not here.
 
 *Reviewer's additions:*
 
-- **The two-phase restore** (the harness's) is not in the steps above. Phase 1 has to run while
-  `reference/` is somewhere the session's user can't read, or the references are built from a
-  second checkout between the phases. Both phases fit inside the 6 hours, with the checks after,
-  and the harvested program is phase 2's.
 - **boto3 on macOS:** Homebrew's Python refuses a plain `pip install` (PEP 668), so the
   workflow passes `--break-system-packages`; a venv or `--user` would land in the home folder,
   which the sandbox hides.
