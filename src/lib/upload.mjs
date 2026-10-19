@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { ContentMismatchError, isENOENT } from "./error.mjs";
-import { fileProps } from "./file-props.mjs";
+import { fileProps, statProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
@@ -467,7 +467,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
 export async function fileChange(path, recorded) {
   let current;
   try {
-    current = await lstat(path);
+    current = await lstat(path, { bigint: true });
   } catch (error) {
     // try/catch, not `.catch()`: a synchronous throw (a path `lstat` rejects
     // outright) has to be caught here too, or it escapes the transform.
@@ -475,9 +475,8 @@ export async function fileChange(path, recorded) {
       ? { reason: "removed" }
       : { reason: "unreadable", cause: error };
   }
-  const changed =
-    current.size !== recorded.size ||
-    current.mtime.toISOString() !== recorded.mtime;
+  const { size, mtime } = statProps(current);
+  const changed = size !== recorded.size || mtime !== recorded.mtime;
   return changed ? { reason: "changed" } : undefined;
 }
 
