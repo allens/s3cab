@@ -2,7 +2,7 @@ import crypto, { createHash } from "node:crypto";
 import { createReadStream, lstatSync, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 
-/** @import { Stats } from "node:fs" */
+/** @import { BigIntStats } from "node:fs" */
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
 /**
@@ -34,6 +34,24 @@ import { pipeline } from "node:stream/promises";
 const EMPTY_DIGEST = crypto.hash("sha256", "", "hex");
 
 /**
+ * A modification time as a snapshot stores it: rounded to the nearest
+ * millisecond, a tie to the later one, in the 24-character ISO form.
+ *
+ * Not `stat.mtime.toISOString()`: that `Date` is built from the float
+ * `mtimeMs`, which near today's dates can't hold .4999ms, so an NTFS mtime one
+ * tick short of a tie reads as the tie and rounds up. Hence the integer
+ * nanoseconds, with floor division, so a time before 1970 rounds the same way.
+ * @param {bigint} mtimeNs - From an `lstat` taken with `{ bigint: true }`
+ * @returns {string}
+ */
+export function isoMillis(mtimeNs) {
+  const halfUp = mtimeNs + 500_000n;
+  const ms =
+    halfUp >= 0n ? halfUp / 1_000_000n : -((999_999n - halfUp) / 1_000_000n);
+  return new Date(Number(ms)).toISOString();
+}
+
+/**
  * Where a stored hash may be reused from, and — only when the set has opted in
  * to the change-time check
  * ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)) — the instant
@@ -62,7 +80,7 @@ const EMPTY_DIGEST = crypto.hash("sha256", "", "hex");
  * and only the start catches it. Not on by default, because on a volume where
  * reading a file moves its ctime (OneDrive, Dropbox, Google Drive) the read itself
  * lands after the start, so every file is re-read on every run.
- * @param {Pick<Stats, "ctimeMs">} stat - The one stat already taken
+ * @param {Pick<BigIntStats, "ctimeMs">} stat - The one stat already taken
  * @param {number} [baselineMs] - The boundary, in epoch ms; absent = trust the match
  * @returns {boolean}
  */
@@ -95,13 +113,13 @@ const trustMatch = (stat, baselineMs) =>
 export async function fileProps(path, lookup, { onHashStart } = {}) {
   const start = Temporal.Now.instant();
 
-  const stat = lstatSync(path);
+  const stat = lstatSync(path, { bigint: true });
   if (!stat.isFile()) {
     throw new Error(`Not a regular file: ${path}`);
   }
 
-  const { size, mtime } = stat;
-  const mtimeIso = mtime.toISOString();
+  const size = Number(stat.size);
+  const mtimeIso = isoMillis(stat.mtimeNs);
 
   const stored = lookup?.entries.get(path);
   if (
