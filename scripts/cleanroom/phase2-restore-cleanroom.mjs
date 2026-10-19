@@ -100,7 +100,7 @@ console.log(`phase 1's clean room kept in ${frozen}`);
 // Fresh keys, since when phase 2 starts is the operator's to choose and the build's may
 // have lapsed by then; PHASE2.md states their expiry. Not the whole clean room again:
 // that would hand phase 2 this tree's spec and brief, not the ones phase 1 read.
-writeCredentials(cleanroom, credentials);
+writeCredentials(cleanroom, credentials, bucket, BucketRegion);
 
 const { run } = cli(join(root, ".s3cab"));
 

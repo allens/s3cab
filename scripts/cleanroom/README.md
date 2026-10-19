@@ -280,7 +280,7 @@ Python run doesn't answer this, having used boto3.
 Credentials go over as static keys in `credentials.env` (`credentials.ps1` on
 Windows), resolved through the
 SDK chain at build time — `AWS_PROFILE` would be useless to a restorer with no
-SDK to read `~/.aws/config` with. They are session credentials, so the run must
+SDK to read `~/.aws/config` with. The same file sets the bucket's region and name. They are session credentials, so the run must
 sign `x-amz-security-token` too, and they expire: `ENVIRONMENT.md` states the
 deadline and tells the session that a 403 following requests that worked means
 the window closed rather than a signing bug, and to stop and say so. Each build
