@@ -102,7 +102,7 @@ const wholePath = (text, match) => {
 // Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor
 // `'s`. Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=(?:^|[;&|(`"'{\\/=!])\s*(?:\w+=\S*\s+)*|\b(?:sudo|exec|time|timeout|nice|nohup|xargs|command|wsl|start-process|cmd(?:\.exe)?|pwsh|powershell|if|while|until|do|then|else|npx|pnpx|bunx|node|npm\s+(?:exec|view|info|show|install|i|x))(?:\s+(?:[-/]\S+(?:\s+[^\s/-]\S*)?|\d\S*))*\s+|\benv(?:\s+(?:-\S+|\w+=\S*))*\s+)((npx|pnpx|bunx)\s+|(npm\s+exec|pnpm\s+dlx|yarn\s+dlx)\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">]|'(?!s\b))/im;
+  /(?<=(?:^|[;&|(`"'{\\/=!])\s*(?:\w+=\S*\s+)*|\b(?:sudo|exec|time|timeout|nice|nohup|xargs|command|wsl|start-process|cmd(?:\.exe)?|pwsh|powershell|if|while|until|do|then|else|npx|pnpx|bunx|node|npm\s+(?:exec|view|info|show|install|i|x))(?:\s+(?:[-/]\S+(?:\s+[^\s/\d-]\S*)?|\d\S*))*\s+|\benv(?:\s+(?:-\S+|\w+=\S*))*\s+)((npx|pnpx|bunx)\s+|(npm\s+exec|pnpm\s+dlx|yarn\s+dlx)\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
