@@ -149,13 +149,23 @@ function check(set, snapshot, expected, label, named) {
       .map((name) => join(label, name)),
     ...readdirSync(out).filter((name) => !known.has(name)),
   ];
+  /** @type {string[]} */
+  const kept = [];
+  for (const name of outside) {
+    try {
+      rmSync(join(out, name), { recursive: true, force: true });
+    } catch (e) {
+      // Windows won't delete a file still open, as by a child the timeout's kill missed.
+      known.add(name);
+      kept.push(
+        `couldn't remove ${name} (${/** @type {NodeJS.ErrnoException} */ (e).code})`,
+      );
+    }
+  }
   if (outside.length > 0) {
     mismatches.push(
-      `${label}: wrote outside its directory: ${outside.join(", ")}`,
+      `${label}: wrote outside its directory: ${[outside.join(", "), ...kept].join("; ")}`,
     );
-  }
-  for (const name of outside) {
-    rmSync(join(out, name), { recursive: true, force: true });
   }
   const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
   /** @type {string | undefined} */
