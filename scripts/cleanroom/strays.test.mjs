@@ -175,6 +175,11 @@ test("a command running s3cab is reported as that run", () => {
     "iex s3cab",
     "watch -n 5 s3cab list",
     "doas s3cab list",
+    "alias sc=s3cab",
+    "doskey sc=s3cab $*",
+    "bin=s3cab; $bin list",
+    "x=`s3cab`",
+    "& {s3cab}",
     // Prose too: a false alarm, taken over a miss.
     "cat > NOTES.md <<'EOF'\nThe spec says s3cab takes the latest.\nEOF",
   ]) {

@@ -361,7 +361,7 @@ try {
   }
 } catch (error) {
   // The check failing, not a restorer: exit 2, not the uncaught exception's 1.
-  console.log(`stopped: ${error}`);
+  console.log("stopped:", error);
   stopped = true;
 } finally {
   moveReferences(aside, reference);
