@@ -629,6 +629,8 @@ millisecond two restores can disagree without either being wrong. Compare times 
 to the nearest millisecond, not truncated: a restore that lands a little below the stored
 instant still holds it. But a restored file can also sit up to half a millisecond either
 side of a *surviving original*, which any mtime-sensitive tool will report as a difference.
+A disk that keeps coarser times, such as FAT or exFAT, can't hold the millisecond at all:
+there the restored time is rounded to what the disk keeps.
 
 ### The last line
 
@@ -840,9 +842,11 @@ For a restorer, or anything else that reads the files.
   interface is exact. A time the destination can't hold fails without an error: APFS keeps
   nothing past April 2262, so setting a year-2300 time succeeds and stores 2262, and under
   WSL a Windows drive (`/mnt/c`) drops the fraction of a second, so `.674` lands as `.000`.
-  Read the time back. s3cab's own restore keeps the file and reports the time it kept,
-  exit 1. On Windows it can't check a time before 1970 or after 2106, since Node reads
-  those back wrong there, though NTFS holds them.
+  Read the time back, and tell rounding from a time not kept: FAT keeps 2-second steps,
+  exFAT 10 milliseconds, HFS+ whole seconds. s3cab's own restore counts a time off by less
+  than 2 seconds as rounded, says how many files that touched, and exits 0; one off by more
+  it reports with the time kept, exit 1, keeping the file. On Windows it can't check a time
+  before 1970 or after 2106, since Node reads those back wrong there, though NTFS holds them.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.

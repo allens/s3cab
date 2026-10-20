@@ -1530,6 +1530,7 @@ const restoreResult = (over) => ({
   refused: [],
   blocked: [],
   clamped: [],
+  coarseTimes: 0,
   invalid: [],
   deleted: [],
   ...over,
@@ -1716,6 +1717,18 @@ describe("renderRestore", () => {
     assert.match(
       text,
       /\n {2}s3cab restore --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("counts the times a disk rounded in one line, after the count", () => {
+    const text = renderRestore(
+      restoreResult({ restored: ["/usb/a.jpg", "/usb/b.jpg"], coarseTimes: 2 }),
+    );
+    assert.equal(
+      text,
+      "Restored 2 files from 'photos' (snapshot 2026-07-04T1000).\n\n" +
+        "This disk keeps modification times more coarsely than the backup: " +
+        "2 files are up to 2 seconds off.",
     );
   });
 

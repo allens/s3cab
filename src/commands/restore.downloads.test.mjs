@@ -45,12 +45,14 @@ let deletionRecords = new Map();
 let recordReads = 0;
 /** @type {(hash: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
 let afterFetch = () => {};
-/** @type {Date | undefined} The time `utimes` stores whatever it is asked for, as a filesystem that can't hold a time does. */
-let clampTo;
+/** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
+let keeps = (mtime) => mtime;
 
-// `utimes` alone is wrapped: no filesystem the suite runs on clamps a time it
-// can be relied on to, so `clampTo` plays one. The static import above is the
-// real module, resolved before this mock exists.
+// `utimes` alone is wrapped: no filesystem the suite runs on rounds or clamps a
+// time it can be relied on to, so `keeps` plays one. The static import above is
+// the real module, resolved before this mock exists. The mock replaces the
+// builtin for every module imported after it, `atomic-file.mjs` included, which
+// is why the rest of the real namespace is spread in.
 mock.module("node:fs/promises", {
   exports: {
     ...fsPromises,
@@ -58,7 +60,7 @@ mock.module("node:fs/promises", {
       /** @type {string} */ path,
       /** @type {Date} */ atime,
       /** @type {Date} */ mtime,
-    ) => fsPromises.utimes(path, clampTo ?? atime, clampTo ?? mtime),
+    ) => fsPromises.utimes(path, atime, keeps(mtime)),
   },
 });
 
@@ -164,7 +166,7 @@ beforeEach(() => {
   deletionRecords = new Map();
   recordReads = 0;
   afterFetch = () => {};
-  clampTo = undefined;
+  keeps = (mtime) => mtime;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -176,8 +178,8 @@ afterEach(() => {
 const dest = (/** @type {string} */ name) => join(output, "data", name);
 
 describe("restore reads each modification time back", () => {
-  it("reports a time the filesystem kept differently, and exits 1", async () => {
-    clampTo = new Date("2026-01-01T00:00:00.000Z");
+  it("reports a time kept 2 seconds or more off, and exits 1", async () => {
+    keeps = (mtime) => new Date(mtime.getTime() - 2000);
 
     const result = await restore([], { set: "photos", output });
 
@@ -188,15 +190,28 @@ describe("restore reads each modification time back", () => {
     );
     assert.deepEqual(
       new Set(result.clamped.map(({ kept }) => kept)),
-      new Set([clampTo.toISOString()]),
+      new Set(["2026-07-01T09:59:58.000Z"]),
     );
+    assert.equal(result.coarseTimes, 0);
     assert.equal(process.exitCode, 1);
+  });
+
+  it("counts a time a disk rounded by less than 2 seconds, and exits 0", async () => {
+    keeps = (mtime) => new Date(mtime.getTime() + 1999);
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.equal(result.restored.length, 4);
+    assert.deepEqual(result.clamped, []);
+    assert.equal(result.coarseTimes, 4);
+    assert.notEqual(process.exitCode, 1);
   });
 
   it("reports nothing when every time is kept", async () => {
     const result = await restore([], { set: "photos", output });
 
     assert.deepEqual(result.clamped, []);
+    assert.equal(result.coarseTimes, 0);
     assert.notEqual(process.exitCode, 1);
   });
 

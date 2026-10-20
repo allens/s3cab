@@ -69,9 +69,11 @@ import { shellCommand } from "../lib/style.mjs";
  * one of its folders should be, or a folder where it should be — reported
  * `blocked`, exit 1. So is a file whose modification time this filesystem can't
  * hold: it is written, but the time it kept is reported, `clamped`, exit 1 (APFS
- * stores 2262 for a year-2300 time, and says nothing). Nothing else about one
- * file degrades: any other failure (network, credentials, a full disk) still
- * aborts, since it is wrong about the *run*, not about one file.
+ * stores 2262 for a year-2300 time, and says nothing). A time it merely rounds,
+ * by less than two seconds (FAT, exFAT), is counted, `coarseTimes`, and exits 0.
+ * Nothing else about one file degrades: any other failure (network,
+ * credentials, a full disk) still aborts, since it is wrong about the *run*, not
+ * about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -104,6 +106,7 @@ import { shellCommand } from "../lib/style.mjs";
  * @property {string[]} refused - Paths not restored because this filesystem won't create a file by that name (a character it forbids, or longer than it accepts)
  * @property {string[]} blocked - Paths not restored because something already on disk is in the way: a file where one of its folders should be, or a folder where it should be
  * @property {{ path: string, kept: string }[]} clamped - Paths written whose modification time this filesystem couldn't hold, each with the time it kept instead
+ * @property {number} coarseTimes - How many files were written with a time this filesystem rounded, by less than two seconds
  * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
@@ -210,6 +213,7 @@ export async function restore(paths = [], options = {}) {
   const blocked = [];
   /** @type {{ path: string, kept: string }[]} */
   const clamped = [];
+  let coarseTimes = 0;
   // Collision detection keys on the filesystem's own equivalence, never on
   // string folding (ADR-0086): a manifest written elsewhere can list two paths
   // this volume cannot tell apart — letter case (Windows, macOS default), or
@@ -361,8 +365,11 @@ export async function restore(paths = [], options = {}) {
         if (platform !== "win32" || readableOnWindows(when)) {
           const landed = await lstat(step.dest, { bigint: true });
           const kept = statProps(landed).mtime;
-          if (kept !== when.toISOString()) {
+          const off = Math.abs(Date.parse(kept) - when.getTime());
+          if (off >= COARSEST_DISK_MS) {
             clamped.push({ path: step.dest, kept });
+          } else if (off > 0) {
+            coarseTimes++;
           }
         }
         restored.push(step.dest);
@@ -421,10 +428,19 @@ export async function restore(paths = [], options = {}) {
     refused,
     blocked,
     clamped,
+    coarseTimes,
     invalid,
     deleted,
   };
 }
+
+/**
+ * How far a disk may round a modification time before the restore counts it as
+ * not kept: FAT's step, the coarsest in common use. exFAT keeps 10ms, HFS+ and
+ * WSL's view of a Windows drive whole seconds; a time off by less is reported
+ * once, as a count, and exits 0. Past it the time is wrong, not rounded.
+ */
+const COARSEST_DISK_MS = 2000;
 
 /**
  * Whether Node's `lstat` on Windows reads `when` back as it is: its seconds

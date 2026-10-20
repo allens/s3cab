@@ -174,7 +174,10 @@ backups of it are refused from then on.
   snapshot recorded, or nothing is written for that file — the file that lands is the file
   that was backed up, byte for byte.
 - **Modification times come back.** Each restored file is stamped with the mtime the snapshot
-  recorded, so a later `snapshot` sees it as unchanged rather than as new work.
+  recorded, so a later `snapshot` sees it as unchanged rather than as new work. Each time is
+  read back after it is set. A disk that keeps times more coarsely, such as a FAT or exFAT
+  stick, rounds them, so restore says how many files came back up to 2 seconds off and still
+  succeeds; a time further off is listed per file, and the run exits non-zero.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
   copied, or a directory you'd moved — is fetched once and copied locally to the rest.
 - **Two names this disk can't tell apart restore as one — loudly.** A backup made on a
