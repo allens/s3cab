@@ -6,8 +6,13 @@
  * once with no snapshot named, against the reference of the set's last snapshot name, which
  * s3cab takes as the latest.
  *
- *   <root>/check/<set>-<snapshot>/   what the restorer wrote, and its and compare.py's
- *                                    output beside it
+ *   <root>/check/<set>-<snapshot>/restored/   what the restorer wrote
+ *   <root>/check/<set>-<snapshot>.log         its and compare.py's output
+ *
+ * The restorer's directory is one level down so that a file it writes outside it lands
+ * where the check can see it: `faults`' hand-edited `..` row walks a naive join up two
+ * levels, out of `restored/` and its set's folder. Anything new beside `restored/` or in
+ * `check/` is a mismatch.
  *
  * That output is printed too, so the clean room's `check.txt` keeps it.
  *
@@ -34,6 +39,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -108,9 +114,11 @@ const minutes = 20;
 const mismatches = [];
 /** @type {string[]} */
 const notes = [];
+/** Every name in `check/` accounted for: each run's folder and log, and strays already reported. */
+const known = new Set();
 
 /**
- * Run the restorer once, into `<root>/check/<label>`, and compare what it wrote with the
+ * Run the restorer once, into `<root>/check/<label>/restored`, and compare what it wrote with the
  * reference tree of `<set>-<snapshot>`.
  * @param {string} set
  * @param {string} snapshot the reference to compare with
@@ -120,7 +128,9 @@ const notes = [];
  * @returns {boolean} false if compare.py itself failed, so the check can't go on
  */
 function check(set, snapshot, expected, label, named) {
-  const dir = join(out, label);
+  const dir = join(out, label, "restored");
+  mkdirSync(join(out, label));
+  known.add(label).add(`${label}.log`);
   // Into a file, not a pipe: spawnSync kills a child whose piped output passes maxBuffer.
   const logFile = join(out, `${label}.log`);
   const log = openSync(logFile, "w");
@@ -141,6 +151,20 @@ function check(set, snapshot, expected, label, named) {
   } else if (result.signal) {
     mismatches.push(`${label}: killed by ${result.signal}`);
   } else {
+    const outside = [
+      ...readdirSync(join(out, label))
+        .filter((name) => name !== "restored")
+        .map((name) => join(label, name)),
+      ...readdirSync(out).filter((name) => !known.has(name)),
+    ];
+    if (outside.length > 0) {
+      mismatches.push(
+        `${label}: wrote outside its directory: ${outside.join(", ")}`,
+      );
+    }
+    for (const name of outside) {
+      known.add(name);
+    }
     if ((result.status === 0) !== (expected === 0)) {
       (process.platform !== "linux" && set.startsWith("edge-") && expected !== 0
         ? notes
