@@ -222,6 +222,32 @@ describe("restore reads each modification time back", () => {
   );
 });
 
+describe("restore --output places only the directories it restores from", () => {
+  const twoPhotos = {
+    entries: new Map([
+      ["/a/Photos/x.jpg", { ...at, hash: "aaa" }],
+      ["/b/Photos/y.jpg", { ...at, hash: "bbb" }],
+    ]),
+    dirs: ["/a/Photos", "/b/Photos"],
+  };
+
+  it("refuses two directories that would share a folder", async () => {
+    snapshot = twoPhotos;
+
+    await assert.rejects(restore([], { set: "photos", output }), {
+      message: /would both land in a folder named "Photos"/,
+    });
+  });
+
+  it("restores one of them with a path filter, as the refusal says", async () => {
+    snapshot = twoPhotos;
+
+    const result = await restore(["/b/Photos"], { set: "photos", output });
+
+    assert.deepEqual(result.restored, [join(output, "Photos", "y.jpg")]);
+  });
+});
+
 describe("restore with content shared by several paths", () => {
   it("downloads each content once and copies it to every other path", async () => {
     const result = await restore([], { set: "photos", output });

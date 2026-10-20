@@ -159,10 +159,12 @@ describe("reroot", () => {
   });
 
   it("rejects two roots that share a basename (they'd collide under one root)", () => {
-    assert.throws(
-      () => reroot(["/a/Photos", "/b/Photos"], "out"),
-      /both named/,
-    );
+    assert.throws(() => reroot(["/a/Photos", "/b/Photos"], "out"), {
+      message:
+        `"/a/Photos" and "/b/Photos" would both land in a folder named "Photos" ` +
+        `under --output, which can't keep them apart. Restore them one at a time ` +
+        `with a path filter, or to their original locations.`,
+    });
   });
 
   it("names a drive root's folder by its letter, on any OS", () => {
@@ -182,6 +184,13 @@ describe("reroot", () => {
     );
   });
 
+  it("knows a drive by its shape, not by how many segments a root has", () => {
+    // Both hand-edited: a UNC server with no share, and a device path.
+    const map = reroot(["\\\\nas\\", "\\\\?\\E:\\"], "out");
+    assert.equal(map("\\\\nas\\a.txt"), join(resolve("out"), "nas", "a.txt"));
+    assert.equal(map("\\\\?\\E:\\b.txt"), join(resolve("out"), "E", "b.txt"));
+  });
+
   it("lands a `/` member's files straight in <output>", () => {
     const map = reroot(["/"], "out");
     assert.equal(map("/etc/hosts"), join(resolve("out"), "etc", "hosts"));
@@ -190,12 +199,15 @@ describe("reroot", () => {
   it("rejects `/` beside another member dir, which its files could mix with", () => {
     assert.throws(
       () => reroot(["/", "/home/me/Photos"], "out"),
-      /backs up \/ beside other directories/,
+      /backs up "\/" beside "\/home\/me\/Photos"/,
     );
   });
 
-  it("rejects a drive root beside a member dir named for its letter", () => {
-    assert.throws(() => reroot(["C:\\", "D:\\data\\c"], "out"), /both named/);
+  it("rejects a drive root beside a member dir named for its letter, naming both", () => {
+    assert.throws(
+      () => reroot(["C:\\", "D:\\data\\c"], "out"),
+      /^Error: "D:\\data\\c" and "C:\\" would both land in a folder named "C"/,
+    );
   });
 
   it("keeps a POSIX folder named like a drive as it is", () => {

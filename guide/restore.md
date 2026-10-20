@@ -138,8 +138,9 @@ Reach for it when:
 
 One case it can't handle: two backed-up directories with the **same name** (say `C:\a\Photos`
 and `D:\b\Photos`) would both want `<output>\Photos`. Restore rejects that up front rather
-than merging them; restore them to their original locations instead. So does a backup of `/`
-beside any other directory. The name comparison ignores letter case (`Photos` vs `photos`
+than merging them; restore them one at a time, with a path filter naming one of them (only the
+directories your filter reaches count), or to their original locations. So does a backup of
+`/` beside any other directory. The name comparison ignores letter case (`Photos` vs `photos`
 still collides), even for Linux-style paths — the restore target may be a case-insensitive
 disk regardless of where the backup came from, and refusing up front beats silently merging
 on arrival.

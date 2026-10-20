@@ -14,7 +14,7 @@ import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
 import { statProps } from "../lib/file-props.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
-import { foldsCase } from "../lib/path-match.mjs";
+import { foldsCase, pathMatcher } from "../lib/path-match.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
@@ -80,7 +80,7 @@ import { shellCommand } from "../lib/style.mjs";
  * filesystem's own equivalence, never on string folding (ADR-0086).
  *
  * `--output <dir>` re-roots instead of restoring to original locations: each
- * member directory's contents land under `<dir>/<root-basename>/…` (see `reroot`).
+ * member directory's contents land under a folder named for it (see `reroot`).
  * That recovers a backup whose absolute paths don't fit this machine — a
  * different drive layout, or another OS entirely — and is the only mode that
  * accepts non-absolute-on-this-platform paths.
@@ -155,7 +155,15 @@ export async function restore(paths = [], options = {}) {
   /** @type {(path: string) => string | undefined} */
   let destFor = (path) => path;
   if (options.output) {
-    destFor = reroot(dirs, options.output);
+    // Only the directories something is restored from: two that would collide
+    // under the output can then each be restored on its own, with a path filter.
+    const used = dirs.filter((dir) => {
+      const under = pathMatcher([dir]);
+      return under !== undefined && targets.some(under);
+    });
+    if (used.length) {
+      destFor = reroot(used, options.output);
+    }
   } else {
     // Every target must be absolute on *this* platform before we touch the disk.
     // A snapshot captured on another OS (Windows paths on POSIX, say) or a
