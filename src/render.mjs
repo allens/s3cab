@@ -30,6 +30,7 @@ import {
 import { tildeify } from "./lib/home.mjs";
 import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
+import { COARSEST_DISK_MS } from "./lib/restore.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
 import {
@@ -1361,7 +1362,8 @@ export function renderRestore(
     // they're given, and the files are otherwise whole.
     sections.push(
       `This disk keeps modification times more coarsely than the backup: ` +
-        `${countOf(coarseTimes, "file")} ${coarseTimes === 1 ? "is" : "are"} up to 2 seconds off.`,
+        `${countOf(coarseTimes, "file")} ${coarseTimes === 1 ? "is" : "are"} ` +
+        `up to ${COARSEST_DISK_MS / 1000} seconds off.`,
     );
   }
   if (skipped.length) {

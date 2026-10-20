@@ -605,13 +605,15 @@ looking. Restoring to a chosen directory, it writes each file to
     lands at `<output>\C\Users\me\a.txt`;
   - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
   - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
-    they could mix with that one's folder, so s3cab refuses that snapshot.
+    they could mix with that one's folder, so s3cab refuses a restore that reaches both.
 - Folders are made only as files land in them, so a member directory with no files restored
   leaves no folder at all.
 - Two `DIR` rows whose names collide, compared ignoring letter case (`C:\a\Photos\` and
-  `D:\b\photos\`), both want the same destination directory; s3cab refuses that snapshot
-  rather than merging them. The snapshot itself is valid, and restores to its recorded paths,
-  so a writer has nothing to refuse.
+  `D:\b\photos\`), both want the same destination directory; s3cab refuses a restore that
+  reaches both rather than merging them, and restores either one on its own. A file counts
+  for the deepest `DIR` it is under, so a filter reaching only a nested `DIR` doesn't reach
+  the one around it. The snapshot itself is valid, and restores to its recorded paths, so a
+  writer has nothing to refuse.
 - A file already at a destination is left alone and reported as skipped, unless the restore
   was asked to overwrite. Something in the way, a folder where a file should land or a file
   where one of its folders should be, is reported, exit 1. Nothing else already in

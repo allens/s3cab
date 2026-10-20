@@ -100,6 +100,14 @@ export function selectEntries(paths, filters) {
 }
 
 /**
+ * How far a disk may round a modification time before the restore counts it as
+ * not kept: FAT's step, the coarsest in common use. exFAT keeps 10ms, HFS+ and
+ * WSL's view of a Windows drive whole seconds; a time off by less is reported
+ * once, as a count, and exits 0. Past it the time is wrong, not rounded.
+ */
+export const COARSEST_DISK_MS = 2000;
+
+/**
  * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
  * under `<output>/<member-root-name>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
@@ -127,22 +135,17 @@ export function selectEntries(paths, filters) {
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
  * wanting `<output>/Photos`) are rejected up front, and so is `/` beside any
- * other root. `restore` passes only the roots its selected paths fall under, so
+ * other root — but only roots that some path to restore lands under count, so
  * a path filter restores each on its own. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The member roots to place (`@SET DIR` rows)
+ * @param {string[]} dirs - The member roots (`@SET DIR` rows)
+ * @param {string[]} paths - The snapshot paths to restore, which decide the roots
+ *   that must not collide
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string | undefined} Maps a snapshot path to its
  *   destination, or `undefined` for one a Windows output can't place
  */
-export function reroot(dirs, output) {
-  if (dirs.length === 0) {
-    throw new Error(
-      "This snapshot has no directory headers, so --output cannot re-root it. " +
-        "Omit --output to restore to the original locations instead.",
-    );
-  }
-
+export function reroot(dirs, paths, output) {
   const roots = dirs
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
@@ -162,11 +165,30 @@ export function reroot(dirs, output) {
     })
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
+  /** @param {string} path */
+  const split = (path) =>
+    preparePath(path).path.split(posix.sep).filter(Boolean);
+  /** @param {string[]} segments */
+  const rootOf = (segments) =>
+    roots.find(
+      (r) =>
+        r.segments.length <= segments.length &&
+        r.segments.every((seg, i) => {
+          // The length guard above puts `i` in range; `?? ""` is for the type
+          // checker, and can't match a segment (they're non-empty by `filter`).
+          const other = segments[i] ?? "";
+          return r.fold
+            ? seg.toLowerCase() === other.toLowerCase()
+            : seg === other;
+        }),
+    );
 
+  const reached = new Set(paths.map((path) => rootOf(split(path))));
+  const used = roots.filter((root) => reached.has(root));
   const apart =
     "Restore them one at a time with a path filter, or to their original locations.";
-  const top = roots.find(({ base }) => base === "");
-  const beside = roots.find(({ base }) => base !== "");
+  const top = used.find(({ base }) => base === "");
+  const beside = used.find(({ base }) => base !== "");
   if (top && beside) {
     throw new Error(
       `This snapshot backs up "${top.dir}" beside "${beside.dir}", and under --output ` +
@@ -176,7 +198,7 @@ export function reroot(dirs, output) {
   }
   /** @type {Map<string, string>} */
   const seen = new Map();
-  for (const { dir, base } of roots) {
+  for (const { dir, base } of used) {
     const key = base.toLowerCase();
     const first = seen.get(key);
     if (first !== undefined) {
@@ -191,19 +213,8 @@ export function reroot(dirs, output) {
   const outDir = resolve(output);
   const windows = foldsCase(outDir);
   return (path) => {
-    const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
-    const root = roots.find(
-      (r) =>
-        r.segments.length <= segments.length &&
-        r.segments.every((seg, i) => {
-          // The length guard above puts `i` in range; `?? ""` is for the type
-          // checker, and can't match a segment (they're non-empty by `filter`).
-          const other = segments[i] ?? "";
-          return r.fold
-            ? seg.toLowerCase() === other.toLowerCase()
-            : seg === other;
-        }),
-    );
+    const segments = split(path);
+    const root = rootOf(segments);
     if (!root) {
       throw new Error(
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,

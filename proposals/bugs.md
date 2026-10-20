@@ -144,7 +144,8 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   multipart one could check its running hash before completing, and abort instead.
 - **`setup` accepts a set that `restore --output` will refuse.** Two member directories with
   the same final name (`C:\a\Photos`, `D:\b\Photos`) back up fine, but `reroot`
-  (`src/lib/restore.mjs`) refuses their snapshot, so the user finds out only when restoring.
+  (`src/lib/restore.mjs`) refuses to restore both at once, so the user finds out only when
+  restoring, and then restores them one path filter at a time.
   Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
 - **"fits every frame to the terminal's width" fails in a checkout with a short path.** The test
   (`src/lib/snapshot.progress.test.mjs`) sets a 60-column terminal and asserts that some frame

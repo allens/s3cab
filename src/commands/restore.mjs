@@ -14,11 +14,16 @@ import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
 import { statProps } from "../lib/file-props.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
-import { foldsCase, pathMatcher } from "../lib/path-match.mjs";
+import { foldsCase } from "../lib/path-match.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
-import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
+import {
+  COARSEST_DISK_MS,
+  planRestore,
+  reroot,
+  selectEntries,
+} from "../lib/restore.mjs";
 import { isObjectNotFound } from "../lib/s3.mjs";
 import { shellCommand } from "../lib/style.mjs";
 
@@ -158,15 +163,7 @@ export async function restore(paths = [], options = {}) {
   /** @type {(path: string) => string | undefined} */
   let destFor = (path) => path;
   if (options.output) {
-    // Only the directories something is restored from: two that would collide
-    // under the output can then each be restored on its own, with a path filter.
-    const used = dirs.filter((dir) => {
-      const under = pathMatcher([dir]);
-      return under !== undefined && targets.some(under);
-    });
-    if (used.length) {
-      destFor = reroot(used, options.output);
-    }
+    destFor = reroot(dirs, targets, options.output);
   } else {
     // Every target must be absolute on *this* platform before we touch the disk.
     // A snapshot captured on another OS (Windows paths on POSIX, say) or a
@@ -433,14 +430,6 @@ export async function restore(paths = [], options = {}) {
     deleted,
   };
 }
-
-/**
- * How far a disk may round a modification time before the restore counts it as
- * not kept: FAT's step, the coarsest in common use. exFAT keeps 10ms, HFS+ and
- * WSL's view of a Windows drive whole seconds; a time off by less is reported
- * once, as a count, and exits 0. Past it the time is wrong, not rounded.
- */
-const COARSEST_DISK_MS = 2000;
 
 /**
  * Whether Node's `lstat` on Windows reads `when` back as it is: its seconds

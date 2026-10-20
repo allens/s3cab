@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { platform } from "node:process";
 import { describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
+import { COARSEST_DISK_MS } from "../lib/restore.mjs";
 
 // Offline tests for the two counts `restore` puts in front of a user: the
 // progress line's running tally, and the refusal when a snapshot's paths aren't
@@ -36,6 +37,7 @@ mock.module("../lib/remote.mjs", {
 });
 mock.module("../lib/restore.mjs", {
   exports: {
+    COARSEST_DISK_MS,
     selectEntries: (/** @type {Iterable<string>} */ keys) => [...keys],
     reroot: () => (/** @type {string} */ path) => path,
     // A plan of pure skips: the command's loop counts them and touches nothing.
