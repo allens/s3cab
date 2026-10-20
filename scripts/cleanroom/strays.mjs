@@ -93,15 +93,16 @@ const wholePath = (text, match) => {
   }
   return text.slice(start, end);
 };
-// After a space, a separator, a quote, a slash or `=` (`alias sc=s3cab`), prose included
-// (`so s3cab withholds too`), and before a backtick or `}` as well (`` x=`s3cab` ``): a
-// missed run voids the audit, and a false alarm costs a glance at the input printed beside
-// it. Not only where it runs as a command: no list of what launches one (`sudo`, `cmd /c`,
-// `FOO=1`, `yarn`, `watch -n 5` …) stays complete, and a gap is a silent miss. Not before `|`
-// or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor `'s`.
+// After a space, a separator, a quote, a slash, `=` or `:` (`alias sc=s3cab`,
+// `-FilePath:s3cab`), prose included (`so s3cab withholds too`), and before a backtick or
+// `}` as well (`` x=`s3cab` ``): a missed run voids the audit, and a false alarm costs a
+// glance at the input printed beside it. Not only where it runs as a command: no list of
+// what launches one (`sudo`, `cmd /c`, `FOO=1`, `yarn`, `watch -n 5` …) stays complete, and
+// a gap is a silent miss. Not before `|` or `)`, where it is a regex alternative
+// (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor `'s`.
 // Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=^|[\s;&|(`"'{\\/=])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">`}]|'(?!s\b))/im;
+  /(?<=^|[\s;&|(`"'{\\/=:])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">`}]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.

@@ -180,6 +180,7 @@ test("a command running s3cab is reported as that run", () => {
     "bin=s3cab; $bin list",
     "x=`s3cab`",
     "& {s3cab}",
+    "Start-Process -FilePath:s3cab -ArgumentList list",
     // Prose too: a false alarm, taken over a miss.
     "cat > NOTES.md <<'EOF'\nThe spec says s3cab takes the latest.\nEOF",
   ]) {
