@@ -245,8 +245,7 @@ Its file tools are held to the clean room in the sandbox root as well, where s3c
 home and the reference exits sit beside it; its commands aren't, since one naming the
 clean room beside a `..` would read as leaving it. Any of those voids the run. The
 sandbox is outside home and temp so that a command naming the session's own clean
-room is never read as one leaving home, which voided most Linux and macOS runs while
-it sat in the home folder. A program the session wrote and then ran is
+room is never read as one leaving home. A program the session wrote and then ran is
 not audited: its own requests go unseen, which on Windows nothing else catches. The
 repo is ruled out outright, because what it leaks arrives before the session's first
 tool call, where neither the walls nor the audit see it.
@@ -505,8 +504,8 @@ three steps:
   (`edge-linux`, `edge-windows`, `edge-macos`);
 - `--stamp`, once every platform's sets are there.
 
-The platforms take turns because each moves its deletion record past the
-highest index, which two turns at once could both pick. Every file's content carries its platform's
+The platforms take turns for the reason the deletion-record gap's comment in
+`seed-restore-cleanroom-bucket.mjs` gives. Every file's content carries its platform's
 name: an object's key is its hash, so without it two platforms' backups of the
 same file would share an object, and `faults`' torn object or `corrupt`'s wrong
 bytes would reach the other platforms' sets, or be undone by the next upload. A

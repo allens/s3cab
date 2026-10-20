@@ -12,8 +12,8 @@
 # the subject the same way.
 #
 # The platforms take turns (`max-parallel: 1`), and runs queue behind one another
-# (the concurrency group): each turn moves its deletion record past the highest index,
-# which two turns at once could both pick.
+# (the concurrency group), for the reason the deletion-record gap's comment in
+# seed-restore-cleanroom-bucket.mjs gives.
 #
 # After a failed turn, "Re-run all jobs", never "Re-run failed jobs": the failed turn
 # left its sets claimed, and only a fresh `empty if stale` clears them.

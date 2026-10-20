@@ -47,10 +47,11 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   client,
   exampleRoot,
@@ -98,6 +99,14 @@ if (!existsSync(reference) && !existsSync(aside)) {
   console.error(
     `${reference} doesn't exist, so there is nothing to compare with. Run\n` +
       "reconcile-restore-cleanroom.mjs on this root first.",
+  );
+  process.exit(2);
+}
+if (existsSync(reference) && existsSync(aside)) {
+  console.error(
+    `The references are in both ${reference}\n` +
+      `and ${aside}, so the check can't tell which to use. Keep the one\n` +
+      "reconcile-restore-cleanroom.mjs wrote, in the clean room, and remove the other.",
   );
   process.exit(2);
 }
@@ -248,43 +257,79 @@ function check(
   return true;
 }
 
-// A check that stopped partway has left them aside already.
-if (existsSync(reference)) {
-  renameSync(reference, aside);
+/**
+ * Move the references, or exit 2 saying where they are: a move that failed is the check
+ * not running, not a mismatch.
+ * @param {string} from
+ * @param {string} to
+ */
+function moveReferences(from, to) {
+  try {
+    renameSync(from, to);
+  } catch (error) {
+    console.error(
+      `couldn't move the references from ${from} to ${to} (${/** @type {NodeJS.ErrnoException} */ (error).code})`,
+    );
+    process.exit(2);
+  }
 }
-let stopped = false;
-try {
-  restorers: for (const restorer of restorers) {
-    if (!existsSync(join(restorer.dir, restoreProgram))) {
-      restorer.mismatches.push(`no ${restoreProgram} in ${restorer.dir}`);
-      continue;
-    }
-    for (const [set, exits] of Object.entries(codes)) {
-      const snapshots = Object.entries(exits).sort(([a], [b]) =>
-        a < b ? -1 : 1,
-      );
-      for (const [snapshot, expected] of snapshots) {
-        const label = `${restorer.name}-${set}-${snapshot}`;
-        stopped = !check(restorer, set, snapshot, expected, label, [snapshot]);
-        if (stopped) {
-          break restorers;
-        }
+
+/**
+ * Why the spec-only verdict may be the final program's: the copy reaches back into the
+ * clean room, through a symlink or a script that names it.
+ * @param {string} program
+ */
+function reachesCleanroom(program) {
+  const real = realpathSync.native(program);
+  if (!real.startsWith(dirname(program) + sep)) {
+    return `${program} resolves to ${real}`;
+  }
+  const text = readFileSync(program);
+  // Only a script: a compiled program keeps its build path in its debug information.
+  return text.subarray(0, 2).toString() === "#!" && text.includes(cleanroom)
+    ? `${program} is a script naming ${cleanroom}`
+    : undefined;
+}
+
+/**
+ * Every run of one restorer: each snapshot, then each set's latest.
+ * @param {Restorer} restorer
+ * @returns {boolean} false if compare.py itself failed, so the check can't go on
+ */
+function checkAll(restorer) {
+  const program = join(restorer.dir, restoreProgram);
+  if (!existsSync(program)) {
+    restorer.mismatches.push(`no ${restoreProgram} in ${restorer.dir}`);
+    return true;
+  }
+  const reaches =
+    restorer.dir === cleanroom ? undefined : reachesCleanroom(program);
+  if (reaches) {
+    restorer.notes.push(`may run the final program: ${reaches}`);
+  }
+  for (const [set, exits] of Object.entries(codes)) {
+    const snapshots = Object.entries(exits).sort(([a], [b]) =>
+      a < b ? -1 : 1,
+    );
+    for (const [snapshot, expected] of snapshots) {
+      const label = `${restorer.name}-${set}-${snapshot}`;
+      if (!check(restorer, set, snapshot, expected, label, [snapshot])) {
+        return false;
       }
-      const latest = snapshots.at(-1);
-      if (latest && snapshots.length > 1) {
-        const label = `${restorer.name}-${set}-latest`;
-        stopped = !check(restorer, set, ...latest, label, []);
-        if (stopped) {
-          break restorers;
-        }
+    }
+    const latest = snapshots.at(-1);
+    if (latest && snapshots.length > 1) {
+      const label = `${restorer.name}-${set}-latest`;
+      if (!check(restorer, set, ...latest, label, [])) {
+        return false;
       }
     }
   }
-} finally {
-  renameSync(aside, reference);
+  return true;
 }
 
-for (const { name, mismatches, notes } of restorers) {
+/** @param {Restorer} restorer */
+function report({ name, mismatches, notes }) {
   const found =
     mismatches.length === 0
       ? "matches"
@@ -297,8 +342,25 @@ for (const { name, mismatches, notes } of restorers) {
     console.log(`  note: ${note}`);
   }
 }
-if (stopped) {
-  console.log("stopped: compare.py failed");
+
+// A check that stopped partway has left them aside already.
+if (existsSync(reference)) {
+  moveReferences(reference, aside);
+}
+let stopped = false;
+try {
+  // Each verdict as its restorer finishes, so a check killed during the second (CI's step
+  // limit) still leaves the first in check.txt.
+  for (const restorer of restorers) {
+    stopped = !checkAll(restorer);
+    report(restorer);
+    if (stopped) {
+      console.log("stopped: compare.py failed");
+      break;
+    }
+  }
+} finally {
+  moveReferences(aside, reference);
 }
 process.exitCode = stopped
   ? 2

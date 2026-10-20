@@ -93,14 +93,16 @@ const wholePath = (text, match) => {
   }
   return text.slice(start, end);
 };
-// Where a command starts (a line, a separator, a quoted command string, a path), or after a
-// word that runs the next one (`sudo`, `env FOO=1`, `npx -y`, `do`). Not after any space, which
-// read a heredoc of notes (`the spec says s3cab takes`) as a run, so a line of prose that
-// starts with the word is still listed. Not before `|` or `)`, where it is a regex alternative
-// (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor `'s`. Case-insensitive, since Windows runs `S3CAB`
-// too. `@` admits a version (`s3cab@latest`).
+// Where a command starts (a line, a separator, `=`, `!`, a quoted command string, a path),
+// past any `NAME=value` before it, or after a word that runs the next one (`sudo -u root`,
+// `timeout 10`, `cmd /c`, `if`, `npx -y`), its flags, their values and a number skipped. Not
+// after any space, which read a heredoc of notes (`the spec says s3cab takes`) as a run, so a
+// line of prose that starts with the word is still listed. A missed run voids the audit and a
+// false alarm costs a glance, so a runner word that also reads as prose (`if`, `do`) stays.
+// Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor
+// `'s`. Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=(?:^|[;&|(`"'{\\/])\s*|\b(?:sudo|exec|time|nohup|xargs|do|then|else|npx|pnpx|bunx|node|npm\s+(?:exec|view|info|show|install|i|x))(?:\s+-\S+)*\s+|\benv(?:\s+(?:-\S+|\w+=\S*))*\s+)((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">]|'(?!s\b))/im;
+  /(?<=(?:^|[;&|(`"'{\\/=!])\s*(?:\w+=\S*\s+)*|\b(?:sudo|exec|time|timeout|nice|nohup|xargs|command|wsl|start-process|cmd(?:\.exe)?|pwsh|powershell|if|while|until|do|then|else|npx|pnpx|bunx|node|npm\s+(?:exec|view|info|show|install|i|x))(?:\s+(?:[-/]\S+(?:\s+[^\s/-]\S*)?|\d\S*))*\s+|\benv(?:\s+(?:-\S+|\w+=\S*))*\s+)((npx|pnpx|bunx)\s+|(npm\s+exec|pnpm\s+dlx|yarn\s+dlx)\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -142,11 +144,12 @@ export function strayFinders(allowed, root) {
   // spaces, redirects (`>../x`) and split arguments (`Join-Path ~/s3cab.sandbox ../..`) each
   // hid a climb-out from one. `...` isn't a climb.
   const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
+  const watchedPaths = [...watched, root];
   return {
     /** @param {string} path */
     strayPath: (path) =>
       !allowed.some((place) => inside(path, place)) &&
-      [...watched, root].some((place) => inside(path, place)),
+      watchedPaths.some((place) => inside(path, place)),
     /**
      * @param {string} command
      * @returns {string | undefined}

@@ -94,6 +94,9 @@ process.env.AWS_REGION = BucketRegion;
 
 cpSync(cleanroom, frozen, {
   recursive: true,
+  // Not resolved to absolute links into `cleanroom/`, which the reconcile phase rebuilds:
+  // check-restore.mjs would then run the final program as the spec-only one.
+  verbatimSymlinks: true,
   filter: (path) => basename(path) !== credentialsFile,
 });
 console.log(`the spec-only phase's clean room kept in ${frozen}`);

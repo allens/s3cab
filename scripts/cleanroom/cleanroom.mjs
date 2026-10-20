@@ -83,6 +83,7 @@ export const client = new S3Client({
   requestHandler: { httpsAgent: { keepAlive: false } },
 });
 const windows = process.platform === "win32";
+const darwin = process.platform === "darwin";
 /**
  * Where a sandbox goes, for the usage lines: outside the home folder and temp, which the
  * transcript audit watches (README.md). Linux has no such folder a user can make, so the
@@ -90,7 +91,7 @@ const windows = process.platform === "win32";
  */
 export const exampleRoot = windows
   ? "C:\\s3cab.sandbox"
-  : process.platform === "darwin"
+  : darwin
     ? "/Users/Shared/s3cab.sandbox"
     : "/srv/s3cab.sandbox";
 export const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
@@ -140,14 +141,19 @@ function readRoot(script, audited) {
   }
 
   const root = sandboxPath(arg);
+  // Compared case-blind because Windows spells the same directory several ways
+  // (`realpathSync` gives `D:\src\s3cab`, `resolve` keeps a typed `d:\src\s3cab`); on a
+  // case-sensitive filesystem that can only over-refuse, the safe direction here.
+  const lowerRoot = root.toLowerCase();
+  /** @param {string} place */
+  const inside = (place) => {
+    const lowerPlace = place.toLowerCase();
+    return lowerRoot === lowerPlace || lowerRoot.startsWith(lowerPlace + sep);
+  };
 
   // The one guard that matters: a clean room inside the repo is not a clean room, since
-  // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
-  // case-blind because Windows spells the same directory several ways (`realpathSync`
-  // gives `D:\src\s3cab`, `resolve` keeps a typed `d:\src\s3cab`); on a case-sensitive
-  // filesystem that can only over-refuse, the safe direction here.
-  const [lowerRepo, lowerRoot] = [repoRoot.toLowerCase(), root.toLowerCase()];
-  if (lowerRoot === lowerRepo || lowerRoot.startsWith(lowerRepo + sep)) {
+  // the session would inherit the repo's CLAUDE.md from a parent directory.
+  if (inside(repoRoot)) {
     console.error(
       `${root} is inside the repository, so a session opened there would be handed\n` +
         "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
@@ -159,16 +165,13 @@ function readRoot(script, audited) {
   }
 
   // The audit reads every command naming home or temp as a move out of the sandbox, so a
-  // sandbox in either makes the session's own paths strays.
+  // sandbox in either makes the session's own paths strays. Both spellings, as a root that
+  // doesn't exist yet isn't canonical: macOS's `$TMPDIR` is `/var/folders/…`, its realpath
+  // `/private/var/folders/…`.
   const watched = audited
     ? [homedir(), tmpdir()]
-        .map((place) => realpathSync.native(place))
-        .find((place) => {
-          const lowerPlace = place.toLowerCase();
-          return (
-            lowerRoot === lowerPlace || lowerRoot.startsWith(lowerPlace + sep)
-          );
-        })
+        .flatMap((place) => [place, realpathSync.native(place)])
+        .find(inside)
     : undefined;
   if (watched) {
     console.error(
@@ -177,7 +180,7 @@ function readRoot(script, audited) {
         "outside the home folder and temp instead:\n" +
         "\n" +
         `    ${command} ${exampleRoot}\n` +
-        (windows || process.platform === "darwin"
+        (windows || darwin
           ? ""
           : '\nMake that folder once first: sudo install -d -o "$USER" /srv/s3cab.sandbox\n'),
     );
@@ -189,7 +192,11 @@ function readRoot(script, audited) {
   if (existsSync(root) && readdirSync(root).length > 0) {
     console.error(
       `${root} already has files in it. A sandbox is built from empty, once per run —\n` +
-        "harvest what the last run wrote, delete the directory, and build again.",
+        "harvest what the last run wrote, empty it, and build again:\n" +
+        "\n" +
+        (windows
+          ? `    Remove-Item -Recurse "${root}"\n`
+          : `    find "${root}" -mindepth 1 -delete\n`),
     );
     return process.exit(2);
   }
@@ -450,13 +457,7 @@ gives.
  */
 export function writeCleanroom(dir, role, bucket, credentials, sets = []) {
   const python = role === "backup";
-  const language = python
-    ? "Python"
-    : windows
-      ? "C#"
-      : process.platform === "darwin"
-        ? "Swift"
-        : "C";
+  const language = python ? "Python" : windows ? "C#" : darwin ? "Swift" : "C";
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 
   const kinds = `The spec sorts what it says into rules, recommendations and hints. A rule that is missing or
@@ -490,7 +491,7 @@ Framework that ships with Windows — \`ENVIRONMENT.md\` says where its compiler
 beyond its standard library, even where something newer is installed. Don't install a toolchain,
 and don't spend the run fighting this one — if something you want isn't in the standard library,
 pick something else.`
-      : process.platform === "darwin"
+      : darwin
         ? `Use the most
 modern version of the language that comes as standard on the platform you are running on, and take
 your libraries from those that ship with macOS and the Xcode command-line tools, nothing from
@@ -507,7 +508,7 @@ else.`
 general-purpose HTTP client and sign the requests yourself; hashing and decompression come from ${
     windows
       ? "the\nstandard library"
-      : process.platform === "darwin"
+      : darwin
         ? "the\nsystem's own libraries"
         : "the\nplatform's own packages"
   }. That is the second thing being tested, so it is worth saying why: the tool
@@ -629,7 +630,7 @@ ${
     : ""
 }
 - **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
-  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : process.platform === "darwin" ? " is, and which HTTP client works," : " is"} and says nothing about the format.
+  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : darwin ? " is, and which HTTP client works," : " is"} and says nothing about the format.
   If you find yourself wanting more than those, that is itself a finding: record what you needed
   and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
@@ -684,7 +685,7 @@ command that sets an environment variable itself is refused here.`
 
 Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
 A program that ignores that variable can't reach the bucket.${
-          process.platform === "darwin" && !python
+          darwin && !python
             ? `
 
 URLSession doesn't work here: it ignores \`HTTPS_PROXY\`, its \`connectionProxyDictionary\` can't
