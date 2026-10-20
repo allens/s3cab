@@ -339,10 +339,9 @@ set would have no reference tree, and the refusal is already the answer.)
 recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor
-says what to do when it fails. And `faults` gets a second snapshot cut off after
-its last file row, as a backup killed mid-write leaves it, and recompressed:
-truncating the compressed bytes would test gunzip's own check instead, and
-catching that cut is the closing `.`'s whole purpose.
+says what to do when it fails. And `faults` gets three damaged copies of its
+snapshot, listed under the seed below, each damaged as text and recompressed:
+damaging the compressed bytes would test gunzip's own check instead.
 
 `edge` also carries what the audits of the backup side found silent: an
 unreadable file among twenty readable siblings, so a backup that drops its
@@ -521,8 +520,7 @@ part a corpus most easily leaves untested. `faults` has:
   (the unexplained-damage case: report it, carry on, exit nonzero);
 - one file deleted *with* a record (the explained one, skipped with its date),
   the record moved up an index so the numbering has a gap, as `cleanup` leaves
-  one (it can't run here: another platform's damage already in the bucket stops
-  it);
+  one;
 - three damaged copies of its snapshot: one missing its closing `.`, one ending
   in an `@S3CAB` row instead, and one with hand-edited rows s3cab refuses path
   by path (`withHandEdits` in `fixtures.mjs` lists them).

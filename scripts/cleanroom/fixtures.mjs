@@ -80,7 +80,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
 
 /** @import { Stats } from "node:fs" */
 
@@ -1159,22 +1159,20 @@ export function reportFixtures(dir, { sets, skipped, absent }) {
 }
 
 /**
- * A damaged copy of a whole snapshot, for the seed to publish beside the intact one it was
- * made from. Truncating or editing the *compressed* bytes would test gunzip's own check
- * instead, so this decompresses, damages and recompresses: a well-formed gzip stream whose
- * text is what a reader has to judge.
+ * A whole snapshot as if taken `minutes` earlier, decompressed, for the seed to damage
+ * and publish beside the intact one it was made from. Its name, `@SNAPSHOT NAME` and the
+ * instants of `START` and `FINISH` all move back together, as they agree in every
+ * snapshot s3cab writes, so the damage is the only thing wrong with the copy. Text, since
+ * damaging the *compressed* bytes would test gunzip's own check instead.
  *
- * The copy is taken `minutes` earlier: its key, `@SNAPSHOT NAME` and `START`'s instant all
- * move back together, as they agree in every snapshot s3cab writes, so the damage is the
- * only thing wrong with it. Backdated, never later, so the intact one stays the set's
- * latest: a tool that reaches for the newest snapshot finds a sound one, and a damaged one
- * is met only by a reader that looks at every snapshot it is given.
+ * Backdated, never later, so the intact one stays the set's latest: a tool that reaches
+ * for the newest snapshot finds a sound one, and a damaged one is met only by a reader
+ * that looks at every snapshot it is given.
  * @param {Uint8Array} snapshot a whole `.tsv.gz`
  * @param {number} minutes how far back, a different count for each copy of one snapshot
- * @param {(text: string) => string} damage
- * @returns {{ name: string, body: Buffer }} the copy's name, and its `.tsv.gz`
+ * @returns {{ name: string, text: string }}
  */
-export function damagedCopy(snapshot, minutes, damage) {
+export function backdated(snapshot, minutes) {
   let name = "";
   const text = gunzipSync(snapshot)
     .toString("utf8")
@@ -1186,14 +1184,17 @@ export function damagedCopy(snapshot, minutes, damage) {
       if (property === "NAME") {
         name = minutesBefore(/** @type {string} */ (fields[4]), minutes);
         fields[4] = name;
-      } else if (property === "START") {
-        const start = Date.parse(/** @type {string} */ (fields[3]));
-        fields[3] = new Date(start - minutes * 60_000).toISOString();
+      } else if (property === "START" || property === "FINISH") {
+        const instant = Date.parse(/** @type {string} */ (fields[3]));
+        fields[3] = new Date(instant - minutes * 60_000).toISOString();
       }
       return fields.join("\t");
     })
     .join("\n");
-  return { name, body: gzipSync(Buffer.from(damage(text), "utf8")) };
+  if (!name) {
+    throw new Error("the snapshot has no @SNAPSHOT NAME row");
+  }
+  return { name, text };
 }
 
 /**
@@ -1202,7 +1203,11 @@ export function damagedCopy(snapshot, minutes, damage) {
  * @param {string} text a whole snapshot, decompressed
  */
 export function withoutTrailer(text) {
-  return text.slice(0, text.lastIndexOf("\n@SNAPSHOT\tFILES") + 1);
+  const trailer = text.lastIndexOf("\n@SNAPSHOT\tFILES");
+  if (trailer === -1) {
+    throw new Error("the snapshot has no @SNAPSHOT FILES row to cut at");
+  }
+  return text.slice(0, trailer + 1);
 }
 
 /**
@@ -1284,6 +1289,11 @@ export function withHandEdits(text) {
   const trailer = lines.findIndex((line) =>
     line.startsWith("@SNAPSHOT\tFILES"),
   );
+  if (trailer === -1) {
+    throw new Error(
+      "the snapshot has no @SNAPSHOT FILES row to add rows above",
+    );
+  }
   lines.splice(trailer, 0, ...added);
   return lines
     .map((line) => {
@@ -1295,7 +1305,8 @@ export function withHandEdits(text) {
       } else if (property === "SIZE") {
         const total = Number(fields[4]?.split(" ")[0]) + addedSize;
         // guide/format.md's readable form, which past 999 bytes needs a decimal:
-        // `faults` is a few lines of text.
+        // `faults` is a few lines of text. Not s3cab's `formatByteValue`: these
+        // scripts never import s3cab, so a fixture can't agree with its bug.
         if (total >= 1000) {
           throw new Error(
             `faults has grown to ${total} bytes; write SIZE's kB form`,

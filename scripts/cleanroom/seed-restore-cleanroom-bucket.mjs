@@ -40,6 +40,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   cli,
   client,
@@ -48,8 +49,8 @@ import {
   readCommandLine,
 } from "./cleanroom.mjs";
 import {
+  backdated,
   buildFixtures,
-  damagedCopy,
   endingInHeaderRow,
   excludes,
   goldenSet,
@@ -315,41 +316,49 @@ async function seed({ root, bucket }) {
   // record says so — which is the case the spec answers with "skips them gracefully with
   // their date" and the one run 2 reported it had never been able to run.
   console.log("delete without re-backup (the recorded-deletion skip)");
-  mustRun([
-    "delete",
-    "--bucket",
-    bucket,
-    "--force",
-    sha256(join(fixtures, "faults", "deleted.txt")),
-  ]);
+  const deletedHash = sha256(join(fixtures, "faults", "deleted.txt"));
+  mustRun(["delete", "--bucket", bucket, "--force", deletedHash]);
 
   // A gap in the deletion-record numbering, which the spec calls normal: `cleanup`'s
   // compaction leaves one. Not `cleanup` itself: the bucket is shared, and another
   // platform's turn may already have left a torn object or a damaged snapshot, either of
-  // which stops it. Moving up one index the record this turn's last delete wrote leaves
-  // the same hole. A restorer that counts `-1`, `-2` … and stops at the first missing
-  // index reports this recorded deletion as unexplained damage.
-  const indices = (await listAll(bucket, "objects.deleted-")).map((key) =>
-    Number(/^objects\.deleted-(\d+)\.tsv$/.exec(key)?.[1]),
+  // which stops it. Moving the record that delete wrote past the highest index leaves the
+  // same hole. A restorer that counts `-1`, `-2` … and stops at the first missing index
+  // reports this recorded deletion as unexplained damage. Found by its row, not as the
+  // highest: that is this turn's only while no other turn writes one meanwhile.
+  const records = await listAll(bucket, "objects.deleted-");
+  /** @type {{ key: string, bytes: Uint8Array } | undefined} */
+  let ours;
+  for (const key of records) {
+    const got = await client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+    );
+    const bytes = await /** @type {NonNullable<typeof got.Body>} */ (
+      got.Body
+    ).transformToByteArray();
+    if (Buffer.from(bytes).includes(`\n#deleted\t${deletedHash}\t`)) {
+      ours = { key, bytes };
+    }
+  }
+  if (!ours) {
+    throw new Error(`no deletion record lists ${deletedHash}`);
+  }
+  const highest = Math.max(
+    ...records.map((key) =>
+      Number(/^objects\.deleted-(\d+)\.tsv$/.exec(key)?.[1] ?? 0),
+    ),
   );
-  const last = Math.max(...indices.filter(Number.isInteger));
-  const from = `objects.deleted-${last}.tsv`;
-  const to = `objects.deleted-${last + 1}.tsv`;
-  console.log(`moving ${from} to ${to}, a gap in the record numbering`);
-  const record = await client.send(
-    new GetObjectCommand({ Bucket: bucket, Key: from }),
-  );
+  const to = `objects.deleted-${highest + 1}.tsv`;
+  console.log(`moving ${ours.key} to ${to}, a gap in the record numbering`);
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: to,
-      Body: await /** @type {NonNullable<typeof record.Body>} */ (
-        record.Body
-      ).transformToByteArray(),
+      Body: ours.bytes,
       IfNoneMatch: "*",
     }),
   );
-  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: from }));
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: ours.key }));
 
   // Right key, wrong bytes. Not `s3cab delete` and not a tear: the object is *present*
   // and hashes to something else, so a restorer that trusts the key restores corrupt
@@ -368,7 +377,7 @@ async function seed({ root, bucket }) {
   );
 
   // Damaged copies of `faults`' snapshot, each a snapshot of its own beside the intact
-  // one and backdated so that one stays the set's latest (`damagedCopy`, fixtures.mjs): a
+  // one and backdated so that one stays the set's latest (`backdated`, fixtures.mjs): a
   // *later* name would make a damaged copy the newest, and a bare `restore --set faults`
   // would stop there — hiding F7, which is the same set's point.
   //
@@ -396,13 +405,15 @@ async function seed({ root, bucket }) {
     [2, withHandEdits, "with hand-edited rows a restorer must refuse"],
     [3, endingInHeaderRow, "cut off, and ending in an @S3CAB row"],
   ])) {
-    const { name, body } = damagedCopy(wholeBytes, minutes, damage);
+    const { name, text } = backdated(wholeBytes, minutes);
     console.log(`publishing snapshots/${faults}/${name}, ${what}`);
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
         Key: `snapshots/${faults}/${name}.tsv.gz`,
-        Body: body,
+        Body: gzipSync(Buffer.from(damage(text), "utf8")),
+        // Snapshots are immutable: a copy never replaces a real one.
+        IfNoneMatch: "*",
       }),
     );
   }
