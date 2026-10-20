@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-14.
+This is the spec of 2026-10-20.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -205,7 +205,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-14
+@S3CAB    SPEC                                                        2026-10-20
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -294,7 +294,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-14
+@S3CAB    SPEC                                                        2026-10-20
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -645,8 +645,9 @@ a snapshot whose text was cut before it was compressed: that is complete gzip, a
 complete. Concretely: **don't restore from it**. The rows that
 survive a cut are a valid-looking prefix, so restoring them produces a tree that looks
 finished and silently isn't; refuse the snapshot, say why, and let the reader reach for an
-intact one. (A reader that only wants the file rows can still skip every other line;
-checking for the `.` first is what tells it the rows it read are all of them.)
+intact one. Refusing it is a failed restore, so **exit nonzero**, as for any other. (A
+reader that only wants the file rows can still skip every other line; checking for the `.`
+first is what tells it the rows it read are all of them.)
 
 The line before it, in a snapshot, is `@SNAPSHOT FINISH`. Its instant is when the run
 finished, and s3cab itself doesn't read it back. It's there for you, with the run's duration
