@@ -131,8 +131,8 @@ const reachesWeb = (command) => {
 };
 
 /**
- * @param {string[]} allowed the places the session may use: its clean room, a backup's
- *   fixtures, and its own scratch
+ * @param {string[]} allowed the places the session may use (its clean room, a backup's
+ *   fixtures, its own scratch) or name (the restore seed's fixtures)
  * @param {string} root the sandbox root, watched for the file tools' paths only: a command
  *   naming the session's own clean room beside a `..` would read as a stray
  */

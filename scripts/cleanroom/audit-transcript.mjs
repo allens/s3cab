@@ -6,9 +6,10 @@
  *
  * A stray is any of:
  * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
- *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
- *   tool output. The root holds s3cab's home and the restores' exits, which only the
- *   brief keeps a Windows session from;
+ *   outside the clean room (a backup's fixtures too, and the restore seed's, which its
+ *   snapshots name) and the session's own scratchpad and tool output. The root holds
+ *   s3cab's home and the restores' exits, which only the brief keeps a Windows session
+ *   from;
  * - a shell command naming the home folder, temp or the repo, or running s3cab itself.
  *   The command is read as text, so a path built while it runs (in a variable, from an
  *   encoded string) isn't caught;
@@ -98,9 +99,18 @@ const own = folders.flatMap((folder) =>
   ]),
 );
 const fixtures = join(root, "fixtures");
+// The golden set's snapshots record the seed's fixtures under `${{ runner.temp }}`
+// (cleanroom-seed.yml), and a restore session quotes them as data. On a GitHub macOS or
+// Linux runner that is in the home folder, but empty: the seed ran on another runner. The
+// other platforms' roots are never in this one's home. Not the roots spelled out, because
+// `runner.temp` is GitHub's to move.
+const seeded = process.env.RUNNER_TEMP
+  ? [join(process.env.RUNNER_TEMP, "s3cab.sandbox", "fixtures")]
+  : [];
 const allowed = [
   cleanroom,
   ...(existsSync(fixtures) ? [fixtures] : []),
+  ...seeded,
   ...own,
 ];
 
