@@ -436,7 +436,9 @@ directories.
 
 A link to a file or directory leads **into the backup** when the place it finally resolves
 to, through any further links, is a member directory or lies inside one, and **out of the
-backup** otherwise.
+backup** otherwise. A writer's own working folder inside a member directory, such as
+s3cab's `.s3cab`, counts as out: nothing in it gets a row, so its target would be recorded
+nowhere.
 
 A link out of the backup is an error because its content may look saved and isn't — a
 directory link can hide a whole tree. Add the target's directory to the set, or leave the link

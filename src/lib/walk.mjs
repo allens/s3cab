@@ -7,13 +7,13 @@ import {
   statSync,
 } from "node:fs";
 import { isUtf8 } from "node:buffer";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, posix, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { pathMatcher } from "./path-match.mjs";
+import { pathKey } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -263,8 +263,7 @@ export function walkDirs(dirs, patterns) {
     excluded: [],
     errors: [],
     unrepresentable: [],
-    // No matcher means a root of `/`, which everything is under.
-    inBackup: pathMatcher(roots) ?? (() => true),
+    inBackup: backupMatcher(roots),
   };
 
   for (const dir of roots) {
@@ -421,6 +420,25 @@ function createWalkCallbackFn(baseDir, patterns, found) {
       return false;
     }
     return true;
+  };
+}
+
+/**
+ * Whether a canonical path is in the backup: in or under a member directory,
+ * and not inside a `.s3cab` folder below it, which `walkFiles` never enters.
+ * A `.s3cab` above the member directory doesn't count: the walk starts below it.
+ * @param {string[]} roots - The member directories, canonical
+ * @returns {(path: string) => boolean}
+ */
+function backupMatcher(roots) {
+  const keys = roots.map(pathKey);
+  return (path) => {
+    const key = pathKey(path);
+    return keys.some(
+      (root) =>
+        (key === root || key.startsWith(root + posix.sep)) &&
+        !key.slice(root.length).split(posix.sep).includes(".s3cab"),
+    );
   };
 }
 

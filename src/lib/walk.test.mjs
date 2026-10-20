@@ -289,6 +289,51 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
   );
 
   it(
+    "makes a link into a .s3cab folder an error, since the walk never enters one",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      const root = realpathSync.native(base);
+      write(base, ".s3cab/kept.txt");
+      symlinkSync(join(root, ".s3cab", "kept.txt"), join(base, "to-file"));
+      symlinkSync(join(root, ".s3cab"), join(base, "to-folder"));
+
+      const { files, errors } = walkDirs([base], []);
+
+      assert.deepStrictEqual(files, []);
+      assert.deepStrictEqual(relRecords(root, errors), [
+        {
+          path: "to-file",
+          reason: `link to a file outside the backup: ${join(root, ".s3cab", "kept.txt")}`,
+          isDir: false,
+        },
+        {
+          path: "to-folder",
+          reason: `link to a folder outside the backup: ${join(root, ".s3cab")}`,
+          isDir: true,
+        },
+      ]);
+    },
+  );
+
+  it(
+    "keeps a link inside a member directory that is itself under a .s3cab folder",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, ".s3cab/member/a.txt");
+      const base = join(realpathSync.native(dir.path), ".s3cab", "member");
+      symlinkSync("a.txt", join(base, "link.txt"));
+
+      const { files, errors } = walkDirs([base], []);
+
+      assert.deepStrictEqual(relPaths(base, files), ["a.txt"]);
+      assert.deepStrictEqual(errors, []);
+    },
+  );
+
+  it(
     "makes a link whose target is there but won't resolve an error",
     symlinks,
     async (t) => {
