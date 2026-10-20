@@ -114,7 +114,7 @@ const minutes = 20;
 const mismatches = [];
 /** @type {string[]} */
 const notes = [];
-/** Every name in `check/` accounted for: each run's folder and log, and strays already reported. */
+/** Each run's folder and log: anything else in `check/` is a stray. */
 const known = new Set();
 
 /**
@@ -141,6 +141,22 @@ function check(set, snapshot, expected, label, named) {
     timeout: minutes * 60 * 1000,
     killSignal: "SIGKILL",
   });
+  // Whatever the exit, and removed once reported, so a later run isn't charged with it
+  // and one writing the same name is still caught.
+  const outside = [
+    ...readdirSync(join(out, label))
+      .filter((name) => name !== "restored")
+      .map((name) => join(label, name)),
+    ...readdirSync(out).filter((name) => !known.has(name)),
+  ];
+  if (outside.length > 0) {
+    mismatches.push(
+      `${label}: wrote outside its directory: ${outside.join(", ")}`,
+    );
+  }
+  for (const name of outside) {
+    rmSync(join(out, name), { recursive: true, force: true });
+  }
   const error = /** @type {NodeJS.ErrnoException | undefined} */ (result.error);
   /** @type {string | undefined} */
   let broke;
@@ -151,20 +167,6 @@ function check(set, snapshot, expected, label, named) {
   } else if (result.signal) {
     mismatches.push(`${label}: killed by ${result.signal}`);
   } else {
-    const outside = [
-      ...readdirSync(join(out, label))
-        .filter((name) => name !== "restored")
-        .map((name) => join(label, name)),
-      ...readdirSync(out).filter((name) => !known.has(name)),
-    ];
-    if (outside.length > 0) {
-      mismatches.push(
-        `${label}: wrote outside its directory: ${outside.join(", ")}`,
-      );
-    }
-    for (const name of outside) {
-      known.add(name);
-    }
     if ((result.status === 0) !== (expected === 0)) {
       (process.platform !== "linux" && set.startsWith("edge-") && expected !== 0
         ? notes
