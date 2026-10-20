@@ -107,7 +107,7 @@ const { run } = cli(join(root, ".s3cab"));
 
 // Every snapshot in the bucket, one tree each, so a clean-room run can tell "I found
 // nothing" from "I never looked". Enumerated from the bucket rather than from s3cab's
-// local history: the damaged `faults` snapshot was published straight to S3 and exists
+// local history: the damaged `faults` copies were published straight to S3 and exist
 // nowhere else. A reference/ the spec-only phase made of its own is kept in spec-only/.
 rmSync(reference, { recursive: true, force: true });
 mkdirSync(reference);
@@ -153,8 +153,8 @@ for (const name of goldenSets) {
     // in the bucket with no reference tree beside it. The empty directory here is the
     // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
     // missing file, so a restorer that finds the set can tell it was meant to find it.
-    // The damaged snapshot lands here too, with whatever s3cab wrote before it gave up —
-    // a partial tree is the honest reference for a partial restore.
+    // The damaged copies land here too, with whatever s3cab wrote before it gave up — a
+    // partial tree is the honest reference for a partial restore.
     mkdirSync(target, { recursive: true });
   }
 }

@@ -49,12 +49,14 @@ import {
 } from "./cleanroom.mjs";
 import {
   buildFixtures,
+  damagedCopy,
+  endingInHeaderRow,
   excludes,
   goldenSet,
-  oneMinuteBefore,
   platform,
   platforms,
   reportFixtures,
+  withHandEdits,
   withoutTrailer,
 } from "./fixtures.mjs";
 import {
@@ -337,25 +339,21 @@ async function seed({ root, bucket }) {
     }),
   );
 
-  // A snapshot cut off after its last file row, as a backup killed mid-write leaves it.
-  // The closing `.` is the format's answer to that, and it has only ever been staged
-  // *present* — so nothing has tested the one thing it exists for, and run 2 could only
-  // note that its own completeness check went unexercised. It is published under `faults`
-  // as a second snapshot (`withoutTrailer`, fixtures.mjs), backdated so the intact one
-  // stays the set's latest: a *later* name would make the damaged snapshot the newest,
-  // and a bare `restore --set faults` would stop there — hiding F7, which is the same
-  // set's point.
+  // Damaged copies of `faults`' snapshot, each a snapshot of its own beside the intact
+  // one and backdated so that one stays the set's latest (`damagedCopy`, fixtures.mjs): a
+  // *later* name would make a damaged copy the newest, and a bare `restore --set faults`
+  // would stop there — hiding F7, which is the same set's point.
+  //
+  // First, cut off after its last file row, as a backup killed mid-write leaves it. The
+  // closing `.` is the format's answer to that, and it had only ever been staged
+  // *present*, so nothing tested the one thing it exists for. Then the hand edits a
+  // restorer must refuse path by path, and the cut-off copy again, ending in a header row
+  // a reader could take for a whole file's last.
   const faults = own("faults");
   const wholeName = readdirSync(join(home, "sets", faults, "snapshots"))
     .filter((entry) => entry.endsWith(".tsv.gz"))
     .sort()
     .at(-1);
-  const damagedName = oneMinuteBefore(
-    /** @type {string} */ (wholeName).replace(/\.tsv\.gz$/, ""),
-  );
-  console.log(
-    `publishing snapshots/${faults}/${damagedName} cut off after its last file row`,
-  );
   const whole = await client.send(
     new GetObjectCommand({
       Bucket: bucket,
@@ -365,13 +363,21 @@ async function seed({ root, bucket }) {
   const wholeBytes = await /** @type {NonNullable<typeof whole.Body>} */ (
     whole.Body
   ).transformToByteArray();
-  await client.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: `snapshots/${faults}/${damagedName}.tsv.gz`,
-      Body: withoutTrailer(wholeBytes),
-    }),
-  );
+  for (const [minutes, damage, what] of /** @type {const} */ ([
+    [1, withoutTrailer, "cut off after its last file row"],
+    [2, withHandEdits, "with hand-edited rows a restorer must refuse"],
+    [3, endingInHeaderRow, "cut off, and ending in an @S3CAB row"],
+  ])) {
+    const { name, body } = damagedCopy(wholeBytes, minutes, damage);
+    console.log(`publishing snapshots/${faults}/${name}, ${what}`);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: `snapshots/${faults}/${name}.tsv.gz`,
+        Body: body,
+      }),
+    );
+  }
 
   console.log(
     `\nseeded ${platform}'s sets into s3://${bucket}. The bucket is stamped once every\n` +
