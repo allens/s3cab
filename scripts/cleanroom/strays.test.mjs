@@ -166,11 +166,20 @@ test("a command running s3cab is reported as that run", () => {
     "Start-Process s3cab -ArgumentList list",
     "powershell -Command s3cab list",
     "pwsh -NoProfile -c s3cab list",
+    "for s in a b; do AWS_PROFILE=x s3cab list $s; done",
+    "env -u FOO s3cab list",
+    "wsl.exe s3cab list",
+    "pnpm dlx --silent s3cab list",
+    "yarn s3cab list",
+    "bun x s3cab list",
+    "iex s3cab",
+    "watch -n 5 s3cab list",
+    "doas s3cab list",
+    // Prose too: a false alarm, taken over a miss.
+    "cat > NOTES.md <<'EOF'\nThe spec says s3cab takes the latest.\nEOF",
   ]) {
     assert.equal(strayCommand(command), "s3cab", command);
   }
-  assert.equal(strayCommand("pnpm dlx s3cab list"), "pnpm dlx s3cab");
-  assert.equal(strayCommand("yarn dlx s3cab list"), "yarn dlx s3cab");
   assert.equal(strayCommand(".\\s3cab.exe list"), "s3cab.exe");
   assert.equal(
     strayCommand('Start-Process -FilePath "s3cab.exe" -ArgumentList "list"'),
@@ -180,10 +189,8 @@ test("a command running s3cab is reported as that run", () => {
   assert.equal(strayCommand("s3cab.ps1 list"), "s3cab.ps1");
 });
 
-test("s3cab in prose, or in the restorer's name, isn't a run of it", () => {
+test("s3cab's, or the restorer's name, isn't a run of it", () => {
   for (const command of [
-    "cat > NOTES.md <<'EOF'\nThe spec says s3cab \"takes the latest\" when none is named.\nEOF",
-    "sed -i 's/guessed/guessed, as s3cab would/' REPORT.md",
     "echo 'restores what (s3cab's own restore) would' >> REPORT.md",
     "./s3cab-restore bucket set out",
     "dotnet build -o=s3cab-restore",

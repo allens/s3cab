@@ -152,8 +152,18 @@ function readRoot(script, audited) {
   };
 
   // The one guard that matters: a clean room inside the repo is not a clean room, since
-  // the session would inherit the repo's CLAUDE.md from a parent directory.
-  if (inside(repoRoot)) {
+  // the session would inherit the repo's CLAUDE.md from a parent directory. Run from a
+  // worktree, that is the main checkout too, which holds the worktree's own `.git`.
+  const common = spawnSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd: repoRoot, encoding: "utf8" },
+  ).stdout?.trim();
+  const checkouts = [
+    repoRoot,
+    ...(common ? [dirname(realpathSync.native(common))] : []),
+  ];
+  if (checkouts.some(inside)) {
     console.error(
       `${root} is inside the repository, so a session opened there would be handed\n` +
         "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +

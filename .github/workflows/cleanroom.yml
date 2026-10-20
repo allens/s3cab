@@ -178,7 +178,11 @@ jobs:
           # out to escape: the session reads only the brief and the spec, so a leak is an
           # accident, not an attack.
           unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
-          node "scripts/cleanroom/check-$ROLE.mjs" "$SANDBOX" | tee "$SANDBOX/cleanroom/check.txt"
+          # Into the file, not through tee: off Windows, Node doesn't wait on a pipe, so a
+          # check killed at the step limit would lose what it had printed but not yet sent.
+          node "scripts/cleanroom/check-$ROLE.mjs" "$SANDBOX" > "$SANDBOX/cleanroom/check.txt" || status=$?
+          cat "$SANDBOX/cleanroom/check.txt"
+          exit "${status:-0}"
       - name: audit
         if: always()
         run: node scripts/cleanroom/audit-transcript.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/audit.txt"
