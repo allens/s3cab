@@ -129,11 +129,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
   holding the false time, and restore sets it. Restore's read-back of each time skips these
   on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
-- **Column 2 is padded by UTF-16 units, not code points.** [guide/format.md](../guide/format.md)'s
-  canonical form counts a character as a code point, as exclude.md's `?` does; `formatLine`
-  (`src/lib/snapshot-file.mjs`) pads with `padEnd(64)`, which counts UTF-16 units, so an
-  `#excluded` pattern or `#error` message holding an emoji is padded one space short per emoji.
-  The file stays valid; only its canonical form is off.
 - **A crash can leave wrong bytes under an object's key.** `putFile` (`src/lib/s3.mjs`) hashes
   the bytes as they stream and, on a mismatch, deletes the object its no-clobber PUT just
   created. The object is visible in between, so a run killed there leaves bytes that don't hash
