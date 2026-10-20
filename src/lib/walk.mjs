@@ -13,7 +13,7 @@ import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { pathKey } from "./path-match.mjs";
+import { pathKey, preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -364,7 +364,7 @@ export function walkDirs(dirs, patterns) {
  * @property {ExclusionRecord[]} excluded
  * @property {WalkError[]} errors
  * @property {string[]} unrepresentable - Entries the snapshot TSV cannot hold (ADR-0073), spelled out with the reason for the error. Collected rather than thrown on sight: the one person who ever hits this is the one whose script made hundreds of them, and fixing those an error at a time would be its own ordeal — the same reasoning as `assertWalkableDirs` listing every offender
- * @property {(path: string) => boolean} inBackup - Whether a canonical path is in or under a member directory
+ * @property {(path: string, isDir: boolean) => boolean} inBackup - Whether a canonical path is in the backup: under a member directory, and not in a folder the walk skips (`backupMatcher`)
  */
 
 /**
@@ -425,19 +425,26 @@ function createWalkCallbackFn(baseDir, patterns, found) {
 
 /**
  * Whether a canonical path is in the backup: in or under a member directory,
- * and not inside a `.s3cab` folder below it, which `walkFiles` never enters.
- * A `.s3cab` above the member directory doesn't count: the walk starts below it.
+ * and not inside a folder below it that `walkFiles` never enters. That test is
+ * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`, whatever case
+ * the path folds in. A `.s3cab` above the member directory doesn't count: the
+ * walk starts below it.
  * @param {string[]} roots - The member directories, canonical
- * @returns {(path: string) => boolean}
+ * @returns {(path: string, isDir: boolean) => boolean}
  */
-function backupMatcher(roots) {
-  const keys = roots.map(pathKey);
-  return (path) => {
+export function backupMatcher(roots) {
+  const keyed = roots.map((root) => {
+    const key = pathKey(root);
+    return { key, depth: key.split(posix.sep).filter(Boolean).length };
+  });
+  return (path, isDir) => {
     const key = pathKey(path);
-    return keys.some(
+    const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
+    const folders = isDir ? segments : segments.slice(0, -1);
+    return keyed.some(
       (root) =>
-        (key === root || key.startsWith(root + posix.sep)) &&
-        !key.slice(root.length).split(posix.sep).includes(".s3cab"),
+        (key === root.key || key.startsWith(root.key + posix.sep)) &&
+        !folders.slice(root.depth).includes(".s3cab"),
     );
   };
 }
@@ -518,7 +525,7 @@ function checkLink(path, excludedBy, found) {
     found.errors.push(unresolved);
     return;
   }
-  if (!found.inBackup(resolved)) {
+  if (!found.inBackup(resolved, isDir)) {
     found.errors.push({
       path,
       reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,

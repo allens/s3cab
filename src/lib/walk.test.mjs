@@ -10,7 +10,12 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
-import { readExcludePatterns, walkDirs, walkSet } from "./walk.mjs";
+import {
+  backupMatcher,
+  readExcludePatterns,
+  walkDirs,
+  walkSet,
+} from "./walk.mjs";
 
 /**
  * @import { PathLike } from "node:fs"
@@ -228,6 +233,29 @@ describe("walkDirs", () => {
   });
 });
 
+describe("backupMatcher skips only what the walk skips", () => {
+  const inBackup = backupMatcher(["C:\\set", "/home/me/set"]);
+
+  it("leaves out a folder named exactly .s3cab, and what is in it", () => {
+    assert.equal(inBackup("C:\\set\\.s3cab", true), false);
+    assert.equal(inBackup("C:\\set\\.s3cab\\a.txt", false), false);
+    assert.equal(inBackup("/home/me/set/x/.s3cab/a.txt", false), false);
+  });
+
+  it("keeps a .s3cab spelled in another case, which the walk enters", () => {
+    assert.equal(inBackup("C:\\set\\.S3CAB\\a.txt", false), true);
+  });
+
+  it("keeps a file named .s3cab", () => {
+    assert.equal(inBackup("/home/me/set/notes/.s3cab", false), true);
+  });
+
+  it("matches a Windows root in either case, as before", () => {
+    assert.equal(inBackup("c:\\SET\\a.txt", false), true);
+    assert.equal(inBackup("C:\\other\\a.txt", false), false);
+  });
+});
+
 describe("walkDirs never follows or records a link (ADR-0103)", () => {
   it(
     "records nothing for a link to a file or folder inside the backup, or a broken one",
@@ -314,6 +342,23 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
           isDir: true,
         },
       ]);
+    },
+  );
+
+  it(
+    "keeps a link to a plain file named .s3cab, which the walk records",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      const root = realpathSync.native(base);
+      write(base, "notes/.s3cab");
+      symlinkSync(join(root, "notes", ".s3cab"), join(base, "to-it"));
+
+      const { files, errors } = walkDirs([base], []);
+
+      assert.deepStrictEqual(relPaths(root, files), ["notes/.s3cab"]);
+      assert.deepStrictEqual(errors, []);
     },
   );
 
