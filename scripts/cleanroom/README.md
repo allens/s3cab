@@ -61,12 +61,15 @@ reseeds it, and so does dispatching the workflow from `main`:
 gh workflow run cleanroom-seed.yml --ref main
 ```
 
-Every run then happens in a **sandbox**: one directory outside the repo, built
-from empty and deleted once the run is harvested — create, run, harvest,
-destroy, then the next.
+Every run then happens in a **sandbox**: one directory outside the repo, the home
+folder and temp, built from empty and emptied once the run is harvested — create,
+run, harvest, destroy, then the next. It is `C:\s3cab.sandbox` on Windows,
+`/Users/Shared/s3cab.sandbox` on macOS, and `/srv/s3cab.sandbox` on Linux, which
+only root can make, so make it once with
+`sudo install -d -o "$USER" /srv/s3cab.sandbox` and empty it rather than delete it.
 
 ```text
-~/s3cab.sandbox/
+C:\s3cab.sandbox\
   cleanroom/   the session opens here: spec, brief, credentials, and from
                a restore's reconcile phase, reference/ and RECONCILE.md
   fixtures/    the trees it backs up (backup)
@@ -84,37 +87,40 @@ to compare against them and account for each difference in a section of its own.
 The references are built only after the spec-only phase, rather than hidden
 during it, because on Windows only the brief keeps a session inside its clean
 room. That section against the spec-only list shows what references in sight
-from the start would have hidden; the harvested program is the reconcile phase's.
+from the start would have hidden. The checker runs both programs, each with a
+verdict of its own: the spec-only phase's is the evidence about the format, and
+the reconcile phase's is the program harvested.
 
 A restorer run, end to end, as on Windows. Elsewhere the commands are the same
-(`$HOME` expands in PowerShell and sh alike), except the run's, which names `Bash`
-in place of `PowerShell`; the build prints the exact one for its role and platform:
+with the platform's root, except the run's, which names `Bash` in place of
+`PowerShell`, and the last, which empties the root; the build prints the exact run
+command for its role and platform:
 
 ```powershell
 # create
-node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs $HOME/s3cab.sandbox
+node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs C:\s3cab.sandbox
 # run: headless, from the clean room; follow its transcript (audit-transcript.mjs
 # says where it lands) with Get-Content -Wait -Tail 5
-cd $HOME/s3cab.sandbox/cleanroom
+cd C:\s3cab.sandbox\cleanroom
 claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 go
 cd -
 # between the phases: the spec-only clean room kept, the references built and RECONCILE.md written
-node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs $HOME/s3cab.sandbox
+node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs C:\s3cab.sandbox
 # run the reconcile phase: the same session resumed, from the clean room
-cd $HOME/s3cab.sandbox/cleanroom
+cd C:\s3cab.sandbox\cleanroom
 claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 "read RECONCILE.md"
 cd -
-# check: its restorer run on every snapshot and compared, and its transcript audited
-node --env-file=.env.test scripts/cleanroom/check-restore.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
-node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
+# check: both restorers run on every snapshot and compared, and the transcript audited
+node --env-file=.env.test scripts/cleanroom/check-restore.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
+node scripts/cleanroom/audit-transcript.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\audit.txt
 # keep: the clean room, minus its credentials, into the experiments folder
-Remove-Item $HOME/s3cab.sandbox/cleanroom/credentials.*
+Remove-Item C:\s3cab.sandbox\cleanroom\credentials.*
 New-Item -ItemType Directory -Force $HOME/s3cab.experiments
-Move-Item $HOME/s3cab.sandbox/cleanroom $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh
-Move-Item $HOME/s3cab.sandbox/spec-only $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh/spec-only
+Move-Item C:\s3cab.sandbox\cleanroom $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh
+Move-Item C:\s3cab.sandbox\spec-only $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh/spec-only
 # harvest, if it was a real set's run: its program and report into the repo
-# destroy
-Remove-Item -Recurse $HOME/s3cab.sandbox
+# destroy (on Linux: find /srv/s3cab.sandbox -mindepth 1 -delete)
+Remove-Item -Recurse C:\s3cab.sandbox
 ```
 
 A backup run is the same sequence with its own scripts, in one phase, and like a
@@ -123,10 +129,10 @@ from an empty bucket, which the build leaves for you to empty:
 
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
-node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs $HOME/s3cab.sandbox
+node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs C:\s3cab.sandbox
 # run, then check: the bucket it left, and its transcript audited
-node --env-file=.env.test scripts/cleanroom/check-backup.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/check.txt
-node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox | tee $HOME/s3cab.sandbox/cleanroom/audit.txt
+node --env-file=.env.test scripts/cleanroom/check-backup.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
+node scripts/cleanroom/audit-transcript.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\audit.txt
 ```
 
 The checker runs before the sandbox is destroyed, on the machine that built it:
@@ -168,7 +174,8 @@ repo with its token cost. A quiet experiment proves nothing about the spec.
 
 **Then a real set: every role on every platform you have, start to finish, on
 one model at `xhigh`**, the best model you have when the set starts. A run in a
-real set is recorded if its transcript audit came back clean. Its report
+real set is recorded if its transcript audit came back clean, a restore's with
+both verdicts, the spec-only one stated as the evidence about the format. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
 role and the platform, the model and the effort; a backup program goes in
 `backup/<platform>/` here (`linux`, `windows`, `macos`), and a restorer in
@@ -198,7 +205,13 @@ reader and by spec version. It also holds `cli`, the subprocess that drives the
 real s3cab for the scripts that need its output. The restorer brief is
 language-neutral apart from one sentence — which names no version, leaving the
 session to find "the most modern version that comes as standard" on the machine
-it's on. Windows is the exception, below.
+it's on. Windows is the exception, below, and macOS's sentence rules out
+Homebrew, which is first on a runner's `PATH`.
+
+The report is always `REPORT.md`, its ranked lists headed as the brief names
+them, beside a list of hints and one of environment notes, so one run's lists
+diff against another's. Signing, transport, the toolchain and the sandbox go in
+the environment notes: they are the second result, not gaps in the spec.
 
 The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
@@ -209,7 +222,8 @@ contamination is invisible in the result — the ambiguity list simply comes bac
 shorter, which reads as a spec that has been fixed. Keep previous runs' reports
 out of the sandbox too: diffing the lists afterwards is the reader's job. They
 also refuse a sandbox that isn't empty, so nothing from the last run can
-ride along beside the new brief.
+ride along beside the new brief, and the builds refuse one in the home folder or
+temp, which the audit watches (below).
 
 Beyond that, the run is walled in by `session-settings.json`, and the audit checks
 what the walls don't hold. `--restricted` confines the file tools to the clean room
@@ -227,7 +241,12 @@ reach the web.
 
 `audit-transcript.mjs` lists every path a session touched in home, in temp or in the
 repo, and every time it ran s3cab or went to the web from a tool or a shell command.
-Any of those voids the run. A program the session wrote and then ran is
+Its file tools are held to the clean room in the sandbox root as well, where s3cab's
+home and the reference exits sit beside it; its commands aren't, since one naming the
+clean room beside a `..` would read as leaving it. Any of those voids the run. The
+sandbox is outside home and temp so that a command naming the session's own clean
+room is never read as one leaving home, which voided most Linux and macOS runs while
+it sat in the home folder. A program the session wrote and then ran is
 not audited: its own requests go unseen, which on Windows nothing else catches. The
 repo is ruled out outright, because what it leaks arrives before the session's first
 tool call, where neither the walls nor the audit see it.
@@ -243,7 +262,9 @@ survives a run long enough to write a program, where an opening-turn instruction
 would be compacted away. `--permission-mode auto` keeps the classifier reviewing
 each call; with nobody to ask, a blocked call is refused and the run carries on.
 `--session-id` fixes the transcript's name before the run starts, so it can be
-followed from the first line. `--max-budget-usd` caps the spend. `--restricted` drops
+followed from the first line. `--max-budget-usd` caps the spend of each phase: the
+costliest run so far, a Windows backup at `xhigh`, came to about $9 at Opus 5.5's
+rates, so $30 leaves room for a longer one. `--restricted` drops
 every tool `--tools` doesn't name, the web tools among them, so the list holds what
 past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
 would be Git Bash.
@@ -268,7 +289,8 @@ uneven: Ubuntu packages an SDK for Go, Ruby and Perl but none for C++, so the
 looser wording would hand one language the thing it denies another and leave two
 runs incomparable. Consulting the CLI while getting SigV4 right stays allowed
 and is disclosed in the report — a development aid is not a dependency, and
-whether signing is derivable from public docs alone is itself worth knowing.
+whether a session can sign from what it already knows is itself worth knowing.
+It has no web to read the documentation on.
 
 The point is a second result beside the ambiguity list: s3cab depends on the AWS
 SDK completely, so nothing has ever established what *reading* the format needs.
@@ -483,8 +505,8 @@ three steps:
   (`edge-linux`, `edge-windows`, `edge-macos`);
 - `--stamp`, once every platform's sets are there.
 
-The platforms take turns because two deletes finishing in the same minute
-collide on the deletion record. Every file's content carries its platform's
+The platforms take turns because each moves its deletion record past the
+highest index, which two turns at once could both pick. Every file's content carries its platform's
 name: an object's key is its hash, so without it two platforms' backups of the
 same file would share an object, and `faults`' torn object or `corrupt`'s wrong
 bytes would reach the other platforms' sets, or be undone by the next upload. A
@@ -584,8 +606,8 @@ node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs <roo
 
 ## check-restore.mjs
 
-Runs the session's `s3cab-restore` against every reference tree; what it checks is in
-its doc comment.
+Runs both of the session's `s3cab-restore` programs, the spec-only phase's and the
+final one, against every reference tree; what it checks is in its doc comment.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>

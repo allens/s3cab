@@ -55,9 +55,9 @@ Report, and stop.
 
 ## One run
 
-1. **Build** with the role's command from the README. Before a backup run, empty
-   the backup bucket. The sandbox root must not exist: if a stale one does, show
-   what is in it and ask before deleting it.
+1. **Build** with the role's command from the README, on the platform's root there.
+   Before a backup run, empty the backup bucket. The sandbox root must be empty: if
+   anything is in it, show what and ask before deleting it.
 2. **Run.** Start the README's headless command in the background, from
    `<root>/cleanroom`, with a fresh `--session-id` and the user's model and effort.
    Give the user the tail command for that session's transcript, then wait for the
@@ -71,13 +71,15 @@ Report, and stop.
 4. **Harvest.** Check the model and effort in the audit's output, then:
    - *a real set's run with a clean audit is recorded*: the program and report go
      where the README says, the report under the next audit number, and its list
-     diffed against the last set's. Its findings wait for the set's last run.
+     diffed against the last set's. A restore's record gives both of the checker's
+     verdicts, the spec-only one as the evidence about the format. Its findings wait
+     for the set's last run.
    - *anything else is an experiment*: nothing enters the repo. List what the report
      found as harness faults and spec errors to fix.
 5. **Keep and destroy.** Either way, move the clean room, credentials deleted, and a
    restore's `spec-only/` to
    `~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>/` (README), then
-   destroy the sandbox, and stop.
+   empty the sandbox, and stop.
 
 Report each step as: *as planned*, *new*, *next*. Nothing is committed without the
 user's word.

@@ -29,6 +29,7 @@ import { missingSets, seedHash, seededHash } from "./restore-bucket.mjs";
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",
   "S3CAB_TEST_BUCKET_CLEANROOM_RESTORE",
+  { audited: true },
 );
 const credentials = await sessionCredentials(bucket);
 const cleanroom = join(root, "cleanroom");

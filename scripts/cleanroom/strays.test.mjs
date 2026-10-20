@@ -3,10 +3,31 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { exampleRoot } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
 
+// An allowed place in the home folder, as the session's scratchpad is in temp: what the
+// `..` rule exists for.
 const root = join(realpathSync.native(homedir()), "s3cab.sandbox");
-const { strayPath, strayCommand } = strayFinders([root]);
+const { strayPath, strayCommand } = strayFinders([root], root);
+
+test("the sandbox root is watched for the file tools, outside its clean room", () => {
+  const sandbox = strayFinders([join(exampleRoot, "cleanroom")], exampleRoot);
+  assert.equal(sandbox.strayPath(join(exampleRoot, ".s3cab", "sets")), true);
+  assert.equal(
+    sandbox.strayPath(join(exampleRoot, "reference-exits.json")),
+    true,
+  );
+  assert.equal(
+    sandbox.strayPath(join(exampleRoot, "cleanroom", "main.c")),
+    false,
+  );
+  // Not in commands, where the clean room's own path beside a `..` would be kept.
+  assert.equal(
+    sandbox.strayCommand(`cd ${exampleRoot}/cleanroom && cc main.c ../x.c`),
+    undefined,
+  );
+});
 
 test("a command is reported as the path in it that left the sandbox", () => {
   const command =
@@ -140,6 +161,16 @@ test("a command running s3cab is reported as that run", () => {
   );
   assert.equal(strayCommand("node ./src/s3cab.mjs list"), "s3cab.mjs");
   assert.equal(strayCommand("s3cab.ps1 list"), "s3cab.ps1");
+});
+
+test("s3cab in prose isn't a run of it", () => {
+  for (const command of [
+    "cat > NOTES.md <<'EOF'\nThe spec says s3cab \"takes the latest\" when none is named.\nEOF",
+    "sed -i 's/guessed/guessed, as s3cab would/' REPORT.md",
+    "echo 'restores what (s3cab's own restore) would' >> REPORT.md",
+  ]) {
+    assert.equal(strayCommand(command), undefined, command);
+  }
 });
 
 test("s3cab as a regex alternative isn't a run of it", () => {

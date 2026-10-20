@@ -47,7 +47,8 @@ env:
   # The role's bucket, the one the clean room's keys reach. Tested for restore, so an unset
   # variable falls through to the bucket a backup run empties, never to the restore fixtures.
   BUCKET: ${{ inputs.role == 'restore' && vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE || vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
-  SANDBOX: /Users/runner/s3cab.sandbox
+  # Outside the home folder and temp, which the transcript audit watches.
+  SANDBOX: /Users/Shared/s3cab.sandbox
 
 defaults:
   run:

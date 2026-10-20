@@ -5,10 +5,13 @@
  * read past the brief gets caught rather than read as a spec with fewer ambiguities.
  *
  * A stray is any of:
- * - a tool that took a path in the home folder, temp or the repo, outside the root and
- *   the session's own scratchpad and tool output;
- * - a shell command naming one of those, or running s3cab itself. The command is read as
- *   text, so a path built while it runs (in a variable, from an encoded string) isn't caught;
+ * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
+ *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
+ *   tool output. The root holds s3cab's home and the restores' exits, which only the
+ *   brief keeps a Windows session from;
+ * - a shell command naming the home folder, temp or the repo, or running s3cab itself.
+ *   The command is read as text, so a path built while it runs (in a variable, from an
+ *   encoded string) isn't caught;
  * - any web search or fetch: the brief forbids looking the tool up, and no role needs
  *   the web to do its work. From the shell that is a URL whose host isn't an S3
  *   endpoint, any mention of a host serving s3cab's source or docs, or `gh`. A curl to
@@ -28,14 +31,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { sandboxPath } from "./cleanroom.mjs";
+import { exampleRoot, sandboxPath } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
 
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
   console.error(
     "usage: node scripts/cleanroom/audit-transcript.mjs <root>\n\n" +
-      "e.g. node scripts/cleanroom/audit-transcript.mjs ~/s3cab.sandbox",
+      `e.g. node scripts/cleanroom/audit-transcript.mjs ${exampleRoot}`,
   );
   process.exit(2);
 }
@@ -94,9 +97,14 @@ const own = folders.flatMap((folder) =>
     ...temps.map((temp) => join(tmpdir(), temp, folder, id)),
   ]),
 );
-const allowed = [root, ...own];
+const fixtures = join(root, "fixtures");
+const allowed = [
+  cleanroom,
+  ...(existsSync(fixtures) ? [fixtures] : []),
+  ...own,
+];
 
-const { strayPath, strayCommand } = strayFinders(allowed);
+const { strayPath, strayCommand } = strayFinders(allowed, root);
 
 const fields = {
   input: "input_tokens",

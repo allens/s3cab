@@ -32,6 +32,7 @@ import { buildFixtures, reportFixtures } from "./fixtures.mjs";
 const { root, bucket } = readCommandLine(
   "build-backup-cleanroom.mjs",
   "S3CAB_TEST_BUCKET_CLEANROOM_BACKUP",
+  { audited: true },
 );
 const credentials = await sessionCredentials(bucket);
 const fixtures = join(root, "fixtures");

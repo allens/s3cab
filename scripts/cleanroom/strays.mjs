@@ -93,12 +93,14 @@ const wholePath = (text, match) => {
   }
   return text.slice(start, end);
 };
-// After a space, a separator, a quote or a slash, prose included (`so s3cab withholds too`): a
-// missed run voids the audit, and a false alarm costs a glance at the input printed beside
-// it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
-// Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
+// Where a command starts (a line, a separator, a quoted command string, a path), or after a
+// word that runs the next one (`sudo`, `env FOO=1`, `npx -y`, `do`). Not after any space, which
+// read a heredoc of notes (`the spec says s3cab takes`) as a run, so a line of prose that
+// starts with the word is still listed. Not before `|` or `)`, where it is a regex alternative
+// (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor `'s`. Case-insensitive, since Windows runs `S3CAB`
+// too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=^|[\s;&|(`"'{\\/])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@"'>])/im;
+  /(?<=(?:^|[;&|(`"'{\\/])\s*|\b(?:sudo|exec|time|nohup|xargs|do|then|else|npx|pnpx|bunx|node|npm\s+(?:exec|view|info|show|install|i|x))(?:\s+-\S+)*\s+|\benv(?:\s+(?:-\S+|\w+=\S*))*\s+)((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -123,8 +125,13 @@ const reachesWeb = (command) => {
   );
 };
 
-/** @param {string[]} allowed the places the session may use: the root and its own scratch */
-export function strayFinders(allowed) {
+/**
+ * @param {string[]} allowed the places the session may use: its clean room, a backup's
+ *   fixtures, and its own scratch
+ * @param {string} root the sandbox root, watched for the file tools' paths only: a command
+ *   naming the session's own clean room beside a `..` would read as a stray
+ */
+export function strayFinders(allowed, root) {
   const allowedSpelled = new RegExp(
     `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`,
     "gi",
@@ -139,7 +146,7 @@ export function strayFinders(allowed) {
     /** @param {string} path */
     strayPath: (path) =>
       !allowed.some((place) => inside(path, place)) &&
-      watched.some((place) => inside(path, place)),
+      [...watched, root].some((place) => inside(path, place)),
     /**
      * @param {string} command
      * @returns {string | undefined}

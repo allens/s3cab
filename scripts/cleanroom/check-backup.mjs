@@ -55,7 +55,13 @@ import {
 } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import { cli, client, listAll, sandboxPath } from "./cleanroom.mjs";
+import {
+  cli,
+  client,
+  exampleRoot,
+  listAll,
+  sandboxPath,
+} from "./cleanroom.mjs";
 import { compareSnapshot, parse, some } from "./compare-snapshot.mjs";
 import { builtSets } from "./fixtures.mjs";
 
@@ -63,7 +69,7 @@ import { builtSets } from "./fixtures.mjs";
 
 const usage =
   "usage: node --env-file=.env.test scripts/cleanroom/check-backup.mjs <root>\n\n" +
-  "e.g. node --env-file=.env.test scripts/cleanroom/check-backup.mjs ~/s3cab.sandbox";
+  `e.g. node --env-file=.env.test scripts/cleanroom/check-backup.mjs ${exampleRoot}`;
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
   console.error(usage);
