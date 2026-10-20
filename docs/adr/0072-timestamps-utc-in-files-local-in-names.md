@@ -172,8 +172,6 @@ today keeps only `identity` and `dirs`.
   length limit anyway). Not taken, because there is no shortage to solve: col2 is unused on every
   metadata row, so the set name simply moves there. **Kept in the bag against a shortage** — if
   col2 is later wanted for something else, this is how col1's spare characters buy the space back.
-  Any candidate for that slot carrying a hostname or user name is the same question
-  proposals/metadata-privacy.md is open on, and should be settled there rather than twice.
 - **Seconds precision in names** — with a same-minute repeat already refused loudly, it buys only
   longer names.
 

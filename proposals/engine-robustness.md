@@ -27,8 +27,7 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   and resumability of a whole run.)_
 
 _Moved out 2026-07-18 — stale temp-file recovery / the lock-file question →
-[concurrency-and-locking.md](concurrency-and-locking.md); metadata privacy →
-[metadata-privacy.md](metadata-privacy.md); storage-class exposure →
+[concurrency-and-locking.md](concurrency-and-locking.md); storage-class exposure →
 [storage-tiers.md](storage-tiers.md). Two landed items (verify's finding model and moving
 orphan reporting to `cleanup`, both 2026-07-05) were deleted rather than kept as ✅ entries —
 they are of record in [ADR-0042](../docs/adr/0042-verify-bucket-operand.md) and
