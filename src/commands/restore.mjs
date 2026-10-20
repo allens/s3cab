@@ -5,13 +5,14 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { utimes } from "node:fs/promises";
+import { lstat, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { platform, stderr } from "node:process";
 import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { IntegrityError, requireArg } from "../lib/error.mjs";
+import { statProps } from "../lib/file-props.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
 import { foldsCase } from "../lib/path-match.mjs";
 import { createProgress } from "../lib/progress.mjs";
@@ -66,9 +67,11 @@ import { shellCommand } from "../lib/style.mjs";
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * So is a file that something already on disk is in the way of — a file where
  * one of its folders should be, or a folder where it should be — reported
- * `blocked`, exit 1. Nothing else about one file degrades: any other failure
- * (network, credentials, a full disk) still aborts, since it is wrong about
- * the *run*, not about one file.
+ * `blocked`, exit 1. So is a file whose modification time this filesystem can't
+ * hold: it is written, but the time it kept is reported, `clamped`, exit 1 (APFS
+ * stores 2262 for a year-2300 time, and says nothing). Nothing else about one
+ * file degrades: any other failure (network, credentials, a full disk) still
+ * aborts, since it is wrong about the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -100,6 +103,7 @@ import { shellCommand } from "../lib/style.mjs";
  * @property {string[]} corrupt - Paths not restored because their stored content is damaged (it doesn't hash to its key)
  * @property {string[]} refused - Paths not restored because this filesystem won't create a file by that name (a character it forbids, or longer than it accepts)
  * @property {string[]} blocked - Paths not restored because something already on disk is in the way: a file where one of its folders should be, or a folder where it should be
+ * @property {{ path: string, kept: string }[]} clamped - Paths written whose modification time this filesystem couldn't hold, each with the time it kept instead
  * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
@@ -196,6 +200,8 @@ export async function restore(paths = [], options = {}) {
   const refused = [];
   /** @type {string[]} */
   const blocked = [];
+  /** @type {{ path: string, kept: string }[]} */
+  const clamped = [];
   // Collision detection keys on the filesystem's own equivalence, never on
   // string folding (ADR-0086): a manifest written elsewhere can list two paths
   // this volume cannot tell apart — letter case (Windows, macOS default), or
@@ -338,6 +344,19 @@ export async function restore(paths = [], options = {}) {
         // the *millisecond* for exactly this reason.
         const when = new Date(step.mtime);
         await utimes(step.dest, when, when);
+        // `utimes` succeeds for a time the filesystem can't hold and stores
+        // another, so only reading it back shows it. Compared at the millisecond:
+        // the sub-millisecond loss above rounds back to the stored value. Not on
+        // Windows outside 1970–2106: there `lstat` wraps the seconds to 32 bits
+        // (proposals/bugs.md) while NTFS holds the time, so every such file
+        // would read as clamped.
+        if (platform !== "win32" || readableOnWindows(when)) {
+          const landed = await lstat(step.dest, { bigint: true });
+          const kept = statProps(landed).mtime;
+          if (kept !== when.toISOString()) {
+            clamped.push({ path: step.dest, kept });
+          }
+        }
         restored.push(step.dest);
       } else if (outcome === "absent") {
         const record = await recordFor(step.hash);
@@ -364,11 +383,11 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Unexplained absence, corrupt content, a name collision, a refused name or a
-  // blocked path → exit 1, the same way `verify` reports findings: set
-  // process.exitCode rather than throw, so the run's report — including every
-  // file that *was* restored — still prints. Deliberately-deleted skips alone
-  // leave exit 0 (ADR-0064): the record proves the gap is intended, and a
+  // Unexplained absence, corrupt content, a name collision, a refused name, a
+  // blocked path or a clamped time → exit 1, the same way `verify` reports
+  // findings: set process.exitCode rather than throw, so the run's report —
+  // including every file that *was* restored — still prints. Deliberately-deleted
+  // skips alone leave exit 0 (ADR-0064): the record proves the gap is intended, and a
   // scripted restore should not alarm on a decision its owner already made.
   if (
     missing.length ||
@@ -376,6 +395,7 @@ export async function restore(paths = [], options = {}) {
     collided.length ||
     refused.length ||
     blocked.length ||
+    clamped.length ||
     invalid.length
   ) {
     process.exitCode = 1;
@@ -392,10 +412,19 @@ export async function restore(paths = [], options = {}) {
     corrupt,
     refused,
     blocked,
+    clamped,
     invalid,
     deleted,
   };
 }
+
+/**
+ * Whether Node's `lstat` on Windows reads `when` back as it is: its seconds
+ * wrap as an unsigned 32-bit count, so only 1970 to 2106-02-07T06:28:16Z.
+ * @param {Date} when
+ */
+const readableOnWindows = (when) =>
+  when.getTime() >= 0 && when.getTime() < 2 ** 32 * 1000;
 
 /**
  * Whether the filesystem refused to create a path by its **name**. Every code

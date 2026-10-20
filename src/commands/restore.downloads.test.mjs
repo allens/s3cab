@@ -10,6 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -44,6 +45,22 @@ let deletionRecords = new Map();
 let recordReads = 0;
 /** @type {(hash: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
 let afterFetch = () => {};
+/** @type {Date | undefined} The time `utimes` stores whatever it is asked for, as a filesystem that can't hold a time does. */
+let clampTo;
+
+// `utimes` alone is wrapped: no filesystem the suite runs on clamps a time it
+// can be relied on to, so `clampTo` plays one. The static import above is the
+// real module, resolved before this mock exists.
+mock.module("node:fs/promises", {
+  exports: {
+    ...fsPromises,
+    utimes: (
+      /** @type {string} */ path,
+      /** @type {Date} */ atime,
+      /** @type {Date} */ mtime,
+    ) => fsPromises.utimes(path, clampTo ?? atime, clampTo ?? mtime),
+  },
+});
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -147,6 +164,7 @@ beforeEach(() => {
   deletionRecords = new Map();
   recordReads = 0;
   afterFetch = () => {};
+  clampTo = undefined;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -156,6 +174,53 @@ afterEach(() => {
 
 /** Where `--output` re-roots `/data/<name>` to. */
 const dest = (/** @type {string} */ name) => join(output, "data", name);
+
+describe("restore reads each modification time back", () => {
+  it("reports a time the filesystem kept differently, and exits 1", async () => {
+    clampTo = new Date("2026-01-01T00:00:00.000Z");
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.equal(result.restored.length, 4);
+    assert.deepEqual(
+      result.clamped.map(({ path }) => path),
+      result.restored,
+    );
+    assert.deepEqual(
+      new Set(result.clamped.map(({ kept }) => kept)),
+      new Set([clampTo.toISOString()]),
+    );
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("reports nothing when every time is kept", async () => {
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.clamped, []);
+    assert.notEqual(process.exitCode, 1);
+  });
+
+  it(
+    "doesn't read back a time Node misreads on Windows",
+    { skip: process.platform === "win32" ? false : "a Windows-only guard" },
+    async () => {
+      snapshot = {
+        entries: new Map([
+          [
+            "/data/far.txt",
+            { size: 3, mtime: "2300-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.deepEqual(result.restored, [dest("far.txt")]);
+      assert.deepEqual(result.clamped, []);
+    },
+  );
+});
 
 describe("restore with content shared by several paths", () => {
   it("downloads each content once and copies it to every other path", async () => {

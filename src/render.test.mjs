@@ -1529,6 +1529,7 @@ const restoreResult = (over) => ({
   corrupt: [],
   refused: [],
   blocked: [],
+  clamped: [],
   invalid: [],
   deleted: [],
   ...over,
@@ -1685,6 +1686,31 @@ describe("renderRestore", () => {
         "\nCould not restore 2 files — something already on this disk is in " +
           "the way (a file where a folder should be, or a folder where the " +
           "file should be):\n  /home/me/a\n  /home/me/b/c.txt\n",
+      ),
+    );
+    assert.match(
+      text,
+      /\n {2}s3cab restore --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("names every file restored with a time this disk couldn't hold, and the time it kept", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/out/edge/a.txt", "/out/edge/mtime-2300.txt"],
+        clamped: [
+          {
+            path: "/out/edge/mtime-2300.txt",
+            kept: "2262-04-11T23:47:16.854Z",
+          },
+        ],
+      }),
+    );
+    assert.ok(
+      text.includes(
+        "\nRestored 1 file with the wrong modification time — this disk can't " +
+          "hold the backed-up one, and kept another:\n" +
+          "  /out/edge/mtime-2300.txt  (kept 2262-04-11T23:47:16.854Z)\n",
       ),
     );
     assert.match(

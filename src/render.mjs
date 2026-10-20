@@ -1328,6 +1328,7 @@ export function renderRestore(
     corrupt,
     refused,
     blocked,
+    clamped,
     invalid,
     deleted,
   },
@@ -1435,6 +1436,24 @@ export function renderRestore(
         ...blocked.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Move what's in the way and restore again, or restore them into an empty directory:",
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+      ].join("\n"),
+    );
+  }
+  if (clamped.length) {
+    // Written, with the right content, but this disk stored another time than
+    // the one asked for (APFS keeps nothing past 2262), and said nothing.
+    const heading =
+      `Restored ${countOf(clamped.length, "file")} with the wrong modification ` +
+      `time — this disk can't hold the backed-up one, and kept another:`;
+    sections.push(
+      [
+        heading,
+        ...clamped.map(
+          ({ path, kept }) => `  ${withVisibleControls(path)}  (kept ${kept})`,
+        ),
+        "",
+        "Restore them onto a disk that can hold the time:",
         `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
       ].join("\n"),
     );
