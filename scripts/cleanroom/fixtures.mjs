@@ -27,7 +27,7 @@
  * regression or a misreading, named in its entry's `why`. Findings no fixture can provoke
  * are listed here rather than dropped so the table looks complete:
  *
- *   F4  duplicate path rows  a hand-edited snapshot in the restore fixtures, not a tree
+ *   F4  duplicate path rows  the seed's hand-edited copy of `faults` (`withHandEdits`)
  *   F12 `info` syntax        the backup checker's, not a tree's
  *   F15 storage class        needs a Glacier lifecycle on the bucket
  *
@@ -80,7 +80,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
 
 /** @import { Stats } from "node:fs" */
 
@@ -1159,32 +1159,175 @@ export function reportFixtures(dir, { sets, skipped, absent }) {
 }
 
 /**
- * A snapshot cut off after its last file row, trailer and closing `.` gone: the damage a
- * backup killed mid-write leaves, since the trailer is written last. Truncating the
- * *compressed* bytes would test gunzip's own check instead, so this decompresses, cuts,
- * and recompresses — a well-formed gzip stream that simply stops, which is precisely
- * what a reader has to notice. The seed publishes one for every restorer to refuse.
+ * A whole snapshot as if taken `minutes` earlier, decompressed, for the seed to damage
+ * and publish beside the intact one it was made from. Its name, `@SNAPSHOT NAME` and the
+ * instants of `START` and `FINISH` all move back together, as they agree in every
+ * snapshot s3cab writes, so the damage is the only thing wrong with the copy. Text, since
+ * damaging the *compressed* bytes would test gunzip's own check instead.
+ *
+ * Backdated, never later, so the intact one stays the set's latest: a tool that reaches
+ * for the newest snapshot finds a sound one, and a damaged one is met only by a reader
+ * that looks at every snapshot it is given.
  * @param {Uint8Array} snapshot a whole `.tsv.gz`
+ * @param {number} minutes how far back, a different count for each copy of one snapshot
+ * @returns {{ name: string, text: string }}
  */
-export function withoutTrailer(snapshot) {
-  const text = gunzipSync(snapshot).toString("utf8");
-  const trailer = text.lastIndexOf("\n@SNAPSHOT\tFILES") + 1;
-  return gzipSync(Buffer.from(text.slice(0, trailer), "utf8"));
+export function backdated(snapshot, minutes) {
+  let name = "";
+  const text = gunzipSync(snapshot)
+    .toString("utf8")
+    .split("\n")
+    .map((line) => {
+      const fields = line.split("\t");
+      const property =
+        fields[0] === "@SNAPSHOT" ? fields[1]?.trim() : undefined;
+      if (property === "NAME") {
+        name = minutesBefore(/** @type {string} */ (fields[4]), minutes);
+        fields[4] = name;
+      } else if (property === "START" || property === "FINISH") {
+        const instant = Date.parse(/** @type {string} */ (fields[3]));
+        fields[3] = new Date(instant - minutes * 60_000).toISOString();
+      }
+      return fields.join("\t");
+    })
+    .join("\n");
+  if (!name) {
+    throw new Error("the snapshot has no @SNAPSHOT NAME row");
+  }
+  return { name, text };
 }
 
 /**
- * The snapshot name one minute before this one, for naming a damaged copy beside the
- * intact snapshot it was made from. Backdated, never later, so the intact one stays the
- * set's latest: a tool that reaches for the newest snapshot finds a sound one, and the
- * damaged one is met only by a reader that looks at every snapshot it is given.
- *
- * Snapshot names are *local* time, so this parses and prints as UTC throughout: both
- * ends of the arithmetic use the same zone, so the answer is the local name one minute
- * back, and no offset is ever applied.
- * @param {string} name e.g. `2026-08-20T1432`
+ * Cut off after its last file row, trailer and closing `.` gone: the damage a backup
+ * killed mid-write leaves, since the trailer is written last. Refused whole.
+ * @param {string} text a whole snapshot, decompressed
  */
-export function oneMinuteBefore(name) {
+export function withoutTrailer(text) {
+  const trailer = text.lastIndexOf("\n@SNAPSHOT\tFILES");
+  if (trailer === -1) {
+    throw new Error("the snapshot has no @SNAPSHOT FILES row to cut at");
+  }
+  return text.slice(0, trailer + 1);
+}
+
+/**
+ * Cut off as `withoutTrailer` leaves it, then ending in an `@S3CAB` row of an unknown
+ * property rather than the `.`. Refused whole, since only the `.` says a file is whole: a
+ * reader that checks the last row's type instead takes it for whole.
+ * @param {string} text a whole snapshot, decompressed
+ */
+export function endingInHeaderRow(text) {
+  const spec = text
+    .split("\n")
+    .find((line) => line.startsWith("@S3CAB\tSPEC "));
+  if (!spec) {
+    throw new Error("the snapshot has no @S3CAB SPEC row to copy");
+  }
+  // `SPEC` and three of its padding spaces are as wide as `VERSION`.
+  return `${withoutTrailer(text)}${spec.replace("SPEC   ", "VERSION")}\n`;
+}
+
+/**
+ * Hand edits to `faults`' snapshot that a restorer must refuse rather than guess at, each
+ * one path s3cab refuses while restoring the rest (guide/format.md, "Valid and invalid
+ * files"), and each restored without a word by a reader that skips that check:
+ *
+ * - a row beside the member directory, under `faultsX`: under no `DIR`, but a reader
+ *   comparing string prefixes lands it inside;
+ * - one path twice with different hashes (F4): first-wins and last-wins readers each
+ *   restore one;
+ * - a `..` segment, deep enough to walk a naive join out of `--output`'s directory;
+ * - off Windows, the member directory spelled in another case: under no `DIR`, since
+ *   POSIX paths match exactly, but a reader folding case everywhere restores it.
+ *
+ * Each row reuses a hash already stored, `recoverable.txt`'s or the empty file's, so a
+ * reader that takes it has content to restore and the refusal alone stops it. `FILES` and
+ * `SIZE` are counted again, so they aren't a second thing wrong.
+ * @param {string} text `faults`' whole snapshot, decompressed
+ */
+export function withHandEdits(text) {
+  const lines = text.split("\n");
+  const dir = lines
+    .map((line) => line.split("\t"))
+    .find(
+      ([type, property]) => type === "@SET" && property?.trim() === "DIR",
+    )?.[4];
+  const kept = lines.find(
+    (line) => line.startsWith("-\t") && line.endsWith(`${sep}recoverable.txt`),
+  );
+  if (!dir || !kept) {
+    throw new Error(
+      "the snapshot has no @SET DIR row, or no recoverable.txt row",
+    );
+  }
+  const [, hash = "", size = "", time = ""] = kept.split("\t");
+  const empty = createHash("sha256").digest("hex");
+  const row = (
+    /** @type {string} */ path,
+    rowHash = hash,
+    rowSize = size.trim(),
+  ) => `-\t${rowHash}\t${rowSize.padStart(12)}\t${time}\t${path}`;
+  const member = dir.slice(0, -sep.length);
+  const added = [
+    row(`${member}X${sep}beside.txt`),
+    row(`${dir}twice.txt`),
+    row(`${dir}twice.txt`, empty, "0"),
+    row(`${dir}..${sep}..${sep}escaped.txt`),
+    ...(windows
+      ? []
+      : [
+          row(
+            join(dirname(member), basename(member).toUpperCase(), "case.txt"),
+          ),
+        ]),
+  ];
+  const addedSize = added.reduce(
+    (sum, line) => sum + Number(line.split("\t")[2]),
+    0,
+  );
+
+  const trailer = lines.findIndex((line) =>
+    line.startsWith("@SNAPSHOT\tFILES"),
+  );
+  if (trailer === -1) {
+    throw new Error(
+      "the snapshot has no @SNAPSHOT FILES row to add rows above",
+    );
+  }
+  lines.splice(trailer, 0, ...added);
+  return lines
+    .map((line) => {
+      const fields = line.split("\t");
+      const property =
+        fields[0] === "@SNAPSHOT" ? fields[1]?.trim() : undefined;
+      if (property === "FILES") {
+        fields[4] = String(Number(fields[4]) + added.length);
+      } else if (property === "SIZE") {
+        const total = Number(fields[4]?.split(" ")[0]) + addedSize;
+        // guide/format.md's readable form, which past 999 bytes needs a decimal:
+        // `faults` is a few lines of text. Not s3cab's `formatByteValue`: these
+        // scripts never import s3cab, so a fixture can't agree with its bug.
+        if (total >= 1000) {
+          throw new Error(
+            `faults has grown to ${total} bytes; write SIZE's kB form`,
+          );
+        }
+        fields[4] = `${total} (${total}B)`;
+      }
+      return fields.join("\t");
+    })
+    .join("\n");
+}
+
+/**
+ * The snapshot name `minutes` before this one. Snapshot names are *local* time, so this
+ * parses and prints as UTC throughout: both ends of the arithmetic use the same zone, so
+ * the answer is the local name that many minutes back, and no offset is ever applied.
+ * @param {string} name e.g. `2026-08-20T1432`
+ * @param {number} minutes
+ */
+function minutesBefore(name, minutes) {
   const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
-  stamp.setUTCMinutes(stamp.getUTCMinutes() - 1);
+  stamp.setUTCMinutes(stamp.getUTCMinutes() - minutes);
   return stamp.toISOString().slice(0, 16).replace(":", "");
 }

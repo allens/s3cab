@@ -339,10 +339,9 @@ set would have no reference tree, and the refusal is already the answer.)
 recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor
-says what to do when it fails. And `faults` gets a second snapshot cut off after
-its last file row, as a backup killed mid-write leaves it, and recompressed:
-truncating the compressed bytes would test gunzip's own check instead, and
-catching that cut is the closing `.`'s whole purpose.
+says what to do when it fails. And `faults` gets three damaged copies of its
+snapshot, listed under the seed below, each damaged as text and recompressed:
+damaging the compressed bytes would test gunzip's own check instead.
 
 `edge` also carries what the audits of the backup side found silent: an
 unreadable file among twenty readable siblings, so a backup that drops its
@@ -514,14 +513,21 @@ own names is cleared and reported; anything else and the script stops and names
 what it found. It is a check and not a lock — a suite that *starts* after the
 check still loses its in-flight objects.
 
-Two sets are deliberately broken, in four different ways, because s3cab's own
-damage handling is the part a corpus most easily leaves untested. `faults` has
-an object torn out of the store through the SDK with **no** deletion record (the
-unexplained-damage case: report it, carry on, exit nonzero), one file deleted
-*with* a record (the explained one, skipped with its date), and a snapshot
-missing its closing `.`. `corrupt` has an object whose bytes don't hash to its key.
-The damaged snapshot is backdated a minute so the intact one stays `faults`'s
-latest; it exists only in S3.
+Two sets are deliberately broken, because s3cab's own damage handling is the
+part a corpus most easily leaves untested. `faults` has:
+
+- an object torn out of the store through the SDK with **no** deletion record
+  (the unexplained-damage case: report it, carry on, exit nonzero);
+- one file deleted *with* a record (the explained one, skipped with its date),
+  the record moved up an index so the numbering has a gap, as `cleanup` leaves
+  one;
+- three damaged copies of its snapshot: one missing its closing `.`, one ending
+  in an `@S3CAB` row instead, and one with hand-edited rows s3cab refuses path
+  by path (`withHandEdits` in `fixtures.mjs` lists them).
+
+`corrupt` has an object whose bytes don't hash to its key. The damaged copies
+are backdated a minute or more each, their `@SNAPSHOT NAME` and `START` with
+them, so the intact snapshot stays `faults`'s latest; they exist only in S3.
 
 ## build-restore-cleanroom.mjs
 
@@ -567,7 +573,7 @@ compare.
 `faults` and `corrupt` restore with a nonzero exit, which the script reports as
 expected rather than failing — and their reference trees are whatever s3cab
 wrote before it gave up, since a partial tree is the honest reference for a
-partial restore. The damaged snapshot is restored by name. Restores that exit
+partial restore. The damaged copies are restored by name. Restores that exit
 nonzero outside those two are printed with what s3cab said, since on Windows a
 short reference tree is expected and has to be read before the session is
 resumed.
