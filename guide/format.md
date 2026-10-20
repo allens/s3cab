@@ -182,10 +182,10 @@ write keys can ignore it.
 snapshots are immutable, it does so **without touching a single snapshot file**: it deletes
 the backing objects and writes a **deletion record** at the bucket root:
 `objects.deleted-1.tsv`, then `-2`, and so on. A record is never overwritten: each run
-takes the lowest index not already in use, so two runs — even at the same moment — simply
-land on different numbers. The index tells two *files* apart and makes no claim about
-time: gaps in the sequence are normal (see compaction below), and *when* and *who* live
-inside the rows.
+takes the index after the highest in use, and the next one up if another run got there
+first, so two runs — even at the same moment — simply land on different numbers. The index
+tells two *files* apart and makes no claim about time: gaps in the sequence are normal (see
+compaction below), and *when* and *who* live inside the rows.
 
 **Read every `objects.deleted-<n>.tsv` key, and treat them as one set.** A hash is
 deliberately gone if *any* record row lists it. Nothing depends on which file a row sits
