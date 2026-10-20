@@ -514,14 +514,22 @@ own names is cleared and reported; anything else and the script stops and names
 what it found. It is a check and not a lock — a suite that *starts* after the
 check still loses its in-flight objects.
 
-Two sets are deliberately broken, in four different ways, because s3cab's own
-damage handling is the part a corpus most easily leaves untested. `faults` has
-an object torn out of the store through the SDK with **no** deletion record (the
-unexplained-damage case: report it, carry on, exit nonzero), one file deleted
-*with* a record (the explained one, skipped with its date), and a snapshot
-missing its closing `.`. `corrupt` has an object whose bytes don't hash to its key.
-The damaged snapshot is backdated a minute so the intact one stays `faults`'s
-latest; it exists only in S3.
+Two sets are deliberately broken, because s3cab's own damage handling is the
+part a corpus most easily leaves untested. `faults` has:
+
+- an object torn out of the store through the SDK with **no** deletion record
+  (the unexplained-damage case: report it, carry on, exit nonzero);
+- one file deleted *with* a record (the explained one, skipped with its date),
+  the record moved up an index so the numbering has a gap, as `cleanup` leaves
+  one (it can't run here: another platform's damage already in the bucket stops
+  it);
+- three damaged copies of its snapshot: one missing its closing `.`, one ending
+  in an `@S3CAB` row instead, and one with hand-edited rows s3cab refuses path
+  by path (`withHandEdits` in `fixtures.mjs` lists them).
+
+`corrupt` has an object whose bytes don't hash to its key. The damaged copies
+are backdated a minute or more each, their `@SNAPSHOT NAME` and `START` with
+them, so the intact snapshot stays `faults`'s latest; they exist only in S3.
 
 ## build-restore-cleanroom.mjs
 
@@ -567,7 +575,7 @@ compare.
 `faults` and `corrupt` restore with a nonzero exit, which the script reports as
 expected rather than failing — and their reference trees are whatever s3cab
 wrote before it gave up, since a partial tree is the honest reference for a
-partial restore. The damaged snapshot is restored by name. Restores that exit
+partial restore. The damaged copies are restored by name. Restores that exit
 nonzero outside those two are printed with what s3cab said, since on Windows a
 short reference tree is expected and has to be read before the session is
 resumed.

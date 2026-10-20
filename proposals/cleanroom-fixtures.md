@@ -14,25 +14,12 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
 
 ## Gaps
 
-- **Hand-edited snapshots.** A new set whose `info`, `dirs.txt` and snapshots are published
-  through the SDK, the way the seed already publishes the damaged `faults` snapshot. Its rows
-  reuse hashes already in the bucket, and `restore --output` builds its reference on Linux.
+- **More hand edits, the loud ones.** Further rows in the seed's hand-edited copy of `faults`
+  (`withHandEdits`, fixtures.mjs), which holds the silent ones.
   - Windows `@SET DIR`s (`C:\…`, `\\nas\share\…`, `//nas/share/…`) with rows in a different
     case or with `/` separators. Covers "Reading is more forgiving…" and the Windows half of
-    "How a `@SET DIR` matches a path". Nothing in the restore fixtures is Windows-shaped today. Loud.
-  - A row under `…\PhotosX\` where the only `DIR` is `…\Photos`. s3cab refuses the row, since
-    it's under no `DIR`; a restorer comparing string prefixes lands it at `Photos/X/…`.
-    **Silent.**
-  - The same path twice with different hashes. "Valid and invalid files" refuses both rows, and
-    s3cab exits nonzero; a first-wins or last-wins reader restores one of them and reports
-    nothing. This is F4, which no tree can provoke. **Silent.**
-  - A row with a `..` segment. s3cab refuses the path; a restorer that joins it onto its output
-    directory writes outside it. **Silent.**
-  - A POSIX `@SET DIR` in a different case from its rows. "Every other path is matched exactly",
-    so a restorer that folds case everywhere restores files s3cab refuses. **Silent.**
-  - A `DIR` with a trailing or doubled separator. Loud.
-  - A second snapshot whose last line is another `@S3CAB` row, `VERSION` say. A reader that
-    checks only the type restores a cut-short snapshot. **Silent.**
+    "How a `@SET DIR` matches a path".
+  - A `DIR` with a trailing or doubled separator.
 - **Exclude-pattern edges, seed side.** Add these to `spread`, beside its existing near misses.
   They reach no clean room now, since none has patterns; what they test is that the seed's
   own patterns mean what exclude.md says, so the restore fixtures hold the tree they claim.
@@ -54,11 +41,6 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   `[nest/outer, nest/outer/inner]` with the pattern `inner/`. s3cab accepts this and writes
   nested `@SET DIR`s, which exercises "the **longest wins**". A restorer that takes the first match
   lays the files out differently. **Silent**, though layout is the tool's own decision.
-- **A gap in the deletion-record numbering.** Run `s3cab cleanup` after both deletes and before
-  the torn object, the corrupt bytes and the damaged snapshot exist; cleanup refuses an
-  unreadable snapshot, so it has to run first. That leaves a single `-3` record. A restorer that
-  counts `-1`, `-2` … reports a recorded deletion as unexplained damage. Loud, but in the wrong
-  category.
 - **A tab, LF or CR in an excluded name**: `edge/odd\nname.jpg` and `edge/odd\rname.jpg` with
   the pattern `odd*name.jpg`. s3cab spells them out (`odd␊name.jpg`). A restorer that reads
   them raw splits the row. Loud. (With no pattern, such a name is the `ledger` set a backup
@@ -96,7 +78,7 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   within a set just PUTs the same key again.
 - **Several snapshots of one set, latest versus by name.** "Latest" isn't a format concept. `edge`
   already has two snapshots, the harness restores every snapshot by name, and the backdated
-  damaged snapshot already catches "latest by LastModified".
+  damaged copies of `faults` already catch "latest by LastModified".
 - **Overlapping member directories.** s3cab refuses them, so no snapshot in the restore fixtures can hold any.
 - **Sub-millisecond mtimes and half-millisecond ties.** F6 already covers sub-millisecond times.
   Node can't set exact nanoseconds, and a tie costs a re-hash, not data.
