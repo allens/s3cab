@@ -96,7 +96,7 @@ describe("parseSnapshotStream", () => {
     // repeating a file row's path changes nothing a reader restores (ADR-0101).
     const { entries, errors } = await parse(
       snapshotOf(
-        "@S3CAB\tSPEC\t\t\t2026-10-14",
+        "@S3CAB\tSPEC\t\t\t2026-10-20",
         "@CLIENT\tNAME\t\t\ts3cab",
         "@CLIENT\tVERSION\t\t\t0.14.0",
         "@CLIENT\tHOME\t\t\t/home/me/.s3cab/",

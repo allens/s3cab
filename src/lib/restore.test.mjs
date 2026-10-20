@@ -124,10 +124,11 @@ describe("selectEntries", () => {
 // `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
 // path in the snapshot lands under `<output>/<member-root-basename>/…`. Destinations are
 // built with the local separator under `resolve(output)`, so expected values use
-// the same `join`/`resolve` to stay portable across OSes.
+// the same `join`/`resolve` to stay portable across OSes. A test that only maps
+// passes no paths to restore: those decide only which roots must not collide.
 describe("reroot", () => {
   it("re-roots each member dir's contents under <output>/<basename>", () => {
-    const map = reroot(["/home/me/Photos", "/home/me/Docs"], "out");
+    const map = reroot(["/home/me/Photos", "/home/me/Docs"], [], "out");
     assert.equal(
       map("/home/me/Photos/2024/ski.jpg"),
       join(resolve("out"), "Photos", "2024", "ski.jpg"),
@@ -139,7 +140,7 @@ describe("reroot", () => {
   });
 
   it("is separator-agnostic, so a Windows snapshot re-roots on any OS", () => {
-    const map = reroot(["C:\\Users\\me\\Photos"], "out");
+    const map = reroot(["C:\\Users\\me\\Photos"], [], "out");
     assert.equal(
       map("C:\\Users\\me\\Photos\\beach.jpg"),
       join(resolve("out"), "Photos", "beach.jpg"),
@@ -147,7 +148,7 @@ describe("reroot", () => {
   });
 
   it("picks the longest matching root, so a nested member dir wins", () => {
-    const map = reroot(["/data", "/data/photos"], "out");
+    const map = reroot(["/data", "/data/photos"], [], "out");
     assert.equal(
       map("/data/photos/x.jpg"),
       join(resolve("out"), "photos", "x.jpg"),
@@ -159,18 +160,88 @@ describe("reroot", () => {
   });
 
   it("rejects two roots that share a basename (they'd collide under one root)", () => {
-    assert.throws(
-      () => reroot(["/a/Photos", "/b/Photos"], "out"),
-      /both named/,
+    const paths = ["/a/Photos/x.jpg", "/b/Photos/y.jpg"];
+    assert.throws(() => reroot(["/a/Photos", "/b/Photos"], paths, "out"), {
+      message:
+        `"/a/Photos" and "/b/Photos" would both land in a folder named "Photos" ` +
+        `under --output, which can't keep them apart. Restore them one at a time ` +
+        `with a path filter, or to their original locations.`,
+    });
+  });
+
+  it("places one of two roots sharing a basename when only its paths are restored", () => {
+    const map = reroot(["/a/Photos", "/b/Photos"], ["/b/Photos/y.jpg"], "out");
+    assert.equal(
+      map("/b/Photos/y.jpg"),
+      join(resolve("out"), "Photos", "y.jpg"),
     );
   });
 
-  it("rejects a snapshot with no member dirs", () => {
-    assert.throws(() => reroot([], "out"), /no directory headers/);
+  it("names a drive root's folder by its letter, on any OS", () => {
+    const map = reroot(["C:\\", "D:\\"], [], "out");
+    assert.equal(
+      map("C:\\Users\\me\\a.txt"),
+      join(resolve("out"), "C", "Users", "me", "a.txt"),
+    );
+    assert.equal(map("d:\\b.txt"), join(resolve("out"), "D", "b.txt"));
+  });
+
+  it("names a share root's folder by the share", () => {
+    const map = reroot(["\\\\nas\\photos\\"], [], "out");
+    assert.equal(
+      map("\\\\nas\\photos\\2024\\a.jpg"),
+      join(resolve("out"), "photos", "2024", "a.jpg"),
+    );
+  });
+
+  it("knows a drive by its shape, not by how many segments a root has", () => {
+    // Both hand-edited: a UNC server with no share, and a device path.
+    const map = reroot(["\\\\nas\\", "\\\\?\\E:\\"], [], "out");
+    assert.equal(map("\\\\nas\\a.txt"), join(resolve("out"), "nas", "a.txt"));
+    assert.equal(map("\\\\?\\E:\\b.txt"), join(resolve("out"), "E", "b.txt"));
+  });
+
+  it("lands a `/` member's files straight in <output>", () => {
+    const map = reroot(["/"], [], "out");
+    assert.equal(map("/etc/hosts"), join(resolve("out"), "etc", "hosts"));
+  });
+
+  it("rejects `/` beside another member dir, which its files could mix with", () => {
+    const paths = ["/etc/hosts", "/home/me/Photos/a.jpg"];
+    assert.throws(
+      () => reroot(["/", "/home/me/Photos"], paths, "out"),
+      /backs up "\/" beside "\/home\/me\/Photos"/,
+    );
+  });
+
+  // `/` holds every path, so a filter for the nested member must not count it.
+  it("places a member nested under `/` when only its paths are restored", () => {
+    const map = reroot(
+      ["/", "/home/me/Photos"],
+      ["/home/me/Photos/a.jpg"],
+      "out",
+    );
+    assert.equal(
+      map("/home/me/Photos/a.jpg"),
+      join(resolve("out"), "Photos", "a.jpg"),
+    );
+  });
+
+  it("rejects a drive root beside a member dir named for its letter, naming both", () => {
+    const paths = ["C:\\a.txt", "D:\\data\\c\\b.txt"];
+    assert.throws(
+      () => reroot(["C:\\", "D:\\data\\c"], paths, "out"),
+      /^Error: "D:\\data\\c" and "C:\\" would both land in a folder named "C"/,
+    );
+  });
+
+  it("keeps a POSIX folder named like a drive as it is", () => {
+    const map = reroot(["/mnt/C:"], [], "out");
+    assert.equal(map("/mnt/C:/a.txt"), join(resolve("out"), "C:", "a.txt"));
   });
 
   it("rejects a path that lies under no member root", () => {
-    const map = reroot(["/home/me/Photos"], "out");
+    const map = reroot(["/home/me/Photos"], [], "out");
     assert.throws(
       () => map("/etc/passwd"),
       /not under any backed-up directory/,
@@ -184,7 +255,7 @@ describe("reroot", () => {
   // on the drive letter, not on the running platform, because these snapshots
   // get restored on other operating systems — which is what `--output` is for.
   it("folds case in a Windows root, so an edited @SET DIR still re-roots", () => {
-    const map = reroot(["c:\\Users\\me\\Photos"], "out");
+    const map = reroot(["c:\\Users\\me\\Photos"], [], "out");
     assert.equal(
       map("C:\\Users\\me\\Photos\\beach.jpg"),
       join(resolve("out"), "Photos", "beach.jpg"),
@@ -192,7 +263,7 @@ describe("reroot", () => {
   });
 
   it("folds every segment of a Windows root, not just the drive", () => {
-    const map = reroot(["C:\\USERS\\ME\\photos"], "out");
+    const map = reroot(["C:\\USERS\\ME\\photos"], [], "out");
     assert.equal(
       map("C:\\Users\\me\\Photos\\beach.jpg"),
       join(resolve("out"), "photos", "beach.jpg"),
@@ -200,7 +271,7 @@ describe("reroot", () => {
   });
 
   it("keeps a POSIX root case-sensitive — there the two are different files", () => {
-    const map = reroot(["/home/me/Photos"], "out");
+    const map = reroot(["/home/me/Photos"], [], "out");
     assert.throws(
       () => map("/home/me/photos/beach.jpg"),
       /not under any backed-up directory/,
@@ -208,7 +279,7 @@ describe("reroot", () => {
   });
 
   it("still picks the longest match when a shorter root also folds to a match", () => {
-    const map = reroot(["C:\\data", "C:\\data\\photos"], "out");
+    const map = reroot(["C:\\data", "C:\\data\\photos"], [], "out");
     assert.equal(
       map("c:\\DATA\\Photos\\x.jpg"),
       join(resolve("out"), "photos", "x.jpg"),
@@ -226,7 +297,7 @@ describe("reroot", () => {
         process.platform === "win32" ? "backslash is a win32 separator" : false,
     },
     () => {
-      const map = reroot(["/home/me/Photos"], "out");
+      const map = reroot(["/home/me/Photos"], [], "out");
       assert.equal(
         map("/home/me/Photos/weird\\name.jpg"),
         join(resolve("out"), "Photos", "weird\\name.jpg"),
@@ -239,7 +310,7 @@ describe("reroot", () => {
   // last separator", which is empty there — `reroot` must derive the root's
   // basename from its trimmed segments instead, the way it derives `path`'s.
   it("re-roots correctly under a @SET DIR's trailing separator", () => {
-    const map = reroot(["/home/me/Photos/"], "out");
+    const map = reroot(["/home/me/Photos/"], [], "out");
     assert.equal(
       map("/home/me/Photos/beach.jpg"),
       join(resolve("out"), "Photos", "beach.jpg"),
@@ -252,7 +323,7 @@ describe("reroot", () => {
   // Windows-shaped exactly when this runs on Windows.
   it("places a POSIX name holding `\\` only under a non-Windows output", () => {
     const out = resolve("out");
-    const map = reroot(["/home/u/edge/"], "out");
+    const map = reroot(["/home/u/edge/"], [], "out");
     for (const name of ["back\\slash.txt", "a\\..\\..\\..\\Windows\\x.txt"]) {
       assert.equal(
         map(`/home/u/edge/${name}`),
@@ -263,7 +334,7 @@ describe("reroot", () => {
   });
 
   it("ignores a `\\` above the root, which is never joined", () => {
-    const map = reroot(["/home/u/we\\ird/photos/"], "out");
+    const map = reroot(["/home/u/we\\ird/photos/"], [], "out");
     assert.equal(
       map("/home/u/we\\ird/photos/a.jpg"),
       join(resolve("out"), "photos", "a.jpg"),

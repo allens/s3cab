@@ -30,6 +30,7 @@ import {
 import { tildeify } from "./lib/home.mjs";
 import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
+import { COARSEST_DISK_MS } from "./lib/restore.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
 import {
@@ -1301,13 +1302,14 @@ export function renderUpload(result, { color = false } = {}) {
 
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
- * snapshot, then one block per reason a requested file wasn't written. All
- * lists are given in full, never truncated: each entry is a file the user asked
- * for and didn't get, so name them all and say what to do about it
- * (`--overwrite` for the skipped, a separate `--output` for the collided, the
- * refused and the blocked, an earlier `--snapshot` for the invalid rows, `upload --force` of a
- * surviving copy for the corrupt, `verify` for
- * the missing — ADR-0030's constructive fix). The deliberately deleted need no
+ * snapshot, then one block per reason a requested file wasn't written, or was
+ * written with the wrong time. All lists are given in full, never truncated:
+ * each entry is a file the user asked for and didn't get whole, so name them all
+ * and say what to do about it (`--overwrite` for the skipped, a separate
+ * `--output` for the collided, the refused, the blocked and the clamped, an
+ * earlier `--snapshot` for the invalid rows, `upload --force` of a surviving
+ * copy for the corrupt, `verify` for the missing — ADR-0030's constructive fix).
+ * Times a disk merely rounded are one count, not a list. The deliberately deleted need no
  * fix: the deletion record explains them. The missing block comes last so it is
  * what remains on screen after a long run, and its exit code is set by the
  * command. An empty selection that did nothing at all says so plainly rather
@@ -1328,6 +1330,8 @@ export function renderRestore(
     corrupt,
     refused,
     blocked,
+    clamped,
+    coarseTimes,
     invalid,
     deleted,
   },
@@ -1351,6 +1355,15 @@ export function renderRestore(
   ) {
     sections.push(
       `Restored ${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot}).`,
+    );
+  }
+  if (coarseTimes) {
+    // Not a fault, so no list and no exit 1: FAT and exFAT round every time
+    // they're given, and the files are otherwise whole.
+    sections.push(
+      `This disk keeps modification times more coarsely than the backup: ` +
+        `${countOf(coarseTimes, "file")} ${coarseTimes === 1 ? "is" : "are"} ` +
+        `up to ${COARSEST_DISK_MS / 1000} seconds off.`,
     );
   }
   if (skipped.length) {
@@ -1435,6 +1448,24 @@ export function renderRestore(
         ...blocked.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Move what's in the way and restore again, or restore them into an empty directory:",
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+      ].join("\n"),
+    );
+  }
+  if (clamped.length) {
+    // Written, with the right content, but this disk stored another time than
+    // the one asked for (APFS keeps nothing past 2262), and said nothing.
+    const heading =
+      `Restored ${countOf(clamped.length, "file")} with the wrong modification ` +
+      `time — this disk can't hold the backed-up one, and kept another:`;
+    sections.push(
+      [
+        heading,
+        ...clamped.map(
+          ({ path, kept }) => `  ${withVisibleControls(path)}  (kept ${kept})`,
+        ),
+        "",
+        "Restore them onto a disk that can hold the time:",
         `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
       ].join("\n"),
     );

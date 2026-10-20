@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-14.
+This is the spec of 2026-10-20.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -182,10 +182,10 @@ write keys can ignore it.
 snapshots are immutable, it does so **without touching a single snapshot file**: it deletes
 the backing objects and writes a **deletion record** at the bucket root:
 `objects.deleted-1.tsv`, then `-2`, and so on. A record is never overwritten: each run
-takes the lowest index not already in use, so two runs — even at the same moment — simply
-land on different numbers. The index tells two *files* apart and makes no claim about
-time: gaps in the sequence are normal (see compaction below), and *when* and *who* live
-inside the rows.
+takes the index after the highest in use, and the next one up if another run got there
+first, so two runs — even at the same moment — simply land on different numbers. The index
+tells two *files* apart and makes no claim about time: gaps in the sequence are normal (see
+compaction below), and *when* and *who* live inside the rows.
 
 **Read every `objects.deleted-<n>.tsv` key, and treat them as one set.** A hash is
 deliberately gone if *any* record row lists it. Nothing depends on which file a row sits
@@ -205,7 +205,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-14
+@S3CAB    SPEC                                                        2026-10-20
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -294,7 +294,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-14
+@S3CAB    SPEC                                                        2026-10-20
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -436,7 +436,9 @@ directories.
 
 A link to a file or directory leads **into the backup** when the place it finally resolves
 to, through any further links, is a member directory or lies inside one, and **out of the
-backup** otherwise.
+backup** otherwise. A writer's own working folder inside a member directory, such as
+s3cab's `.s3cab`, counts as out: nothing in it gets a row, so its target would be recorded
+nowhere.
 
 A link out of the backup is an error because its content may look saved and isn't — a
 directory link can hide a whole tree. Add the target's directory to the set, or leave the link
@@ -598,12 +600,20 @@ looking. Restoring to a chosen directory, it writes each file to
 
 - The folder takes the `DIR` row's spelling, and the rest of the path the file row's, even
   where a Windows `DIR` matched a path spelled in another case.
+- A root has no name of its own:
+  - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
+    lands at `<output>\C\Users\me\a.txt`;
+  - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
+  - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
+    they could mix with that one's folder, so s3cab refuses a restore that reaches both.
 - Folders are made only as files land in them, so a member directory with no files restored
   leaves no folder at all.
 - Two `DIR` rows whose names collide, compared ignoring letter case (`C:\a\Photos\` and
-  `D:\b\photos\`), both want the same destination directory; s3cab refuses that snapshot
-  rather than merging them. The snapshot itself is valid, and restores to its recorded paths,
-  so a writer has nothing to refuse.
+  `D:\b\photos\`), both want the same destination directory; s3cab refuses a restore that
+  reaches both rather than merging them, and restores either one on its own. A file counts
+  for the deepest `DIR` it is under, so a filter reaching only a nested `DIR` doesn't reach
+  the one around it. The snapshot itself is valid, and restores to its recorded paths, so a
+  writer has nothing to refuse.
 - A file already at a destination is left alone and reported as skipped, unless the restore
   was asked to overwrite. Something in the way, a folder where a file should land or a file
   where one of its folders should be, is reported, exit 1. Nothing else already in
@@ -621,6 +631,8 @@ millisecond two restores can disagree without either being wrong. Compare times 
 to the nearest millisecond, not truncated: a restore that lands a little below the stored
 instant still holds it. But a restored file can also sit up to half a millisecond either
 side of a *surviving original*, which any mtime-sensitive tool will report as a difference.
+A disk that keeps coarser times, such as FAT or exFAT, can't hold the millisecond at all:
+there the restored time is rounded to what the disk keeps.
 
 ### The last line
 
@@ -637,8 +649,9 @@ a snapshot whose text was cut before it was compressed: that is complete gzip, a
 complete. Concretely: **don't restore from it**. The rows that
 survive a cut are a valid-looking prefix, so restoring them produces a tree that looks
 finished and silently isn't; refuse the snapshot, say why, and let the reader reach for an
-intact one. (A reader that only wants the file rows can still skip every other line;
-checking for the `.` first is what tells it the rows it read are all of them.)
+intact one. Refusing it is a failed restore, so **exit nonzero**, as for any other. (A
+reader that only wants the file rows can still skip every other line; checking for the `.`
+first is what tells it the rows it read are all of them.)
 
 The line before it, in a snapshot, is `@SNAPSHOT FINISH`. Its instant is when the run
 finished, and s3cab itself doesn't read it back. It's there for you, with the run's duration
@@ -829,8 +842,13 @@ For a restorer, or anything else that reads the files.
   restored file can land up to about a hundred nanoseconds off its row. s3cab's own restore
   does, where the filesystem keeps nanoseconds; setting the time through a nanosecond
   interface is exact. A time the destination can't hold fails without an error: APFS keeps
-  nothing past April 2262, so setting a year-2300 time succeeds and stores 2262. Read the
-  time back. s3cab's own restore doesn't yet, so it reports nothing wrong.
+  nothing past April 2262, so setting a year-2300 time succeeds and stores 2262, and under
+  WSL a Windows drive (`/mnt/c`) drops the fraction of a second, so `.674` lands as `.000`.
+  Read the time back, and tell rounding from a time not kept: FAT keeps 2-second steps,
+  exFAT 10 milliseconds, HFS+ whole seconds. s3cab's own restore counts a time off by less
+  than 2 seconds as rounded, says how many files that touched, and exits 0; one off by more
+  it reports with the time kept, exit 1, keeping the file. On Windows it can't check a time
+  before 1970 or after 2106, since Node reads those back wrong there, though NTFS holds them.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.

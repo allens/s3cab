@@ -76,7 +76,6 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   row for one, its path ending with a separator, and format.md describes that row without saying
   a row per file is wrong. No clean room has patterns now, so no checker meets the question.
 - **Unwritten rules that s3cab enforces:**
-  - format.md never says overlapping member directories are refused.
   - exclude.md never says that pattern characters other than the wildcard tokens are literal.
   - exclude.md never says that a pattern without a trailing `/` never matches a directory.
   - exclude.md never says whether an indented `#` line is a comment.

@@ -104,9 +104,8 @@ export const pathKey = (folder) => normalize(folder).replace(/\/+$/, "");
  * folder matches a path that equals it or lies under it (a `/`-boundary prefix),
  * separators unified and case folded for a Windows-shaped path, a trailing
  * separator ignored — so `/` is the root, and every absolute POSIX path is under
- * it. `restore`'s path filters, the walk's test of whether a link leads outside
- * the backup (ADR-0103), and the snapshot reader's test that a row's path is
- * under a `@SET DIR` (ADR-0101).
+ * it. `restore`'s path filters, and the snapshot reader's test that a row's path
+ * is under a `@SET DIR` (ADR-0101).
  * @param {string[]} folders - Paths to match under
  * @returns {((path: string) => boolean) | undefined} `undefined` when no folder
  *   is given, or all are blank

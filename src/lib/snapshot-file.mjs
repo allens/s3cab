@@ -72,7 +72,7 @@ export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
  * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
  * moves when the format does, never for a wording edit to guide/format.md.
  */
-export const SPEC_DATE = "2026-10-14";
+export const SPEC_DATE = "2026-10-20";
 
 /**
  * The last line of every whole s3cab file, and its completeness check

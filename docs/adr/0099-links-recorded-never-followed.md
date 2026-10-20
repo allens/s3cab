@@ -60,9 +60,9 @@ measured 2026-08-11, an unlocked OneDrive Personal Vault holding 74 items report
 
 It runs once per link, so the cost is negligible. `stat` (which follows the link) tells a missing
 target from a present one and says whether it ends at a file or folder, then
-`realpathSync.native`, then the containment test in restore's `pathMatcher`, which `normalize`s
-both sides (case folded for a Windows-shaped path) and joins on `/`. The walk handles one member
-directory at a time, so it needs the whole member list passed in.
+`realpathSync.native`, then the containment test in the walk's `backupMatcher`, which compares
+both sides as `pathKey`s (case folded for a Windows-shaped path) and joins on `/`. The walk
+handles one member directory at a time, so it needs the whole member list passed in.
 
 **`stat` must come before `realpath`.** Measured 2026-10-09: `realpathSync.native` throws
 `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with no

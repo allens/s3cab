@@ -122,7 +122,9 @@ to the original locations. Each backed-up directory lands under its own name:
 
 A set covering `C:\Users\me\Photos` restores to `D:\recovered\Photos\…`. It's shallow and
 readable — you get the backed-up directory's _name_, not a rebuilt `D:\recovered\C\Users\me\…`
-chain.
+chain. A whole drive has no name of its own, so it lands under its letter: a set covering
+`E:\` restores to `D:\recovered\E\…`. A backup of `/` lands straight in the directory you
+chose.
 
 Reach for it when:
 
@@ -136,10 +138,13 @@ Reach for it when:
 
 One case it can't handle: two backed-up directories with the **same name** (say `C:\a\Photos`
 and `D:\b\Photos`) would both want `<output>\Photos`. Restore rejects that up front rather
-than merging them — restore them one at a time with a path filter, or to their original
-locations. The name comparison ignores letter case (`Photos` vs `photos` still collides),
-even for Linux-style paths — the restore target may be a case-insensitive disk regardless of
-where the backup came from, and refusing up front beats silently merging on arrival.
+than merging them, and so it does for a backup of `/` beside any other directory. Restore
+them one at a time, with a path filter naming one of them, or to their original locations:
+only the directories your filter reaches count, and a file belongs to the innermost
+backed-up directory it sits in, so a filter for `/home/me/Photos` doesn't reach `/`. The
+name comparison ignores letter case (`Photos` vs `photos` still collides), even for
+Linux-style paths — the restore target may be a case-insensitive disk regardless of where
+the backup came from, and refusing up front beats silently merging on arrival.
 
 ## Restoring onto a fresh machine
 
@@ -170,7 +175,10 @@ backups of it are refused from then on.
   snapshot recorded, or nothing is written for that file — the file that lands is the file
   that was backed up, byte for byte.
 - **Modification times come back.** Each restored file is stamped with the mtime the snapshot
-  recorded, so a later `snapshot` sees it as unchanged rather than as new work.
+  recorded, so a later `snapshot` sees it as unchanged rather than as new work. Each time is
+  read back after it is set. A disk that keeps times more coarsely, such as a FAT or exFAT
+  stick, rounds them, so restore says how many files came back up to 2 seconds off and still
+  succeeds; a time further off is listed per file, and the run exits non-zero.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
   copied, or a directory you'd moved — is fetched once and copied locally to the rest.
 - **Two names this disk can't tell apart restore as one — loudly.** A backup made on a

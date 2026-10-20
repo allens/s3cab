@@ -100,10 +100,20 @@ export function selectEntries(paths, filters) {
 }
 
 /**
+ * How far a disk may round a modification time before the restore counts it as
+ * not kept: FAT's step, the coarsest in common use. exFAT keeps 10ms, HFS+ and
+ * WSL's view of a Windows drive whole seconds; a time off by less is reported
+ * once, as a count, and exits 0. Past it the time is wrong, not rounded.
+ */
+export const COARSEST_DISK_MS = 2000;
+
+/**
  * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
- * under `<output>/<member-root-basename>/<path-below-that-root>` — shallow and
+ * under `<output>/<member-root-name>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
  * taken (docs/design/backup.md). The member roots are the snapshot's `@SET DIR` rows.
+ * A root's name is its last segment; a drive root's is its letter, and `/` has
+ * none, so its files land in `<output>` itself.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split by `path-match.mjs`'s `preparePath` — both
@@ -124,22 +134,18 @@ export function selectEntries(paths, filters) {
  * exists for.
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
- * wanting `<output>/Photos`) are rejected up front: restore them one at a time
- * with a path filter, or to their original locations. Pure and side-effect-free
+ * wanting `<output>/Photos`) are rejected up front, and so is `/` beside any
+ * other root — but only roots that some path to restore lands under count, so
+ * a path filter restores each on its own. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The snapshot's member roots (its `@SET DIR` rows)
+ * @param {string[]} dirs - The member roots (`@SET DIR` rows)
+ * @param {string[]} paths - The snapshot paths to restore, which decide the roots
+ *   that must not collide
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string | undefined} Maps a snapshot path to its
  *   destination, or `undefined` for one a Windows output can't place
  */
-export function reroot(dirs, output) {
-  if (dirs.length === 0) {
-    throw new Error(
-      "This snapshot has no directory headers, so --output cannot re-root it. " +
-        "Omit --output to restore to the original locations instead.",
-    );
-  }
-
+export function reroot(dirs, paths, output) {
   const roots = dirs
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
@@ -147,33 +153,24 @@ export function reroot(dirs, output) {
       // separator", which is empty for a `@SET DIR` row, written with a
       // trailing one (ADR-0098). `segments` already trims those.
       const segments = path.split(posix.sep).filter(Boolean);
+      const last = segments.at(-1) ?? "";
       return {
+        dir,
         segments,
-        base: segments.at(-1) ?? "",
+        // A drive's segment is `C:`, which no Windows folder can be called, so
+        // it takes the letter. No later segment of a Windows path has a colon.
+        base: foldCase && /^[A-Za-z]:$/.test(last) ? last.slice(0, -1) : last,
         fold: foldCase,
       };
     })
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
-
-  const seen = new Set();
-  for (const { base } of roots) {
-    const key = base.toLowerCase();
-    if (seen.has(key)) {
-      throw new Error(
-        `Two backed-up directories are both named "${base}", so --output cannot keep ` +
-          `them apart under one root. Restore them one at a time with a path ` +
-          `filter, or to their original locations.`,
-      );
-    }
-    seen.add(key);
-  }
-
-  const outDir = resolve(output);
-  const windows = foldsCase(outDir);
-  return (path) => {
-    const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
-    const root = roots.find(
+  /** @param {string} path */
+  const split = (path) =>
+    preparePath(path).path.split(posix.sep).filter(Boolean);
+  /** @param {string[]} segments */
+  const rootOf = (segments) =>
+    roots.find(
       (r) =>
         r.segments.length <= segments.length &&
         r.segments.every((seg, i) => {
@@ -185,6 +182,39 @@ export function reroot(dirs, output) {
             : seg === other;
         }),
     );
+
+  const reached = new Set(paths.map((path) => rootOf(split(path))));
+  const used = roots.filter((root) => reached.has(root));
+  const apart =
+    "Restore them one at a time with a path filter, or to their original locations.";
+  const top = used.find(({ base }) => base === "");
+  const beside = used.find(({ base }) => base !== "");
+  if (top && beside) {
+    throw new Error(
+      `This snapshot backs up "${top.dir}" beside "${beside.dir}", and under --output ` +
+        `the files of "${top.dir}" land in the output itself, where they could mix ` +
+        `with the others. ${apart}`,
+    );
+  }
+  /** @type {Map<string, string>} */
+  const seen = new Map();
+  for (const { dir, base } of used) {
+    const key = base.toLowerCase();
+    const first = seen.get(key);
+    if (first !== undefined) {
+      throw new Error(
+        `"${first}" and "${dir}" would both land in a folder named "${base}" under ` +
+          `--output, which can't keep them apart. ${apart}`,
+      );
+    }
+    seen.set(key, dir);
+  }
+
+  const outDir = resolve(output);
+  const windows = foldsCase(outDir);
+  return (path) => {
+    const segments = split(path);
+    const root = rootOf(segments);
     if (!root) {
       throw new Error(
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
