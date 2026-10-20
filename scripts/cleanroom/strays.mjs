@@ -93,12 +93,16 @@ const wholePath = (text, match) => {
   }
   return text.slice(start, end);
 };
-// After a space, a separator, a quote or a slash, prose included (`so s3cab withholds too`): a
-// missed run voids the audit, and a false alarm costs a glance at the input printed beside
-// it. Not before `|` or `)`, where it is a regex alternative (`@(CLIENT|SNAPSHOT|S3CAB|SET)`).
+// After a space, a separator, a quote, a slash, `=` or `:` (`alias sc=s3cab`,
+// `-FilePath:s3cab`), prose included (`so s3cab withholds too`), and before a backtick or
+// `}` as well (`` x=`s3cab` ``): a missed run voids the audit, and a false alarm costs a
+// glance at the input printed beside it. Not only where it runs as a command: no list of
+// what launches one (`sudo`, `cmd /c`, `FOO=1`, `yarn`, `watch -n 5` …) stays complete, and
+// a gap is a silent miss. Not before `|` or `)`, where it is a regex alternative
+// (`@(CLIENT|SNAPSHOT|S3CAB|SET)`), nor `'s`.
 // Case-insensitive, since Windows runs `S3CAB` too. `@` admits a version (`s3cab@latest`).
 const runsS3cab =
-  /(?<=^|[\s;&|(`"'{\\/])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@"'>])/im;
+  /(?<=^|[\s;&|(`"'{\\/=:])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">`}]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
 // after it isn't read as part of it. One that starts with a variable reads as empty.
@@ -123,8 +127,13 @@ const reachesWeb = (command) => {
   );
 };
 
-/** @param {string[]} allowed the places the session may use: the root and its own scratch */
-export function strayFinders(allowed) {
+/**
+ * @param {string[]} allowed the places the session may use: its clean room, a backup's
+ *   fixtures, and its own scratch
+ * @param {string} root the sandbox root, watched for the file tools' paths only: a command
+ *   naming the session's own clean room beside a `..` would read as a stray
+ */
+export function strayFinders(allowed, root) {
   const allowedSpelled = new RegExp(
     `(${allowed.flatMap(aliases).map(spellings).join("|")})(?=[\\\\/${edge}]|$)`,
     "gi",
@@ -135,11 +144,12 @@ export function strayFinders(allowed) {
   // spaces, redirects (`>../x`) and split arguments (`Join-Path ~/s3cab.sandbox ../..`) each
   // hid a climb-out from one. `...` isn't a climb.
   const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
+  const watchedPaths = [...watched, root];
   return {
     /** @param {string} path */
     strayPath: (path) =>
       !allowed.some((place) => inside(path, place)) &&
-      watched.some((place) => inside(path, place)),
+      watchedPaths.some((place) => inside(path, place)),
     /**
      * @param {string} command
      * @returns {string | undefined}

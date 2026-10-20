@@ -3,10 +3,31 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { exampleRoot } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
 
+// An allowed place in the home folder, as the session's scratchpad is in temp: what the
+// `..` rule exists for.
 const root = join(realpathSync.native(homedir()), "s3cab.sandbox");
-const { strayPath, strayCommand } = strayFinders([root]);
+const { strayPath, strayCommand } = strayFinders([root], root);
+
+test("the sandbox root is watched for the file tools, outside its clean room", () => {
+  const sandbox = strayFinders([join(exampleRoot, "cleanroom")], exampleRoot);
+  assert.equal(sandbox.strayPath(join(exampleRoot, ".s3cab", "sets")), true);
+  assert.equal(
+    sandbox.strayPath(join(exampleRoot, "reference-exits.json")),
+    true,
+  );
+  assert.equal(
+    sandbox.strayPath(join(exampleRoot, "cleanroom", "main.c")),
+    false,
+  );
+  // Not in commands, where the clean room's own path beside a `..` would be kept.
+  assert.equal(
+    sandbox.strayCommand(`cd ${exampleRoot}/cleanroom && cc main.c ../x.c`),
+    undefined,
+  );
+});
 
 test("a command is reported as the path in it that left the sandbox", () => {
   const command =
@@ -130,6 +151,38 @@ test("a command running s3cab is reported as that run", () => {
     '& "s3cab" list',
     "Invoke-Expression 's3cab'",
     "s3cab>out.txt",
+    "$snap = s3cab list myset",
+    "AWS_PROFILE=x s3cab list",
+    "if s3cab list; then echo y; fi",
+    "if ! s3cab backup; then exit 1; fi",
+    "while s3cab list; do sleep 1; done",
+    "timeout 10 s3cab list",
+    "nice -n 5 s3cab list",
+    "sudo -u root s3cab list",
+    "command s3cab list",
+    "wsl s3cab list",
+    "cmd /c s3cab list",
+    "cmd.exe /c s3cab list",
+    "Start-Process s3cab -ArgumentList list",
+    "powershell -Command s3cab list",
+    "pwsh -NoProfile -c s3cab list",
+    "for s in a b; do AWS_PROFILE=x s3cab list $s; done",
+    "env -u FOO s3cab list",
+    "wsl.exe s3cab list",
+    "pnpm dlx --silent s3cab list",
+    "yarn s3cab list",
+    "bun x s3cab list",
+    "iex s3cab",
+    "watch -n 5 s3cab list",
+    "doas s3cab list",
+    "alias sc=s3cab",
+    "doskey sc=s3cab $*",
+    "bin=s3cab; $bin list",
+    "x=`s3cab`",
+    "& {s3cab}",
+    "Start-Process -FilePath:s3cab -ArgumentList list",
+    // Prose too: a false alarm, taken over a miss.
+    "cat > NOTES.md <<'EOF'\nThe spec says s3cab takes the latest.\nEOF",
   ]) {
     assert.equal(strayCommand(command), "s3cab", command);
   }
@@ -140,6 +193,16 @@ test("a command running s3cab is reported as that run", () => {
   );
   assert.equal(strayCommand("node ./src/s3cab.mjs list"), "s3cab.mjs");
   assert.equal(strayCommand("s3cab.ps1 list"), "s3cab.ps1");
+});
+
+test("s3cab's, or the restorer's name, isn't a run of it", () => {
+  for (const command of [
+    "echo 'restores what (s3cab's own restore) would' >> REPORT.md",
+    "./s3cab-restore bucket set out",
+    "dotnet build -o=s3cab-restore",
+  ]) {
+    assert.equal(strayCommand(command), undefined, command);
+  }
 });
 
 test("s3cab as a regex alternative isn't a run of it", () => {

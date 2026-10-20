@@ -40,6 +40,7 @@ import {
   cli,
   client,
   credentialsFile,
+  exampleRoot,
   listAll,
   readBucket,
   runCommand,
@@ -52,7 +53,7 @@ import { count, files, goldenSets } from "./fixtures.mjs";
 
 const usage =
   "usage: node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs <root>\n\n" +
-  "e.g. node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs ~/s3cab.sandbox";
+  `e.g. node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs ${exampleRoot}`;
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
   console.error(usage);
@@ -93,6 +94,9 @@ process.env.AWS_REGION = BucketRegion;
 
 cpSync(cleanroom, frozen, {
   recursive: true,
+  // Not resolved to absolute links into `cleanroom/`, which the reconcile phase rebuilds:
+  // check-restore.mjs would then run the final program as the spec-only one.
+  verbatimSymlinks: true,
   filter: (path) => basename(path) !== credentialsFile,
 });
 console.log(`the spec-only phase's clean room kept in ${frozen}`);

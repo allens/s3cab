@@ -1,13 +1,20 @@
 /**
- * Check a restore clean room's work (ADR-0096): run the restorer the session built,
- * `cleanroom/s3cab-restore` (`.exe` on Windows), once per snapshot
- * reconcile-restore-cleanroom.mjs restored a reference tree from, and compare each tree it
- * writes with that reference (compare.py). Then, for each set with more than one snapshot,
- * once with no snapshot named, against the reference of the set's last snapshot name, which
- * s3cab takes as the latest.
+ * Check a restore clean room's work (ADR-0096): run each restorer the session built,
+ * `s3cab-restore` (`.exe` on Windows), once per snapshot reconcile-restore-cleanroom.mjs
+ * restored a reference tree from, and compare each tree it writes with that reference
+ * (compare.py). Then, for each set with more than one snapshot, once with no snapshot
+ * named, against the reference of the set's last snapshot name, which s3cab takes as the
+ * latest.
  *
- *   <root>/check/<set>-<snapshot>/restored/   what the restorer wrote
- *   <root>/check/<set>-<snapshot>.log         its and compare.py's output
+ * Two restorers, each with its own verdict: the one in `spec-only/`, as the session left it
+ * before it saw a reference, which is the evidence about the format; then the final one in
+ * `cleanroom/`, which is the program harvested.
+ *
+ *   <root>/check/<program>-<set>-<snapshot>/restored/   what the restorer wrote
+ *   <root>/check/<program>-<set>-<snapshot>.log         its and compare.py's output
+ *
+ * The references sit beside the clean room while it runs, at `<root>/reference`, so a
+ * restorer can't copy its answers from them, and go back when it ends.
  *
  * The restorer's directory is one level down so that a file it writes outside it lands
  * where the check can see it: `faults`' hand-edited `..` row walks a naive join up two
@@ -25,8 +32,8 @@
  * The restorer is handed the bucket's credentials as static keys resolved here, not the
  * clean room's, which may have expired by the time the session finishes.
  *
- * Exits 1 if anything mismatched, 2 if the check itself couldn't run, 0 if only notes or
- * nothing.
+ * Exits 1 if anything mismatched in either restorer, 2 if the check itself couldn't run, 0
+ * if only notes or nothing.
  *
  * Usage:
  *   node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>
@@ -40,11 +47,14 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
+  renameSync,
   rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   client,
+  exampleRoot,
   readBucket,
   restoreProgram,
   sandboxPath,
@@ -53,7 +63,7 @@ import {
 
 const usage =
   "usage: node --env-file=.env.test scripts/cleanroom/check-restore.mjs <root>\n\n" +
-  "e.g. node --env-file=.env.test scripts/cleanroom/check-restore.mjs ~/s3cab.sandbox";
+  `e.g. node --env-file=.env.test scripts/cleanroom/check-restore.mjs ${exampleRoot}`;
 const [arg, ...extra] = process.argv.slice(2);
 if (!arg || extra.length > 0) {
   console.error(usage);
@@ -83,12 +93,22 @@ if (!Object.values(codes).some((exits) => Object.keys(exits).length > 0)) {
   );
   process.exit(2);
 }
-const program = join(cleanroom, restoreProgram);
-if (!existsSync(program)) {
-  console.log(
-    `1 mismatch\n  mismatch: the session left no ${restoreProgram} in ${cleanroom}`,
+const reference = join(cleanroom, "reference");
+const aside = join(root, "reference");
+if (!existsSync(reference) && !existsSync(aside)) {
+  console.error(
+    `${reference} doesn't exist, so there is nothing to compare with. Run\n` +
+      "reconcile-restore-cleanroom.mjs on this root first.",
   );
-  process.exit(1);
+  process.exit(2);
+}
+if (existsSync(reference) && existsSync(aside)) {
+  console.error(
+    `The references are in both ${reference}\n` +
+      `and ${aside}, so the check can't tell which to use. Keep the one\n` +
+      "reconcile-restore-cleanroom.mjs wrote, in the clean room, and remove the other.",
+  );
+  process.exit(2);
 }
 
 const credentials = await sessionCredentials(bucket);
@@ -110,16 +130,24 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
 const minutes = 20;
 
-/** @type {string[]} */
-const mismatches = [];
-/** @type {string[]} */
-const notes = [];
+/** @typedef {{ name: string, dir: string, mismatches: string[], notes: string[] }} Restorer */
+/** @type {Restorer[]} */
+const restorers = [
+  {
+    name: "spec-only",
+    dir: join(root, "spec-only"),
+    mismatches: [],
+    notes: [],
+  },
+  { name: "final", dir: cleanroom, mismatches: [], notes: [] },
+];
 /** Each run's folder and log: anything else in `check/` is a stray. */
 const known = new Set();
 
 /**
- * Run the restorer once, into `<root>/check/<label>/restored`, and compare what it wrote with the
- * reference tree of `<set>-<snapshot>`.
+ * Run a restorer once, into `<root>/check/<label>/restored`, and compare what it wrote with
+ * the reference tree of `<set>-<snapshot>`.
+ * @param {Restorer} restorer
  * @param {string} set
  * @param {string} snapshot the reference to compare with
  * @param {number} expected s3cab's exit restoring it
@@ -127,20 +155,31 @@ const known = new Set();
  * @param {string[]} named the snapshot argument, or none for the latest
  * @returns {boolean} false if compare.py itself failed, so the check can't go on
  */
-function check(set, snapshot, expected, label, named) {
+function check(
+  { dir: cwd, mismatches, notes },
+  set,
+  snapshot,
+  expected,
+  label,
+  named,
+) {
   const dir = join(out, label, "restored");
   mkdirSync(join(out, label));
   known.add(label).add(`${label}.log`);
   // Into a file, not a pipe: spawnSync kills a child whose piped output passes maxBuffer.
   const logFile = join(out, `${label}.log`);
   const log = openSync(logFile, "w");
-  const result = spawnSync(program, [bucket, set, dir, ...named], {
-    cwd: cleanroom,
-    env,
-    stdio: ["ignore", log, log],
-    timeout: minutes * 60 * 1000,
-    killSignal: "SIGKILL",
-  });
+  const result = spawnSync(
+    join(cwd, restoreProgram),
+    [bucket, set, dir, ...named],
+    {
+      cwd,
+      env,
+      stdio: ["ignore", log, log],
+      timeout: minutes * 60 * 1000,
+      killSignal: "SIGKILL",
+    },
+  );
   // Whatever the exit, and removed once reported, so a later run isn't charged with it
   // and one writing the same name is still caught.
   const outside = [
@@ -192,7 +231,7 @@ function check(set, snapshot, expected, label, named) {
       [
         join(import.meta.dirname, "compare.py"),
         dir,
-        join(cleanroom, "reference", `${set}-${snapshot}`),
+        join(aside, `${set}-${snapshot}`),
       ],
       { stdio: ["ignore", log, log] },
     );
@@ -218,33 +257,117 @@ function check(set, snapshot, expected, label, named) {
   return true;
 }
 
-let stopped = false;
-sets: for (const [set, exits] of Object.entries(codes)) {
-  const snapshots = Object.entries(exits).sort(([a], [b]) => (a < b ? -1 : 1));
-  for (const [snapshot, expected] of snapshots) {
-    stopped = !check(set, snapshot, expected, `${set}-${snapshot}`, [snapshot]);
-    if (stopped) {
-      break sets;
-    }
-  }
-  const latest = snapshots.at(-1);
-  if (latest && snapshots.length > 1) {
-    stopped = !check(set, ...latest, `${set}-latest`, []);
-    if (stopped) {
-      break;
-    }
+/**
+ * Move the references, or exit 2 saying where they are: a move that failed is the check
+ * not running, not a mismatch.
+ * @param {string} from
+ * @param {string} to
+ */
+function moveReferences(from, to) {
+  try {
+    renameSync(from, to);
+  } catch (error) {
+    console.error(
+      `couldn't move the references from ${from} to ${to} (${/** @type {NodeJS.ErrnoException} */ (error).code})`,
+    );
+    process.exit(2);
   }
 }
 
-const found =
-  mismatches.length === 0
-    ? "matches"
-    : `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}`;
-console.log(stopped ? `${found} before compare.py failed` : found);
-for (const mismatch of mismatches) {
-  console.log(`  mismatch: ${mismatch}`);
+/**
+ * Why the spec-only verdict may be the final program's: the copy reaches back into the
+ * clean room, through a symlink or a script that names it.
+ * @param {string} program
+ */
+function reachesCleanroom(program) {
+  const real = realpathSync.native(program);
+  if (!real.startsWith(dirname(program) + sep)) {
+    return `${program} resolves to ${real}`;
+  }
+  const text = readFileSync(program);
+  // Only a script: a compiled program keeps its build path in its debug information.
+  return text.subarray(0, 2).toString() === "#!" && text.includes(cleanroom)
+    ? `${program} is a script naming ${cleanroom}`
+    : undefined;
 }
-for (const note of notes) {
-  console.log(`  note: ${note}`);
+
+/**
+ * Every run of one restorer: each snapshot, then each set's latest.
+ * @param {Restorer} restorer
+ * @returns {boolean} false if compare.py itself failed, so the check can't go on
+ */
+function checkAll(restorer) {
+  const program = join(restorer.dir, restoreProgram);
+  if (!existsSync(program)) {
+    restorer.mismatches.push(`no ${restoreProgram} in ${restorer.dir}`);
+    return true;
+  }
+  const reaches =
+    restorer.dir === cleanroom ? undefined : reachesCleanroom(program);
+  if (reaches) {
+    restorer.notes.push(`may run the final program: ${reaches}`);
+  }
+  for (const [set, exits] of Object.entries(codes)) {
+    const snapshots = Object.entries(exits).sort(([a], [b]) =>
+      a < b ? -1 : 1,
+    );
+    for (const [snapshot, expected] of snapshots) {
+      const label = `${restorer.name}-${set}-${snapshot}`;
+      if (!check(restorer, set, snapshot, expected, label, [snapshot])) {
+        return false;
+      }
+    }
+    const latest = snapshots.at(-1);
+    if (latest && snapshots.length > 1) {
+      const label = `${restorer.name}-${set}-latest`;
+      if (!check(restorer, set, ...latest, label, [])) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
-process.exitCode = stopped ? 2 : mismatches.length > 0 ? 1 : 0;
+
+/** @param {Restorer} restorer */
+function report({ name, mismatches, notes }) {
+  const found =
+    mismatches.length === 0
+      ? "matches"
+      : `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}`;
+  console.log(`${name}: ${found}`);
+  for (const mismatch of mismatches) {
+    console.log(`  mismatch: ${mismatch}`);
+  }
+  for (const note of notes) {
+    console.log(`  note: ${note}`);
+  }
+}
+
+// A check that stopped partway has left them aside already.
+if (existsSync(reference)) {
+  moveReferences(reference, aside);
+}
+let stopped = false;
+try {
+  // Each verdict as its restorer finishes, so a check killed during the second (CI's step
+  // limit) still leaves the first in check.txt.
+  for (const restorer of restorers) {
+    stopped = !checkAll(restorer);
+    report(restorer);
+    if (stopped) {
+      console.log("stopped: compare.py failed");
+      break;
+    }
+  }
+} catch (error) {
+  // The check failing, not a restorer: exit 2, not the uncaught exception's 1.
+  console.log("stopped:", error);
+  stopped = true;
+} finally {
+  moveReferences(aside, reference);
+}
+process.exitCode = stopped
+  ? 2
+  : restorers.some(({ mismatches }) => mismatches.length > 0)
+    ? 1
+    : 0;

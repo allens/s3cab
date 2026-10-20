@@ -7,7 +7,7 @@
  * A sandbox root holds `cleanroom/`, where the session is opened, beside what the build
  * needs and the session must not see (`fixtures/`, the trees a backup build hands over,
  * and `.s3cab/`, s3cab's home while a restore build runs it). It is built once, from
- * empty, and deleted when the run is harvested.
+ * empty, and emptied when the run is harvested.
  *
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
@@ -60,7 +60,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
@@ -83,6 +83,17 @@ export const client = new S3Client({
   requestHandler: { httpsAgent: { keepAlive: false } },
 });
 const windows = process.platform === "win32";
+const darwin = process.platform === "darwin";
+/**
+ * Where a sandbox goes, for the usage lines: outside the home folder and temp, which the
+ * transcript audit watches (README.md). Linux has no such folder a user can make, so the
+ * operator makes `/srv/s3cab.sandbox` once.
+ */
+export const exampleRoot = windows
+  ? "C:\\s3cab.sandbox"
+  : darwin
+    ? "/Users/Shared/s3cab.sandbox"
+    : "/srv/s3cab.sandbox";
 export const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 /** What the restorer brief has the session build, in the clean room, for check-restore.mjs. */
 export const restoreProgram = windows ? "s3cab-restore.exe" : "s3cab-restore";
@@ -110,10 +121,11 @@ export function sandboxPath(arg) {
  * Read `<root>`, or exit 2 saying what was wrong. The root has to be outside the repo,
  * and empty. Every build reads its bucket too, with {@link readCommandLine}.
  * @param {string} script this script's file name, for the usage line
+ * @param {boolean} audited whether a session will run here, whose transcript is audited
  */
-function readRoot(script) {
+function readRoot(script, audited) {
   const command = `node --env-file=.env.test scripts/cleanroom/${script}`;
-  const usage = `usage: ${command} <root>\n\ne.g. ${command} ~/s3cab.sandbox`;
+  const usage = `usage: ${command} <root>\n\ne.g. ${command} ${exampleRoot}`;
   /** @type {ReturnType<typeof parseArgs>} */
   let parsed;
   try {
@@ -129,20 +141,61 @@ function readRoot(script) {
   }
 
   const root = sandboxPath(arg);
+  // Compared case-blind because Windows spells the same directory several ways
+  // (`realpathSync` gives `D:\src\s3cab`, `resolve` keeps a typed `d:\src\s3cab`); on a
+  // case-sensitive filesystem that can only over-refuse, the safe direction here.
+  const lowerRoot = root.toLowerCase();
+  /** @param {string} place */
+  const inside = (place) => {
+    const lowerPlace = place.toLowerCase();
+    return lowerRoot === lowerPlace || lowerRoot.startsWith(lowerPlace + sep);
+  };
 
   // The one guard that matters: a clean room inside the repo is not a clean room, since
-  // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
-  // case-blind because Windows spells the same directory several ways (`realpathSync`
-  // gives `D:\src\s3cab`, `resolve` keeps a typed `d:\src\s3cab`); on a case-sensitive
-  // filesystem that can only over-refuse, the safe direction here.
-  const [lowerRepo, lowerRoot] = [repoRoot.toLowerCase(), root.toLowerCase()];
-  if (lowerRoot === lowerRepo || lowerRoot.startsWith(lowerRepo + sep)) {
+  // the session would inherit the repo's CLAUDE.md from a parent directory. Run from a
+  // worktree, that is the main checkout too, which holds the worktree's own `.git`. Not
+  // `--path-format=absolute`: git before 2.31 echoes an option it doesn't know and exits 0.
+  const git = spawnSync("git", ["rev-parse", "--git-common-dir"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const common = git.status === 0 ? git.stdout.trim() : "";
+  const checkouts = [
+    repoRoot,
+    ...(common
+      ? [dirname(realpathSync.native(resolve(repoRoot, common)))]
+      : []),
+  ];
+  if (checkouts.some(inside)) {
     console.error(
       `${root} is inside the repository, so a session opened there would be handed\n` +
         "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
         "has to prevent. Build it somewhere outside the repo instead:\n" +
         "\n" +
-        `    ${command} ~/s3cab.sandbox\n`,
+        `    ${command} ${exampleRoot}\n`,
+    );
+    return process.exit(2);
+  }
+
+  // The audit reads every command naming home or temp as a move out of the sandbox, so a
+  // sandbox in either makes the session's own paths strays. Both spellings, as a root that
+  // doesn't exist yet isn't canonical: macOS's `$TMPDIR` is `/var/folders/…`, its realpath
+  // `/private/var/folders/…`.
+  const watched = audited
+    ? [homedir(), tmpdir()]
+        .flatMap((place) => [place, realpathSync.native(place)])
+        .find(inside)
+    : undefined;
+  if (watched) {
+    console.error(
+      `${root} is inside ${watched}, which the transcript audit watches, so every\n` +
+        "command the session ran in its own sandbox would read as a stray. Build it\n" +
+        "outside the home folder and temp instead:\n" +
+        "\n" +
+        `    ${command} ${exampleRoot}\n` +
+        (windows || darwin
+          ? ""
+          : '\nMake that folder once first: sudo install -d -o "$USER" /srv/s3cab.sandbox\n'),
     );
     return process.exit(2);
   }
@@ -152,7 +205,11 @@ function readRoot(script) {
   if (existsSync(root) && readdirSync(root).length > 0) {
     console.error(
       `${root} already has files in it. A sandbox is built from empty, once per run —\n` +
-        "harvest what the last run wrote, delete the directory, and build again.",
+        "harvest what the last run wrote, empty it, and build again:\n" +
+        "\n" +
+        (windows
+          ? `    Remove-Item -Recurse "${root}"\n`
+          : `    find "${root}" -mindepth 1 -delete\n`),
     );
     return process.exit(2);
   }
@@ -167,9 +224,11 @@ function readRoot(script) {
  * Read `<root>` and the bucket, or exit 2 saying what was wrong.
  * @param {string} script this script's file name, for the usage line
  * @param {string} variable the environment variable naming its bucket
+ * @param {{ audited?: boolean }} [options] `audited` for a build, whose session's transcript
+ *   is audited; not the seed's, whose root sits in CI's `runner.temp`, under its home
  */
-export function readCommandLine(script, variable) {
-  const root = readRoot(script);
+export function readCommandLine(script, variable, { audited = false } = {}) {
+  const root = readRoot(script, audited);
   return { root, bucket: readBucket(script, variable, root) };
 }
 
@@ -383,7 +442,8 @@ from here.
 For each snapshot, compare your restorer's output with its reference byte-for-byte, including paths
 and modification times. Investigate every difference: a mismatch is either a bug in your restorer
 or a gap in the spec, and which one it is matters more than fixing it. Fix what is yours, and leave
-the restorer built from your final source.
+the restorer built from your final source. Where you blame the spec you may still change your
+restorer to match, if you say so: the program the first phase left is checked too.
 
 Add a section to your report headed *Differences from the reference*: every difference you found,
 what caused it, and whether it was your bug or a gap in the spec.
@@ -410,20 +470,18 @@ gives.
  */
 export function writeCleanroom(dir, role, bucket, credentials, sets = []) {
   const python = role === "backup";
-  const language = python
-    ? "Python"
-    : windows
-      ? "C#"
-      : process.platform === "darwin"
-        ? "Swift"
-        : "C";
+  const language = python ? "Python" : windows ? "C#" : darwin ? "Swift" : "C";
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 
   const kinds = `The spec sorts what it says into rules, recommendations and hints. A rule that is missing or
-unclear is a gap, and goes in that ranked list. A hint that would have saved you time, a trap in
+unclear is a gap, and goes in those ranked lists. A hint that would have saved you time, a trap in
 your language or operating system the spec could have warned you about, goes in a separate list
 headed *Hints that would have helped*. A guess about a recommendation can't break anything, so it
 needn't be reported.
+
+What it took to reach the bucket and build your program — signing and the HTTP transport, the
+toolchain, the sandbox and its proxy, the bucket itself — goes in a list of its own headed
+*Environment notes, not the format*. None of it is a gap in the spec.
 `;
 
   const restoreBrief = `# Independent restorer for the s3cab storage format
@@ -446,7 +504,13 @@ Framework that ships with Windows — \`ENVIRONMENT.md\` says where its compiler
 beyond its standard library, even where something newer is installed. Don't install a toolchain,
 and don't spend the run fighting this one — if something you want isn't in the standard library,
 pick something else.`
-      : `Use the most
+      : darwin
+        ? `Use the most
+modern version of the language that comes as standard on the platform you are running on, and take
+your libraries from those that ship with macOS and the Xcode command-line tools, nothing from
+Homebrew. Don't build a compiler or a runtime from source, and don't spend the run fighting a
+toolchain — if something you want isn't there, pick something else.`
+        : `Use the most
 modern version of the language that comes as standard on the platform you are running on, and take
 your libraries from what that platform packages. Don't build a compiler or a runtime from source,
 and don't spend the run fighting a toolchain — if something you want isn't packaged, pick something
@@ -455,7 +519,11 @@ else.`
 
 **No AWS SDK, and no S3 client library, packaged or not.** Talk to S3 over plain HTTPS with a
 general-purpose HTTP client and sign the requests yourself; hashing and decompression come from ${
-    windows ? "the\nstandard library" : "the\nplatform's own packages"
+    windows
+      ? "the\nstandard library"
+      : darwin
+        ? "the\nsystem's own libraries"
+        : "the\nplatform's own packages"
   }. That is the second thing being tested, so it is worth saying why: the tool
 that writes this format depends on the vendor's SDK completely, and nobody has established what
 *reading* it actually needs. A restorer that needs nothing from the vendor is a far stronger claim
@@ -464,8 +532,8 @@ than a documented format is.
 The restorer has to be a program: it must not invoke the \`aws\` CLI, or any other command-line
 tool, to do its work, because a wrapper around someone else's binary would show nothing. Consulting
 that CLI while you get request signing right is fine and it is installed — a development aid is not
-a dependency — but say in your report whether you needed it, because whether the signing is
-derivable from public documentation alone is part of the question.
+a dependency — but say in your report whether you needed it, or could sign from what you already
+knew, because that is part of the question.
 
 **Verify against the real bucket, over the network.** Don't stand up a local S3 server, a fake
 endpoint, or a recorded-and-replayed transcript. Mocks generally don't check signatures at all, so
@@ -492,12 +560,12 @@ spec says a restore leaves.
 
 ## Deliverable
 
-The restorer, and a report on the spec.
+The restorer, and a report on the spec, as \`REPORT.md\` in this directory.
 
 List every point where \`format.md\` was ambiguous, silent, or wrong — anywhere you had to guess,
-and what you guessed. Rank those by whether a wrong guess would corrupt a restore or merely
-inconvenience the implementer. **That list is the real output; the code is the means of finding
-it.**
+and what you guessed. Rank those into two lists, headed *Would corrupt a restore* and *Would
+inconvenience the implementer*. **Those lists are the real output; the code is the means of
+finding them.**
 
 ${kinds}
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
@@ -552,11 +620,11 @@ bucket as those runs leave it.
 
 ## Deliverable
 
-The program, and a report on the spec.
+The program, and a report on the spec, as \`REPORT.md\` in this directory.
 
 List every point where the spec was ambiguous, silent, or wrong — anywhere you had to guess, and
-what you guessed. Rank those by whether a wrong guess would leave a backup that can't be restored
-correctly, or merely inconvenience the implementer. **That list matters as much as the code.**
+what you guessed. Rank those into two lists, headed *Would leave a backup that can't be restored
+correctly* and *Would inconvenience the implementer*. **Those lists matter as much as the code.**
 
 ${kinds}
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
@@ -575,7 +643,7 @@ ${
     : ""
 }
 - **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
-  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : process.platform === "darwin" ? " is, and which HTTP client works," : " is"} and says nothing about the format.
+  says where the bucket${python ? " and the sets are" : windows ? " and the compiler are" : darwin ? " is, and which HTTP client works," : " is"} and says nothing about the format.
   If you find yourself wanting more than those, that is itself a finding: record what you needed
   and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
@@ -630,7 +698,7 @@ command that sets an environment variable itself is refused here.`
 
 Requests leave this machine only through the proxy that \`HTTPS_PROXY\` names, and only to AWS.
 A program that ignores that variable can't reach the bucket.${
-          process.platform === "darwin" && !python
+          darwin && !python
             ? `
 
 URLSession doesn't work here: it ignores \`HTTPS_PROXY\`, its \`connectionProxyDictionary\` can't

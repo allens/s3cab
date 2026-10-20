@@ -15,3 +15,19 @@ We dropped the idea of the backup program also being easy-to-follow example code
 CLAUDE.md, but most of the complication was probably the exclude pattern matching, which has now
 left the spec. So the idea may be back on the table. Let's see what the first fused run produces;
 the brief isn't changed to sway it.
+
+## Next: a conformance suite
+
+Files with their expected results, which anyone can run against their own program. Built from the
+guesses past reports ranked but the golden set can't settle (a root `DIR`, NUL in a path, a
+multi-member gzip, an impossible date, case mapping beyond ASCII), each would be settled once
+rather than re-derived by every run. Half of it exists: the golden set, `compare.py` and the
+fixtures. With it, clean rooms could be gap-finders only, and whether later real sets need all six
+runs is decided once the first set exists to compare against.
+
+## Next: one human cold read before 1.0
+
+Every reader so far is Claude, as was s3cab's author, so a gap they all fill the same way passes
+unseen: all five runs of the 2026-10-19 test round chose the same exit codes, none of them from
+the spec. One person reading the spec cold would measure how much the model-only evidence
+overstates.
