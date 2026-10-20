@@ -113,6 +113,19 @@ test("a command reaching the web is reported as its host", () => {
     strayCommand("curl https://b.s3.eu-west-1.amazonaws.com/k"),
     undefined,
   );
+  assert.equal(strayCommand("curl -g 'https://[::1]:8080/x'"), "[::1]");
+  assert.equal(strayCommand("curl http://127.0.0.1/x"), "127.0.0.1");
+  assert.equal(strayCommand("curl https://bücher.example/x"), "bücher.example");
+});
+
+test("a URL pattern in a regex isn't a host", () => {
+  for (const command of [
+    "sed 's#https://[^/]*##'",
+    "grep -o 'https://[a-z0-9.]*'",
+    'curl "https://$HOST/x"',
+  ]) {
+    assert.equal(strayCommand(command), undefined, command);
+  }
 });
 
 test("a tilde is home, not as awk's operator", () => {

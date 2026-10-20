@@ -105,8 +105,11 @@ const runsS3cab =
   /(?<=^|[\s;&|(`"'{\\/=:])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">`}]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
-// after it isn't read as part of it. One that starts with a variable reads as empty.
-const urlHosts = /\bhttps?:\/\/([^\s/'"`)\\?#:;,|<>&$%{]*)/gi;
+// after it isn't read as part of it. One that starts with neither a letter, a digit nor an
+// IPv6 literal reads as empty: a variable, or a regex (`s#https://[^/]*##`). The literal
+// needs a colon, so a bracket class isn't one.
+const urlHosts =
+  /\bhttps?:\/\/(\[[\da-f.]*:[\da-f:.]*\]|[\p{L}\p{N}][^\s/'"`)\\?#:;,|<>&$%{]*)?/giu;
 const s3Host = /(^|\.)s3[.-]([a-z0-9-]+\.)*amazonaws\.com$/i;
 // The npm package ships src/ and guide/, so its registry and CDNs serve s3cab too.
 const sourceHosts =
