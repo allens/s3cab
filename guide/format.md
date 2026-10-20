@@ -600,6 +600,12 @@ looking. Restoring to a chosen directory, it writes each file to
 
 - The folder takes the `DIR` row's spelling, and the rest of the path the file row's, even
   where a Windows `DIR` matched a path spelled in another case.
+- A root has no name of its own:
+  - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
+    lands at `<output>\C\Users\me\a.txt`;
+  - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
+  - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
+    they could mix with that one's folder, so s3cab refuses that snapshot.
 - Folders are made only as files land in them, so a member directory with no files restored
   leaves no folder at all.
 - Two `DIR` rows whose names collide, compared ignoring letter case (`C:\a\Photos\` and

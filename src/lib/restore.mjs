@@ -124,8 +124,8 @@ export function selectEntries(paths, filters) {
  * exists for.
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
- * wanting `<output>/Photos`) are rejected up front: restore them one at a time
- * with a path filter, or to their original locations. Pure and side-effect-free
+ * wanting `<output>/Photos`) are rejected up front, and so is `/` beside any
+ * other root: restore them to their original locations. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
  * @param {string[]} dirs - The snapshot's member roots (its `@SET DIR` rows)
  * @param {string} output - The `--output` directory
@@ -147,23 +147,33 @@ export function reroot(dirs, output) {
       // separator", which is empty for a `@SET DIR` row, written with a
       // trailing one (ADR-0098). `segments` already trims those.
       const segments = path.split(posix.sep).filter(Boolean);
+      const last = segments.at(-1) ?? "";
       return {
         segments,
-        base: segments.at(-1) ?? "",
+        // A drive root's one segment is `C:`, which no Windows folder can be
+        // called, so it takes the letter. `/` has none, and lands in `output`.
+        base: foldCase && segments.length === 1 ? last.slice(0, -1) : last,
         fold: foldCase,
       };
     })
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
 
+  if (roots.length > 1 && roots.some(({ base }) => base === "")) {
+    throw new Error(
+      "This snapshot backs up / beside other directories, so --output cannot keep " +
+        "them apart under one root. Omit --output to restore to the original " +
+        "locations instead.",
+    );
+  }
   const seen = new Set();
   for (const { base } of roots) {
     const key = base.toLowerCase();
     if (seen.has(key)) {
       throw new Error(
         `Two backed-up directories are both named "${base}", so --output cannot keep ` +
-          `them apart under one root. Restore them one at a time with a path ` +
-          `filter, or to their original locations.`,
+          `them apart under one root. Omit --output to restore to the original ` +
+          `locations instead.`,
       );
     }
     seen.add(key);

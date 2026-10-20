@@ -165,6 +165,44 @@ describe("reroot", () => {
     );
   });
 
+  it("names a drive root's folder by its letter, on any OS", () => {
+    const map = reroot(["C:\\", "D:\\"], "out");
+    assert.equal(
+      map("C:\\Users\\me\\a.txt"),
+      join(resolve("out"), "C", "Users", "me", "a.txt"),
+    );
+    assert.equal(map("d:\\b.txt"), join(resolve("out"), "D", "b.txt"));
+  });
+
+  it("names a share root's folder by the share", () => {
+    const map = reroot(["\\\\nas\\photos\\"], "out");
+    assert.equal(
+      map("\\\\nas\\photos\\2024\\a.jpg"),
+      join(resolve("out"), "photos", "2024", "a.jpg"),
+    );
+  });
+
+  it("lands a `/` member's files straight in <output>", () => {
+    const map = reroot(["/"], "out");
+    assert.equal(map("/etc/hosts"), join(resolve("out"), "etc", "hosts"));
+  });
+
+  it("rejects `/` beside another member dir, which its files could mix with", () => {
+    assert.throws(
+      () => reroot(["/", "/home/me/Photos"], "out"),
+      /backs up \/ beside other directories/,
+    );
+  });
+
+  it("rejects a drive root beside a member dir named for its letter", () => {
+    assert.throws(() => reroot(["C:\\", "D:\\data\\c"], "out"), /both named/);
+  });
+
+  it("keeps a POSIX folder named like a drive as it is", () => {
+    const map = reroot(["/mnt/C:"], "out");
+    assert.equal(map("/mnt/C:/a.txt"), join(resolve("out"), "C:", "a.txt"));
+  });
+
   it("rejects a snapshot with no member dirs", () => {
     assert.throws(() => reroot([], "out"), /no directory headers/);
   });

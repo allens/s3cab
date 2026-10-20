@@ -122,7 +122,9 @@ to the original locations. Each backed-up directory lands under its own name:
 
 A set covering `C:\Users\me\Photos` restores to `D:\recovered\Photos\…`. It's shallow and
 readable — you get the backed-up directory's _name_, not a rebuilt `D:\recovered\C\Users\me\…`
-chain.
+chain. A whole drive has no name of its own, so it lands under its letter: a set covering
+`E:\` restores to `D:\recovered\E\…`. A backup of `/` lands straight in the directory you
+chose.
 
 Reach for it when:
 
@@ -136,10 +138,11 @@ Reach for it when:
 
 One case it can't handle: two backed-up directories with the **same name** (say `C:\a\Photos`
 and `D:\b\Photos`) would both want `<output>\Photos`. Restore rejects that up front rather
-than merging them — restore them one at a time with a path filter, or to their original
-locations. The name comparison ignores letter case (`Photos` vs `photos` still collides),
-even for Linux-style paths — the restore target may be a case-insensitive disk regardless of
-where the backup came from, and refusing up front beats silently merging on arrival.
+than merging them; restore them to their original locations instead. So does a backup of `/`
+beside any other directory. The name comparison ignores letter case (`Photos` vs `photos`
+still collides), even for Linux-style paths — the restore target may be a case-insensitive
+disk regardless of where the backup came from, and refusing up front beats silently merging
+on arrival.
 
 ## Restoring onto a fresh machine
 
