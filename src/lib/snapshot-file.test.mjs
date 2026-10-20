@@ -794,6 +794,15 @@ describe("formatLine", () => {
       "/home/me/",
     ).split("\t");
     assert.equal(emoji, "🎉*.txt" + " ".repeat(58));
+    // Past 64 code points nothing is added, though they are 140 UTF-16 units.
+    const [, long] = formatLine(
+      "#error",
+      "🎉".repeat(70),
+      "",
+      "",
+      "/home/me/",
+    ).split("\t");
+    assert.equal(long, "🎉".repeat(70));
   });
 });
 

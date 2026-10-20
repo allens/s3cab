@@ -68,6 +68,4 @@ aside, and the reader's checklist spells them out.
 - format.md's checklists sit together under "Writing your own tool", each followed by its
   hints; deleting gets one because the grace window and the record-before-delete ordering are
   rules too, though no clean room plays that part.
-- s3cab pads by UTF-16 units, so its own files are non-canonical where column 2 holds an
-  emoji, until `formatLine` counts code points.
 - `compare-snapshot.mjs`'s mismatch-or-note split draws the valid/canonical line.
