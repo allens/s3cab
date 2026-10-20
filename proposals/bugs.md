@@ -118,10 +118,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **[guide/format.md](../guide/format.md) misstates how a deletion record is numbered.** It says
-  each run "takes the lowest index not already in use"; `writeDeletionRecord`
-  (`src/lib/deletion-record.mjs`) takes one past the highest, so after `cleanup` leaves only
-  `-3`, the next record is `-4`, not `-1`. Readers are unaffected, since they union every record.
 - **On Windows, an mtime outside 1970–2106 is recorded as the wrong date.** `statSync` wraps the
   seconds as an unsigned 32-bit value: set through .NET's `SetLastWriteTimeUtc`,
   `1969-12-31T23:59:59.0005Z` reads back as `2106-02-07T06:28:15.001Z` (`mtimeNs`
@@ -130,18 +126,14 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   correctly, and ext4 stops at 2446. A filesystem with 64-bit seconds (btrfs, untested) could
   still hold a year past 9999, which `toISOString` writes as `+010000-…`, 27 characters, a row
   s3cab's own reader refuses. The wrapped Windows value can't be told from a real date in range,
-  so the fix may not be possible within builtins.
+  so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
+  holding the false time, and restore sets it. Restore's read-back of each time skips these
+  on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
 - **Column 2 is padded by UTF-16 units, not code points.** [guide/format.md](../guide/format.md)'s
   canonical form counts a character as a code point, as exclude.md's `?` does; `formatLine`
   (`src/lib/snapshot-file.mjs`) pads with `padEnd(64)`, which counts UTF-16 units, so an
   `#excluded` pattern or `#error` message holding an emoji is padded one space short per emoji.
   The file stays valid; only its canonical form is off.
-- **A link into a `.s3cab` folder loses its target without a row.** `checkLink`
-  (`src/lib/walk.mjs`) asks only whether the resolved target is in a member directory, so such a
-  link gets no row, while the walk never enters `.s3cab`, so the target gets none either. Decided:
-  treat it as a link out of the backup, an `#error`. The same PR changes
-  [guide/format.md](../guide/format.md)'s Links table, whose "recorded where it lies" doesn't hold
-  for it.
 - **A crash can leave wrong bytes under an object's key.** `putFile` (`src/lib/s3.mjs`) hashes
   the bytes as they stream and, on a mismatch, deletes the object its no-clobber PUT just
   created. The object is visible in between, so a run killed there leaves bytes that don't hash
@@ -154,12 +146,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   the same final name (`C:\a\Photos`, `D:\b\Photos`) back up fine, but `reroot`
   (`src/lib/restore.mjs`) refuses their snapshot, so the user finds out only when restoring.
   Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
-- **On Windows, a modification time past 2106-02-07T06:28:16Z is recorded wrong, without a
-  word.** Node v26's `lstat` returns the seconds modulo 2³² (measured: a year-10000 file reads
-  as 2106-01-29, where Python reads it right), so `fileProps` (`src/lib/file-props.mjs`) writes
-  a valid row holding a false time, and restore sets it. Likely libuv. Once Node reads it right,
-  `toISOString` writes `+010000-…`, a row s3cab's own reader refuses: the
-  [Writing checklist](../guide/format.md#writing-a-snapshot) makes a time past 9999 an `#error`.
 - **"fits every frame to the terminal's width" fails in a checkout with a short path.** The test
   (`src/lib/snapshot.progress.test.mjs`) sets a 60-column terminal and asserts that some frame
   was cut short with `…`, on the premise that the temp directory's paths are longer than that.
@@ -182,17 +168,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   native ext4 never shows it. `land`'s cleanup is `rm(tmpPath, { force: true })` with every
   error swallowed, so a failed delete leaves no trace. Unconfirmed: that DrvFs refuses or
   defers the delete while the write stream `pipeline` destroyed is still closing.
-- **`restore` doesn't notice a modification time the destination clamped.** APFS keeps
-  nothing past April 2262: `utimes` for a year-2300 time succeeds and stores 2262 (measured
-  on macOS 15, the `edge` fixtures' `mtime-2300.txt`). The restore loop
-  in `src/commands/restore.mjs` never reads the time back, so the file counts as restored
-  and the exit is 0 on its account, against [guide/format.md](../guide/format.md)'s promise
-  that a restore reproduces the stored time. A `stat` after `utimes` would catch it.
-- **`restore --output` names a root member directory oddly.** `reroot`
-  (`src/lib/restore.mjs`) names the folder by the `@SET DIR`'s last segment, which a root
-  lacks: a `/` member's files land straight in `<output>`, and a `C:\` member's under a
-  folder named `C:`, which a Windows `--output` refuses. [guide/format.md](../guide/format.md)
-  doesn't say either.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
