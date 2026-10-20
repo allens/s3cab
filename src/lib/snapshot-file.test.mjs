@@ -9,6 +9,7 @@ import { setTimeout } from "node:timers/promises";
 import { constants, gzipSync, gunzipSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
+  formatLine,
   listSnapshotNames,
   normalizeSnapshotName,
   parseCompressedSnapshotStream,
@@ -771,6 +772,37 @@ describe("snapshotMoment's minted name", () => {
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
     assert.deepEqual(snapshotNames([`${name}.tsv.gz`]), [name]);
+  });
+});
+
+describe("formatLine", () => {
+  it("pads column 2 to 64 code points, not UTF-16 units", () => {
+    const [, ascii] = formatLine(
+      "#excluded",
+      "*.txt",
+      "",
+      "",
+      "/home/me/",
+    ).split("\t");
+    assert.equal(ascii, "*.txt" + " ".repeat(59));
+    // The spec's own example: `🎉*.txt` is six characters.
+    const [, emoji] = formatLine(
+      "#excluded",
+      "🎉*.txt",
+      "",
+      "",
+      "/home/me/",
+    ).split("\t");
+    assert.equal(emoji, "🎉*.txt" + " ".repeat(58));
+    // Past 64 code points nothing is added, though they are 140 UTF-16 units.
+    const [, long] = formatLine(
+      "#error",
+      "🎉".repeat(70),
+      "",
+      "",
+      "/home/me/",
+    ).split("\t");
+    assert.equal(long, "🎉".repeat(70));
   });
 });
 

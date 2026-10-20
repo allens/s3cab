@@ -1337,8 +1337,11 @@ export const openingRows = () =>
  * @returns {string} Formatted snapshot line
  */
 export function formatLine(type, col2, size, time, last) {
+  // The width counts code points (guide/format.md), where `padEnd` counts UTF-16
+  // units: a surrogate pair, such as an emoji in an `#excluded` pattern, is two.
+  const pairs = col2.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0;
   return (
-    `${type}\t${col2.padEnd(64)}\t${String(size).padStart(12)}\t` +
+    `${type}\t${col2.padEnd(64 + pairs)}\t${String(size).padStart(12)}\t` +
     `${time.padEnd(24)}\t${last}\n`
   );
 }
