@@ -44,12 +44,19 @@ test("a path is a stray in the home folder but not in the sandbox", () => {
 });
 
 test(
-  "on Windows, a trailing dot or space doesn't take a path out of home",
+  "on Windows, a path is read as Windows opens it",
   { skip: process.platform !== "win32" },
   () => {
     assert.equal(strayPath(resolve(`${homedir()}.\\.aws\\credentials`)), true);
-    assert.equal(strayPath(resolve(`${homedir()} \\.aws\\credentials`)), true);
+    assert.equal(strayPath(resolve(`${homedir()} \\.aws\\credentials`)), false);
     assert.equal(strayPath(resolve(`${homedir()}2\\.aws\\credentials`)), false);
+    // Beside the sandbox, not in it.
+    for (const path of [`${root} \\x`, `${root}..\\x`, `${root}. \\x`]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+    assert.equal(strayPath(resolve(`${root}.\\x`)), false);
+    assert.equal(strayPath(resolve(`${root}\\...\\x`)), false);
+    assert.equal(strayPath(resolve(`${root}\\x. .`)), false);
   },
 );
 

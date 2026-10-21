@@ -9,11 +9,17 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
-// Windows reads a path case-blind and drops the dots and spaces that end a component, so
-// `C:\Users\x.\.aws` opens home's `.aws`; resolve() keeps them.
+// Windows reads a path case-blind, drops one dot that ends a middle component
+// (`C:\Users\x.\.aws` opens home's `.aws`) and every dot and space that ends the last;
+// resolve() keeps them. A middle `...` is a name: folding it to `..` would climb.
 /** @param {string} path */
 const fold = (path) =>
-  windows ? path.toLowerCase().replace(/[. ]+(?=[\\/]|$)/g, "") : path;
+  windows
+    ? path
+        .toLowerCase()
+        .replace(/[. ]+$/, "")
+        .replace(/(?<=[^\\/.])\.(?=[\\/])/g, "")
+    : path;
 /** @param {string} child @param {string} parent */
 const inside = (child, parent) => {
   const rel = relative(fold(parent), fold(child));
@@ -92,8 +98,8 @@ const aliases = (path) => [
 ];
 // A watched place matches as a prefix, so the runner's `D:\a` flags `D:\apps` too. Not a
 // boundary after it: a prefix match can only over-flag, and each boundary tried let home
-// through, followed by a glob's `*`, a script block's `}`, a PATH's `:` or a trailing dot,
-// which Windows drops (`C:\Users\x.\.aws` is home's `.aws`).
+// through, followed by a glob's `*`, a script block's `}`, a PATH's `:` or a trailing dot
+// (see `fold`).
 const named = new RegExp(
   watched.map(spellings).join("|") +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.

@@ -49,7 +49,6 @@ test("home spelled the way temp spells it is home too", () => {
   }
 });
 
-// What each boundary after a watched place let through.
 test("a watched place is named whatever follows it", () => {
   for (const command of [
     `ls ${home}*`,
