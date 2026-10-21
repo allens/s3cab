@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { exampleRoot } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
@@ -42,6 +42,16 @@ test("a path is a stray in the home folder but not in the sandbox", () => {
   assert.equal(strayPath(join(homedir(), "..notes", "x")), true);
   assert.equal(strayPath(join(root, "cleanroom", "x")), false);
 });
+
+test(
+  "on Windows, a trailing dot or space doesn't take a path out of home",
+  { skip: process.platform !== "win32" },
+  () => {
+    assert.equal(strayPath(resolve(`${homedir()}.\\.aws\\credentials`)), true);
+    assert.equal(strayPath(resolve(`${homedir()} \\.aws\\credentials`)), true);
+    assert.equal(strayPath(resolve(`${homedir()}2\\.aws\\credentials`)), false);
+  },
+);
 
 test("a command naming the sandbox is a stray only once it leaves it", () => {
   assert.equal(strayCommand("ls ~/s3cab.sandbox/cleanroom"), undefined);

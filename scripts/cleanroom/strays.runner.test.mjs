@@ -39,9 +39,6 @@ test("on a runner, its work folder is watched: the checkout and RUNNER_TEMP", ()
   const beside = join(resolve("/s3cab-runner-elsewhere"), "x");
   assert.equal(strayCommand(`Get-Content ${beside}`), undefined);
   assert.equal(strayPath(beside), false);
-  // A watched place is a whole component: `D:\a` doesn't watch `D:\apps`.
-  const sibling = join(`${work}-apps`, "x");
-  assert.equal(strayCommand(`Get-ChildItem ${sibling}`), undefined);
 });
 
 test("home spelled the way temp spells it is home too", () => {
@@ -52,15 +49,17 @@ test("home spelled the way temp spells it is home too", () => {
   }
 });
 
-test("a watched place followed by a glob, a brace, a colon or a trailing dot is still named", () => {
+// What each boundary after a watched place let through.
+test("a watched place is named whatever follows it", () => {
   for (const command of [
     `ls ${home}*`,
     `Invoke-Command {Get-ChildItem ${home}}`,
     `cp ${home}{/.aws/credentials,} .`,
     `PYTHONPATH=${home}:x py`,
     `Get-Content ${join(`${home}.`, ".aws", "credentials")}`,
+    `Get-ChildItem ${home}. -Force`,
+    `Invoke-Command {Get-ChildItem ${home}.}`,
   ]) {
     assert.notEqual(strayCommand(command), undefined, command);
   }
-  assert.equal(strayCommand(`ls ${home}.old`), undefined);
 });
