@@ -7,10 +7,10 @@
  * A stray is any of:
  * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
  *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
- *   tool output. The root holds s3cab's home and the restores' exits, which only the
- *   brief keeps a Windows session from. A path is checked as typed and as its real path,
- *   and one starting `\\` or holding `\??\` outside those places is a stray wherever it
- *   leads;
+ *   tool output, or off Windows its whole `claude-<uid>` temp folder. The root holds
+ *   s3cab's home and the restores' exits, which only the brief keeps a Windows session
+ *   from. A path is checked as typed and as its real path, and one starting `\\` or
+ *   holding `\??\` outside those places is a stray wherever it leads;
  * - a shell command naming the home folder, temp or the repo, or running s3cab itself.
  *   The command is read as text, so a path built while it runs (in a variable, from an
  *   encoded string) isn't caught;
@@ -81,10 +81,12 @@ if (transcripts.length === 0) {
 }
 
 // The session's own scratchpad and saved tool output, both named for its session id, are
-// its to use. An earlier run's sit beside them under the same folder and are strays. The
-// temp folder is `claude` on Windows and `claude-<uid>` on Linux. Measured: the scratchpad
-// on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`), the tool output on Linux
-// (`/tmp/claude-<uid>/<folder>/<id>/tasks`); not the other two, nor macOS.
+// its to use. An earlier run's sit beside them under the same folder and are strays.
+// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). On Linux
+// the shell sandbox sets TMPDIR to `/tmp/claude-<uid>` itself, so that whole folder is the
+// session's; on a runner nothing else is in it, and at home the audit stops seeing any
+// other Claude Code session of the same user there. The one macOS run measured used
+// `/private/tmp/claude-501`, which isn't watched either way.
 const sessions = transcripts.map(
   (file) =>
     relative(projects, file)
@@ -92,13 +94,15 @@ const sessions = transcripts.map(
       ?.replace(/\.jsonl$/, "") ?? "",
 );
 const uid = process.getuid?.();
-const temps = uid === undefined ? ["claude"] : ["claude", `claude-${uid}`];
-const own = folders.flatMap((folder) =>
-  sessions.flatMap((id) => [
-    join(projects, folder, id),
-    ...temps.map((temp) => join(tmpdir(), temp, folder, id)),
-  ]),
-);
+const own = [
+  ...folders.flatMap((folder) =>
+    sessions.flatMap((id) => [
+      join(projects, folder, id),
+      join(tmpdir(), "claude", folder, id),
+    ]),
+  ),
+  ...(uid === undefined ? [] : [join(tmpdir(), `claude-${uid}`)]),
+];
 const fixtures = join(root, "fixtures");
 const allowed = [
   cleanroom,

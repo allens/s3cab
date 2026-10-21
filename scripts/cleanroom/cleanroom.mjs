@@ -650,7 +650,7 @@ ${
   issue tracker, its documentation site, or its package on any registry. The spec names the tool,
   so this is a rule rather than a secret. Ambiguity in the text is the measurement; resolving it
   from another source destroys the reading.
-- **Write only in this directory and your own scratchpad** — nothing in the home folder or temp
+- **Write only in this directory and your own scratchpad${windows ? "" : " or `$TMPDIR`"}** — nothing in the home folder or temp
   outside them, whether you write it or your program does.
 - **Touch only the bucket \`ENVIRONMENT.md\` names**, ${
     python ? "which is yours to write to and to empty." : "and only to read."
