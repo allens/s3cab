@@ -134,7 +134,7 @@ jobs:
           EFFORT: ${{ inputs.effort }}
         working-directory: ${{ env.SANDBOX }}/cleanroom
         run: |
-          session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          session_id=$(node -p 'crypto.randomUUID()')
           echo "SESSION_ID=$session_id" >> "$GITHUB_ENV"
           # Without USER and LOGNAME the session's shell reads LOGNAME as root, not runner,
           # and Python's getpass.getuser() with it. Linux runners leave TMPDIR unset, which
