@@ -54,6 +54,12 @@ test("a scratchpad in temp spelled through home's alias is still allowed", () =>
   mkdirSync(scratch, { recursive: true });
   const finders = strayFinders([scratch], exampleRoot);
   assert.equal(finders.strayPath(join(scratch, "x")), false);
+  // Typed by its real spelling, inside home.
+  const realScratch = join(home, "AppData", "Local", "Temp", "claude");
+  assert.equal(
+    finders.strayPath(join(realScratch, "folder", "id", "x")),
+    false,
+  );
 });
 
 test("a watched place is named whatever follows it", () => {

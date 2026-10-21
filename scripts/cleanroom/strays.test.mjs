@@ -73,9 +73,12 @@ test(
     ]) {
       assert.equal(strayPath(resolve(path)), true, path);
     }
-    // Inside an allowed place, a share is still allowed.
-    const share = strayFinders(["\\\\nas\\s3cab"], "\\\\nas\\s3cab");
-    assert.equal(share.strayPath("\\\\nas\\s3cab\\x"), false);
+    // Inside an allowed place, a share is still allowed, and without looking its host up.
+    const started = performance.now();
+    const place = "\\\\s3cab-no-such-host.invalid\\s3cab";
+    const share = strayFinders([place], place);
+    assert.equal(share.strayPath(`${place}\\x`), false);
+    assert.ok(performance.now() - started < 1000);
   },
 );
 
@@ -90,6 +93,14 @@ test(
     ]) {
       assert.equal(strayPath(resolve(path)), true, path);
     }
+  },
+);
+
+test(
+  "off Windows, `??` is a folder name",
+  { skip: process.platform === "win32" },
+  () => {
+    assert.equal(strayPath("/usr/include/??/x.h"), false);
   },
 );
 

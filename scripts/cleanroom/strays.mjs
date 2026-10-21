@@ -31,9 +31,14 @@ const inside = (child, parent) => {
 };
 // The real path of a path's longest existing part, the rest as typed: a file tool's path
 // can name home through an alias no text match knows (`C:\Documents and Settings\x`,
-// `C:\DOCUME~1\x`, `C:\Users\x::$INDEX_ALLOCATION`).
+// `C:\DOCUME~1\x`, `C:\Users\x::$INDEX_ALLOCATION`). Not a `\\` path: realpath looks its
+// host up on the network (7 s for one that doesn't answer), and `strayPath` decides those
+// whole.
 /** @param {string} path */
 const real = (path) => {
+  if (path.startsWith("\\\\")) {
+    return path;
+  }
   for (
     let at = path, rest = "";
     ;
@@ -207,22 +212,26 @@ export function strayFinders(allowed, root) {
   const realAllowed = allowed.map(real);
   const realWatched = watchedPaths.map(real);
   return {
-    // A stray as typed or as its real path. Not the real path alone: a link out of home
-    // would hide a path in it. `\\?\C:\…`, `\\.\C:\…` and `\??\C:\…` (which resolve()
-    // leaves as `<drive>:\??\C:\…`, and realpath can't read) reach any local path, so
-    // either is watched whole.
+    // Allowed by its real path, however it's typed; watched by either, since a link out of
+    // home would hide a path in it from the real one. `\\?\C:\…`, `\\.\C:\…` and
+    // `\??\C:\…` (which resolve() leaves as `<drive>:\??\C:\…`, and realpath can't read)
+    // reach any local path, so on Windows either is watched whole.
     /** @param {string} path */
-    strayPath: (path) =>
-      /** @type {[string, string[], string[]][]} */ ([
-        [path, allowed, watchedPaths],
-        [real(path), realAllowed, realWatched],
-      ]).some(
-        ([spelled, places, watching]) =>
-          !places.some((place) => inside(spelled, place)) &&
-          (spelled.startsWith("\\\\") ||
-            /[\\/]\?\?[\\/]/.test(spelled) ||
-            watching.some((place) => inside(spelled, place))),
-      ),
+    strayPath: (path) => {
+      const resolved = real(path);
+      return (
+        !realAllowed.some((place) => inside(resolved, place)) &&
+        /** @type {[string, string[]][]} */ ([
+          [path, watchedPaths],
+          [resolved, realWatched],
+        ]).some(
+          ([spelled, watching]) =>
+            spelled.startsWith("\\\\") ||
+            (windows && /[\\/]\?\?[\\/]/.test(spelled)) ||
+            watching.some((place) => inside(spelled, place)),
+        )
+      );
+    },
     /**
      * @param {string} command
      * @returns {string | undefined}
