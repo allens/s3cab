@@ -82,11 +82,11 @@ if (transcripts.length === 0) {
 
 // The session's own scratchpad and saved tool output, both named for its session id, are
 // its to use. An earlier run's sit beside them under the same folder and are strays.
-// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). Off
-// Windows the shell sandbox sets TMPDIR to `claude-<uid>` under the TMPDIR Claude Code was
-// started with, which the workflow hands it from the job, the same one this step reads; so
-// that whole folder is the session's. On a runner nothing else is in it; at home the audit
-// stops seeing any other Claude Code session of the same user there.
+// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). On Linux
+// the shell sandbox sets TMPDIR to `/tmp/claude-<uid>` itself, so that whole folder is the
+// session's; on a runner nothing else is in it, and at home the audit stops seeing any
+// other Claude Code session of the same user there. The one macOS run measured used
+// `/private/tmp/claude-501`, which isn't watched either way.
 const sessions = transcripts.map(
   (file) =>
     relative(projects, file)
