@@ -225,7 +225,7 @@ function readRoot(script, audited) {
  * @param {string} script this script's file name, for the usage line
  * @param {string} variable the environment variable naming its bucket
  * @param {{ audited?: boolean }} [options] `audited` for a build, whose session's transcript
- *   is audited; not the seed's, whose root sits in CI's `runner.temp`, under its home
+ *   is audited; not the seed, which runs no session
  */
 export function readCommandLine(script, variable, { audited = false } = {}) {
   const root = readRoot(script, audited);

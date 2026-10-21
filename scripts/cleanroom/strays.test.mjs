@@ -94,28 +94,6 @@ test("a command holding `..` keeps the sandbox path it names, however it climbs"
   }
 });
 
-test("the restore seed's fixtures, quoted from a snapshot, aren't home", () => {
-  // As on a macOS runner, whose `runner.temp` is `~/work/_temp`.
-  const temp = join(realpathSync.native(homedir()), "work", "_temp");
-  const seeded = join(temp, "s3cab.sandbox", "fixtures");
-  const audit = strayFinders([root, seeded], root);
-  const slashed = seeded.replaceAll("\\", "/");
-  assert.equal(audit.strayCommand(`sed 's#${slashed}/##'`), undefined);
-  for (const [command, reported] of /** @type {[string, string][]} */ ([
-    [`sed 's#${slashed}/##' ~/.aws/credentials`, "~/.aws/credentials"],
-    ["ls ~/.ssh", "~/.ssh"],
-    [`cat ${slashed}/../../.s3cab/x`, `${slashed}/../../.s3cab/x`],
-    [`ls ${slashed}.old`, `${slashed}.old`],
-    [`ls ${temp}`, temp],
-    [
-      `ls ${join(temp, "s3cab.sandbox", ".s3cab")}`,
-      join(temp, "s3cab.sandbox", ".s3cab"),
-    ],
-  ])) {
-    assert.equal(audit.strayCommand(command), reported, command);
-  }
-});
-
 test("each spelling of home is home", () => {
   for (const path of [
     "${HOME}/.aws/credentials",
