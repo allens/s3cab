@@ -55,7 +55,8 @@ Actions on Linux, Windows and macOS, apart from the runs, which only read it
 ([.github/workflows/cleanroom-seed.yml](../../.github/workflows/cleanroom-seed.yml)).
 Every run, at home or in CI, reads that one bucket, `test-s3cab-ci-cleanroom-restore`;
 a home identity can only read it. A change on `main` to what the stamp covers
-reseeds it, and so does dispatching the workflow from `main`:
+reseeds it. Dispatching the workflow from `main` reseeds it only if its stamp is
+stale or it has lost a set:
 
 ```sh
 gh workflow run cleanroom-seed.yml --ref main

@@ -27,6 +27,7 @@ on:
       - guide/format.md
       - scripts/cleanroom/fixtures.mjs
       - scripts/cleanroom/seed-restore-cleanroom-bucket.mjs
+      - .github/workflows/cleanroom-seed.yml
   workflow_dispatch:
 
 permissions:
