@@ -8,7 +8,9 @@
  * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
  *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
  *   tool output. The root holds s3cab's home and the restores' exits, which only the
- *   brief keeps a Windows session from;
+ *   brief keeps a Windows session from. A path is checked as typed and as its real path,
+ *   and one starting `\\` or holding `\??\` outside those places is a stray wherever it
+ *   leads;
  * - a shell command naming the home folder, temp or the repo, or running s3cab itself.
  *   The command is read as text, so a path built while it runs (in a variable, from an
  *   encoded string) isn't caught;

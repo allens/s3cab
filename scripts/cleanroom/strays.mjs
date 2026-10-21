@@ -5,7 +5,15 @@
  */
 import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
@@ -20,6 +28,25 @@ const inside = (child, parent) => {
     rel === "" ||
     (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
   );
+};
+// The real path of a path's longest existing part, the rest as typed: a file tool's path
+// can name home through an alias no text match knows (`C:\Documents and Settings\x`,
+// `C:\DOCUME~1\x`, `C:\Users\x::$INDEX_ALLOCATION`).
+/** @param {string} path */
+const real = (path) => {
+  for (
+    let at = path, rest = "";
+    ;
+    rest = join(basename(at), rest), at = dirname(at)
+  ) {
+    try {
+      return join(realpathSync.native(at), rest);
+    } catch {
+      if (dirname(at) === at) {
+        return path;
+      }
+    }
+  }
 };
 // What ends a path in a command's text.
 const edge = "\\s\"'`;|&(),=<>";
@@ -176,14 +203,26 @@ export function strayFinders(allowed, root) {
   // hid a climb-out from one. `...` isn't a climb.
   const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
   const watchedPaths = [...watched, root];
+  // Real too, or a scratchpad under the runner's `RUNNER~1` temp reads as outside itself.
+  const realAllowed = allowed.map(real);
+  const realWatched = watchedPaths.map(real);
   return {
-    // `\\?\C:\…`, `\\.\C:\…` and `\\localhost\C$\…` reach any local path, home included,
-    // so a path starting `\\` is watched whole.
+    // A stray as typed or as its real path. Not the real path alone: a link out of home
+    // would hide a path in it. `\\?\C:\…`, `\\.\C:\…` and `\??\C:\…` (which resolve()
+    // leaves as `<drive>:\??\C:\…`, and realpath can't read) reach any local path, so
+    // either is watched whole.
     /** @param {string} path */
     strayPath: (path) =>
-      !allowed.some((place) => inside(path, place)) &&
-      (path.startsWith("\\\\") ||
-        watchedPaths.some((place) => inside(path, place))),
+      /** @type {[string, string[], string[]][]} */ ([
+        [path, allowed, watchedPaths],
+        [real(path), realAllowed, realWatched],
+      ]).some(
+        ([spelled, places, watching]) =>
+          !places.some((place) => inside(spelled, place)) &&
+          (spelled.startsWith("\\\\") ||
+            /[\\/]\?\?[\\/]/.test(spelled) ||
+            watching.some((place) => inside(spelled, place))),
+      ),
     /**
      * @param {string} command
      * @returns {string | undefined}

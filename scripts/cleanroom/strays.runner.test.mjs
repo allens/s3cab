@@ -49,6 +49,13 @@ test("home spelled the way temp spells it is home too", () => {
   }
 });
 
+test("a scratchpad in temp spelled through home's alias is still allowed", () => {
+  const scratch = join(temp, "claude", "folder", "id");
+  mkdirSync(scratch, { recursive: true });
+  const finders = strayFinders([scratch], exampleRoot);
+  assert.equal(finders.strayPath(join(scratch, "x")), false);
+});
+
 test("a watched place is named whatever follows it", () => {
   for (const command of [
     `ls ${home}*`,

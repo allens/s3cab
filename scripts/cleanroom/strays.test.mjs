@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { exampleRoot } from "./cleanroom.mjs";
@@ -72,6 +78,37 @@ test(
     assert.equal(share.strayPath("\\\\nas\\s3cab\\x"), false);
   },
 );
+
+test(
+  "on Windows, home is home through its index stream or an NT prefix",
+  { skip: process.platform !== "win32" },
+  () => {
+    const keys = join(".aws", "credentials");
+    for (const path of [
+      join(`${homedir()}::$INDEX_ALLOCATION`, keys),
+      `\\??\\${join(homedir(), keys)}`,
+    ]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+  },
+);
+
+test("a path through a link is a stray where the link leads", () => {
+  const sandbox = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "s3cab-strays-")),
+  );
+  try {
+    const cleanroom = join(sandbox, "cleanroom");
+    mkdirSync(cleanroom);
+    mkdirSync(join(sandbox, ".s3cab"));
+    symlinkSync(join(sandbox, ".s3cab"), join(cleanroom, "s3cab"), "junction");
+    const { strayPath } = strayFinders([cleanroom], sandbox);
+    assert.equal(strayPath(join(cleanroom, "s3cab", "sets")), true);
+    assert.equal(strayPath(join(cleanroom, "main.c")), false);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
 
 test("a command naming the sandbox is a stray only once it leaves it", () => {
   assert.equal(strayCommand("ls ~/s3cab.sandbox/cleanroom"), undefined);
