@@ -3,8 +3,9 @@
  * test can import the matchers. Each returns the text that matched, so the audit can say
  * why a move was flagged, or undefined.
  */
+import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, relative, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
@@ -20,11 +21,19 @@ const inside = (child, parent) => {
 };
 // What ends a path in a command's text.
 const edge = "\\s\"'`;|&(),=<>";
+// Home as temp spells it too: a Windows runner's TEMP is `C:\Users\RUNNER~1\…`, an 8.3
+// alias of home that the session is shown and that shares no text with homedir().
+const realTemp = realpathSync.native(tmpdir());
+const realHome = realpathSync.native(homedir());
+const homeInTemp = inside(realTemp, realHome)
+  ? resolve(tmpdir(), relative(realTemp, realHome))
+  : homedir();
 // On a runner, its work folder too: the checkout, and RUNNER_TEMP with the event payload
 // naming the repo. Outside home on Windows (`D:\a`), where no shell sandbox hides it.
 const runnerTemp = process.env.RUNNER_TEMP;
 const watched = [
   homedir(),
+  homeInTemp,
   tmpdir(),
   repoRoot,
   ...(runnerTemp ? [dirname(runnerTemp)] : []),
@@ -78,8 +87,9 @@ const aliases = (path) => [
       : [],
   ),
 ];
+// A watched place ends where a path component does, so the runner's `D:\a` isn't `D:\apps`.
 const named = new RegExp(
-  watched.map(spellings).join("|") +
+  `(${watched.map(spellings).join("|")})(?=[\\\\/${edge}]|$)` +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
     // A bare `~` followed by a regex or a quoted string is awk's or perl's match operator
     // (`$1 ~ /^@SET/`), not home.
