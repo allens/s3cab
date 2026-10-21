@@ -7,10 +7,10 @@
  * A stray is any of:
  * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
  *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
- *   tool output. The root holds s3cab's home and the restores' exits, which only the
- *   brief keeps a Windows session from. A path is checked as typed and as its real path,
- *   and one starting `\\` or holding `\??\` outside those places is a stray wherever it
- *   leads;
+ *   tool output, or off Windows its whole `claude-<uid>` temp folder. The root holds
+ *   s3cab's home and the restores' exits, which only the brief keeps a Windows session
+ *   from. A path is checked as typed and as its real path, and one starting `\\` or
+ *   holding `\??\` outside those places is a stray wherever it leads;
  * - a shell command naming the home folder, temp or the repo, or running s3cab itself.
  *   The command is read as text, so a path built while it runs (in a variable, from an
  *   encoded string) isn't caught;
@@ -82,10 +82,11 @@ if (transcripts.length === 0) {
 
 // The session's own scratchpad and saved tool output, both named for its session id, are
 // its to use. An earlier run's sit beside them under the same folder and are strays.
-// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). On Linux
-// the shell sandbox sets TMPDIR to `/tmp/claude-<uid>` itself, so that whole folder is the
-// session's; on a runner nothing else is in it, and a run at home stops seeing earlier
-// runs' folders there.
+// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). Off
+// Windows the shell sandbox sets TMPDIR to `claude-<uid>` under the TMPDIR Claude Code was
+// started with, which the workflow hands it from the job, the same one this step reads; so
+// that whole folder is the session's. On a runner nothing else is in it; at home the audit
+// stops seeing any other Claude Code session of the same user there.
 const sessions = transcripts.map(
   (file) =>
     relative(projects, file)
