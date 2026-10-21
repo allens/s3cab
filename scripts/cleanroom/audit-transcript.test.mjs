@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -36,20 +37,41 @@ test(
       const own = join(temp, `claude-${process.getuid?.()}`, "lat");
       const elsewhere = join(temp, "elsewhere", "x");
       const uses = [
-        { name: "Read", input: { file_path: join(own, "x") } },
-        { name: "Bash", input: { command: `ls ${join(own, "outside")}` } },
-        { name: "Read", input: { file_path: elsewhere } },
-      ];
-      const record = {
-        type: "assistant",
-        cwd: cleanroom,
-        message: {
-          id: "m",
-          model: "m",
-          content: uses.map((use) => ({ type: "tool_use", ...use })),
+        { id: "own", name: "Read", input: { file_path: join(own, "x") } },
+        {
+          id: "own-bash",
+          name: "Bash",
+          input: { command: `ls ${join(own, "outside")}` },
         },
-      };
-      writeFileSync(join(folder, "s.jsonl"), `${JSON.stringify(record)}\n`);
+        { id: "elsewhere", name: "Read", input: { file_path: elsewhere } },
+      ];
+      const records = [
+        {
+          type: "assistant",
+          cwd: cleanroom,
+          message: {
+            id: "m",
+            model: "m",
+            content: uses.map((use) => ({ type: "tool_use", ...use })),
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "elsewhere",
+                content: [{ type: "text", text: "what the file held" }],
+              },
+            ],
+          },
+        },
+      ];
+      writeFileSync(
+        join(folder, "s.jsonl"),
+        records.map((record) => `${JSON.stringify(record)}\n`).join(""),
+      );
       const audit = spawnSync(
         process.execPath,
         [join(import.meta.dirname, "audit-transcript.mjs"), root],
@@ -63,9 +85,21 @@ test(
           },
         },
       );
-      assert.equal(audit.status, 1, audit.stderr);
-      assert.match(audit.stdout, /^1 move\(s\) outside the sandbox/m);
+      assert.equal(audit.status, 0, audit.stderr);
+      assert.match(audit.stdout, /^1 move\(s\) for judge-audit\.mjs to read/m);
       assert.ok(audit.stdout.includes(`\n  ${elsewhere} | Read`), audit.stdout);
+      const evidence = JSON.parse(
+        readFileSync(join(cleanroom, "audit.json"), "utf8"),
+      );
+      assert.equal(evidence.root, root);
+      assert.deepEqual(evidence.moves, [
+        {
+          matched: elsewhere,
+          tool: "Read",
+          input: JSON.stringify({ file_path: elsewhere }),
+          result: "what the file held",
+        },
+      ]);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

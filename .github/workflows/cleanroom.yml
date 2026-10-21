@@ -1,5 +1,5 @@
 # A clean-room session on a hosted runner (proposals/cleanroom-ci.md): build the sandbox,
-# run the headless session in it, check and audit it, and upload the clean room.
+# run the headless session in it, check, audit and judge it, and upload the clean room.
 #
 # Dispatch it from main only (`gh workflow run cleanroom.yml --ref main`): the s3cab-ci
 # role trusts main's OIDC subject, so a run from any other branch fails at the
@@ -233,7 +233,7 @@ jobs:
         run: npm ci
       - name: check
         if: always()
-        timeout-minutes: 40 # leaves the audit and the upload time to run
+        timeout-minutes: 40 # leaves the audit, the judge and the upload time to run
         run: |
           # check-restore runs the session's restorer outside the sandbox, with this
           # step's environment: a restorer that prints it would put these, which mint an
@@ -249,6 +249,12 @@ jobs:
       - name: audit
         if: always()
         run: node scripts/cleanroom/audit-transcript.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/audit.txt"
+      - name: judge
+        if: always()
+        timeout-minutes: 10 # so a stalled judge can't keep the run from its upload
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node scripts/cleanroom/judge-audit.mjs "$SANDBOX" | tee "$SANDBOX/cleanroom/judge.txt"
 
       - name: gather
         if: always()
@@ -293,7 +299,8 @@ jobs:
       - if: always() && steps.search.outcome == 'success'
         working-directory: ${{ runner.temp }}
         run: tar -czf cleanroom.tgz -C keep .
-      # Even when the check or the audit failed: that run is the one worth reading.
+      # Even when the check failed or the judge voided the run: that run is the one worth
+      # reading.
       - if: always() && steps.search.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:

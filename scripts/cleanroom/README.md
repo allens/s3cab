@@ -39,7 +39,7 @@ maintained, and improved every run as findings come in: the seed script, the two
 build scripts and the restore's reconcile script, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
 `restore-bucket.mjs`), and the checkers, `check-backup.mjs` with
 `compare-snapshot.mjs`, `check-restore.mjs` with `compare.py`, and
-`audit-transcript.mjs`.
+`audit-transcript.mjs` with `judge-audit.mjs`.
 A clean room's program is frozen — never updated, because its value is being a
 fixed reading of the spec on a given date — and kept only while it reads the
 current format. Then it goes, and its report links the last commit that held it.
@@ -111,9 +111,10 @@ node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs C:\s
 cd C:\s3cab.sandbox\cleanroom
 claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 "read RECONCILE.md"
 cd -
-# check: both restorers run on every snapshot and compared, and the transcript audited
+# check: both restorers run on every snapshot and compared, and the transcript audited and judged
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
 node scripts/cleanroom/audit-transcript.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\audit.txt
+node scripts/cleanroom/judge-audit.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\judge.txt
 # keep: the clean room, minus its credentials, into the experiments folder
 Remove-Item C:\s3cab.sandbox\cleanroom\credentials.*
 New-Item -ItemType Directory -Force $HOME/s3cab.experiments
@@ -131,9 +132,10 @@ from an empty bucket, which the build leaves for you to empty:
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
 node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs C:\s3cab.sandbox
-# run, then check: the bucket it left, and its transcript audited
+# run, then check: the bucket it left, and its transcript audited and judged
 node --env-file=.env.test scripts/cleanroom/check-backup.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
 node scripts/cleanroom/audit-transcript.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\audit.txt
+node scripts/cleanroom/judge-audit.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\judge.txt
 ```
 
 The checker runs before the sandbox is destroyed, on the machine that built it:
@@ -142,7 +144,8 @@ them there and then.
 
 **Runs in GitHub Actions**, a backup or a restore on macOS, Linux or Windows
 ([.github/workflows/cleanroom.yml](../../.github/workflows/cleanroom.yml)): one job
-builds, runs, checks and audits, then uploads the clean room with its transcript.
+builds, runs, checks, audits and judges, then uploads the clean room with its
+transcript.
 A Windows session has no shell sandbox there either, as at home:
 [windows-session.ps1](windows-session.ps1) starts it in a new login's environment
 instead of the job's.
@@ -160,8 +163,8 @@ gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 
 **Every run is kept**, real or experiment, in `~/s3cab.experiments/`, one folder
 per run named for its date, role, platform, model and effort. What moves there is
-the clean room, minus its credentials, with the checker's and the audit's output
-beside the report: the audit's is the run's token cost by model, kept for
+the clean room, minus its credentials, with the checker's, the audit's and the
+judge's output beside the report: the audit's is the run's token cost by model, kept for
 comparing runs later. The fixtures stay behind, since every build makes them
 afresh. The folder is cleared by hand. It sits in the home folder, so a later
 session that reads an earlier run's report is a stray the audit lists.
@@ -179,8 +182,8 @@ repo with its token cost. A quiet experiment proves nothing about the spec.
 **Then a real set: every role on every platform you have, start to finish, on
 one model at `xhigh`**, the best model you have when the set starts. **Real runs
 happen only in CI**; a run at home is for a shakedown, or a fallback when CI is
-blocked. A run in a real set is recorded if its transcript audit came back
-clean, a restore's with both verdicts, the spec-only one stated as the evidence
+blocked. A run in a real set is recorded if the judge found no move that voids
+it, a restore's with both verdicts, the spec-only one stated as the evidence
 about the format. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
 role and the platform, the model and the effort; a backup program goes in
@@ -249,12 +252,21 @@ reach the web.
 repo, and every time it ran s3cab or went to the web from a tool or a shell command.
 Its file tools are held to the clean room in the sandbox root as well, where s3cab's
 home and the reference exits sit beside it; its commands aren't, since one naming the
-clean room beside a `..` would read as leaving it. Any of those voids the run. The
-sandbox is outside home and temp so that a command naming the session's own clean
-room is never read as one leaving home. A program the session wrote and then ran is
-not audited: its own requests go unseen, which on Windows nothing else catches. The
-repo is ruled out outright, because what it leaks arrives before the session's first
-tool call, where neither the walls nor the audit see it.
+clean room beside a `..` would read as leaving it. The sandbox is outside home and
+temp so that a command naming the session's own clean room is never read as one
+leaving home. A program the session wrote and then ran is not audited: its own
+requests go unseen, which on Windows nothing else catches. The repo is ruled out
+outright, because what it leaks arrives before the session's first tool call, where
+neither the walls nor the audit see it.
+
+The audit only gathers: it flags more than it should, and writes each move with what
+the tool returned to `audit.json`. `judge-audit.mjs` then has Opus, with no tools,
+read each one and decide whether it could have told the session how s3cab behaves.
+Any move it calls `voids` voids the run, as does an answer it can't read; each
+verdict comes with its reason, so a person can overrule it. A model's judgement is
+enough here: the run measures a spec written in English, which can never be exact,
+and a cheating run the judge misses only makes the spec look better than it is.
+Runs are repeated, so the spec still only moves in the right direction.
 
 The run is headless (`claude -p`), started from the clean room so its transcript
 lands where the audit looks, and nobody sits in it. `--safe-mode` leaves out every
