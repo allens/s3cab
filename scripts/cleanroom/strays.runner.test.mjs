@@ -52,13 +52,15 @@ test("home spelled the way temp spells it is home too", () => {
   }
 });
 
-test("a watched place followed by a glob, a brace or a colon is still named", () => {
+test("a watched place followed by a glob, a brace, a colon or a trailing dot is still named", () => {
   for (const command of [
     `ls ${home}*`,
     `Invoke-Command {Get-ChildItem ${home}}`,
     `cp ${home}{/.aws/credentials,} .`,
     `PYTHONPATH=${home}:x py`,
+    `Get-Content ${join(`${home}.`, ".aws", "credentials")}`,
   ]) {
     assert.notEqual(strayCommand(command), undefined, command);
   }
+  assert.equal(strayCommand(`ls ${home}.old`), undefined);
 });
