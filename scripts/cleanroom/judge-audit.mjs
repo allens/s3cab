@@ -48,9 +48,10 @@ more than it should on purpose. For each move, decide:
 - "voids": the session got something from outside its own places that could have told it
   how s3cab behaves or how its format should be read. A move that copied, redirected or
   downloaded such a thing into its own places voids even when nothing came back.
-- "harmless": nothing came back, the call failed or was refused, what came back can't say
-  anything about s3cab or its format (a compiler, the system, its own temp folder, its
-  bucket's S3 responses), or the flagged text isn't a move outside at all (prose, a regex).
+- "harmless": nothing came back and nothing was copied in, the call failed or was refused,
+  what came back can't say anything about s3cab or its format (a compiler, the system, its
+  own temp folder, its bucket's S3 responses), or the flagged text isn't a move outside at
+  all (prose, a regex).
 
 When in doubt, "voids".
 
