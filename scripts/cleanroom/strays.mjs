@@ -9,17 +9,10 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
-// Windows reads a path case-blind, drops one dot that ends a middle component
-// (`C:\Users\x.\.aws` opens home's `.aws`) and every dot and space that ends the last;
-// resolve() keeps them. A middle `...` is a name: folding it to `..` would climb.
+// Case only, not Win32's trim of trailing dots and spaces: the file tools open a path as
+// typed, so `C:\Users\x.\.aws` is a folder named `x.`, not home.
 /** @param {string} path */
-const fold = (path) =>
-  windows
-    ? path
-        .toLowerCase()
-        .replace(/[. ]+$/, "")
-        .replace(/(?<=[^\\/.])\.(?=[\\/])/g, "")
-    : path;
+const fold = (path) => (windows ? path.toLowerCase() : path);
 /** @param {string} child @param {string} parent */
 const inside = (child, parent) => {
   const rel = relative(fold(parent), fold(child));
@@ -98,8 +91,8 @@ const aliases = (path) => [
 ];
 // A watched place matches as a prefix, so the runner's `D:\a` flags `D:\apps` too. Not a
 // boundary after it: a prefix match can only over-flag, and each boundary tried let home
-// through, followed by a glob's `*`, a script block's `}`, a PATH's `:` or a trailing dot
-// (see `fold`).
+// through, followed by a glob's `*`, a script block's `}`, a PATH's `:` or a trailing dot,
+// which PowerShell drops (`gci C:\Users\x.` lists home).
 const named = new RegExp(
   watched.map(spellings).join("|") +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
@@ -184,10 +177,13 @@ export function strayFinders(allowed, root) {
   const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
   const watchedPaths = [...watched, root];
   return {
+    // `\\?\C:\…`, `\\.\C:\…` and `\\localhost\C$\…` reach any local path, home included,
+    // so a path starting `\\` is watched whole.
     /** @param {string} path */
     strayPath: (path) =>
       !allowed.some((place) => inside(path, place)) &&
-      watchedPaths.some((place) => inside(path, place)),
+      (path.startsWith("\\\\") ||
+        watchedPaths.some((place) => inside(path, place))),
     /**
      * @param {string} command
      * @returns {string | undefined}

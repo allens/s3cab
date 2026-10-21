@@ -44,19 +44,32 @@ test("a path is a stray in the home folder but not in the sandbox", () => {
 });
 
 test(
-  "on Windows, a path is read as Windows opens it",
+  "on Windows, a path is read as typed, as the file tools open it",
   { skip: process.platform !== "win32" },
   () => {
-    assert.equal(strayPath(resolve(`${homedir()}.\\.aws\\credentials`)), true);
-    assert.equal(strayPath(resolve(`${homedir()} \\.aws\\credentials`)), false);
-    assert.equal(strayPath(resolve(`${homedir()}2\\.aws\\credentials`)), false);
+    assert.equal(strayPath(resolve(`${homedir()}.\\.aws\\credentials`)), false);
     // Beside the sandbox, not in it.
-    for (const path of [`${root} \\x`, `${root}..\\x`, `${root}. \\x`]) {
+    for (const path of [`${root}.\\x`, `${root} \\x`, `${root}..\\x`]) {
       assert.equal(strayPath(resolve(path)), true, path);
     }
-    assert.equal(strayPath(resolve(`${root}.\\x`)), false);
-    assert.equal(strayPath(resolve(`${root}\\...\\x`)), false);
-    assert.equal(strayPath(resolve(`${root}\\x. .`)), false);
+  },
+);
+
+test(
+  "on Windows, a device or admin-share spelling of a path is a stray",
+  { skip: process.platform !== "win32" },
+  () => {
+    const keys = join(homedir(), ".aws", "credentials");
+    for (const path of [
+      `\\\\?\\${keys}`,
+      `\\\\.\\${keys}`,
+      `\\\\localhost\\${keys[0]}$${keys.slice(2)}`,
+    ]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+    // Inside an allowed place, a share is still allowed.
+    const share = strayFinders(["\\\\nas\\s3cab"], "\\\\nas\\s3cab");
+    assert.equal(share.strayPath("\\\\nas\\s3cab\\x"), false);
   },
 );
 
