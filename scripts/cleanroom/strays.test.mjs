@@ -113,9 +113,17 @@ test("a command reaching the web is reported as its host", () => {
     strayCommand("curl https://b.s3.eu-west-1.amazonaws.com/k"),
     undefined,
   );
-  assert.equal(strayCommand("curl -g 'https://[::1]:8080/x'"), "[::1]");
-  assert.equal(strayCommand("curl http://127.0.0.1/x"), "127.0.0.1");
-  assert.equal(strayCommand("curl https://bücher.example/x"), "bücher.example");
+  for (const [command, host] of /** @type {[string, string][]} */ ([
+    ["curl -g 'https://[::1]:8080/x'", "[::1]"],
+    ["curl -g 'http://[fe80::1%25en0]/'", "[fe80::1%25en0]"],
+    ["curl 'https://[v1.fe80::a]/'", "[v1.fe80::a]"],
+    ["curl http://127.0.0.1/x", "127.0.0.1"],
+    ["curl https://bücher.example/x", "bücher.example"],
+    ["curl https://@example.org/x", "@example.org"],
+    ["curl https://_x.example.org/x", "_x.example.org"],
+  ])) {
+    assert.equal(strayCommand(command), host, command);
+  }
 });
 
 test("a URL pattern in a regex isn't a host", () => {

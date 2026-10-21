@@ -105,11 +105,12 @@ const runsS3cab =
   /(?<=^|[\s;&|(`"'{\\/=:])((npx|pnpx|bunx)\s+|npm\s+exec\s+)?s3cab(\.exe|\.cmd|\.ps1|\.mjs)?(?=$|[\s;&@">`}]|'(?!s\b))/im;
 const formatUrl = "s3cab.plantegral.com/guide/format";
 // A host ends at the first character a host can't hold, so a query string or a variable
-// after it isn't read as part of it. One that starts with neither a letter, a digit nor an
-// IPv6 literal reads as empty: a variable, or a regex (`s#https://[^/]*##`). The literal
-// needs a colon, so a bracket class isn't one.
+// after it isn't read as part of it. One that starts with a variable, or with a bracket
+// holding no colon (a regex class: `s#https://[^/]*##`), reads as empty; a bracket with a
+// colon is an IPv6 literal, zone ID and all. Not a list of what a host may start with:
+// `@example.org` and `_x.example.org` reach the web too, and a gap is a silent miss.
 const urlHosts =
-  /\bhttps?:\/\/(\[[\da-f.]*:[\da-f:.]*\]|[\p{L}\p{N}][^\s/'"`)\\?#:;,|<>&$%{]*)?/giu;
+  /\bhttps?:\/\/(\[[^\]\s:]*:[^\]\s]*\]|[^\s/'"`)\\?#:;,|<>&$%{[][^\s/'"`)\\?#:;,|<>&$%{]*)?/gi;
 const s3Host = /(^|\.)s3[.-]([a-z0-9-]+\.)*amazonaws\.com$/i;
 // The npm package ships src/ and guide/, so its registry and CDNs serve s3cab too.
 const sourceHosts =
