@@ -281,10 +281,12 @@ each call; with nobody to ask, a blocked call is refused and the run carries on.
 `--session-id` fixes the transcript's name before the run starts, so it can be
 followed from the first line. `--max-budget-usd` caps the spend of each phase at
 list prices, on a subscription too, where it stops the call with `budget_exhausted`.
-So it has to clear the costliest phase on the dearest model: real set 1's Windows
-restore, both phases together, would have come to about $63 at Fable 5.1's rates.
-$150 clears that, and is the most one phase could cost if a run were ever billed at
-API rates by mistake. `--restricted` drops
+A resumed phase counts only its own spend, though the `total_cost_usd` it reports
+includes the phase before. So the cap has to clear the costliest phase on the dearest
+model: real set 1's Windows restore would have come to about $63 at Fable 5.1's rates
+for both phases together, so either phase alone is under that. $150 clears it, and is
+the most one phase could cost if a run were ever billed at API rates by mistake.
+`--restricted` drops
 every tool `--tools` doesn't name, the web tools among them, so the list holds what
 past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
 would be Git Bash.
