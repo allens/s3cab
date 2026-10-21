@@ -212,24 +212,24 @@ export function strayFinders(allowed, root) {
   const realAllowed = allowed.map(real);
   const realWatched = watchedPaths.map(real);
   return {
-    // Allowed by its real path, however it's typed; watched by either, since a link out of
-    // home would hide a path in it from the real one. `\\?\C:\…`, `\\.\C:\…` and
-    // `\??\C:\…` (which resolve() leaves as `<drive>:\??\C:\…`, and realpath can't read)
-    // reach any local path, so on Windows either is watched whole.
+    // A stray by its real path, or as typed where that isn't allowed either: a scratchpad
+    // typed by its real spelling is allowed, a clean-room link to `/usr` is fine, and a
+    // link out of home can't hide a path in it. `\\?\C:\…`, `\\.\C:\…` and `\??\C:\…`
+    // (which resolve() leaves as `<drive>:\??\C:\…`, and realpath can't read) reach any
+    // local path, so on Windows either is watched whole.
     /** @param {string} path */
     strayPath: (path) => {
       const resolved = real(path);
+      /** @param {string} spelled @param {string[]} watching */
+      const flagged = (spelled, watching) =>
+        spelled.startsWith("\\\\") ||
+        (windows && /[\\/]\?\?[\\/]/.test(spelled)) ||
+        watching.some((place) => inside(spelled, place));
       return (
         !realAllowed.some((place) => inside(resolved, place)) &&
-        /** @type {[string, string[]][]} */ ([
-          [path, watchedPaths],
-          [resolved, realWatched],
-        ]).some(
-          ([spelled, watching]) =>
-            spelled.startsWith("\\\\") ||
-            (windows && /[\\/]\?\?[\\/]/.test(spelled)) ||
-            watching.some((place) => inside(spelled, place)),
-        )
+        (flagged(resolved, realWatched) ||
+          (!allowed.some((place) => inside(path, place)) &&
+            flagged(path, watchedPaths)))
       );
     },
     /**

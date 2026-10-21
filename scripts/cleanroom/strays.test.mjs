@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { exampleRoot } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
 
@@ -73,12 +73,21 @@ test(
     ]) {
       assert.equal(strayPath(resolve(path)), true, path);
     }
-    // Inside an allowed place, a share is still allowed, and without looking its host up.
-    const started = performance.now();
-    const place = "\\\\s3cab-no-such-host.invalid\\s3cab";
-    const share = strayFinders([place], place);
-    assert.equal(share.strayPath(`${place}\\x`), false);
-    assert.ok(performance.now() - started < 1000);
+    // Inside an allowed place, a share is still allowed, and without looking its host up:
+    // a lookup Windows has cached is as fast as none, so what reaches realpath is recorded.
+    const lookups = mock.method(realpathSync, "native");
+    try {
+      const place = "\\\\s3cab-no-such-host.invalid\\s3cab";
+      const share = strayFinders([place], place);
+      assert.equal(share.strayPath(`${place}\\x`), false);
+    } finally {
+      lookups.mock.restore();
+    }
+    const looked = lookups.mock.calls.map((call) => String(call.arguments[0]));
+    assert.deepEqual(
+      looked.filter((path) => path.startsWith("\\\\")),
+      [],
+    );
   },
 );
 
@@ -113,9 +122,13 @@ test("a path through a link is a stray where the link leads", () => {
     mkdirSync(cleanroom);
     mkdirSync(join(sandbox, ".s3cab"));
     symlinkSync(join(sandbox, ".s3cab"), join(cleanroom, "s3cab"), "junction");
+    // A toolchain the session links in from a place nothing watches, as a venv does.
+    const system = process.env.SystemRoot ?? "/usr";
+    symlinkSync(system, join(cleanroom, "toolchain"), "junction");
     const { strayPath } = strayFinders([cleanroom], sandbox);
     assert.equal(strayPath(join(cleanroom, "s3cab", "sets")), true);
     assert.equal(strayPath(join(cleanroom, "main.c")), false);
+    assert.equal(strayPath(join(cleanroom, "toolchain", "x")), false);
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
