@@ -4,7 +4,7 @@
  * why a move was flagged, or undefined.
  */
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, relative, sep } from "node:path";
+import { dirname, isAbsolute, relative, sep } from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
@@ -20,7 +20,15 @@ const inside = (child, parent) => {
 };
 // What ends a path in a command's text.
 const edge = "\\s\"'`;|&(),=<>";
-const watched = [homedir(), tmpdir(), repoRoot];
+// On a runner, its work folder too: the checkout, and RUNNER_TEMP with the event payload
+// naming the repo. Outside home on Windows (`D:\a`), where no shell sandbox hides it.
+const runnerTemp = process.env.RUNNER_TEMP;
+const watched = [
+  homedir(),
+  tmpdir(),
+  repoRoot,
+  ...(runnerTemp ? [dirname(runnerTemp)] : []),
+];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
 // places' spellings are taken out, then anything still naming a watched place is a stray.
