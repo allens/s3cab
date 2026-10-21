@@ -26,7 +26,8 @@ const seedTag = "s3cab-cleanroom-seed";
 // otherwise void the bucket for nothing. Each file is hashed under its name, so moving a
 // line from one to the other still changes the stamp. All are checked out with LF
 // endings on every platform (.gitattributes), so a Windows build agrees with every seed.
-// Not cleanroom-seed.yml: Dependabot's weekly action bumps would void the stamp.
+// The workflow's on.push.paths lists the same files. Not cleanroom-seed.yml itself:
+// Dependabot's weekly action bumps would void the stamp.
 const seedInputs = [
   join("scripts", "cleanroom", "fixtures.mjs"),
   join("scripts", "cleanroom", "seed-restore-cleanroom-bucket.mjs"),
