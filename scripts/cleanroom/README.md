@@ -174,7 +174,10 @@ in the harness or the spec, and a report worth comparing is kept outside the
 repo with its token cost. A quiet experiment proves nothing about the spec.
 
 **Then a real set: every role on every platform you have, start to finish, on
-one model at `xhigh`**, the best model you have when the set starts. A run in a
+one model at `xhigh`**, the best model you have when the set starts. **Real runs
+happen only in CI**; a run at home is for a shakedown, or a fallback when CI is
+blocked. Today [cleanroom.yml](../../.github/workflows/cleanroom.yml) runs macOS
+only, so a real set's Windows and Linux runs wait for it to take a platform. A run in a
 real set is recorded if its transcript audit came back clean, a restore's with
 both verdicts, the spec-only one stated as the evidence about the format. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the

@@ -2,9 +2,10 @@
 
 **macOS backup and restore runs are built** ([cleanroom.yml](../.github/workflows/cleanroom.yml));
 a restore's references are built from a second checkout between its two phases.
-My idea: run the clean-room *sessions* themselves in GitHub Actions — **macOS only**, the one
-platform I can't easily run locally. Windows and Linux stay on my machine. Both kinds of run use
-my subscription ([The Claude credential](#the-claude-credential)).
+My idea: run the clean-room *sessions* themselves in GitHub Actions. **Real runs happen only
+there**, on all three platforms; a local run is for shakedowns, and a fallback when CI is
+blocked. macOS came first, the one platform I can't easily run locally; Windows and Linux are
+still to build. Both kinds of run use my subscription ([The Claude credential](#the-claude-credential)).
 Builds on [cleanroom-harness.md](cleanroom-harness.md). Seeding the restore fixtures per platform is
 [cleanroom-seeding.md](cleanroom-seeding.md).
 
@@ -42,8 +43,8 @@ trees. Triggered by hand (`workflow_dispatch`), with role, platform, model and e
 5. **Keep:** delete the credentials, upload the clean room with `check.txt` and `audit.txt` as a
    build artifact. Harvesting stays human: download it and read the report.
 
-(Checking out, deleting the checkout and carrying on is my idea too.) The platform input exists
-so the same workflow can run Windows or Linux if ever wanted, but the default use is macOS.
+(Checking out, deleting the checkout and carrying on is my idea too.) Still to build: the
+platform input. The workflow runs on `macos-15` alone, so Windows and Linux need it.
 
 **Not three copied files instead of a checkout** (`format.md`, the brief and a `bootstrap.mjs`
 fetched from GitHub): steps 1 and 4 need s3cab *at the commit under test*, which isn't
