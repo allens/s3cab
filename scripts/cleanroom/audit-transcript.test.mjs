@@ -91,6 +91,7 @@ test(
       const evidence = JSON.parse(
         readFileSync(join(cleanroom, "audit.json"), "utf8"),
       );
+      assert.equal(evidence.root, root);
       assert.deepEqual(evidence.moves, [
         {
           matched: elsewhere,

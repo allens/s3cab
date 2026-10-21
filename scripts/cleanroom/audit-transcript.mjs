@@ -198,6 +198,7 @@ for (const file of transcripts) {
 }
 // Enough of each to judge it by, not the whole of a long listing or file.
 const evidence = {
+  root,
   allowed,
   moves: moves.map(({ id, ...move }) => ({
     ...move,

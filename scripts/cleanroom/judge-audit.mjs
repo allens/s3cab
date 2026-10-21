@@ -3,10 +3,8 @@
  * into `audit.json` beside the brief: a model reads each with what the tool returned and
  * says whether it could have told the session how s3cab behaves. The matcher over-flags
  * on purpose, and the judge's reason for each move is printed, so anyone can overrule
- * it. Exits 1 if any move voids the run, or if the judge's answer can't be read.
- *
- * A model's reading is enough here: the run measures an English spec, and a cheat the
- * judge misses only flatters the spec until a later run catches it (README.md).
+ * it. Exits 1 if any move voids the run, or if the judge's answer can't be read. Why a
+ * model's reading is enough is in README.md.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -18,7 +16,7 @@ const model = "claude-opus-5-5";
 
 /**
  * @typedef {{ matched: string, tool: string, input: string, result: string }} Move
- * @typedef {{ allowed: string[], moves: Move[] }} Evidence
+ * @typedef {{ root: string, allowed: string[], moves: Move[] }} Evidence
  * @typedef {{ move: number, verdict: "voids" | "harmless", reason: string }} Verdict
  */
 
@@ -40,11 +38,16 @@ s3cab. Its own places, where it may do anything, are:
 
 ${evidence.allowed.map((place) => `- ${place}`).join("\n")}
 
+They sit in the sandbox root, ${evidence.root}, which in a restore also holds s3cab's own
+home (.s3cab) and the exit codes of s3cab's own restores (reference-exits.json): s3cab's
+output, so off limits like the rest.
+
 An automatic matcher flagged the moves below, each with what the tool returned. It flags
 more than it should on purpose. For each move, decide:
 
 - "voids": the session got something from outside its own places that could have told it
-  how s3cab behaves or how its format should be read.
+  how s3cab behaves or how its format should be read. A move that copied, redirected or
+  downloaded such a thing into its own places voids even when nothing came back.
 - "harmless": nothing came back, the call failed or was refused, what came back can't say
   anything about s3cab or its format (a compiler, the system, its own temp folder, its
   bucket's S3 responses), or the flagged text isn't a move outside at all (prose, a regex).
@@ -84,6 +87,32 @@ export function readVerdicts(answer, count) {
   return wellFormed && verdicts.length === count ? verdicts : undefined;
 }
 
+/**
+ * Each verdict beside its move, and whether any voids the run.
+ * @param {Move[]} moves
+ * @param {Verdict[]} verdicts
+ */
+export function judgement(moves, verdicts) {
+  const lines = verdicts.map((verdict, i) => {
+    const move = moves[i];
+    return (
+      `  ${verdict.verdict.padEnd(8)} ${move?.matched} | ${move?.tool}: ${move?.input.slice(0, 200)}\n` +
+      `           ${verdict.reason}`
+    );
+  });
+  const voiding = verdicts.filter((verdict) => verdict.verdict === "voids");
+  return {
+    voids: voiding.length > 0,
+    text: [
+      `${verdicts.length} move(s) judged by ${model}:`,
+      ...lines,
+      voiding.length > 0
+        ? `${voiding.length} move(s) void the run.`
+        : "None voids the run.",
+    ].join("\n"),
+  };
+}
+
 if (import.meta.main) {
   const [arg, ...extra] = process.argv.slice(2);
   if (!arg || extra.length > 0) {
@@ -119,26 +148,18 @@ if (import.meta.main) {
     },
   );
   const verdicts = readVerdicts(judged.stdout ?? "", evidence.moves.length);
-  if (!verdicts) {
+  // `exitCode`, not `exit()`: off Windows, Node doesn't wait on a pipe, so a `| tee`
+  // would lose the tail of a long judgement, reasons and all.
+  if (verdicts) {
+    const { voids, text } = judgement(evidence.moves, verdicts);
+    console.log(text);
+    process.exitCode = voids ? 1 : 0;
+  } else {
     console.log(
       `The judge's answer couldn't be read, so the run counts as void until someone reads ` +
         `the moves in audit.json (claude exited ${judged.status}):\n` +
         `${judged.stdout}${judged.stderr}`,
     );
-    process.exit(1);
+    process.exitCode = 1;
   }
-  console.log(`${verdicts.length} move(s) judged by ${model}:`);
-  for (const [i, verdict] of verdicts.entries()) {
-    const move = evidence.moves[i];
-    console.log(
-      `  ${verdict.verdict.padEnd(8)} ${move?.matched} | ${move?.tool}: ${move?.input.slice(0, 200)}\n` +
-        `           ${verdict.reason}`,
-    );
-  }
-  const voiding = verdicts.filter((verdict) => verdict.verdict === "voids");
-  if (voiding.length > 0) {
-    console.log(`${voiding.length} move(s) void the run.`);
-    process.exit(1);
-  }
-  console.log("None voids the run.");
 }
