@@ -73,8 +73,16 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        # macos-15 as in ci.yml: Apple Silicon, APFS case- and normalization-insensitive.
-        os: [ubuntu-latest, windows-latest, macos-15]
+        # Each root is seedRoots' in fixtures.mjs, which says why it is where it is; the
+        # seed refuses any other.
+        include:
+          - os: ubuntu-latest
+            root: /srv/s3cab.seed
+          - os: windows-latest
+            root: C:\s3cab.seed
+          # macos-15 as in ci.yml: Apple Silicon, APFS case- and normalization-insensitive.
+          - os: macos-15
+            root: /Users/Shared/s3cab.seed
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
       contents: read
@@ -88,9 +96,9 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
-      # The sandbox root has to be outside the checkout, as every clean-room script
-      # insists.
-      - run: node scripts/cleanroom/seed-restore-cleanroom-bucket.mjs "${{ runner.temp }}/s3cab.sandbox"
+      - if: runner.os == 'Linux'
+        run: sudo install -d -o "$USER" "${{ matrix.root }}"
+      - run: node scripts/cleanroom/seed-restore-cleanroom-bucket.mjs "${{ matrix.root }}"
 
   stamp:
     name: stamp
