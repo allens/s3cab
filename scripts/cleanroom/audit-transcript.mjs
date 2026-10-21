@@ -81,10 +81,11 @@ if (transcripts.length === 0) {
 }
 
 // The session's own scratchpad and saved tool output, both named for its session id, are
-// its to use. An earlier run's sit beside them under the same folder and are strays. The
-// temp folder is `claude` on Windows and `claude-<uid>` on Linux. Measured: the scratchpad
-// on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`), the tool output on Linux
-// (`/tmp/claude-<uid>/<folder>/<id>/tasks`); not the other two, nor macOS.
+// its to use. An earlier run's sit beside them under the same folder and are strays.
+// Measured: the scratchpad on Windows (`%TEMP%\claude\<folder>\<id>\scratchpad`). On Linux
+// the shell sandbox sets TMPDIR to `/tmp/claude-<uid>` itself, so that whole folder is the
+// session's; on a runner nothing else is in it, and a run at home stops seeing earlier
+// runs' folders there.
 const sessions = transcripts.map(
   (file) =>
     relative(projects, file)
@@ -92,13 +93,15 @@ const sessions = transcripts.map(
       ?.replace(/\.jsonl$/, "") ?? "",
 );
 const uid = process.getuid?.();
-const temps = uid === undefined ? ["claude"] : ["claude", `claude-${uid}`];
-const own = folders.flatMap((folder) =>
-  sessions.flatMap((id) => [
-    join(projects, folder, id),
-    ...temps.map((temp) => join(tmpdir(), temp, folder, id)),
-  ]),
-);
+const own = [
+  ...folders.flatMap((folder) =>
+    sessions.flatMap((id) => [
+      join(projects, folder, id),
+      join(tmpdir(), "claude", folder, id),
+    ]),
+  ),
+  ...(uid === undefined ? [] : [join(tmpdir(), `claude-${uid}`)]),
+];
 const fixtures = join(root, "fixtures");
 const allowed = [
   cleanroom,
