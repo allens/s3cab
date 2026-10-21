@@ -122,6 +122,7 @@ test("a command reaching the web is reported as its host", () => {
     ["curl https://@example.org/x", "@example.org"],
     ["curl https://_x.example.org/x", "_x.example.org"],
     ["curl -s 'https://[1-3].example.org/index.html'", "[1-3].example.org"],
+    ["curl 'https://[1-2]{a,b}.example.org/'", "[1-2]"],
   ])) {
     assert.equal(strayCommand(command), host, command);
   }
