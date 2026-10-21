@@ -370,7 +370,7 @@ export function runCommand(role, reconcile = false) {
     (role === "backup" ? " --add-dir ../fixtures" : "") +
     ` --safe-mode --append-system-prompt-file CLAUDE.md` +
     (reconcile ? " --resume <uuid>" : " --session-id <uuid>") +
-    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 30` +
+    ` --model <model> --effort <effort> --permission-mode auto --max-budget-usd 150` +
     (reconcile ? ' "read RECONCILE.md"' : " go")
   );
 }

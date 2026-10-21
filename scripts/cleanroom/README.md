@@ -103,13 +103,13 @@ node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs C:\s3cab
 # run: headless, from the clean room; follow its transcript (audit-transcript.mjs
 # says where it lands) with Get-Content -Wait -Tail 5
 cd C:\s3cab.sandbox\cleanroom
-claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 go
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --session-id <a new uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 150 go
 cd -
 # between the phases: the spec-only clean room kept, the references built and RECONCILE.md written
 node --env-file=.env.test scripts/cleanroom/reconcile-restore-cleanroom.mjs C:\s3cab.sandbox
 # run the reconcile phase: the same session resumed, from the clean room
 cd C:\s3cab.sandbox\cleanroom
-claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 30 "read RECONCILE.md"
+claude -p --restricted --tools PowerShell,Read,Write,Edit,Glob,Grep,TaskStop --settings ../session-settings.json --safe-mode --append-system-prompt-file CLAUDE.md --resume <the same uuid> --model claude-opus-5-5 --effort xhigh --permission-mode auto --max-budget-usd 150 "read RECONCILE.md"
 cd -
 # check: both restorers run on every snapshot and compared, and the transcript audited and judged
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
@@ -279,9 +279,14 @@ survives a run long enough to write a program, where an opening-turn instruction
 would be compacted away. `--permission-mode auto` keeps the classifier reviewing
 each call; with nobody to ask, a blocked call is refused and the run carries on.
 `--session-id` fixes the transcript's name before the run starts, so it can be
-followed from the first line. `--max-budget-usd` caps the spend of each phase: the
-costliest run so far, a Windows backup at `xhigh`, came to about $9 at Opus 5.5's
-rates, so $30 leaves room for a longer one. `--restricted` drops
+followed from the first line. `--max-budget-usd` caps the spend of each phase at
+list prices, on a subscription too, where it stops the call with `budget_exhausted`.
+A resumed phase counts only its own spend, though the `total_cost_usd` it reports
+includes the phase before. So the cap has to clear the costliest phase on the dearest
+model: real set 1's Windows restore would have come to about $63 at Fable 5.1's rates
+for both phases together, so either phase alone is under that. $150 clears it, and is
+the most one phase could cost if a run were ever billed at API rates by mistake.
+`--restricted` drops
 every tool `--tools` doesn't name, the web tools among them, so the list holds what
 past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
 would be Git Bash.
