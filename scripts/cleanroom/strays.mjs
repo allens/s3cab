@@ -87,9 +87,12 @@ const aliases = (path) => [
       : [],
   ),
 ];
-// A watched place ends where a path component does, so the runner's `D:\a` isn't `D:\apps`.
+// A watched place is a whole component, so the runner's `D:\a` isn't `D:\apps`: anything may
+// follow it but a character that continues a name. Not a list of what may follow, as the
+// allowed side has: home followed by a glob's `*`, a script block's `}` or a PATH's `:`
+// would pass.
 const named = new RegExp(
-  `(${watched.map(spellings).join("|")})(?=[\\\\/${edge}]|$)` +
+  `(${watched.map(spellings).join("|")})(?![\\w.~-])` +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
     // A bare `~` followed by a regex or a quoted string is awk's or perl's match operator
     // (`$1 ~ /^@SET/`), not home.
