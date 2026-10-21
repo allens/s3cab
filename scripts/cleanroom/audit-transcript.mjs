@@ -1,10 +1,13 @@
 /**
- * Audit what a clean-room session did, from its own transcript: the tokens it spent, by
+ * Gather what a clean-room session did, from its own transcript: the tokens it spent, by
  * model, and every move that could have handed it s3cab knowledge from outside the
- * sandbox. Nothing walls a session in (README.md says why), so this is how a run that
- * read past the brief gets caught rather than read as a spec with fewer ambiguities.
+ * sandbox, with what the tool returned. Nothing walls a session in (README.md says why),
+ * so this is how a run that read past the brief gets caught rather than read as a spec
+ * with fewer ambiguities. It only gathers: the moves go to `audit.json` beside the brief,
+ * and judge-audit.mjs decides whether any voids the run, so a move flagged here that
+ * turns out harmless costs nothing.
  *
- * A stray is any of:
+ * A move is flagged for any of:
  * - a tool that took a path in the home folder, temp, the repo or the sandbox root,
  *   outside the clean room (a backup's fixtures too) and the session's own scratchpad and
  *   tool output, or off Windows its whole `claude-<uid>` temp folder. The root holds
@@ -21,16 +24,22 @@
  *   the spec's `@S3CAB FORMAT` row, which every snapshot carries. Not caught: a host
  *   held in a variable, a scheme-less host not on the list, and a URL in a file the
  *   session wrote and then ran, which is what a restorer is.
- * Paths elsewhere (a toolchain under Program Files, /usr) are not strays.
+ * Paths elsewhere (a toolchain under Program Files, /usr) aren't flagged.
  * Each is listed as what matched, then the tool and the start of its input; strays.mjs
- * decides.
+ * does the matching.
  *
  * Claude Code keeps a session's transcripts under `projects/<cwd, every character but
  * a letter or digit turned to ->/` in its config directory, subagents' in a
  * `subagents/` folder below. The sandbox's path is the same every run, so the folder
  * also holds earlier runs': only files written since this sandbox's brief count.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { exampleRoot, sandboxPath } from "./cleanroom.mjs";
@@ -123,8 +132,10 @@ const tokens = new Map();
 const counted = new Set();
 /** @type {Set<string>} more than one means the effort changed mid-run */
 const efforts = new Set();
-/** @type {string[]} */
-const strays = [];
+/** @type {{ id: string, matched: string, tool: string, input: string }[]} */
+const moves = [];
+/** @type {Map<string, string>} what each tool call returned, by its id */
+const results = new Map();
 for (const file of transcripts) {
   for (const line of readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) {
@@ -133,6 +144,13 @@ for (const file of transcripts) {
     const record = JSON.parse(line);
     if (record.effort) {
       efforts.add(record.effort);
+    }
+    if (record.type === "user" && Array.isArray(record.message?.content)) {
+      for (const block of record.message.content) {
+        if (block.type === "tool_result") {
+          results.set(block.tool_use_id, resultText(block.content));
+        }
+      }
     }
     if (record.type !== "assistant") {
       continue;
@@ -168,13 +186,29 @@ for (const file of transcripts) {
           ? String(input.url ?? input.query ?? block.name)
           : undefined);
       if (why !== undefined) {
-        strays.push(
-          `  ${why} | ${block.name}: ${JSON.stringify(input).slice(0, 300)}`,
-        );
+        moves.push({
+          id: block.id,
+          matched: why,
+          tool: block.name,
+          input: JSON.stringify(input),
+        });
       }
     }
   }
 }
+// Enough of each to judge it by, not the whole of a long listing or file.
+const evidence = {
+  allowed,
+  moves: moves.map(({ id, ...move }) => ({
+    ...move,
+    input: clip(move.input, 3000),
+    result: clip(results.get(id) ?? "(no result recorded)", 3000),
+  })),
+};
+writeFileSync(
+  join(cleanroom, "audit.json"),
+  `${JSON.stringify(evidence, null, 2)}\n`,
+);
 
 const number = new Intl.NumberFormat("en");
 console.log(
@@ -187,12 +221,37 @@ for (const [model, sum] of tokens) {
   );
   console.log(`  ${model}: ${totals.join(", ")}`);
 }
-if (strays.length === 0) {
+if (moves.length === 0) {
   console.log("Nothing outside the sandbox.");
 } else {
   console.log(
-    `${strays.length} move(s) outside the sandbox, any of which voids the run:\n` +
-      strays.join("\n"),
+    `${moves.length} move(s) for judge-audit.mjs to read:\n` +
+      moves
+        .map(
+          (move) =>
+            `  ${move.matched} | ${move.tool}: ${move.input.slice(0, 300)}`,
+        )
+        .join("\n"),
   );
-  process.exit(1);
+}
+
+/** A tool result's text: a string, or the text blocks of a list. @param {unknown} content */
+function resultText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  return Array.isArray(content)
+    ? content
+        .map((block) =>
+          block?.type === "text" ? block.text : `(${block?.type})`,
+        )
+        .join("\n")
+    : "";
+}
+
+/** @param {string} text @param {number} length */
+function clip(text, length) {
+  return text.length > length
+    ? `${text.slice(0, length)}… (${text.length - length} more characters)`
+    : text;
 }
