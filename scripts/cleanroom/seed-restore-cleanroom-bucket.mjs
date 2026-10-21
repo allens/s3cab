@@ -9,7 +9,8 @@
  * between the first and the last:
  *
  *   --empty   if the bucket's stamp isn't this checkout's: unstamp it and empty it
- *   <root>    one platform's turn: back up its sets, suffixed with its name (`edge-linux`)
+ *   <root>    one platform's turn: back up its sets, suffixed with its name (`edge-linux`);
+ *             the root is that platform's in fixtures.mjs's seedRoots
  *   --stamp   check every platform's sets are there, and stamp the bucket
  *
  *   <root>/fixtures/   the trees s3cab backs up (fixtures.mjs)
@@ -57,6 +58,7 @@ import {
   platform,
   platforms,
   reportFixtures,
+  seedRoots,
   withHandEdits,
   withoutTrailer,
 } from "./fixtures.mjs";
@@ -220,6 +222,13 @@ async function stamp(bucket) {
  * @param {{ root: string, bucket: string }} commandLine
  */
 async function seed({ root, bucket }) {
+  if (root !== seedRoots[platform]) {
+    console.error(
+      `${root} isn't ${platform}'s seed root, ${seedRoots[platform]} (seedRoots in\n` +
+        "fixtures.mjs): the snapshots record the root, and the stamp covers only that one.",
+    );
+    process.exit(2);
+  }
   const fixtures = join(root, "fixtures");
   const home = join(root, ".s3cab");
   const { mustRun, mustWrite } = cli(home);

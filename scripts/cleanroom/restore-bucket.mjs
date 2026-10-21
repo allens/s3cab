@@ -20,17 +20,16 @@ import { goldenSets } from "./fixtures.mjs";
 const seedTag = "s3cab-cleanroom-seed";
 
 // What decides the golden set's contents: the format it is written in, the trees backed
-// up, where they were backed up from (the workflow's roots, which the snapshots record),
-// and the damage done to them. The format is the spec's date, not format.md's bytes:
+// up and where from (seedRoots, which the snapshots record), and the damage done to them.
+// The format is the spec's date, not format.md's bytes:
 // the date changes when the format does and never for a change of wording, which would
 // otherwise void the bucket for nothing. Each file is hashed under its name, so moving a
 // line from one to the other still changes the stamp. All are checked out with LF
 // endings on every platform (.gitattributes), so a Windows build agrees with every seed.
-// The workflow's on.push.paths lists the same files.
+// Not cleanroom-seed.yml: Dependabot's weekly action bumps would void the stamp.
 const seedInputs = [
   join("scripts", "cleanroom", "fixtures.mjs"),
   join("scripts", "cleanroom", "seed-restore-cleanroom-bucket.mjs"),
-  join(".github", "workflows", "cleanroom-seed.yml"),
 ];
 
 /** The hash of this checkout's seed inputs: the spec's date, the fixtures and the seed. */

@@ -102,6 +102,20 @@ export const platform = windows
     : "linux";
 
 /**
+ * Where each platform's seed builds its fixtures. Outside the home folder: the snapshots
+ * record these paths, a restore session quotes them, and the audit reads a path in home
+ * as a stray. Not under a clean-room sandbox either, where a restore to the recorded
+ * paths would land. Here rather than in cleanroom-seed.yml so the stamp covers them
+ * without every edit to the workflow voiding it.
+ * @type {Record<Platform, string>}
+ */
+export const seedRoots = {
+  linux: "/srv/s3cab.seed",
+  windows: "C:\\s3cab.seed",
+  macos: "/Users/Shared/s3cab.seed",
+};
+
+/**
  * @typedef {object} BackupSet
  * @property {string} name
  * @property {string[]} dirs member directories, relative to the set's tree (`.` is the

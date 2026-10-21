@@ -27,7 +27,6 @@ on:
       - guide/format.md
       - scripts/cleanroom/fixtures.mjs
       - scripts/cleanroom/seed-restore-cleanroom-bucket.mjs
-      - .github/workflows/cleanroom-seed.yml
   workflow_dispatch:
 
 permissions:
@@ -74,9 +73,8 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        # The root is outside the home folder: its snapshots record it, a restore session
-        # quotes those paths, and the audit reads a path in home as a stray. Not under
-        # cleanroom.yml's sandbox either, where a restore to the recorded paths would land.
+        # Each root is seedRoots' in fixtures.mjs, which says why it is where it is; the
+        # seed refuses any other.
         include:
           - os: ubuntu-latest
             root: /srv/s3cab.seed
