@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
-import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { mock, test } from "node:test";
 import { exampleRoot } from "./cleanroom.mjs";
 import { strayFinders } from "./strays.mjs";
 
@@ -41,6 +47,91 @@ test("a path is a stray in the home folder but not in the sandbox", () => {
   assert.equal(strayPath(join(homedir(), ".dotnet", "x")), true);
   assert.equal(strayPath(join(homedir(), "..notes", "x")), true);
   assert.equal(strayPath(join(root, "cleanroom", "x")), false);
+});
+
+test(
+  "on Windows, a path is read as typed, as the file tools open it",
+  { skip: process.platform !== "win32" },
+  () => {
+    assert.equal(strayPath(resolve(`${homedir()}.\\.aws\\credentials`)), false);
+    // Beside the sandbox, not in it.
+    for (const path of [`${root}.\\x`, `${root} \\x`, `${root}..\\x`]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+  },
+);
+
+test(
+  "on Windows, a device or admin-share spelling of a path is a stray",
+  { skip: process.platform !== "win32" },
+  () => {
+    const keys = join(homedir(), ".aws", "credentials");
+    for (const path of [
+      `\\\\?\\${keys}`,
+      `\\\\.\\${keys}`,
+      `\\\\localhost\\${keys[0]}$${keys.slice(2)}`,
+    ]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+    // Inside an allowed place, a share is still allowed, and without looking its host up:
+    // a lookup Windows has cached is as fast as none, so what reaches realpath is recorded.
+    const lookups = mock.method(realpathSync, "native");
+    try {
+      const place = "\\\\s3cab-no-such-host.invalid\\s3cab";
+      const share = strayFinders([place], place);
+      assert.equal(share.strayPath(`${place}\\x`), false);
+    } finally {
+      lookups.mock.restore();
+    }
+    const looked = lookups.mock.calls.map((call) => String(call.arguments[0]));
+    assert.deepEqual(
+      looked.filter((path) => path.startsWith("\\\\")),
+      [],
+    );
+  },
+);
+
+test(
+  "on Windows, home is home through its index stream or an NT prefix",
+  { skip: process.platform !== "win32" },
+  () => {
+    const keys = join(".aws", "credentials");
+    for (const path of [
+      join(`${homedir()}::$INDEX_ALLOCATION`, keys),
+      `\\??\\${join(homedir(), keys)}`,
+    ]) {
+      assert.equal(strayPath(resolve(path)), true, path);
+    }
+  },
+);
+
+test(
+  "off Windows, `??` is a folder name",
+  { skip: process.platform === "win32" },
+  () => {
+    assert.equal(strayPath("/usr/include/??/x.h"), false);
+  },
+);
+
+test("a path through a link is a stray where the link leads", () => {
+  const sandbox = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "s3cab-strays-")),
+  );
+  try {
+    const cleanroom = join(sandbox, "cleanroom");
+    mkdirSync(cleanroom);
+    mkdirSync(join(sandbox, ".s3cab"));
+    symlinkSync(join(sandbox, ".s3cab"), join(cleanroom, "s3cab"), "junction");
+    // A toolchain the session links in from a place nothing watches, as a venv does.
+    const system = process.env.SystemRoot ?? "/usr";
+    symlinkSync(system, join(cleanroom, "toolchain"), "junction");
+    const { strayPath } = strayFinders([cleanroom], sandbox);
+    assert.equal(strayPath(join(cleanroom, "s3cab", "sets")), true);
+    assert.equal(strayPath(join(cleanroom, "main.c")), false);
+    assert.equal(strayPath(join(cleanroom, "toolchain", "x")), false);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
 });
 
 test("a command naming the sandbox is a stray only once it leaves it", () => {

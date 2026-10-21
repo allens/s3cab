@@ -140,17 +140,20 @@ The checker runs before the sandbox is destroyed, on the machine that built it:
 it reads the trees the clean room was handed, and takes s3cab's own snapshot of
 them there and then.
 
-**macOS runs in GitHub Actions**, a backup or a restore
+**Runs in GitHub Actions**, a backup or a restore on macOS, Linux or Windows
 ([.github/workflows/cleanroom.yml](../../.github/workflows/cleanroom.yml)): one job
 builds, runs, checks and audits, then uploads the clean room with its transcript.
+A Windows session has no shell sandbox there either, as at home:
+[windows-session.ps1](windows-session.ps1) starts it in a new login's environment
+instead of the job's.
 The session signs in with the `CLAUDE_CODE_OAUTH_TOKEN` secret, from
 `claude setup-token`; mint one per batch of runs and revoke it after. The artifact
 is public, so download it as soon as the run ends, then delete it. It holds one
 `cleanroom.tgz`:
 
 ```sh
-gh workflow run cleanroom.yml --ref main -f role=backup -f effort=low
-gh run download <run-id> -n cleanroom-<role>-macos-<model>-<effort> --dir ~/s3cab.experiments/<date>-<role>-macos-<model>-<effort>
+gh workflow run cleanroom.yml --ref main -f role=backup -f platform=linux -f effort=low
+gh run download <run-id> -n cleanroom-<role>-<platform>-<model>-<effort> --dir ~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>
 tar -xzf ~/s3cab.experiments/<that folder>/cleanroom.tgz -C ~/s3cab.experiments/<that folder>
 gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 ```
@@ -176,10 +179,9 @@ repo with its token cost. A quiet experiment proves nothing about the spec.
 **Then a real set: every role on every platform you have, start to finish, on
 one model at `xhigh`**, the best model you have when the set starts. **Real runs
 happen only in CI**; a run at home is for a shakedown, or a fallback when CI is
-blocked. Today [cleanroom.yml](../../.github/workflows/cleanroom.yml) runs macOS
-only, so a real set's Windows and Linux runs wait for it to take a platform. A run in a
-real set is recorded if its transcript audit came back clean, a restore's with
-both verdicts, the spec-only one stated as the evidence about the format. Its report
+blocked. A run in a real set is recorded if its transcript audit came back
+clean, a restore's with both verdicts, the spec-only one stated as the evidence
+about the format. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
 role and the platform, the model and the effort; a backup program goes in
 `backup/<platform>/` here (`linux`, `windows`, `macos`), and a restorer in

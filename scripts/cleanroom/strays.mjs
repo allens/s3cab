@@ -3,11 +3,22 @@
  * test can import the matchers. Each returns the text that matched, so the audit can say
  * why a move was flagged, or undefined.
  */
+import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, relative, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { repoRoot } from "./cleanroom.mjs";
 
 const windows = process.platform === "win32";
+// Case only, not Win32's trim of trailing dots and spaces: the file tools open a path as
+// typed, so `C:\Users\x.\.aws` is a folder named `x.`, not home.
 /** @param {string} path */
 const fold = (path) => (windows ? path.toLowerCase() : path);
 /** @param {string} child @param {string} parent */
@@ -18,9 +29,49 @@ const inside = (child, parent) => {
     (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
   );
 };
+// The real path of a path's longest existing part, the rest as typed: a file tool's path
+// can name home through an alias no text match knows (`C:\Documents and Settings\x`,
+// `C:\DOCUME~1\x`, `C:\Users\x::$INDEX_ALLOCATION`). Not a `\\` path: realpath looks its
+// host up on the network (7 s for one that doesn't answer), and `strayPath` decides those
+// whole.
+/** @param {string} path */
+const real = (path) => {
+  if (path.startsWith("\\\\")) {
+    return path;
+  }
+  for (
+    let at = path, rest = "";
+    ;
+    rest = join(basename(at), rest), at = dirname(at)
+  ) {
+    try {
+      return join(realpathSync.native(at), rest);
+    } catch {
+      if (dirname(at) === at) {
+        return path;
+      }
+    }
+  }
+};
 // What ends a path in a command's text.
 const edge = "\\s\"'`;|&(),=<>";
-const watched = [homedir(), tmpdir(), repoRoot];
+// Home as temp spells it too: a Windows runner's TEMP is `C:\Users\RUNNER~1\…`, an 8.3
+// alias of home that the session is shown and that shares no text with homedir().
+const realTemp = realpathSync.native(tmpdir());
+const realHome = realpathSync.native(homedir());
+const homeInTemp = inside(realTemp, realHome)
+  ? resolve(tmpdir(), relative(realTemp, realHome))
+  : homedir();
+// On a runner, its work folder too: the checkout, and RUNNER_TEMP with the event payload
+// naming the repo. Outside home on Windows (`D:\a`), where no shell sandbox hides it.
+const runnerTemp = process.env.RUNNER_TEMP;
+const watched = [
+  homedir(),
+  homeInTemp,
+  tmpdir(),
+  repoRoot,
+  ...(runnerTemp ? [dirname(runnerTemp)] : []),
+];
 
 // A command can't be resolved the way a path can, so it is read as text: the allowed
 // places' spellings are taken out, then anything still naming a watched place is a stray.
@@ -70,6 +121,10 @@ const aliases = (path) => [
       : [],
   ),
 ];
+// A watched place matches as a prefix, so the runner's `D:\a` flags `D:\apps` too. Not a
+// boundary after it: a prefix match can only over-flag, and each boundary tried let home
+// through, followed by a glob's `*`, a script block's `}`, a PATH's `:` or a trailing dot,
+// which PowerShell drops (`gci C:\Users\x.` lists home).
 const named = new RegExp(
   watched.map(spellings).join("|") +
     // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
@@ -153,11 +208,30 @@ export function strayFinders(allowed, root) {
   // hid a climb-out from one. `...` isn't a climb.
   const climbs = /(?<!\.)\.[\\`"']?\.(?!\.)/;
   const watchedPaths = [...watched, root];
+  // Real too, or a scratchpad under the runner's `RUNNER~1` temp reads as outside itself.
+  const realAllowed = allowed.map(real);
+  const realWatched = watchedPaths.map(real);
   return {
+    // A stray by its real path, or as typed where that isn't allowed either: a scratchpad
+    // typed by its real spelling is allowed, a clean-room link to `/usr` is fine, and a
+    // link out of home can't hide a path in it. `\\?\C:\…`, `\\.\C:\…` and `\??\C:\…`
+    // (which resolve() leaves as `<drive>:\??\C:\…`, and realpath can't read) reach any
+    // local path, so on Windows either is watched whole.
     /** @param {string} path */
-    strayPath: (path) =>
-      !allowed.some((place) => inside(path, place)) &&
-      watchedPaths.some((place) => inside(path, place)),
+    strayPath: (path) => {
+      const resolved = real(path);
+      /** @param {string} spelled @param {string[]} watching */
+      const flagged = (spelled, watching) =>
+        spelled.startsWith("\\\\") ||
+        (windows && /[\\/]\?\?[\\/]/.test(spelled)) ||
+        watching.some((place) => inside(spelled, place));
+      return (
+        !realAllowed.some((place) => inside(resolved, place)) &&
+        (flagged(resolved, realWatched) ||
+          (!allowed.some((place) => inside(path, place)) &&
+            flagged(path, watchedPaths)))
+      );
+    },
     /**
      * @param {string} command
      * @returns {string | undefined}

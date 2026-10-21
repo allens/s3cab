@@ -1,11 +1,12 @@
 # Clean rooms in GitHub Actions
 
-**macOS backup and restore runs are built** ([cleanroom.yml](../.github/workflows/cleanroom.yml));
-a restore's references are built from a second checkout between its two phases.
+**Backup and restore runs are built on all three platforms**
+([cleanroom.yml](../.github/workflows/cleanroom.yml)); a restore's references are built from a
+second checkout between its two phases. macOS has run; Linux and Windows haven't yet.
 My idea: run the clean-room *sessions* themselves in GitHub Actions. **Real runs happen only
 there**, on all three platforms; a local run is for shakedowns, and a fallback when CI is
-blocked. macOS came first, the one platform I can't easily run locally; Windows and Linux are
-still to build. Both kinds of run use my subscription ([The Claude credential](#the-claude-credential)).
+blocked. macOS came first, the one platform I can't easily run locally. Both kinds of run use
+my subscription ([The Claude credential](#the-claude-credential)).
 Builds on [cleanroom-harness.md](cleanroom-harness.md). Seeding the restore fixtures per platform is
 [cleanroom-seeding.md](cleanroom-seeding.md).
 
@@ -43,8 +44,7 @@ trees. Triggered by hand (`workflow_dispatch`), with role, platform, model and e
 5. **Keep:** delete the credentials, upload the clean room with `check.txt` and `audit.txt` as a
    build artifact. Harvesting stays human: download it and read the report.
 
-(Checking out, deleting the checkout and carrying on is my idea too.) Still to build: the
-platform input. The workflow runs on `macos-15` alone, so Windows and Linux need it.
+(Checking out, deleting the checkout and carrying on is my idea too.)
 
 **Not three copied files instead of a checkout** (`format.md`, the brief and a `bootstrap.mjs`
 fetched from GitHub): steps 1 and 4 need s3cab *at the commit under test*, which isn't
@@ -66,9 +66,9 @@ Each is reachable during step 3, and needs handling or the audit watching it:
   host on all three platforms, though a session with `sudo` can undo it. Blocking `github.com`
   alone misses the docs site: every example in `format.md` names `s3cab.plantegral.com`, which
   renders the README and `guide/`.
-- **The audit learns CI's paths:** the runner's work and temp directories, and the payload file.
-  On Windows, `RUNNER_TEMP` (`D:\a\_temp`, which holds the payload) is outside both the home
-  folder and temp, so today's audit doesn't watch it.
+- **The audit learns CI's paths:** it watches the runner's work folder, the parent of
+  `RUNNER_TEMP`, which holds the checkout and the payload file. Elsewhere that is inside the
+  home folder anyway; on Windows it is `D:\a`.
 
 *Reviewer's findings*, also reachable during step 3, which no delete reaches:
 
@@ -100,6 +100,12 @@ instead:
   can be minted, and `env -i` keeps the job's variables out, passing only paths, the user's
   name and the Claude token. A second user wouldn't keep the
   Claude token from the session's shell, which inherits it from `claude` either way.
+- **Decided: on Windows, which has no shell sandbox, a scrubbed environment and the audit.**
+  [windows-session.ps1](../scripts/cleanroom/windows-session.ps1) starts the session in a new
+  login's environment, so the OIDC request pair and the `GITHUB_*` variables never reach it.
+  Nothing walls off the web, the runner's memory or `D:\a`, so a Windows run in CI has the
+  walls a run at home has: the brief, and the audit voiding any move outside the sandbox. Not
+  a non-admin user behind an outbound firewall: untested, and much more to build.
 - **Narrow the clean room's keys** with `configure-aws-credentials`' `inline-session-policy`:
   the role's one bucket, read-only for a restore run. That bounds what the OIDC role and a
   leaked key reach.

@@ -1,14 +1,16 @@
-# A clean-room session on a macOS runner (proposals/cleanroom-ci.md): build the sandbox,
+# A clean-room session on a hosted runner (proposals/cleanroom-ci.md): build the sandbox,
 # run the headless session in it, check and audit it, and upload the clean room.
 #
 # Dispatch it from main only (`gh workflow run cleanroom.yml --ref main`): the s3cab-ci
 # role trusts main's OIDC subject, so a run from any other branch fails at the
 # assume-role. Download the artifact as soon as the run ends, then delete it.
 #
-# The session runs inside Claude Code's shell sandbox (session-settings.json), which hides
-# the home folder (the checkout, RUNNER_TEMP) and reaches no host but AWS, and with an
-# emptied environment, so none of the job's variables reach it: only the paths it needs,
-# the user's name and the Claude token, the one secret its shell inherits.
+# On macOS and Linux the session runs inside Claude Code's shell sandbox
+# (session-settings.json), which hides the home folder (the checkout, RUNNER_TEMP) and
+# reaches no host but AWS, and with an emptied environment, so none of the job's variables
+# reach it: only the paths it needs, the user's name and the Claude token, the one secret
+# its shell inherits. Windows has no shell sandbox, so there the emptied environment
+# (windows-session.ps1) and the transcript audit are the walls, as at home.
 
 name: cleanroom
 
@@ -18,6 +20,9 @@ on:
       role:
         type: choice
         options: [backup, restore]
+      platform:
+        type: choice
+        options: [macos, linux, windows]
       model:
         type: string
         default: claude-opus-5-5
@@ -47,8 +52,10 @@ env:
   # The role's bucket, the one the clean room's keys reach. Tested for restore, so an unset
   # variable falls through to the bucket a backup run empties, never to the restore fixtures.
   BUCKET: ${{ inputs.role == 'restore' && vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE || vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
-  # Outside the home folder and temp, which the transcript audit watches.
-  SANDBOX: /Users/Shared/s3cab.sandbox
+  # Outside the home folder and temp, which the transcript audit watches: cleanroom.mjs's
+  # exampleRoot for each platform. Windows' with forward slashes, which both Git Bash and
+  # Node read.
+  SANDBOX: ${{ inputs.platform == 'windows' && 'C:/s3cab.sandbox' || inputs.platform == 'linux' && '/srv/s3cab.sandbox' || '/Users/Shared/s3cab.sandbox' }}
 
 defaults:
   run:
@@ -56,8 +63,9 @@ defaults:
 
 jobs:
   run:
-    name: ${{ inputs.role }} (${{ inputs.model }}, ${{ inputs.effort }})
-    runs-on: macos-15
+    name: ${{ inputs.role }} on ${{ inputs.platform }} (${{ inputs.model }}, ${{ inputs.effort }})
+    # The seed's runners, cleanroom-seed.yml's.
+    runs-on: ${{ fromJSON('{"macos":"macos-15","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
     timeout-minutes: 360 # GitHub's ceiling for a hosted job
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
@@ -73,7 +81,7 @@ jobs:
       # Taken before the assume-role, so it errs early. The SDK reads it as the keys'
       # expiry, and the build writes it into ENVIRONMENT.md; configure-aws-credentials
       # exports none.
-      - run: echo "AWS_CREDENTIAL_EXPIRATION=$(date -u -v+6H +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - run: echo "AWS_CREDENTIAL_EXPIRATION=$(node -p 'new Date(Date.now() + 6 * 3600e3).toISOString().slice(0, 19) + "Z"')" >> "$GITHUB_ENV"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -89,19 +97,36 @@ jobs:
         run: aws s3 rm "s3://$BUCKET/" --recursive
       # A backup clean room's Python: outside the home folder, which the sandbox hides
       # from the session's python3.
-      - if: inputs.role == 'backup'
+      - if: inputs.role == 'backup' && inputs.platform == 'macos'
         run: /opt/homebrew/bin/python3 -m pip install --break-system-packages boto3
+      - if: inputs.role == 'backup' && inputs.platform == 'linux'
+        run: sudo python3 -m pip install --break-system-packages boto3 # as root: /usr/local
+      - if: inputs.role == 'backup' && inputs.platform == 'windows'
+        run: python -m pip install boto3 # into the tool cache's Python, outside the home folder
+      # Claude Code's shell sandbox runs commands in bwrap with socat as its proxy, and
+      # Ubuntu 24.04 refuses bwrap an unprivileged user namespace by default. The sandbox
+      # root is one only root can make.
+      - if: inputs.platform == 'linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo install -d -o "$USER" "$SANDBOX"
       - run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+      - if: inputs.platform == 'windows'
+        run: cp scripts/cleanroom/windows-session.ps1 "$RUNNER_TEMP/"
       - run: node "scripts/cleanroom/build-$ROLE-cleanroom.mjs" "$SANDBOX"
 
       - name: delete the checkout and the npm cache
+        working-directory: ${{ runner.temp }} # Windows won't delete a step's own folder
         run: |
-          rm -rf "$GITHUB_WORKSPACE" ~/.npm
+          rm -rf "$GITHUB_WORKSPACE" "$(npm config get cache)"
           mkdir "$GITHUB_WORKSPACE"
 
       # A restore's two phases share the 300 minutes a backup's one has, which leave the
       # checks and the upload time to run.
       - name: session
+        if: inputs.platform != 'windows'
         timeout-minutes: ${{ inputs.role == 'restore' && 200 || 300 }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -109,14 +134,15 @@ jobs:
           EFFORT: ${{ inputs.effort }}
         working-directory: ${{ env.SANDBOX }}/cleanroom
         run: |
-          session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          session_id=$(node -p 'crypto.randomUUID()')
           echo "SESSION_ID=$session_id" >> "$GITHUB_ENV"
           # Without USER and LOGNAME the session's shell reads LOGNAME as root, not runner,
-          # and Python's getpass.getuser() with it.
+          # and Python's getpass.getuser() with it. Linux runners leave TMPDIR unset, which
+          # passed as is would be set and empty.
           user=$(id -un)
           fixtures=()
           if [ "$ROLE" = backup ]; then fixtures=(--add-dir ../fixtures); fi
-          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$user" LOGNAME="$user" \
+          env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" USER="$user" LOGNAME="$user" \
             PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
@@ -124,6 +150,26 @@ jobs:
               --safe-mode --append-system-prompt-file CLAUDE.md --session-id "$session_id" \
               --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 go \
             > ../session.log 2>&1
+      # The tool list quoted: unquoted, PowerShell reads it as an array and passes it on
+      # space-separated.
+      - name: session
+        if: inputs.platform == 'windows'
+        timeout-minutes: ${{ inputs.role == 'restore' && 200 || 300 }}
+        shell: pwsh
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        working-directory: ${{ env.SANDBOX }}/cleanroom
+        run: |
+          $sessionId = [guid]::NewGuid().ToString()
+          "SESSION_ID=$sessionId" >> $env:GITHUB_ENV
+          $fixtures = $env:ROLE -eq 'backup' ? @('--add-dir', '../fixtures') : @()
+          & "$env:RUNNER_TEMP/windows-session.ps1" -Log ../session.log -- -p --restricted `
+            --tools 'PowerShell,Read,Write,Edit,Glob,Grep,TaskStop' `
+            --settings ../session-settings.json @fixtures `
+            --safe-mode --append-system-prompt-file CLAUDE.md --session-id $sessionId `
+            --model $env:MODEL --effort $env:EFFORT --permission-mode auto --max-budget-usd 30 go
 
       # A restore's references are built only now, from a second checkout, so none existed
       # while the spec-only phase ran: even after one that failed, so its restorer is still
@@ -138,11 +184,12 @@ jobs:
         run: node scripts/cleanroom/reconcile-restore-cleanroom.mjs "$SANDBOX"
       - name: delete the checkout and the npm cache again
         if: inputs.role == 'restore'
+        working-directory: ${{ runner.temp }}
         run: |
-          rm -rf "$GITHUB_WORKSPACE" ~/.npm
+          rm -rf "$GITHUB_WORKSPACE" "$(npm config get cache)"
           mkdir "$GITHUB_WORKSPACE"
       - name: session, reconcile phase
-        if: inputs.role == 'restore'
+        if: inputs.role == 'restore' && inputs.platform != 'windows'
         timeout-minutes: 100
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -151,7 +198,7 @@ jobs:
         working-directory: ${{ env.SANDBOX }}/cleanroom
         run: |
           user=$(id -un)
-          env -i HOME="$HOME" TMPDIR="$TMPDIR" USER="$user" LOGNAME="$user" \
+          env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" USER="$user" LOGNAME="$user" \
             PATH="/opt/homebrew/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash,Read,Write,Edit,Glob,Grep,TaskStop \
@@ -160,6 +207,22 @@ jobs:
               --model "$MODEL" --effort "$EFFORT" --permission-mode auto --max-budget-usd 30 \
               "read RECONCILE.md" \
             > ../session-reconcile.log 2>&1
+      - name: session, reconcile phase
+        if: inputs.role == 'restore' && inputs.platform == 'windows'
+        timeout-minutes: 100
+        shell: pwsh
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        working-directory: ${{ env.SANDBOX }}/cleanroom
+        run: |
+          & "$env:RUNNER_TEMP/windows-session.ps1" -Log ../session-reconcile.log -- -p --restricted `
+            --tools 'PowerShell,Read,Write,Edit,Glob,Grep,TaskStop' `
+            --settings ../session-settings.json `
+            --safe-mode --append-system-prompt-file CLAUDE.md --resume $env:SESSION_ID `
+            --model $env:MODEL --effort $env:EFFORT --permission-mode auto --max-budget-usd 30 `
+            'read RECONCILE.md'
 
       # The checkers run s3cab at the commit under test.
       - if: always()
@@ -190,7 +253,7 @@ jobs:
       - name: gather
         if: always()
         run: |
-          rm -f "$SANDBOX/cleanroom/credentials.env"
+          rm -f "$SANDBOX"/cleanroom/credentials.*
           mkdir -p "$RUNNER_TEMP/keep"
           cp -R "$SANDBOX/cleanroom" "$SANDBOX"/session*.log "$RUNNER_TEMP/keep/"
           if [ -d "$SANDBOX/spec-only" ]; then cp -R "$SANDBOX/spec-only" "$RUNNER_TEMP/keep/"; fi
@@ -225,13 +288,15 @@ jobs:
             fi
           done
       # One file, not the tree: upload-artifact refuses a path holding " : < > | * ?, and
-      # a restore's trees hold the edge set's names with them.
+      # a restore's trees hold the edge set's names with them. Relative paths, since GNU
+      # tar reads Windows' `D:\a\_temp` as a host `D`.
       - if: always() && steps.search.outcome == 'success'
-        run: tar -czf "$RUNNER_TEMP/cleanroom.tgz" -C "$RUNNER_TEMP/keep" .
+        working-directory: ${{ runner.temp }}
+        run: tar -czf cleanroom.tgz -C keep .
       # Even when the check or the audit failed: that run is the one worth reading.
       - if: always() && steps.search.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
-          name: cleanroom-${{ inputs.role }}-macos-${{ inputs.model }}-${{ inputs.effort }}
+          name: cleanroom-${{ inputs.role }}-${{ inputs.platform }}-${{ inputs.model }}-${{ inputs.effort }}
           path: ${{ runner.temp }}/cleanroom.tgz
           retention-days: 1 # GitHub's minimum; delete it as soon as it's downloaded
