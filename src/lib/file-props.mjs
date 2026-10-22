@@ -55,6 +55,17 @@ export function statProps(stat) {
 }
 
 /**
+ * The `mtimeNs` range that rounds, as {@link statProps} rounds, into the years
+ * 0000 to 9999: all the 24-character form can hold. `toISOString` writes a time
+ * outside it as `+010000-…` or `-000001-…`, a row every reader refuses, and past
+ * year ±275760 can't build the `Date` at all, so the bound is on the bigint.
+ */
+const FIRST_NS =
+  BigInt(Date.parse("0000-01-01T00:00:00.000Z")) * 1_000_000n - 500_000n;
+const PAST_NS =
+  BigInt(Date.parse("9999-12-31T23:59:59.999Z") + 1) * 1_000_000n - 500_000n;
+
+/**
  * Where a stored hash may be reused from, and — only when the set has opted in
  * to the change-time check
  * ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)) — the instant
@@ -119,6 +130,11 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
   const stat = lstatSync(path, { bigint: true });
   if (!stat.isFile()) {
     throw new Error(`Not a regular file: ${path}`);
+  }
+  if (stat.mtimeNs < FIRST_NS || stat.mtimeNs >= PAST_NS) {
+    throw new Error(
+      `Modification time outside the years 0000 to 9999, which a snapshot can't hold: ${path}`,
+    );
   }
 
   const { size, mtime: mtimeIso } = statProps(stat);

@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import * as fsPromises from "node:fs/promises";
@@ -43,7 +44,7 @@ let fetched = [];
 let deletionRecords = new Map();
 /** How many times the records were fetched — laziness evidence (0 on a clean run). */
 let recordReads = 0;
-/** @type {(hash: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
+/** @type {(hash: string, landed: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
 let afterFetch = () => {};
 /** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
 let keeps = (mtime) => mtime;
@@ -92,7 +93,7 @@ mock.module("../lib/objects.mjs", {
       // what it really leaves. The digest check is the one part skipped: these
       // hashes are labels, not digests.
       await writeFileAtomic(destPath, Readable.from(hash));
-      afterFetch(hash);
+      afterFetch(hash, destPath);
     },
   },
 });
@@ -214,6 +215,97 @@ describe("restore reads each modification time back", () => {
     assert.equal(result.coarseTimes, 0);
     assert.notEqual(process.exitCode, 1);
   });
+
+  it("reports a time the disk refuses outright, left at the restore's own, and carries on", async () => {
+    // NTFS before 1601: EINVAL for the stored time, and only that one.
+    keeps = (mtime) => {
+      if (mtime.getTime() === Date.parse(at.mtime)) {
+        throw Object.assign(new Error("EINVAL: invalid argument, utime"), {
+          code: "EINVAL",
+        });
+      }
+      return mtime;
+    };
+    // A download lands with the current time, so without this a file left
+    // untouched would pass for one set to the restore's own.
+    const old = new Date("2000-01-01T00:00:00.000Z");
+    afterFetch = (_hash, landed) => utimesSync(landed, old, old);
+    const started = Date.now();
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.equal(result.restored.length, 4);
+    assert.deepEqual(
+      result.clamped.map(({ path }) => path),
+      result.restored,
+    );
+    for (const { kept } of result.clamped) {
+      // Within the run, give or take the millisecond rounding.
+      assert.ok(Date.parse(kept) >= started - 1, kept);
+      assert.ok(Date.parse(kept) <= Date.now() + 1, kept);
+    }
+    assert.equal(process.exitCode, 1);
+  });
+
+  it(
+    "reports 1601-01-01 on Windows, which NTFS takes as leave the time alone",
+    { skip: process.platform === "win32" ? false : "a Windows-only time" },
+    async () => {
+      snapshot = {
+        entries: new Map([
+          [
+            "/data/epoch.txt",
+            { size: 3, mtime: "1601-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.deepEqual(result.restored, [dest("epoch.txt")]);
+      assert.deepEqual(
+        result.clamped.map(({ path }) => path),
+        [dest("epoch.txt")],
+      );
+      assert.equal(process.exitCode, 1);
+    },
+  );
+
+  it(
+    "reports the restore's time for a copy whose own NTFS refuses, not its source's misread one",
+    { skip: process.platform === "win32" ? false : "a Windows-only time" },
+    async () => {
+      // `later` lands first with 2300, which isn't read back; `early` is copied
+      // from it, so it starts with 2300 too, which Node reads back wrapped.
+      snapshot = {
+        entries: new Map([
+          [
+            "/data/later.txt",
+            { size: 3, mtime: "2300-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+          [
+            "/data/early.txt",
+            { size: 3, mtime: "1500-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+        ]),
+        dirs: ["/data"],
+      };
+      const started = Date.now();
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.equal(result.restored.length, 2);
+      assert.deepEqual(
+        result.clamped.map(({ path }) => path),
+        [dest("early.txt")],
+      );
+      const [clamp] = result.clamped;
+      assert.ok(clamp);
+      assert.ok(Date.parse(clamp.kept) >= started - 1, clamp.kept);
+      assert.ok(Date.parse(clamp.kept) <= Date.now() + 1, clamp.kept);
+    },
+  );
 
   it(
     "doesn't read back a time Node misreads on Windows",

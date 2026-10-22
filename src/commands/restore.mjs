@@ -352,17 +352,38 @@ export async function restore(paths = [], options = {}) {
         // clean-room run 2 compared `st_mtime_ns` on ext4. guide/format.md promises
         // the *millisecond* for exactly this reason.
         const when = new Date(step.mtime);
-        await utimes(step.dest, when, when);
+        // NTFS can't hold a time before 1601 at all: an earlier one is EINVAL,
+        // and 1601 itself is FILETIME 0, which Windows takes as "leave the time
+        // alone". Either way the file is left with the restore's own time, and
+        // reported like any other time not kept rather than stopping the
+        // restore. Not left as it is: a dedup copy starts with its source's
+        // time, which may be one `lstat` misreads on Windows (below).
+        let settable = platform !== "win32" || when.getTime() > NTFS_EPOCH_MS;
+        try {
+          await utimes(step.dest, when, when);
+        } catch (error) {
+          if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EINVAL") {
+            throw error;
+          }
+          settable = false;
+        }
+        if (!settable) {
+          // eslint-disable-next-line no-restricted-syntax -- a stand-in mtime set on the file, not a recorded instant; what is reported is read back from `lstat` below
+          const now = new Date();
+          await utimes(step.dest, now, now);
+        }
         // `utimes` succeeds for a time the filesystem can't hold and stores
         // another, so only reading it back shows it. Compared at the millisecond:
         // the sub-millisecond loss above rounds back to the stored value. Not on
         // Windows outside 1970–2106: there `lstat` wraps the seconds to 32 bits
         // (proposals/bugs.md) while NTFS holds the time, so every such file
         // would read as clamped.
-        if (platform !== "win32" || readableOnWindows(when)) {
+        if (!settable || platform !== "win32" || readableOnWindows(when)) {
           const landed = await lstat(step.dest, { bigint: true });
           const kept = statProps(landed).mtime;
-          const off = Math.abs(Date.parse(kept) - when.getTime());
+          const off = settable
+            ? Math.abs(Date.parse(kept) - when.getTime())
+            : Infinity;
           if (off >= COARSEST_DISK_MS) {
             clamped.push({ path: step.dest, kept });
           } else if (off > 0) {
@@ -438,6 +459,9 @@ export async function restore(paths = [], options = {}) {
  */
 const readableOnWindows = (when) =>
   when.getTime() >= 0 && when.getTime() < 2 ** 32 * 1000;
+
+/** 1601-01-01T00:00:00Z, FILETIME 0: the earliest instant, and an unsettable one. */
+const NTFS_EPOCH_MS = Date.UTC(1601, 0, 1);
 
 /**
  * Whether the filesystem refused to create a path by its **name**. Every code
