@@ -383,10 +383,14 @@ describe("readDeletionRecords", () => {
     record(2, fileOf(deletedRow(HASH_B, 1, T1, "x")));
     const { deleted, invalid } = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_B]);
-    assert.deepEqual(
-      invalid.map(({ uri }) => uri),
-      ["s3://b/objects.deleted-1.tsv"],
-    );
+    // `vanished` is what lets cleanup say "re-run" rather than "repair".
+    assert.deepEqual(invalid, [
+      {
+        uri: "s3://b/objects.deleted-1.tsv",
+        reason: "it was removed while this run read the record",
+        vanished: true,
+      },
+    ]);
   });
 });
 

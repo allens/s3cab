@@ -207,22 +207,12 @@ export async function cleanup(bucket, options = {}) {
     return report;
   }
 
-  // Interlock #2 (act path only): missing objects mean the repo is already losing
-  // data — refuse, so cleanup never compounds a loss. Fix with verify first.
-  if (missing > 0) {
-    throw new Error(
-      `Refusing to delete: the repository is missing ` +
-        `${countOf(missing, "referenced object")} — it is already losing data, ` +
-        `so this is not the moment to reclaim.\n\n` +
-        `Check them with:\n` +
-        `  ${shellCommand(`s3cab verify ${bucket}`)}`,
-    );
-  }
-
   // Interlock #3 (act path only): compaction keeps only the rows it can parse
   // and then deletes the original, so a damaged record file would lose its
   // other rows for good (ADR-0101). One that vanished mid-read lost nothing,
   // but this run can't see its rows, so it can't trim against them either.
+  // Checked before #2: a record file this run couldn't read leaves its deleted
+  // hashes in `missing`, so #2 would call a deliberate delete lost data.
   const damagedRecords = invalidRecords.filter(({ vanished }) => !vanished);
   if (damagedRecords.length > 0) {
     throw new Error(
@@ -242,6 +232,18 @@ export async function cleanup(bucket, options = {}) {
         invalidRecords.map(({ uri }) => `  ${uri}`).join("\n") +
         `\n\nRe-run once that one has finished:\n` +
         `  ${shellCommand(`s3cab cleanup ${bucket}`)}`,
+    );
+  }
+
+  // Interlock #2 (act path only): missing objects mean the repo is already losing
+  // data — refuse, so cleanup never compounds a loss. Fix with verify first.
+  if (missing > 0) {
+    throw new Error(
+      `Refusing to delete: the repository is missing ` +
+        `${countOf(missing, "referenced object")} — it is already losing data, ` +
+        `so this is not the moment to reclaim.\n\n` +
+        `Check them with:\n` +
+        `  ${shellCommand(`s3cab verify ${bucket}`)}`,
     );
   }
 

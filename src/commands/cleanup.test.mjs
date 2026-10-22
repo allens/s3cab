@@ -382,8 +382,9 @@ describe("cleanup command", () => {
   it("the act path refuses while the deletion record changes under it, saying to re-run, not to repair", async () => {
     // Listed, then gone by the read: a concurrent compaction moved its rows to
     // a merge this run never listed. Nothing is damaged, but trimming against
-    // rows it can't see could drop one that is still live.
-    referencedBySet = enumeration({ photos: { s1: {} } });
+    // rows it can't see could drop one that is still live. Its rows typically
+    // explain a hash a snapshot still references, which then reads as missing.
+    referencedBySet = enumeration({ photos: { s1: { "/gone": ["gone", 1] } } });
     storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
     invalidRecords = [
       {
@@ -399,7 +400,7 @@ describe("cleanup command", () => {
         const message = String(/** @type {Error} */ (error).message);
         assert.match(message, /changed while this run read it/);
         assert.match(message, /Re-run once that one has finished/);
-        assert.doesNotMatch(message, /damaged/);
+        assert.doesNotMatch(message, /damaged|losing data/);
         return true;
       },
     );
