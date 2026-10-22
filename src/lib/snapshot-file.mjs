@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { open, rename, unlink } from "node:fs/promises";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
@@ -72,7 +72,7 @@ export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
  * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
  * moves when the format does, never for a wording edit to guide/format.md.
  */
-export const SPEC_DATE = "2026-10-20";
+export const SPEC_DATE = "2026-10-22";
 
 /**
  * The last line of every whole s3cab file, and its completeness check
@@ -737,14 +737,17 @@ export const normalizeSnapshotName = (name) =>
  * datestamped `.tsv.gz` filter is the one place the snapshot naming convention
  * is recognised; `list` (local files) and the remote lister (snapshot keys with
  * their `snapshots/<set>/` prefix already stripped) both run through here,
- * so a local and a remote listing sort and filter identically.
+ * so a local and a remote listing sort and filter identically. Anchored at
+ * both ends: the remote listing is recursive, so a key in a folder below the
+ * set's (`old/2099-01-01T0000.tsv.gz`) arrives here with its folder, and isn't
+ * the set's snapshot.
  * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.gz`)
  * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
  */
 export function snapshotNames(names) {
   return [...names]
-    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
-    .map((name) => basename(name, ".tsv.gz"))
+    .filter((name) => /^\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
+    .map((name) => name.slice(0, -".tsv.gz".length))
     .sort()
     .reverse();
 }
@@ -863,7 +866,7 @@ export async function parseCompressedSnapshotStream(
  * doesn't open with the heading row, doesn't end with `.`, or holds a type
  * this version doesn't know that starts with neither `@` nor `#` — content a
  * restore would miss (ADR-0103). One path is refused, and the rest still read,
- * for a malformed `-` row, a path that isn't absolute, holds a tab or a CR,
+ * for a malformed `-` row, a path that isn't absolute, holds a tab, CR or NUL,
  * has an empty, `.` or `..` segment, or isn't strictly inside a `@SET DIR`,
  * and a path two such rows name, or that one names as a folder of the other's:
  * both are refused, so no reader guesses between them.
@@ -1102,7 +1105,7 @@ const fileRowFault = (hash, size, mtime, path) =>
     ? "its hash isn't 64 lowercase hex digits"
     : !/^[0-9]+$/.test(size)
       ? "its size isn't a whole number of bytes"
-      : !INSTANT.test(mtime)
+      : !isInstant(mtime)
         ? "its time isn't a UTC instant like 2026-08-14T09:31:07.412Z"
         : pathFault(path);
 
@@ -1125,6 +1128,11 @@ function pathFault(path) {
   if (path.includes("\t")) {
     return "its path holds a tab";
   }
+  // No filesystem allows one in a name, and C cuts the string there, so
+  // `../\0x` would pass the segment check below and reach the disk as `..`.
+  if (path.includes("\0")) {
+    return "its path holds a NUL";
+  }
   // Past its root (`/`, `C:/`, or a share's `//`), every segment names a file
   // or folder: an empty one is a trailing or doubled separator.
   const unified = preparePath(path).path;
@@ -1136,8 +1144,21 @@ function pathFault(path) {
   return undefined;
 }
 
-/** The 24-character UTC instant `toISOString` writes. */
-export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+/**
+ * Whether `text` is the 24-character UTC instant `toISOString` writes, and a
+ * real one. The shape alone isn't: `Date` rolls 30 February over to 2 March
+ * and hour 24 to the next day, so a restore would set a time no row named.
+ * Read back unchanged, it named that instant. (Second 60 doesn't parse.)
+ * @param {string} text
+ * @returns {boolean}
+ */
+export const isInstant = (text) => {
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(text)) {
+    return false;
+  }
+  const ms = Date.parse(text);
+  return !Number.isNaN(ms) && new Date(ms).toISOString() === text;
+};
 
 /**
  * A byte stream's lines, split on LF alone and decoded as strict UTF-8 — a CR

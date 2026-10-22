@@ -3,8 +3,8 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import {
   formatLine,
   HEADING,
-  INSTANT,
   isHeadingRow,
+  isInstant,
   openingRows,
   TERMINATOR,
 } from "./snapshot-file.mjs";
@@ -104,7 +104,9 @@ export function parseDeletionRecord(text) {
     : "the first line isn't the @S3CAB FORMAT heading row";
   let ended = false;
   for (const [index, line] of lines.entries()) {
-    if (line === "") {
+    // Skipped like a snapshot's blank line: one holding only trimmed
+    // characters is no row, so it neither breaks the file nor follows the `.`.
+    if (line.trim() === "") {
       continue;
     }
     const [col1 = "", col2 = "", col3 = "", col4 = "", by = ""] =
@@ -122,7 +124,7 @@ export function parseDeletionRecord(text) {
       if (
         /^[0-9a-f]{64}$/.test(hash) &&
         /^[0-9]+$/.test(size) &&
-        INSTANT.test(instant)
+        isInstant(instant)
       ) {
         rows.push({ hash, size: Number(size), instant, by });
       } else {

@@ -176,6 +176,17 @@ describe("parseDeletionRecord", () => {
     assert.equal(invalid, undefined);
   });
 
+  it("skips a line holding only what the trim removes, as a snapshot does, after the . too", () => {
+    const { rows, invalid } = parseDeletionRecord(
+      fileOf(" \t\n", deletedRow(HASH_C, 1, T1, "x")) + "  \n",
+    );
+    assert.deepEqual(
+      rows.map((row) => row.hash),
+      [HASH_C],
+    );
+    assert.equal(invalid, undefined);
+  });
+
   // A refused row must never explain away a missing object: its content counts
   // as not deleted, the safe direction, and the file is invalid as a whole.
   for (const [name, row] of [
@@ -185,6 +196,10 @@ describe("parseDeletionRecord", () => {
     [
       "a time that isn't a UTC instant",
       deletedRow(HASH_A, 1, "2026-08-14", "x"),
+    ],
+    [
+      "a date the calendar doesn't have",
+      deletedRow(HASH_A, 1, "2026-02-30T12:00:00.000Z", "x"),
     ],
   ]) {
     it(`refuses a #deleted row with ${name}, and the file is invalid`, () => {
