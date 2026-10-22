@@ -468,6 +468,35 @@ describe("restore with an object missing from the bucket", () => {
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
   });
 
+  it("leaves no folder that only a missing file would have filled", async () => {
+    snapshot = {
+      entries: new Map([
+        ["/data/kept.txt", { ...at, hash: "aaa" }],
+        ["/data/deep/er/gone.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+    failures.set("bbb", named("NoSuchKey"));
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.missing, [dest(join("deep", "er", "gone.txt"))]);
+    assert.deepEqual(readdirSync(join(output, "data")), ["kept.txt"]);
+  });
+
+  it("keeps an empty folder that was there before the restore", async () => {
+    snapshot = {
+      entries: new Map([["/data/before/gone.txt", { ...at, hash: "bbb" }]]),
+      dirs: ["/data"],
+    };
+    mkdirSync(join(output, "data", "before"), { recursive: true });
+    failures.set("bbb", named("NoSuchKey"));
+
+    await restore([], { set: "photos", output });
+
+    assert.deepEqual(readdirSync(join(output, "data", "before")), []);
+  });
+
   it("treats a provider's HEAD-style NotFound as missing too", async () => {
     failures.set("ccc", named("NotFound"));
     const result = await restore([], { set: "photos", output });

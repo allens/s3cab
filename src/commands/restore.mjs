@@ -3,6 +3,7 @@ import {
   lstatSync,
   mkdirSync,
   realpathSync,
+  rmdirSync,
   statSync,
 } from "node:fs";
 import { lstat, utimes } from "node:fs/promises";
@@ -300,6 +301,7 @@ export async function restore(paths = [], options = {}) {
       /** @type {"found" | "absent" | "corrupt" | "refused" | "blocked"} */
       let outcome = "found";
       const from = fate?.dest;
+      const made = firstMissing(dirname(step.dest));
       try {
         mkdirSync(dirname(step.dest), { recursive: true });
         if (from !== undefined) {
@@ -337,6 +339,9 @@ export async function restore(paths = [], options = {}) {
           outcome = "blocked";
         } else {
           throw error;
+        }
+        if (made !== undefined) {
+          removeMade(dirname(step.dest), made);
         }
       }
       if (outcome === "found") {
@@ -462,6 +467,40 @@ const readableOnWindows = (when) =>
 
 /** 1601-01-01T00:00:00Z, FILETIME 0: the earliest instant, and an unsettable one. */
 const NTFS_EPOCH_MS = Date.UTC(1601, 0, 1);
+
+/**
+ * The outermost of `dir` and its parents that doesn't exist yet, or `undefined`
+ * when `dir` does: the first folder a row's `mkdir` would make.
+ * @param {string} dir
+ */
+function firstMissing(dir) {
+  let top;
+  for (let at = dir; !existsSync(at); at = dirname(at)) {
+    top = at;
+  }
+  return top;
+}
+
+/**
+ * Remove the folders a failed row made, `dir` up to `top`, so a folder is left
+ * only where a file landed (guide/format.md). `rmdir` refuses one that isn't
+ * empty, which ends the walk: only an empty folder this row made is removed,
+ * never one that was there before the restore.
+ * @param {string} dir
+ * @param {string} top - The first folder the row made, from {@link firstMissing}
+ */
+function removeMade(dir, top) {
+  for (let at = dir; ; at = dirname(at)) {
+    try {
+      rmdirSync(at);
+    } catch {
+      return;
+    }
+    if (at === top) {
+      return;
+    }
+  }
+}
 
 /**
  * Whether the filesystem refused to create a path by its **name**. Every code
