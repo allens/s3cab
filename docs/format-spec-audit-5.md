@@ -7,7 +7,7 @@ at `xhigh`, all reading the spec as of [PR #439](https://github.com/allens/s3cab
 [macOS](format-spec-audit-8.md) and [Windows](format-spec-audit-9.md).
 
 - **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/macos/s3cab-backup.py), Python with
-  boto3. The tools it wrote to test itself stay with the run, outside the repo.
+  boto3. Its notes, logs and test tools stay with the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** nothing outside the sandbox was flagged.
 - **Tokens:** input 114, cache write 276,567, cache read 9,218,509, output 179,766.

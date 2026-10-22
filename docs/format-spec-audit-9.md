@@ -7,8 +7,8 @@ at `xhigh`, all reading the spec as of [PR #439](https://github.com/allens/s3cab
 [Linux](format-spec-audit-7.md), [macOS](format-spec-audit-8.md) and Windows (this run).
 
 - **Program:** [`csrestore/`](../scripts/cleanroom/restorers/csrestore/), C# 5 built with the .NET
-  Framework's own compiler, and no S3 library. It is the reconcile phase's program; the tools it
-  wrote to test itself stay with the run, outside the repo.
+  Framework's own compiler, and no S3 library. It is the reconcile phase's program; its notes, logs
+  and test tools stay with the run, outside the repo.
 - **Checker:** the spec-only phase's restorer matches, and so does the reconcile phase's. The
   spec-only verdict is the evidence about the format.
 - **Audit:** nothing outside the sandbox was flagged.

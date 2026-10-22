@@ -7,14 +7,16 @@ at `xhigh`, all reading the spec as of [PR #439](https://github.com/allens/s3cab
 run), [macOS](format-spec-audit-8.md) and [Windows](format-spec-audit-9.md).
 
 - **Program:** [`crestore/`](../scripts/cleanroom/restorers/crestore/), C with OpenSSL, zlib, expat
-  and ICU, and no S3 library. It is the reconcile phase's program; the tools it wrote to test
-  itself stay with the run, outside the repo.
+  and ICU, and no S3 library. It is the reconcile phase's program; its notes, logs and test tools
+  stay with the run, outside the repo.
 - **Checker:** the spec-only phase's restorer matches, and so does the reconcile phase's. The
   spec-only verdict is the evidence about the format.
 - **Audit:** 7 moves flagged. The judge first voided 4 of them, because the audit cut each command
   off before its end, where it read the session's own exit codes.
-  [PR #450](https://github.com/allens/s3cab/pull/450) keeps both ends, and judged again on the same
-  moves, none voids the run.
+  [PR #450](https://github.com/allens/s3cab/pull/450) keeps both ends. The moves were then replayed
+  from the transcript through the fixed clip and judged again: none voids the run. A control
+  replay through the old clip rebuilt the original `audit.json` byte for byte. Both judgements are
+  kept with the run.
 - **Tokens, both phases:** input 206, cache write 367,714, cache read 24,331,740, output 228,818.
 
 Below the rule: the spec-only phase's report verbatim, which provably predates every reference,
