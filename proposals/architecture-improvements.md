@@ -70,7 +70,7 @@ behind the `s3.mjs` fake (**one claim** and the takeover item through `s3Seam`),
   three error strings word for word. They differ on two: a file ending `.\n.` (the snapshot
   holds the LF-less `.` back unread, so valid; the record says rows follow); and
   UTF-8, which the snapshot refuses through `utf8Lines`' fatal decoder and the record never
-  can, because `getText` ([s3.mjs](../src/lib/s3.mjs):1029–1033) hands it `transformToString()`'s
+  can, because `getText` ([s3.mjs](../src/lib/s3.mjs)) hands it `transformToString()`'s
   lenient text, though ADR-0101 applies the refusal to both layouts. **Fix:** one line-walker in
   snapshot-file.mjs owning the file-level rules over bytes (heading, blank, terminator with its LF,
   nothing after, unknown type, UTF-8) and taking a per-type row handler, returning the file-level
