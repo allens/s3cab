@@ -119,6 +119,11 @@ describe("selectEntries", () => {
       uncPaths[0],
     ]);
   });
+
+  it("matches only a path of the filter's own kind, so `/` takes no share path", () => {
+    const mixed = ["/home/me/a.txt", "\\\\nas\\Share\\b.jpg", "C:\\c.txt"];
+    assert.deepEqual(selectEntries(mixed, ["/"]), ["/home/me/a.txt"]);
+  });
 });
 
 // `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
@@ -204,6 +209,22 @@ describe("reroot", () => {
   it("lands a `/` member's files straight in <output>", () => {
     const map = reroot(["/"], [], "out");
     assert.equal(map("/etc/hosts"), join(resolve("out"), "etc", "hosts"));
+  });
+
+  it("places a share path under its share, never under a `/` member", () => {
+    const map = reroot(
+      ["/", "\\\\nas\\photos\\"],
+      ["\\\\nas\\photos\\a.jpg"],
+      "out",
+    );
+    assert.equal(
+      map("\\\\nas\\photos\\a.jpg"),
+      join(resolve("out"), "photos", "a.jpg"),
+    );
+    assert.throws(
+      () => reroot(["/"], [], "out")("\\\\nas\\other\\b.jpg"),
+      /not under any backed-up directory/,
+    );
   });
 
   it("rejects `/` beside another member dir, which its files could mix with", () => {

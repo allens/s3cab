@@ -182,10 +182,11 @@ export function reroot(dirs, paths, output) {
   /** @param {string} path */
   const split = (path) =>
     preparePath(path).path.split(posix.sep).filter(Boolean);
-  /** @param {string[]} segments */
-  const rootOf = (segments) =>
+  /** @param {string[]} segments @param {boolean} fold - The path's own kind is Windows */
+  const rootOf = (segments, fold) =>
     roots.find(
       (r) =>
+        r.fold === fold &&
         r.segments.length <= segments.length &&
         r.segments.every((seg, i) => {
           // The length guard above puts `i` in range; `?? ""` is for the type
@@ -197,7 +198,9 @@ export function reroot(dirs, paths, output) {
         }),
     );
 
-  const reached = new Set(paths.map((path) => rootOf(split(path))));
+  const reached = new Set(
+    paths.map((path) => rootOf(split(path), foldsCase(path))),
+  );
   const used = roots.filter((root) => reached.has(root));
   const apart =
     "Restore them one at a time with a path filter, or to their original locations.";
@@ -228,7 +231,7 @@ export function reroot(dirs, paths, output) {
   const windows = foldsCase(outDir);
   return (path) => {
     const segments = split(path);
-    const root = rootOf(segments);
+    const root = rootOf(segments, foldsCase(path));
     if (!root) {
       throw new Error(
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
