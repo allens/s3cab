@@ -12,13 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 /** @import { SpawnSyncReturns } from "node:child_process" */
+/** @import { Evidence } from "./judge-audit.mjs" */
 
 /**
  * Runs the audit on a sandbox whose one transcript holds `uses`, each answered by
  * `results[id]`, and hands `check` its output and the `audit.json` it wrote.
  * @param {(temp: string) => { id: string, name: string, input: object }[]} uses
  * @param {Record<string, string>} results
- * @param {(audit: SpawnSyncReturns<string>, evidence: any, root: string, temp: string) => void} check
+ * @param {(audit: SpawnSyncReturns<string>, evidence: Evidence, root: string, temp: string) => void} check
  */
 function audited(uses, results, check) {
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), "s3cab-audit-")));
@@ -75,6 +76,7 @@ function audited(uses, results, check) {
         },
       },
     );
+    assert.equal(audit.status, 0, audit.stderr);
     const evidence = JSON.parse(
       readFileSync(join(cleanroom, "audit.json"), "utf8"),
     );
@@ -109,7 +111,6 @@ test(
       { elsewhere: "what the file held" },
       (audit, evidence, root, temp) => {
         const path = elsewhere(temp);
-        assert.equal(audit.status, 0, audit.stderr);
         assert.match(
           audit.stdout,
           /^1 move\(s\) for judge-audit\.mjs to read/m,
@@ -133,23 +134,20 @@ test(
   "a long command keeps its end, where what it printed comes from",
   { skip: process.getuid === undefined },
   () => {
-    const notes = "x".repeat(5000);
+    let command = "";
     audited(
-      (temp) => [
-        {
-          id: "long",
-          name: "Bash",
-          input: {
-            command: `cat >> ${join(temp, "elsewhere", "notes")} <<'EOF'\n${notes}\nEOF\ntail exits.txt`,
-          },
-        },
-      ],
+      (temp) => {
+        command = `cat >> ${join(temp, "elsewhere", "notes")} <<'EOF'\n${"x".repeat(5000)}\nEOF\ntail exits.txt`;
+        return [{ id: "long", name: "Bash", input: { command } }];
+      },
       { long: "exit=0" },
       (audit, evidence) => {
-        assert.equal(audit.status, 0, audit.stderr);
+        const whole = JSON.stringify({ command });
         const input = evidence.moves[0]?.input ?? "";
-        assert.ok(input.length < notes.length, `${input.length} characters`);
-        assert.match(input, /^\{"command":"cat >> /);
+        assert.equal(
+          input,
+          `${whole.slice(0, 1500)}\n… (${whole.length - 3000} characters left out) …\n${whole.slice(-1500)}`,
+        );
         assert.match(input, /\\nEOF\\ntail exits\.txt"\}$/);
       },
     );
