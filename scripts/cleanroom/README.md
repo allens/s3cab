@@ -1,9 +1,9 @@
 # The clean-room exercise
 
 > **Partly built** ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
-> the harness that builds each clean room is here, and everything below describes it. Still to
-> come: the clean-room programs for the current spec; the CI matrix that builds and runs them;
-> and `compare-restore.mjs` in place of `compare.py`.
+> the harness that builds each clean room is here, with the programs a real set wrote from the
+> current spec, and everything below describes it. Still to come: the CI matrix that builds and
+> runs those programs; and `compare-restore.mjs` in place of `compare.py`.
 
 A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'s
 no-lock-in promise: a session that has read
@@ -15,7 +15,12 @@ or merely costs the implementer an afternoon.
 
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
 boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
-SDK) and [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK).
+SDK), [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK), and
+a real set on Opus 5.5 at `xhigh` (2026-10-22): backups on
+[Linux](../../docs/format-spec-audit-4.md), [macOS](../../docs/format-spec-audit-5.md)
+and [Windows](../../docs/format-spec-audit-6.md), restores on
+[Linux](../../docs/format-spec-audit-7.md), [macOS](../../docs/format-spec-audit-8.md)
+and [Windows](../../docs/format-spec-audit-9.md).
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 
