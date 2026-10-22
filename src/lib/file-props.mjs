@@ -44,10 +44,6 @@ const EMPTY_DIGEST = crypto.hash("sha256", "", "hex");
  * `mtimeMs`, which near today's dates can't hold .4999ms, so an NTFS mtime one
  * tick short of a tie reads as the tie and rounds up. Hence the integer
  * nanoseconds, with floor division, so a time before 1970 rounds the same way.
- *
- * Throws for a time outside the years 0000 to 9999, which the 24-character form
- * can't hold (`toISOString` writes `+010000-…` or `-000001-…`, which every reader
- * refuses), so the file gets an `#error` row instead.
  * @param {Pick<BigIntStats, "size" | "mtimeNs">} stat - From an `lstat` taken with `{ bigint: true }`
  * @returns {Pick<Props, "size" | "mtime">}
  */
@@ -55,14 +51,19 @@ export function statProps(stat) {
   const halfUp = stat.mtimeNs + 500_000n;
   const ms =
     halfUp >= 0n ? halfUp / 1_000_000n : -((999_999n - halfUp) / 1_000_000n);
-  const mtime = new Date(Number(ms)).toISOString();
-  if (mtime.length !== 24) {
-    throw new Error(
-      `its modification time, ${mtime}, is outside the years 0000 to 9999 a snapshot can hold`,
-    );
-  }
-  return { size: Number(stat.size), mtime };
+  return { size: Number(stat.size), mtime: new Date(Number(ms)).toISOString() };
 }
+
+/**
+ * The `mtimeNs` range that rounds, as {@link statProps} rounds, into the years
+ * 0000 to 9999: all the 24-character form can hold. `toISOString` writes a time
+ * outside it as `+010000-…` or `-000001-…`, a row every reader refuses, and past
+ * year ±275760 can't build the `Date` at all, so the bound is on the bigint.
+ */
+const FIRST_NS =
+  BigInt(Date.parse("0000-01-01T00:00:00.000Z")) * 1_000_000n - 500_000n;
+const PAST_NS =
+  BigInt(Date.parse("9999-12-31T23:59:59.999Z") + 1) * 1_000_000n - 500_000n;
 
 /**
  * Where a stored hash may be reused from, and — only when the set has opted in
@@ -129,6 +130,11 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
   const stat = lstatSync(path, { bigint: true });
   if (!stat.isFile()) {
     throw new Error(`Not a regular file: ${path}`);
+  }
+  if (stat.mtimeNs < FIRST_NS || stat.mtimeNs >= PAST_NS) {
+    throw new Error(
+      `Modification time outside the years 0000 to 9999, which a snapshot can't hold: ${path}`,
+    );
   }
 
   const { size, mtime: mtimeIso } = statProps(stat);

@@ -437,7 +437,7 @@ The canonical form of a file row and of a `@SET DIR` row, written out as JSON st
 every tab and space shows:
 
 ```
-"-\t3b8e4c2d9a7f6e5b1c0d8a9b7e6f5c4d3b2a1908f7e6d5c4b3a291807f6e5c0a1\t     4915200\t2025-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg\n"
+"-\t3b8e4c2d9a7f6e5b1c0d8a9b7e6f5c4d3b2a1908f7e6d5c4b3a21807f6e5c0a1\t     4915200\t2025-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg\n"
 "@SET\tDIR                                                             \t            \t                        \t/home/me/Photos/\n"
 ```
 
@@ -919,7 +919,7 @@ For a restorer, or anything else that reads the files.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
   read as one set. A hash a record lists was [deliberately deleted](#the-deletion-record);
   any other miss is damage, and so is a download that doesn't hash to its key. A miss is a
-  404 whose S3 error code is `NoSuchKey`, or `NotFound` for a HEAD. s3cab stops the whole
+  404 whose S3 error code is `NoSuchKey` or `NotFound`. s3cab stops the whole
   restore on any other failure:
   - a 404 `NoSuchBucket`, which says nothing about the file;
   - a 403, which S3 also answers for a missing key when the caller may not list the
@@ -1013,8 +1013,9 @@ For a restorer, or anything else that reads the files.
   it reports with the time kept, exit 1, keeping the file. On Windows it can't check a time
   before 1970 or after 2106, since Node reads those back wrong there, though NTFS holds them.
   NTFS can't hold a time before 1601 at all: Windows refuses an earlier one, and takes
-  1601-01-01 itself, a FILETIME of 0, as "leave the time alone". Either way the file keeps
-  the time it was written at, and s3cab reports it the same way, exit 1.
+  1601-01-01 itself, a FILETIME of 0, as "leave the time alone", so a file copied from
+  another keeps that one's time. s3cab leaves such a file at the time of the restore, and
+  reports it the same way, exit 1.
 - **Hand-edited snapshots.** They are text, and this page tells people they can edit them. A
   restorer that trusts every row will one day follow a hand-added `..` out of its output
   directory and overwrite whatever it lands on.

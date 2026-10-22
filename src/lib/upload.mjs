@@ -455,12 +455,11 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
  * a file and PUTting its bytes. Unchanged means the same size *and* mtime as
  * the row recorded.
  *
- * **Every** `lstat` failure is a change, not just ENOENT, and so is a time
- * `statProps` refuses: this runs inside a pipeline link, where a throw would
- * destroy the chain and truncate the snapshot being written (ADR-0069). A file
- * we cannot stat is one we cannot confirm, which is reason enough not to store
- * it — and it matches the hash pass, where an unreadable file becomes an
- * `#error` row and the run carries on.
+ * **Every** `lstat` failure is a change, not just ENOENT: this runs inside a
+ * pipeline link, where a throw would destroy the chain and truncate the snapshot
+ * being written (ADR-0069). A file we cannot stat is one we cannot confirm, which
+ * is reason enough not to store it — and it matches the hash pass, where an
+ * unreadable file becomes an `#error` row and the run carries on.
  * @param {string} path - The file about to be uploaded
  * @param {Props} recorded - What the row says about it
  * @returns {Promise<FileChange | undefined>}
@@ -468,7 +467,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
 export async function fileChange(path, recorded) {
   let current;
   try {
-    current = statProps(await lstat(path, { bigint: true }));
+    current = await lstat(path, { bigint: true });
   } catch (error) {
     // try/catch, not `.catch()`: a synchronous throw (a path `lstat` rejects
     // outright) has to be caught here too, or it escapes the transform.
@@ -476,7 +475,7 @@ export async function fileChange(path, recorded) {
       ? { reason: "removed" }
       : { reason: "unreadable", cause: error };
   }
-  const { size, mtime } = current;
+  const { size, mtime } = statProps(current);
   const changed = size !== recorded.size || mtime !== recorded.mtime;
   return changed ? { reason: "changed" } : undefined;
 }

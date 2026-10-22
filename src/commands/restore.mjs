@@ -354,9 +354,10 @@ export async function restore(paths = [], options = {}) {
         const when = new Date(step.mtime);
         // NTFS can't hold a time before 1601 at all: an earlier one is EINVAL,
         // and 1601 itself is FILETIME 0, which Windows takes as "leave the time
-        // alone". Either way the file keeps the time it was written at, which is
-        // within what `lstat` reads back right, so it is reported like any other
-        // time not kept rather than stopping the restore.
+        // alone". Either way the file is left with the restore's own time, and
+        // reported like any other time not kept rather than stopping the
+        // restore. Not left as it is: a dedup copy starts with its source's
+        // time, which may be one `lstat` misreads on Windows (below).
         let settable = platform !== "win32" || when.getTime() > NTFS_EPOCH_MS;
         try {
           await utimes(step.dest, when, when);
@@ -366,19 +367,23 @@ export async function restore(paths = [], options = {}) {
           }
           settable = false;
         }
+        if (!settable) {
+          // eslint-disable-next-line no-restricted-syntax -- a stand-in mtime set on the file, not a recorded instant; what is reported is read back from `lstat` below
+          const now = new Date();
+          await utimes(step.dest, now, now);
+        }
         // `utimes` succeeds for a time the filesystem can't hold and stores
         // another, so only reading it back shows it. Compared at the millisecond:
         // the sub-millisecond loss above rounds back to the stored value. Not on
         // Windows outside 1970–2106: there `lstat` wraps the seconds to 32 bits
         // (proposals/bugs.md) while NTFS holds the time, so every such file
         // would read as clamped.
-        if (!settable) {
-          const landed = await lstat(step.dest, { bigint: true });
-          clamped.push({ path: step.dest, kept: statProps(landed).mtime });
-        } else if (platform !== "win32" || readableOnWindows(when)) {
+        if (!settable || platform !== "win32" || readableOnWindows(when)) {
           const landed = await lstat(step.dest, { bigint: true });
           const kept = statProps(landed).mtime;
-          const off = Math.abs(Date.parse(kept) - when.getTime());
+          const off = settable
+            ? Math.abs(Date.parse(kept) - when.getTime())
+            : Infinity;
           if (off >= COARSEST_DISK_MS) {
             clamped.push({ path: step.dest, kept });
           } else if (off > 0) {

@@ -215,13 +215,17 @@ describe("restore reads each modification time back", () => {
     assert.notEqual(process.exitCode, 1);
   });
 
-  it("reports a time the disk refuses outright, and carries on", async () => {
-    // NTFS before 1601: EINVAL. The file keeps the time it was written at.
-    keeps = () => {
-      throw Object.assign(new Error("EINVAL: invalid argument, utime"), {
-        code: "EINVAL",
-      });
+  it("reports a time the disk refuses outright, left at the restore's own, and carries on", async () => {
+    // NTFS before 1601: EINVAL for the stored time, and only that one.
+    keeps = (mtime) => {
+      if (mtime.getTime() === Date.parse(at.mtime)) {
+        throw Object.assign(new Error("EINVAL: invalid argument, utime"), {
+          code: "EINVAL",
+        });
+      }
+      return mtime;
     };
+    const started = Date.now();
 
     const result = await restore([], { set: "photos", output });
 
@@ -231,7 +235,9 @@ describe("restore reads each modification time back", () => {
       result.restored,
     );
     for (const { kept } of result.clamped) {
-      assert.ok(Date.parse(kept) > Date.parse("2026-07-01T10:00:00.000Z"));
+      // Within the run, give or take the millisecond rounding.
+      assert.ok(Date.parse(kept) >= started - 1, kept);
+      assert.ok(Date.parse(kept) <= Date.now() + 1, kept);
     }
     assert.equal(process.exitCode, 1);
   });
@@ -258,6 +264,41 @@ describe("restore reads each modification time back", () => {
         [dest("epoch.txt")],
       );
       assert.equal(process.exitCode, 1);
+    },
+  );
+
+  it(
+    "reports the restore's time for a copy whose own NTFS refuses, not its source's misread one",
+    { skip: process.platform === "win32" ? false : "a Windows-only time" },
+    async () => {
+      // `later` lands first with 2300, which isn't read back; `early` is copied
+      // from it, so it starts with 2300 too, which Node reads back wrapped.
+      snapshot = {
+        entries: new Map([
+          [
+            "/data/later.txt",
+            { size: 3, mtime: "2300-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+          [
+            "/data/early.txt",
+            { size: 3, mtime: "1500-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+        ]),
+        dirs: ["/data"],
+      };
+      const started = Date.now();
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.equal(result.restored.length, 2);
+      assert.deepEqual(
+        result.clamped.map(({ path }) => path),
+        [dest("early.txt")],
+      );
+      const [clamp] = result.clamped;
+      assert.ok(clamp);
+      assert.ok(Date.parse(clamp.kept) >= started - 1, clamp.kept);
+      assert.ok(Date.parse(clamp.kept) <= Date.now() + 1, clamp.kept);
     },
   );
 
