@@ -250,9 +250,15 @@ function resultText(content) {
     : "";
 }
 
-/** @param {string} text @param {number} length */
+/**
+ * Both ends of a long text, not just its start: what a shell command printed usually
+ * comes from its end, after a long heredoc, and a judge shown only the heredoc can't
+ * tell where the output came from.
+ * @param {string} text @param {number} length
+ */
 function clip(text, length) {
+  const half = length / 2;
   return text.length > length
-    ? `${text.slice(0, length)}… (${text.length - length} more characters)`
+    ? `${text.slice(0, half)}\n… (${text.length - length} characters left out) …\n${text.slice(-half)}`
     : text;
 }
