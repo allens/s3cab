@@ -317,6 +317,17 @@ describe("reroot", () => {
     );
   });
 
+  // The spec says such a DIR matches nothing; dropping its empty segment
+  // instead would make it the longer match, and move the file.
+  it("matches nothing with a @SET DIR whose doubled separator is past its root", () => {
+    for (const nested of ["C:\\a\\\\b\\", "/a//b/"]) {
+      const outer = nested.startsWith("C:") ? "C:\\a\\" : "/a/";
+      const file = nested.startsWith("C:") ? "C:\\a\\b\\x" : "/a/b/x";
+      const map = reroot([outer, nested], [file], "out");
+      assert.equal(map(file), join(resolve("out"), "a", "b", "x"), nested);
+    }
+  });
+
   // Windows reads a `\` as a separator, so a POSIX name holding one has no
   // place under a Windows output, where `join` would resolve its `..`. Under
   // any other output it is an ordinary character. `resolve("out")` is

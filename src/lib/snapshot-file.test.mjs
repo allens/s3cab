@@ -10,6 +10,7 @@ import { constants, gzipSync, gunzipSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
   formatLine,
+  isInstant,
   listSnapshotNames,
   normalizeSnapshotName,
   parseCompressedSnapshotStream,
@@ -316,6 +317,24 @@ describe("parseSnapshotStream", () => {
       [
         "hour 24, which Date would read as the next day",
         fileRow(hashA, 12, "/home/me/x", "2026-06-01T24:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "29 February in a century year that isn't a leap year",
+        fileRow(hashA, 12, "/home/me/x", "2100-02-29T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a day 00",
+        fileRow(hashA, 12, "/home/me/x", "2026-06-00T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a month 13",
+        fileRow(hashA, 12, "/home/me/x", "2026-13-01T12:00:00.000Z"),
         "/home/me/x",
         /time/,
       ],
@@ -798,6 +817,22 @@ describe("snapshotMoment's minted name", () => {
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
     assert.deepEqual(snapshotNames([`${name}.tsv.gz`]), [name]);
+  });
+});
+
+describe("isInstant", () => {
+  it("agrees with Date on every real instant at the calendar's edges", () => {
+    for (const instant of [
+      "2024-02-29T23:59:59.999Z",
+      "2000-02-29T00:00:00.000Z",
+      "1900-02-28T00:00:00.000Z",
+      "0000-01-01T00:00:00.000Z",
+      "9999-12-31T23:59:59.999Z",
+      "2026-04-30T12:00:00.000Z",
+    ]) {
+      assert.equal(isInstant(instant), true, instant);
+      assert.equal(new Date(instant).toISOString(), instant);
+    }
   });
 });
 

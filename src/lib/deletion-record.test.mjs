@@ -176,6 +176,13 @@ describe("parseDeletionRecord", () => {
     assert.equal(invalid, undefined);
   });
 
+  it("takes who deleted it as the rest of the line after the fourth tab", () => {
+    const [row] = parseDeletionRecord(
+      fileOf(`#deleted\t${HASH_A}\t1\t${T1}\tme\tpc\n`),
+    ).rows;
+    assert.equal(row?.by, "me\tpc");
+  });
+
   it("skips a line holding only what the trim removes, as a snapshot does, after the . too", () => {
     const { rows, invalid } = parseDeletionRecord(
       fileOf(" \t\n", deletedRow(HASH_C, 1, T1, "x")) + "  \n",
@@ -371,12 +378,15 @@ describe("readDeletionRecords", () => {
     assert.deepEqual([...deleted.keys()], [HASH_A]);
   });
 
-  it("skips a record that vanished between the LIST and the read", async () => {
+  it("calls a record that vanished between the LIST and the read invalid, since its rows went to a merge the LIST never saw", async () => {
     listed.push({ Key: "objects.deleted-1.tsv" }); // no body registered
     record(2, fileOf(deletedRow(HASH_B, 1, T1, "x")));
     const { deleted, invalid } = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_B]);
-    assert.deepEqual(invalid, []);
+    assert.deepEqual(
+      invalid.map(({ uri }) => uri),
+      ["s3://b/objects.deleted-1.tsv"],
+    );
   });
 });
 

@@ -92,7 +92,9 @@ s3://my-backup-bucket/
   hash. Keep one: given only `objects/`, you have your data but no way to tell what any of it
   was. (This is why snapshots are immutable and never overwritten.)
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
-  local timestamp (`2026-06-12T0915.tsv.gz`). A snapshot is uploaded **byte for byte**, with
+  local timestamp (`2026-06-12T0915.tsv.gz`). Only a key directly in that folder, named
+  exactly that way, is a snapshot, for every purpose: one in a folder below it is not, so
+  it names the latest for no reader and protects no object from a clean-up. A snapshot is uploaded **byte for byte**, with
   no conversion on the way. Whether a tool keeps a local copy too is its own choice; s3cab
   does, and the two are identical.
 - **A set's name** is lowercase letters, digits and hyphens. With no dot in a name,
@@ -146,9 +148,8 @@ CREATED=2026-06-12T08:15:32.000Z
 - `OWNER` is the holder, as `user@machine`.
 - `CLAIMED` is when the holder claimed the set or took it over.
 - `CREATED` is when the set was first claimed. It never changes.
-- Both instants are UTC, in the same form as a snapshot row's `mtime`. s3cab writes them
-  to the whole second (`.000Z`); any precision works, since they are only ever compared as
-  text.
+- Both instants are UTC, in the same form as a snapshot row's `mtime`. They are only ever
+  compared as text, never read as times.
 
 Read it line by line: UTF-8, split on LF, strip one trailing CR, split each line at its
 first `=` with the rest as the value, and skip a line with no `=` and keys you don't know.
@@ -247,9 +248,13 @@ compaction.
 
 A reader that lists the records and then fetches them can still miss a row: a file
 compacted between the two is gone, and the merge holding its rows came after the list.
-s3cab skips a record that has gone, so a restore running beside a compaction can report a
-deliberately deleted file as damage. That is the safe direction: a missed row never makes
-missing content look intentional.
+s3cab counts a record that has gone as [invalid](#valid-and-invalid-files), so:
+
+- a restore running beside a compaction can report a deliberately deleted file as damage.
+  That is the safe direction: a missed row never makes missing content look intentional;
+- `backup` and `status` don't let an earlier snapshot vouch for what is stored, which a
+  missed row would otherwise let them do for content deliberately deleted;
+- `cleanup` refuses to run.
 
 **Presence always wins.** A record explains an object's *absence*; it does not forbid its
 return. If a hash turns up in `objects/` again — content deleted, then later backed up
@@ -671,8 +676,9 @@ looking. Restoring to a chosen directory, it writes each file to
   than merging them, and restores either one on its own. In detail:
   - the names are the folder names above, lowercased by the same mapping as Windows paths,
     and never normalized, whatever kind of path each `DIR` is;
-  - a `DIR` is reached when a file row the restore would write, one that is valid and that
-    any path filter selects, counts for it. A file counts only for the deepest `DIR` it is
+  - a `DIR` is reached when a file row the restore selects, one that is valid and that any
+    path filter matches, counts for it, whether or not its file turns out to be there
+    already. A file counts only for the deepest `DIR` it is
     under, so a filter reaching only a nested `DIR` doesn't reach the one around it;
   - refusing is for the whole restore, before anything is written, with exit 1;
   - `/` beside another reached `DIR` is refused the same way.
@@ -784,8 +790,8 @@ of four things:
   check for it. This is the same ["restore everything you can, then report"](#reading) that
   governs a missing object: a bad row costs its own path, or the two paths in conflict, and
   nothing else.
-- **Skip** a blank line, empty or holding only what the trim removes, wherever it is, after
-  the `.` included. It is no row, so it neither breaks the file nor follows the `.`.
+- **Skip** a blank line, empty or holding only what the trim removes, anywhere after the
+  heading row, after the `.` included. The heading row is always the first line. It is no row, so it neither breaks the file nor follows the `.`.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count, or an `@S3CAB SPEC`, `@CLIENT NAME` or
   `@CLIENT VERSION` row missing or repeated. s3cab doesn't count an `@` or `#` row's fields:

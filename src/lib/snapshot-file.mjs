@@ -1128,8 +1128,10 @@ function pathFault(path) {
   if (path.includes("\t")) {
     return "its path holds a tab";
   }
-  // No filesystem allows one in a name, and C cuts the string there, so
-  // `../\0x` would pass the segment check below and reach the disk as `..`.
+  // No filesystem allows one in a name. Without this, Node's fs throws
+  // ERR_INVALID_ARG_VALUE at the write, which no refused-name check catches,
+  // so one row aborts the whole restore; and a reader in C cuts the string at
+  // it, so `../\0x` passes the segment check below and reaches the disk as `..`.
   if (path.includes("\0")) {
     return "its path holds a NUL";
   }
@@ -1148,7 +1150,8 @@ function pathFault(path) {
  * Whether `text` is the 24-character UTC instant `toISOString` writes, and a
  * real one. The shape alone isn't: `Date` rolls 30 February over to 2 March
  * and hour 24 to the next day, so a restore would set a time no row named.
- * Read back unchanged, it named that instant. (Second 60 doesn't parse.)
+ * Checked by arithmetic, not by a `Date` round trip, which cost every file
+ * row of every parse 25 times as much.
  * @param {string} text
  * @returns {boolean}
  */
@@ -1156,8 +1159,21 @@ export const isInstant = (text) => {
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(text)) {
     return false;
   }
-  const ms = Date.parse(text);
-  return !Number.isNaN(ms) && new Date(ms).toISOString() === text;
+  /** @param {number} at - Where a field starts in `YYYY-MM-DDTHH:MM:SS` */
+  const field = (at) => Number(text.slice(at, at === 0 ? 4 : at + 2));
+  const year = field(0);
+  const month = field(5);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    field(8) >= 1 &&
+    field(8) <= (days[month - 1] ?? 0) &&
+    field(11) <= 23 &&
+    field(14) <= 59 &&
+    field(17) <= 59
+  );
 };
 
 /**
