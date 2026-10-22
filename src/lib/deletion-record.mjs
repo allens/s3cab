@@ -3,8 +3,8 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import {
   formatLine,
   HEADING,
-  INSTANT,
   isHeadingRow,
+  isInstant,
   openingRows,
   TERMINATOR,
 } from "./snapshot-file.mjs";
@@ -104,11 +104,14 @@ export function parseDeletionRecord(text) {
     : "the first line isn't the @S3CAB FORMAT heading row";
   let ended = false;
   for (const [index, line] of lines.entries()) {
-    if (line === "") {
+    // Skipped like a snapshot's blank line: one holding only trimmed
+    // characters is no row, so it neither breaks the file nor follows the `.`.
+    if (line.trim() === "") {
       continue;
     }
-    const [col1 = "", col2 = "", col3 = "", col4 = "", by = ""] =
+    const [col1 = "", col2 = "", col3 = "", col4 = "", ...rest] =
       line.split("\t");
+    const by = rest.join("\t");
     const type = col1.trim();
     const [hash, size, instant] = [col2.trim(), col3.trim(), col4.trim()];
     if (ended) {
@@ -122,7 +125,7 @@ export function parseDeletionRecord(text) {
       if (
         /^[0-9a-f]{64}$/.test(hash) &&
         /^[0-9]+$/.test(size) &&
-        INSTANT.test(instant)
+        isInstant(instant)
       ) {
         rows.push({ hash, size: Number(size), instant, by });
       } else {
@@ -228,7 +231,16 @@ export async function readDeletionRecords(bucket) {
   for (const { uri } of await listDeletionRecordFiles(bucket)) {
     const text = await getText(uri);
     if (text === undefined) {
-      continue; // vanished between LIST and read (a compaction) — its rows live on in the merge
+      // A compaction absorbed it after the LIST, into a merge the LIST never
+      // saw, so its rows are missing here. Invalid, so no baseline vouches for
+      // a hash it may have listed; restore reads only `deleted`, where a
+      // missing row reads as damage, the safe direction.
+      invalid.push({
+        uri,
+        reason: "it was removed while this run read the record",
+        vanished: true,
+      });
+      continue;
     }
     const record = parseDeletionRecord(text);
     if (record.invalid) {
@@ -246,8 +258,9 @@ export async function readDeletionRecords(bucket) {
 }
 
 /**
- * A deletion record file that isn't valid, and why.
- * @typedef {{ uri: string, reason: string }} InvalidRecord
+ * A deletion record file that isn't valid, and why. `vanished`: listed, then
+ * gone by the read, so nothing in it is damaged.
+ * @typedef {{ uri: string, reason: string, vanished?: boolean }} InvalidRecord
  */
 
 /**

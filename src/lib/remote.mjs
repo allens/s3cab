@@ -66,9 +66,11 @@ export const remoteSnapshotUri = (bucket, set, name) =>
 /**
  * List a set's remote snapshot names (newest first) — the snapshots stored
  * under `snapshots/<set>/` in the bucket. The remote twin of
- * `listSnapshotNames`: it strips each snapshot key down to its bare file name
- * and runs the lot through `snapshotNames`, so a remote and a local listing
- * sort and filter identically. Returns `[]` for a set with no remote snapshots
+ * `listSnapshotNames`: it strips the set's prefix from each key and runs the
+ * lot through `snapshotNames`, so a remote and a local listing sort and filter
+ * identically. Not a basename: the LIST is recursive, and a key in a folder
+ * below the set's is not one of its snapshots, which `snapshotNames` can tell
+ * only while the folder is still on it. Returns `[]` for a set with no remote snapshots
  * yet (e.g. before its first backup).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)

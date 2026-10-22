@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { open, rename, unlink } from "node:fs/promises";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
@@ -22,7 +22,13 @@ import {
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
-import { foldsCase, pathKey, pathMatcher, preparePath } from "./path-match.mjs";
+import {
+  foldsCase,
+  pathKey,
+  pathMatcher,
+  preparePath,
+  rootLength,
+} from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -72,7 +78,7 @@ export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
  * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
  * moves when the format does, never for a wording edit to guide/format.md.
  */
-export const SPEC_DATE = "2026-10-20";
+export const SPEC_DATE = "2026-10-22";
 
 /**
  * The last line of every whole s3cab file, and its completeness check
@@ -737,14 +743,17 @@ export const normalizeSnapshotName = (name) =>
  * datestamped `.tsv.gz` filter is the one place the snapshot naming convention
  * is recognised; `list` (local files) and the remote lister (snapshot keys with
  * their `snapshots/<set>/` prefix already stripped) both run through here,
- * so a local and a remote listing sort and filter identically.
+ * so a local and a remote listing sort and filter identically. Anchored at
+ * both ends: the remote listing is recursive, so a key in a folder below the
+ * set's (`old/2099-01-01T0000.tsv.gz`) arrives here with its folder, and isn't
+ * the set's snapshot.
  * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.gz`)
  * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
  */
 export function snapshotNames(names) {
   return [...names]
-    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
-    .map((name) => basename(name, ".tsv.gz"))
+    .filter((name) => /^\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
+    .map((name) => name.slice(0, -".tsv.gz".length))
     .sort()
     .reverse();
 }
@@ -863,7 +872,7 @@ export async function parseCompressedSnapshotStream(
  * doesn't open with the heading row, doesn't end with `.`, or holds a type
  * this version doesn't know that starts with neither `@` nor `#` — content a
  * restore would miss (ADR-0103). One path is refused, and the rest still read,
- * for a malformed `-` row, a path that isn't absolute, holds a tab or a CR,
+ * for a malformed `-` row, a path that isn't absolute, holds a tab, CR or NUL,
  * has an empty, `.` or `..` segment, or isn't strictly inside a `@SET DIR`,
  * and a path two such rows name, or that one names as a folder of the other's:
  * both are refused, so no reader guesses between them.
@@ -1102,7 +1111,7 @@ const fileRowFault = (hash, size, mtime, path) =>
     ? "its hash isn't 64 lowercase hex digits"
     : !/^[0-9]+$/.test(size)
       ? "its size isn't a whole number of bytes"
-      : !INSTANT.test(mtime)
+      : !isInstant(mtime)
         ? "its time isn't a UTC instant like 2026-08-14T09:31:07.412Z"
         : pathFault(path);
 
@@ -1125,19 +1134,52 @@ function pathFault(path) {
   if (path.includes("\t")) {
     return "its path holds a tab";
   }
+  // No filesystem allows one in a name. Without this, Node's fs throws
+  // ERR_INVALID_ARG_VALUE at the write, which no refused-name check catches,
+  // so one row aborts the whole restore; and a reader in C cuts the string at
+  // it, so `../\0x` passes the segment check below and reaches the disk as `..`.
+  if (path.includes("\0")) {
+    return "its path holds a NUL";
+  }
   // Past its root (`/`, `C:/`, or a share's `//`), every segment names a file
   // or folder: an empty one is a trailing or doubled separator.
   const unified = preparePath(path).path;
-  const root = unified.startsWith("//") ? 2 : foldsCase(unified) ? 3 : 1;
-  const segments = unified.slice(root).split("/");
+  const segments = unified.slice(rootLength(unified)).split("/");
   if (segments.some((s) => s === "" || s === "." || s === "..")) {
     return "its path has an empty, . or .. segment";
   }
   return undefined;
 }
 
-/** The 24-character UTC instant `toISOString` writes. */
-export const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+/**
+ * Whether `text` is the 24-character UTC instant `toISOString` writes, and a
+ * real one. The shape alone isn't: `Date` rolls 30 February over to 2 March
+ * and hour 24 to the next day, so a restore would set a time no row named.
+ * Checked by arithmetic, not by a `Date` round trip: on every file row of
+ * every parse, that cost about 25 times the shape regex, and this about 5.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export const isInstant = (text) => {
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(text)) {
+    return false;
+  }
+  /** @param {number} at - Where a field starts in `YYYY-MM-DDTHH:MM:SS` */
+  const field = (at) => Number(text.slice(at, at === 0 ? 4 : at + 2));
+  const year = field(0);
+  const month = field(5);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    field(8) >= 1 &&
+    field(8) <= (days[month - 1] ?? 0) &&
+    field(11) <= 23 &&
+    field(14) <= 59 &&
+    field(17) <= 59
+  );
+};
 
 /**
  * A byte stream's lines, split on LF alone and decoded as strict UTF-8 — a CR

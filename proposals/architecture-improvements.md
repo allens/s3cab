@@ -62,24 +62,23 @@ behind the `s3.mjs` fake (**one claim** and the takeover item through `s3Seam`),
 - **One reader for a valid s3cab file — the deletion record re-states the reading rules the
   snapshot reader owns, and the two already disagree.** _Strong; seventeenth pass, the divergences
   traced by hand._ [deletion-record.mjs](../src/lib/deletion-record.mjs)'s `parseDeletionRecord`
-  (:97–139) composes the writer's `HEADING`, `openingRows`, `formatLine`, `TERMINATOR`,
-  `isHeadingRow` and `INSTANT` from [snapshot-file.mjs](../src/lib/snapshot-file.mjs), then
-  implements ADR-0101/0106's whole-file rules a second time beside `parseSnapshotStream`
-  (:877–1041): the blank-line skip, "`.` counts only with its LF", rows after `.`, `.` plus junk,
-  the unknown-type rule, the hash and size regexes (:1050/:1053 vs :123–124), the three error
-  strings word for word. They differ on three: a whitespace-only line (the snapshot skips it, :933;
-  the record reads type `''` and calls the file invalid, :107); a file ending `.\n.` (the snapshot
-  holds the LF-less `.` back unread, :1001, so valid; the record says rows follow, :114); and
-  UTF-8, which the snapshot refuses through its fatal decoder (:1097–1104) and the record never
-  can, because `getText` ([s3.mjs](../src/lib/s3.mjs):1029–1033) hands it `transformToString()`'s
+  composes the writer's `HEADING`, `openingRows`, `formatLine`, `TERMINATOR`,
+  `isHeadingRow` and `isInstant` from [snapshot-file.mjs](../src/lib/snapshot-file.mjs), then
+  implements ADR-0101/0106's whole-file rules a second time beside `parseSnapshotStream`:
+  the blank-line skip, "`.` counts only with its LF", rows after `.`, `.` plus junk,
+  the unknown-type rule, the hash and size regexes (`fileRowFault`'s vs the record's own), the
+  three error strings word for word. They differ on two: a file ending `.\n.` (the snapshot
+  holds the LF-less `.` back unread, so valid; the record says rows follow); and
+  UTF-8, which the snapshot refuses through `utf8Lines`' fatal decoder and the record never
+  can, because `getText` ([s3.mjs](../src/lib/s3.mjs)) hands it `transformToString()`'s
   lenient text, though ADR-0101 applies the refusal to both layouts. **Fix:** one line-walker in
   snapshot-file.mjs owning the file-level rules over bytes (heading, blank, terminator with its LF,
   nothing after, unknown type, UTF-8) and taking a per-type row handler, returning the file-level
   verdict as a value, so `parseDeletionRecord` contributes only what a `#deleted` row is and its own
   "a malformed row distrusts the record" verdict. Knowledge moves *into* snapshot-file.mjs, so
   ADR-0028 and the codec-split rejection stand. **Tests:** two hand-mirrored damage tables
-  (snapshot-file.test.mjs:159–254; deletion-record.test.mjs:201–240); the record has no CRLF, UTF-8
-  or whitespace-line case, neither has `.\n.`, and five test files spell the file framing by hand
+  (snapshot-file.test.mjs:159–254; deletion-record.test.mjs:201–240); the record has no CRLF or UTF-8
+  case, neither has `.\n.`, and five test files spell the file framing by hand
   (deletion-record.test.mjs:79–82 the heading literal; test/helpers/write-snapshot.mjs:68–79 no
   `openingRows`, no `START`; list.test.mjs:147; compare.test.mjs:798;
   remote.referenced-scan.test.mjs:92). The new test is one damage table through both readers.

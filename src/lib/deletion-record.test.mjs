@@ -176,6 +176,24 @@ describe("parseDeletionRecord", () => {
     assert.equal(invalid, undefined);
   });
 
+  it("takes who deleted it as the rest of the line after the fourth tab", () => {
+    const [row] = parseDeletionRecord(
+      fileOf(`#deleted\t${HASH_A}\t1\t${T1}\tme\tpc\n`),
+    ).rows;
+    assert.equal(row?.by, "me\tpc");
+  });
+
+  it("skips a line holding only what the trim removes, as a snapshot does, after the . too", () => {
+    const { rows, invalid } = parseDeletionRecord(
+      fileOf(" \t\n", deletedRow(HASH_C, 1, T1, "x")) + "  \n",
+    );
+    assert.deepEqual(
+      rows.map((row) => row.hash),
+      [HASH_C],
+    );
+    assert.equal(invalid, undefined);
+  });
+
   // A refused row must never explain away a missing object: its content counts
   // as not deleted, the safe direction, and the file is invalid as a whole.
   for (const [name, row] of [
@@ -185,6 +203,10 @@ describe("parseDeletionRecord", () => {
     [
       "a time that isn't a UTC instant",
       deletedRow(HASH_A, 1, "2026-08-14", "x"),
+    ],
+    [
+      "a date the calendar doesn't have",
+      deletedRow(HASH_A, 1, "2026-02-30T12:00:00.000Z", "x"),
     ],
   ]) {
     it(`refuses a #deleted row with ${name}, and the file is invalid`, () => {
@@ -356,12 +378,19 @@ describe("readDeletionRecords", () => {
     assert.deepEqual([...deleted.keys()], [HASH_A]);
   });
 
-  it("skips a record that vanished between the LIST and the read", async () => {
+  it("calls a record that vanished between the LIST and the read invalid, since its rows went to a merge the LIST never saw", async () => {
     listed.push({ Key: "objects.deleted-1.tsv" }); // no body registered
     record(2, fileOf(deletedRow(HASH_B, 1, T1, "x")));
     const { deleted, invalid } = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_B]);
-    assert.deepEqual(invalid, []);
+    // `vanished` is what lets cleanup say "re-run" rather than "repair".
+    assert.deepEqual(invalid, [
+      {
+        uri: "s3://b/objects.deleted-1.tsv",
+        reason: "it was removed while this run read the record",
+        vanished: true,
+      },
+    ]);
   });
 });
 

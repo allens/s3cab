@@ -95,9 +95,9 @@ export async function storedHashes({
           ? `The cloud's snapshot '${since}' isn't the one on this computer — ` +
             `another machine backing up the set '${set}' may have taken it. ` +
             `Checking what's stored instead.`
-          : `The deletion record in 's3://${bucket}' is damaged, so it can't ` +
-            `say what's been deleted since '${since}' — checking what's ` +
-            `stored instead.`,
+          : `The deletion record in 's3://${bucket}' is damaged, or changed ` +
+            `while it was read, so it can't say what's been deleted since ` +
+            `'${since}' — checking what's stored instead.`,
     );
   }
 

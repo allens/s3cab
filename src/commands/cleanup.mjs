@@ -207,6 +207,34 @@ export async function cleanup(bucket, options = {}) {
     return report;
   }
 
+  // Interlock #3 (act path only): compaction keeps only the rows it can parse
+  // and then deletes the original, so a damaged record file would lose its
+  // other rows for good (ADR-0101). One that vanished mid-read lost nothing,
+  // but this run can't see its rows, so it can't trim against them either.
+  // Checked before #2: a record file this run couldn't read leaves its deleted
+  // hashes in `missing`, so #2 would call a deliberate delete lost data.
+  const damagedRecords = invalidRecords.filter(({ vanished }) => !vanished);
+  if (damagedRecords.length > 0) {
+    throw new Error(
+      `Can't clean up safely: the deletion record is damaged, and cleaning ` +
+        `up would lose what it records.\n` +
+        damagedRecords
+          .map(({ uri, reason }) => `  ${uri} (${reason})`)
+          .join("\n") +
+        `\n\nFix what each one names, then re-run. The record's format is ` +
+        `explained at https://s3cab.plantegral.com/guide/format`,
+    );
+  }
+  if (invalidRecords.length > 0) {
+    throw new Error(
+      `Can't clean up right now: the deletion record changed while this run ` +
+        `read it, most likely because another cleanup is compacting it.\n` +
+        invalidRecords.map(({ uri }) => `  ${uri}`).join("\n") +
+        `\n\nRe-run once that one has finished:\n` +
+        `  ${shellCommand(`s3cab cleanup ${bucket}`)}`,
+    );
+  }
+
   // Interlock #2 (act path only): missing objects mean the repo is already losing
   // data — refuse, so cleanup never compounds a loss. Fix with verify first.
   if (missing > 0) {
@@ -216,21 +244,6 @@ export async function cleanup(bucket, options = {}) {
         `so this is not the moment to reclaim.\n\n` +
         `Check them with:\n` +
         `  ${shellCommand(`s3cab verify ${bucket}`)}`,
-    );
-  }
-
-  // Interlock #3 (act path only): compaction keeps only the rows it can parse
-  // and then deletes the original, so a damaged record file would lose its
-  // other rows for good (ADR-0101).
-  if (invalidRecords.length > 0) {
-    throw new Error(
-      `Can't clean up safely: the deletion record is damaged, and cleaning ` +
-        `up would lose what it records.\n` +
-        invalidRecords
-          .map(({ uri, reason }) => `  ${uri} (${reason})`)
-          .join("\n") +
-        `\n\nFix what each one names, then re-run. The record's format is ` +
-        `explained at https://s3cab.plantegral.com/guide/format`,
     );
   }
 

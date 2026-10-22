@@ -1,6 +1,11 @@
 import { join, posix, resolve, win32 } from "node:path";
 
-import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
+import {
+  foldsCase,
+  pathMatcher,
+  preparePath,
+  rootLength,
+} from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -147,6 +152,15 @@ export const COARSEST_DISK_MS = 2000;
  */
 export function reroot(dirs, paths, output) {
   const roots = dirs
+    // A doubled separator past the root is an empty segment, which no valid
+    // path has, so that `DIR` matches nothing (guide/format.md). Dropped here
+    // because `segments` below filters empties out, which would match it as
+    // the path without one. Trailing separators are ignored, as everywhere.
+    .filter((dir) => {
+      const { path } = preparePath(dir);
+      const names = path.slice(rootLength(path)).replace(/\/+$/, "");
+      return names === "" || !names.split(posix.sep).includes("");
+    })
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
       // Not `preparePath`'s own `base`: that answers "what follows the last

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
 
+/** @import { InvalidRecord } from "../lib/deletion-record.mjs" */
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for the `cleanup` *command shell*: the bucket scan
@@ -27,7 +28,7 @@ let promptCalls = 0;
 let promptMessage = "";
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
-/** @type {{ uri: string, reason: string }[]} the record files that aren't valid */
+/** @type {InvalidRecord[]} the record files that aren't valid */
 let invalidRecords = [];
 /** @type {{ referenced: Set<string>, deletesSoFar: number }[]} compaction calls, with how many object deletes preceded each */
 let compactCalls = [];
@@ -376,5 +377,34 @@ describe("cleanup command", () => {
     // A dry run still reports: it deletes and compacts nothing.
     const result = await cleanup("b", { "dry-run": true });
     assert.equal(result.orphanObjects, 1);
+  });
+
+  it("the act path refuses while the deletion record changes under it, saying to re-run, not to repair", async () => {
+    // Listed, then gone by the read: a concurrent compaction moved its rows to
+    // a merge this run never listed. Nothing is damaged, but trimming against
+    // rows it can't see could drop one that is still live. Its rows typically
+    // explain a hash a snapshot still references, which then reads as missing.
+    referencedBySet = enumeration({ photos: { s1: { "/gone": ["gone", 1] } } });
+    storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
+    invalidRecords = [
+      {
+        uri: "s3://b/objects.deleted-2.tsv",
+        reason: "it was removed while this run read the record",
+        vanished: true,
+      },
+    ];
+
+    await assert.rejects(
+      () => cleanup("b", { force: true }),
+      (error) => {
+        const message = String(/** @type {Error} */ (error).message);
+        assert.match(message, /changed while this run read it/);
+        assert.match(message, /Re-run once that one has finished/);
+        assert.doesNotMatch(message, /damaged|losing data/);
+        return true;
+      },
+    );
+    assert.deepEqual(deleteCalls, []);
+    assert.deepEqual(compactCalls, []);
   });
 });

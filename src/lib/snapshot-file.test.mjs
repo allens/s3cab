@@ -10,6 +10,7 @@ import { constants, gzipSync, gunzipSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
   formatLine,
+  isInstant,
   listSnapshotNames,
   normalizeSnapshotName,
   parseCompressedSnapshotStream,
@@ -141,20 +142,22 @@ describe("parseSnapshotStream", () => {
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
   });
 
-  it("skips blank lines after the heading", async () => {
+  it("skips blank lines after the heading, the closing . included", async () => {
     const { entries } = await parse(
       [
         HEADING,
         DIR,
         "",
         fileRow(hashA, 5, "/home/me/a.txt"),
-        "",
+        " \t ",
         fileRow(hashB, 7, "/home/me/b.txt"),
         TERMINATOR,
         "",
+        "  ",
+        "",
       ].join("\n"),
     );
-    assert.equal(entries.size, 2);
+    assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
   });
 
   describe("refuses the whole file (ADR-0101)", () => {
@@ -304,6 +307,48 @@ describe("parseSnapshotStream", () => {
         fileRow(hashA, 12, "C:\\Users\\.\\x"),
         "C:\\Users\\.\\x",
         /\.\. segment/,
+      ],
+      [
+        "a date the calendar doesn't have, which Date would roll over to 2 March",
+        fileRow(hashA, 12, "/home/me/x", "2026-02-30T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "hour 24, which Date would read as the next day",
+        fileRow(hashA, 12, "/home/me/x", "2026-06-01T24:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "29 February in a century year that isn't a leap year",
+        fileRow(hashA, 12, "/home/me/x", "2100-02-29T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a day 00",
+        fileRow(hashA, 12, "/home/me/x", "2026-06-00T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a month 13",
+        fileRow(hashA, 12, "/home/me/x", "2026-13-01T12:00:00.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a leap second, which Date can't hold",
+        fileRow(hashA, 12, "/home/me/x", "2026-06-30T23:59:60.000Z"),
+        "/home/me/x",
+        /time/,
+      ],
+      [
+        "a NUL in the path, which would cut a .. segment loose in C",
+        fileRow(hashA, 12, "/home/me/..\0x"),
+        "/home/me/..\0x",
+        /holds a NUL/,
       ],
       [
         "a carriage return in the path",
@@ -772,6 +817,38 @@ describe("snapshotMoment's minted name", () => {
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
     assert.deepEqual(snapshotNames([`${name}.tsv.gz`]), [name]);
+  });
+});
+
+describe("isInstant", () => {
+  it("agrees with Date on every real instant at the calendar's edges", () => {
+    for (const instant of [
+      "2024-02-29T23:59:59.999Z",
+      "2000-02-29T00:00:00.000Z",
+      "1900-02-28T00:00:00.000Z",
+      "0000-01-01T00:00:00.000Z",
+      "9999-12-31T23:59:59.999Z",
+      "2026-04-30T12:00:00.000Z",
+    ]) {
+      assert.equal(isInstant(instant), true, instant);
+      assert.equal(new Date(instant).toISOString(), instant);
+    }
+  });
+});
+
+describe("snapshotNames", () => {
+  it("counts only a name directly in the listing, not one in a folder below it", () => {
+    // The remote listing is recursive: these arrive with the set's prefix cut
+    // off, and the nested one would otherwise be the latest, then a 404.
+    assert.deepEqual(
+      snapshotNames([
+        "2026-06-12T0915.tsv.gz",
+        "old/2099-01-01T0000.tsv.gz",
+        "x2099-01-01T0000.tsv.gz",
+        "2099-01-01T0000.tsv.gz.bak",
+      ]),
+      ["2026-06-12T0915"],
+    );
   });
 });
 
