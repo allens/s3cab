@@ -248,13 +248,16 @@ compaction.
 
 A reader that lists the records and then fetches them can still miss a row: a file
 compacted between the two is gone, and the merge holding its rows came after the list.
-s3cab counts a record that has gone as [invalid](#valid-and-invalid-files), so:
+What that costs s3cab:
 
-- a restore running beside a compaction can report a deliberately deleted file as damage.
-  That is the safe direction: a missed row never makes missing content look intentional;
-- `backup` and `status` don't let an earlier snapshot vouch for what is stored, which a
-  missed row would otherwise let them do for content deliberately deleted;
-- `cleanup` refuses to run.
+- A restore running beside a compaction can report a deliberately deleted file as damage.
+  That is the safe direction: a missed row never makes missing content look intentional.
+- `backup` and `status` count a record that has gone as
+  [invalid](#valid-and-invalid-files), so they don't let an earlier snapshot vouch for
+  what is stored. A missed row would otherwise let them do that for content deliberately
+  deleted.
+- `cleanup` refuses to delete or compact anything, and says to re-run once the other
+  cleanup has finished.
 
 **Presence always wins.** A record explains an object's *absence*; it does not forbid its
 return. If a hash turns up in `objects/` again — content deleted, then later backed up
@@ -791,7 +794,8 @@ of four things:
   governs a missing object: a bad row costs its own path, or the two paths in conflict, and
   nothing else.
 - **Skip** a blank line, empty or holding only what the trim removes, anywhere after the
-  heading row, after the `.` included. The heading row is always the first line. It is no row, so it neither breaks the file nor follows the `.`.
+  heading row, after the `.` included. A blank line is no row, so it neither breaks the
+  file nor follows the `.`. The heading row is always the first line.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count, or an `@S3CAB SPEC`, `@CLIENT NAME` or
   `@CLIENT VERSION` row missing or repeated. s3cab doesn't count an `@` or `#` row's fields:
@@ -806,10 +810,10 @@ names would look unused and be deleted.
 `#deleted` row is refused, so its object counts as not deleted, and its absence is reported
 as unexplained damage with a nonzero exit. That is the safe direction: a damaged record can
 never make missing content look intentional. The well-formed rows of an invalid record
-still explain an absence. While any record file is invalid, `backup` and
-`status` check what the bucket actually holds rather than trust an earlier snapshot's word,
-and `cleanup` refuses to run, since compacting would rewrite only the rows it could read and
-lose the rest for good.
+still explain an absence. While any record file is invalid, `backup` and `status` check
+what the bucket actually holds rather than trust an earlier snapshot's word, and `cleanup`
+refuses to delete or compact anything, since compacting would rewrite only the rows it
+could read and lose the rest for good.
 
 **What a reader promises, even for an invalid file:** it never writes outside the
 destination, never writes bytes that don't hash to the row, never chooses between

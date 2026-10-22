@@ -320,12 +320,34 @@ describe("reroot", () => {
   // The spec says such a DIR matches nothing; dropping its empty segment
   // instead would make it the longer match, and move the file.
   it("matches nothing with a @SET DIR whose doubled separator is past its root", () => {
-    for (const nested of ["C:\\a\\\\b\\", "/a//b/"]) {
-      const outer = nested.startsWith("C:") ? "C:\\a\\" : "/a/";
-      const file = nested.startsWith("C:") ? "C:\\a\\b\\x" : "/a/b/x";
+    for (const { outer, nested, file, lands } of [
+      {
+        outer: "C:\\a\\",
+        nested: "C:\\a\\\\b\\",
+        file: "C:\\a\\b\\x",
+        lands: "a/b/x",
+      },
+      { outer: "/a/", nested: "/a//b/", file: "/a/b/x", lands: "a/b/x" },
+      // Straight after a share's root, with no name before the doubling.
+      {
+        outer: "//nas/share/",
+        nested: "///nas/share/sub/",
+        file: "//nas/share/sub/x",
+        lands: "share/sub/x",
+      },
+    ]) {
       const map = reroot([outer, nested], [file], "out");
-      assert.equal(map(file), join(resolve("out"), "a", "b", "x"), nested);
+      assert.equal(
+        map(file),
+        join(resolve("out"), ...lands.split("/")),
+        nested,
+      );
     }
+  });
+
+  it("keeps a @SET DIR that only ends in a doubled separator, which is ignored", () => {
+    const map = reroot(["/a/", "/a/b//"], ["/a/b/x"], "out");
+    assert.equal(map("/a/b/x"), join(resolve("out"), "b", "x"));
   });
 
   // Windows reads a `\` as a separator, so a POSIX name holding one has no

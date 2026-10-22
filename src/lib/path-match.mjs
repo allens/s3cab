@@ -81,6 +81,15 @@ export function preparePath(path) {
 }
 
 /**
+ * How many leading characters of a `preparePath` path are its root: a share's
+ * `//`, a drive's `C:/`, and POSIX `/`. Past it, every segment is a name.
+ * @param {string} path - A path with its separators already unified to `/`
+ * @returns {number}
+ */
+export const rootLength = (path) =>
+  path.startsWith("//") ? 2 : foldsCase(path) ? 3 : 1;
+
+/**
  * Normalize a path for containment: separators to `/` and case folded for a
  * Windows-shaped path, both left alone for a POSIX one.
  * @param {string} p

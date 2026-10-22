@@ -221,16 +221,27 @@ export async function cleanup(bucket, options = {}) {
 
   // Interlock #3 (act path only): compaction keeps only the rows it can parse
   // and then deletes the original, so a damaged record file would lose its
-  // other rows for good (ADR-0101).
-  if (invalidRecords.length > 0) {
+  // other rows for good (ADR-0101). One that vanished mid-read lost nothing,
+  // but this run can't see its rows, so it can't trim against them either.
+  const damagedRecords = invalidRecords.filter(({ vanished }) => !vanished);
+  if (damagedRecords.length > 0) {
     throw new Error(
       `Can't clean up safely: the deletion record is damaged, and cleaning ` +
         `up would lose what it records.\n` +
-        invalidRecords
+        damagedRecords
           .map(({ uri, reason }) => `  ${uri} (${reason})`)
           .join("\n") +
         `\n\nFix what each one names, then re-run. The record's format is ` +
         `explained at https://s3cab.plantegral.com/guide/format`,
+    );
+  }
+  if (invalidRecords.length > 0) {
+    throw new Error(
+      `Can't clean up right now: the deletion record changed while this run ` +
+        `read it, most likely because another cleanup is compacting it.\n` +
+        invalidRecords.map(({ uri }) => `  ${uri}`).join("\n") +
+        `\n\nRe-run once that one has finished:\n` +
+        `  ${shellCommand(`s3cab cleanup ${bucket}`)}`,
     );
   }
 

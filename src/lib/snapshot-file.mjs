@@ -22,7 +22,13 @@ import {
   showControlChars,
 } from "./format.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
-import { foldsCase, pathKey, pathMatcher, preparePath } from "./path-match.mjs";
+import {
+  foldsCase,
+  pathKey,
+  pathMatcher,
+  preparePath,
+  rootLength,
+} from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -1138,8 +1144,7 @@ function pathFault(path) {
   // Past its root (`/`, `C:/`, or a share's `//`), every segment names a file
   // or folder: an empty one is a trailing or doubled separator.
   const unified = preparePath(path).path;
-  const root = unified.startsWith("//") ? 2 : foldsCase(unified) ? 3 : 1;
-  const segments = unified.slice(root).split("/");
+  const segments = unified.slice(rootLength(unified)).split("/");
   if (segments.some((s) => s === "" || s === "." || s === "..")) {
     return "its path has an empty, . or .. segment";
   }
@@ -1150,8 +1155,8 @@ function pathFault(path) {
  * Whether `text` is the 24-character UTC instant `toISOString` writes, and a
  * real one. The shape alone isn't: `Date` rolls 30 February over to 2 March
  * and hour 24 to the next day, so a restore would set a time no row named.
- * Checked by arithmetic, not by a `Date` round trip, which cost every file
- * row of every parse 25 times as much.
+ * Checked by arithmetic, not by a `Date` round trip: on every file row of
+ * every parse, that cost about 25 times the shape regex, and this about 5.
  * @param {string} text
  * @returns {boolean}
  */

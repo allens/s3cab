@@ -237,7 +237,8 @@ export async function readDeletionRecords(bucket) {
       // missing row reads as damage, the safe direction.
       invalid.push({
         uri,
-        reason: "it was removed while being read, by a cleanup running now",
+        reason: "it was removed while this run read the record",
+        vanished: true,
       });
       continue;
     }
@@ -257,8 +258,9 @@ export async function readDeletionRecords(bucket) {
 }
 
 /**
- * A deletion record file that isn't valid, and why.
- * @typedef {{ uri: string, reason: string }} InvalidRecord
+ * A deletion record file that isn't valid, and why. `vanished`: listed, then
+ * gone by the read, so nothing in it is damaged.
+ * @typedef {{ uri: string, reason: string, vanished?: boolean }} InvalidRecord
  */
 
 /**
