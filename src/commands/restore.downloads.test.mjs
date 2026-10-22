@@ -215,6 +215,52 @@ describe("restore reads each modification time back", () => {
     assert.notEqual(process.exitCode, 1);
   });
 
+  it("reports a time the disk refuses outright, and carries on", async () => {
+    // NTFS before 1601: EINVAL. The file keeps the time it was written at.
+    keeps = () => {
+      throw Object.assign(new Error("EINVAL: invalid argument, utime"), {
+        code: "EINVAL",
+      });
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.equal(result.restored.length, 4);
+    assert.deepEqual(
+      result.clamped.map(({ path }) => path),
+      result.restored,
+    );
+    for (const { kept } of result.clamped) {
+      assert.ok(Date.parse(kept) > Date.parse("2026-07-01T10:00:00.000Z"));
+    }
+    assert.equal(process.exitCode, 1);
+  });
+
+  it(
+    "reports 1601-01-01 on Windows, which NTFS takes as leave the time alone",
+    { skip: process.platform === "win32" ? false : "a Windows-only time" },
+    async () => {
+      snapshot = {
+        entries: new Map([
+          [
+            "/data/epoch.txt",
+            { size: 3, mtime: "1601-01-01T00:00:00.000Z", hash: "aaa" },
+          ],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.deepEqual(result.restored, [dest("epoch.txt")]);
+      assert.deepEqual(
+        result.clamped.map(({ path }) => path),
+        [dest("epoch.txt")],
+      );
+      assert.equal(process.exitCode, 1);
+    },
+  );
+
   it(
     "doesn't read back a time Node misreads on Windows",
     { skip: process.platform === "win32" ? false : "a Windows-only guard" },
