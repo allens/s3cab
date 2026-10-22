@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import * as fsPromises from "node:fs/promises";
@@ -43,7 +44,7 @@ let fetched = [];
 let deletionRecords = new Map();
 /** How many times the records were fetched — laziness evidence (0 on a clean run). */
 let recordReads = 0;
-/** @type {(hash: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
+/** @type {(hash: string, landed: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
 let afterFetch = () => {};
 /** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
 let keeps = (mtime) => mtime;
@@ -92,7 +93,7 @@ mock.module("../lib/objects.mjs", {
       // what it really leaves. The digest check is the one part skipped: these
       // hashes are labels, not digests.
       await writeFileAtomic(destPath, Readable.from(hash));
-      afterFetch(hash);
+      afterFetch(hash, destPath);
     },
   },
 });
@@ -225,6 +226,10 @@ describe("restore reads each modification time back", () => {
       }
       return mtime;
     };
+    // A download lands with the current time, so without this a file left
+    // untouched would pass for one set to the restore's own.
+    const old = new Date("2000-01-01T00:00:00.000Z");
+    afterFetch = (_hash, landed) => utimesSync(landed, old, old);
     const started = Date.now();
 
     const result = await restore([], { set: "photos", output });
