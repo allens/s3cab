@@ -44,6 +44,22 @@ describe("statProps", () => {
     assert.equal(mtimeOf(-500_000n), "1970-01-01T00:00:00.000Z");
     assert.equal(mtimeOf(-500_001n), "1969-12-31T23:59:59.999Z");
   });
+
+  it("refuses a time outside the years 0000 to 9999, and keeps their edges", () => {
+    const at = (/** @type {number} */ ms) => BigInt(ms) * 1_000_000n;
+    const first = Date.parse("0000-01-01T00:00:00.000Z");
+    const last = Date.parse("9999-12-31T23:59:59.999Z");
+
+    assert.equal(mtimeOf(at(first)), "0000-01-01T00:00:00.000Z");
+    assert.equal(mtimeOf(at(last)), "9999-12-31T23:59:59.999Z");
+    for (const mtimeNs of [
+      at(last + 1),
+      at(last) + 500_000n, // rounds into year 10000
+      at(first - 1),
+    ]) {
+      assert.throws(() => mtimeOf(mtimeNs), /outside the years 0000 to 9999/);
+    }
+  });
 });
 
 describe("fileProps", () => {

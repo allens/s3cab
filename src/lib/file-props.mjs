@@ -44,6 +44,10 @@ const EMPTY_DIGEST = crypto.hash("sha256", "", "hex");
  * `mtimeMs`, which near today's dates can't hold .4999ms, so an NTFS mtime one
  * tick short of a tie reads as the tie and rounds up. Hence the integer
  * nanoseconds, with floor division, so a time before 1970 rounds the same way.
+ *
+ * Throws for a time outside the years 0000 to 9999, which the 24-character form
+ * can't hold (`toISOString` writes `+010000-…` or `-000001-…`, which every reader
+ * refuses), so the file gets an `#error` row instead.
  * @param {Pick<BigIntStats, "size" | "mtimeNs">} stat - From an `lstat` taken with `{ bigint: true }`
  * @returns {Pick<Props, "size" | "mtime">}
  */
@@ -51,7 +55,13 @@ export function statProps(stat) {
   const halfUp = stat.mtimeNs + 500_000n;
   const ms =
     halfUp >= 0n ? halfUp / 1_000_000n : -((999_999n - halfUp) / 1_000_000n);
-  return { size: Number(stat.size), mtime: new Date(Number(ms)).toISOString() };
+  const mtime = new Date(Number(ms)).toISOString();
+  if (mtime.length !== 24) {
+    throw new Error(
+      `its modification time, ${mtime}, is outside the years 0000 to 9999 a snapshot can hold`,
+    );
+  }
+  return { size: Number(stat.size), mtime };
 }
 
 /**

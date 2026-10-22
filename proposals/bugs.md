@@ -123,9 +123,7 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   `1969-12-31T23:59:59.0005Z` reads back as `2106-02-07T06:28:15.001Z` (`mtimeNs`
   `4294967295000500000n`, so `{ bigint: true }` doesn't help), 2200-12-31 as 2064-11-22, and
   9999-12-31 as 2106-01-28. Measured on NTFS under node 26.10.0. Linux reads 1969 and 2200
-  correctly, and ext4 stops at 2446. A filesystem with 64-bit seconds (btrfs, untested) could
-  still hold a year past 9999, which `toISOString` writes as `+010000-…`, 27 characters, a row
-  s3cab's own reader refuses. The wrapped Windows value can't be told from a real date in range,
+  correctly, and ext4 stops at 2446. The wrapped Windows value can't be told from a real date in range,
   so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
   holding the false time, and restore sets it. Restore's read-back of each time skips these
   on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
