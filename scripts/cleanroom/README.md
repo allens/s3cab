@@ -16,11 +16,16 @@ or merely costs the implementer an afternoon.
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
 boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
 SDK), [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK), and
-a real set on Opus 5.5 at `xhigh` (2026-10-22): backups on
+two real sets. On Opus 5.5 at `xhigh` (2026-10-22): backups on
 [Linux](../../docs/format-spec-audit-4.md), [macOS](../../docs/format-spec-audit-5.md)
 and [Windows](../../docs/format-spec-audit-6.md), restores on
 [Linux](../../docs/format-spec-audit-7.md), [macOS](../../docs/format-spec-audit-8.md)
-and [Windows](../../docs/format-spec-audit-9.md).
+and [Windows](../../docs/format-spec-audit-9.md). On Fable 5.1 at `xhigh` (2026-10-23):
+backups on [Linux](../../docs/format-spec-audit-10.md),
+[macOS](../../docs/format-spec-audit-11.md) and [Windows](../../docs/format-spec-audit-12.md),
+restores on [Linux](../../docs/format-spec-audit-13.md),
+[macOS](../../docs/format-spec-audit-14.md) and [Windows](../../docs/format-spec-audit-15.md).
+The programs here are the latest set's; an earlier set's record links its own.
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 
