@@ -489,10 +489,12 @@ function firstMissing(dir) {
 
 /**
  * Remove the folders a failed row made, `dir` up to `top`, so a folder is left
- * only where a file landed (guide/format.md). A folder that isn't there is one
- * a `mkdir` that failed partway never made, so the walk climbs past it. `rmdir`
- * refuses one that isn't empty, which ends the walk: only an empty folder this
- * row made is removed, never one that was there before the restore.
+ * only where a file landed (guide/format.md). Each folder in that range was
+ * made by this row, or never made by a `mkdir` that failed partway, so each
+ * failed `rmdir` is passed over, whatever its code: the refused name itself
+ * fails `ENOENT` on Windows but `ENAMETOOLONG` on Linux and macOS. `rmdir`
+ * removes only an empty folder, and nothing above `top`, which was there
+ * before the restore, is touched.
  * @param {string} dir
  * @param {string} top - The first folder the row made, from {@link firstMissing}
  */
@@ -500,11 +502,8 @@ function removeMade(dir, top) {
   for (let at = dir; ; at = dirname(at)) {
     try {
       rmdirSync(at);
-    } catch (error) {
-      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
-      if (code !== "ENOENT" && code !== "ENOTDIR") {
-        return;
-      }
+    } catch {
+      // Not made, or not empty: either way, not this row's to remove.
     }
     if (at === top || dirname(at) === at) {
       return;
