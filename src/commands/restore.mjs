@@ -287,24 +287,30 @@ export async function restore(paths = [], options = {}) {
   // on a six-figure restore happens five times mid-run.
   const total = formatCount(plan.length);
   let done = 0;
+  /** @type {Map<string, boolean>} */
+  const linkedFolders = new Map();
   for (const step of plan) {
     const fate =
       step.action === "write" ? fateByHash.get(step.hash) : undefined;
-    // A refused row's `dest` is its source path, outside `<output>`. The link
-    // test comes before the skip: the plan's `lstat` follows a link at a folder
+    // A refusal is reported as one whatever is on disk, and content already
+    // found absent or corrupt is reported as that, a link or not. The link test
+    // comes before the skip: the plan's `lstat` follows a link at a folder
     // position, so a file beyond one reads as already there.
     if (step.action === "refuse") {
       refused.push(step.dest);
-    } else if (outDir !== undefined && linkedFolder(step.dest, outDir)) {
+    } else if (fate?.kind === "absent") {
+      reportAbsent(fate.record, step.dest);
+    } else if (fate?.kind === "corrupt") {
+      corrupt.push(step.dest);
+    } else if (
+      outDir !== undefined &&
+      linkedFolder(step.dest, outDir, linkedFolders)
+    ) {
       blocked.push(step.dest);
     } else if (step.action === "skip") {
       skipped.push(step.dest);
     } else if (step.action === "block") {
       blocked.push(step.dest);
-    } else if (fate?.kind === "absent") {
-      reportAbsent(fate.record, step.dest);
-    } else if (fate?.kind === "corrupt") {
-      corrupt.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       !lstatSync(step.dest).isSymbolicLink() &&
@@ -573,20 +579,26 @@ function isInTheWay(error, dest) {
  * layout and are followed. Node's `lstat` calls a junction a link too.
  * @param {string} dest - A destination `reroot` built under `outDir`
  * @param {string} outDir - `resolve(--output)`, the prefix `reroot` joined onto
+ * @param {Map<string, boolean>} known - This run's answers per folder, so a
+ *   re-run that skips every file still `lstat`s each folder once. Sound because
+ *   restore never makes a link.
+ * @returns {boolean}
  */
-function linkedFolder(dest, outDir) {
-  // The root stop: a `dest` not under `outDir` by string would otherwise spin
-  // forever at the root, its own `dirname`.
-  for (
-    let dir = dirname(dest);
-    dir !== outDir && dirname(dir) !== dir;
-    dir = dirname(dir)
-  ) {
-    if (statOrNothing(dir, lstatSync)?.isSymbolicLink()) {
-      return true;
-    }
+function linkedFolder(dest, outDir, known) {
+  const dir = dirname(dest);
+  // The root test is for a `dest` `reroot` didn't build: the root is its own
+  // `dirname`, so the climb would never end.
+  if (dir === outDir || dirname(dir) === dir) {
+    return false;
   }
-  return false;
+  let linked = known.get(dir);
+  if (linked === undefined) {
+    linked =
+      statOrNothing(dir, lstatSync)?.isSymbolicLink() === true ||
+      linkedFolder(dir, outDir, known);
+    known.set(dir, linked);
+  }
+  return linked;
 }
 
 /**

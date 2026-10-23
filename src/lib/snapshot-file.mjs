@@ -976,8 +976,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     } else if (type === SET && property === DIR && col5) {
       dirs.push(col5);
     } else if (type === SNAPSHOT && property === START) {
-      // Compared as text against deletion instants, so any other shape would
-      // decide that comparison at random: it reads as no START.
+      // Any other shape reads as no START, for every reader of `instant`:
+      // compared as text against deletion instants, it would decide at random.
       const start = col4.trim();
       instant = isInstant(start) ? start : undefined;
     } else if (type === SNAPSHOT && property === "BY") {

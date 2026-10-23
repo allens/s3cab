@@ -969,6 +969,8 @@ describe("restore when something on disk is in the way", () => {
       readFileSync(join(output, "elsewhere", "gone.txt"), "utf8"),
       "outside",
     );
+    assert.deepEqual(readdirSync(join(output, "elsewhere")), ["gone.txt"]);
+    assert.deepEqual(fetched, []);
     assert.equal(process.exitCode, 1);
   });
 
