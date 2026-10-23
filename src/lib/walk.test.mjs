@@ -250,8 +250,11 @@ describe("backupMatcher skips only what the walk skips", () => {
     assert.equal(inBackup("/home/me/set/notes/.s3cab", false), true);
   });
 
-  it("matches a Windows root in either case, as before", () => {
-    assert.equal(inBackup("c:\\SET\\a.txt", false), true);
+  it("matches a Windows root only as the disk spells it", () => {
+    // Both sides are real paths, so a folder spelled otherwise is another
+    // folder: in a case-sensitive directory, `SET` beside `set` is not saved.
+    assert.equal(inBackup("C:\\set\\a.txt", false), true);
+    assert.equal(inBackup("C:\\SET\\a.txt", false), false);
     assert.equal(inBackup("C:\\other\\a.txt", false), false);
   });
 });

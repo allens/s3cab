@@ -44,8 +44,8 @@ import { sizeDisagreements } from "./referenced.mjs";
  * @param {string} name - The set's name
  * @param {ReferencedResult} referencedResult - This set's referenced enumeration
  * @param {Map<string, { size: number }>} stored - Bucket's stored objects (hash → LIST size; `scanBucket`'s map, whose age this diff ignores)
- * @param {Map<string, { deletedOn: string }>} [deleted] - The repository's
- *   deletion records (`readDeletionRecords`): hash → when it was deliberately deleted
+ * @param {Map<string, { deletedOn: string }>} [deleted] - The deletion rows
+ *   that explain an absence (`explainingDeletions`): hash → when it was deliberately deleted
  * @returns {SetReport}
  */
 export function verifySet(name, referencedResult, stored, deleted = new Map()) {

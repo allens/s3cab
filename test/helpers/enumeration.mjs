@@ -25,15 +25,20 @@ import { addSnapshotReferences } from "../../src/lib/referenced.mjs";
  *   passed needs this as its `@type`, or the tuples widen to plain arrays.
  */
 
+/** Every fixture snapshot's START unless `starts` names another: before the fixtures' deletion rows. */
+const START = "2026-01-01T00:00:00.000Z";
+
 /**
  * @param {EnumerationSpec} spec - set → snapshot name → its rows
  * @param {Record<string, (string | { snapshot: string, reason: string })[]>} [unreadable]
  *   set → the snapshots that would not read; a bare name gets a gunzip reason.
  *   Every set named here must appear in `spec` (with `{}` if it has no readable
  *   snapshot), so a mistyped set name fails instead of vanishing.
+ * @param {Record<string, string | undefined>} [starts] - snapshot name → its
+ *   START, for a test that dates a deletion against one; undefined for none
  * @returns {Map<string, ReferencedResult>}
  */
-export function enumeration(spec, unreadable = {}) {
+export function enumeration(spec, unreadable = {}, starts = {}) {
   /** @type {Map<string, ReferencedResult>} */
   const bySet = new Map();
   for (const [set, snapshots] of Object.entries(spec)) {
@@ -58,6 +63,12 @@ export function enumeration(spec, unreadable = {}) {
           : entry,
       ),
       invalid: [],
+      starts: new Map(
+        Object.keys(snapshots).map((name) => [
+          name,
+          name in starts ? starts[name] : START,
+        ]),
+      ),
     });
   }
   for (const set of Object.keys(unreadable)) {

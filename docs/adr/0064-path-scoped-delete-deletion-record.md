@@ -146,6 +146,14 @@ s3cab delete --bucket <bucket> <path>... [-n|--dry-run] [-f|--force] [--everywhe
   record says what a later delete removed since. Still-present files simply re-upload.
 - **`cleanup`** subtracts record hashes from its missing-object interlock — without this,
   the first `delete` would make `cleanup --delete` refuse forever.
+- **Amended 2026-10-23: a row explains an absence only when it is newer than the
+  `@SNAPSHOT START` of every snapshot that references the hash.** A snapshot that started
+  later was uploaded with the object present (objects first, snapshot last), so if the
+  object is gone now, the row isn't why. `verify`, `cleanup`'s interlock and `forget`'s
+  loss count all take the rows through `explainingDeletions`; `restore` compares its one
+  snapshot. Skewed clocks, and a snapshot with no `START`, read as damage: the safe side.
+  `backup`'s baseline subtraction stays date-blind, since a stale row there costs only a
+  re-upload.
 
 ### The destructive-command pattern (tool-wide; conversions done)
 
@@ -173,6 +181,7 @@ destructive commands.
     files that was. Not the record alone: deleted content re-uploads on the next backup and
     its row stays, so subtracting every recorded hash would hide a real loss.
 - A concurrent backup can re-upload content while a `delete` runs (its conditional PUT
-  sees the object present pre-delete, skips, then the delete lands) — the published
-  snapshot's gap is still record-explained, so this degrades to expected-missing, never
-  silent corruption.
+  sees the object present pre-delete, skips, then the delete lands). The published
+  snapshot's gap is record-explained when the backup started before the record was
+  written. One that started in the moment between the record and the object's removal
+  reads as damage: loud, never silent corruption.

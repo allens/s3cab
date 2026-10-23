@@ -14,6 +14,7 @@ import {
   planUnrestorable,
 } from "../lib/unrestorable.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
+import { explainingDeletions } from "../lib/referenced.mjs";
 import { assertHeld } from "../lib/set-marker.mjs";
 import {
   deleteRemoteSnapshot,
@@ -197,8 +198,9 @@ export async function forget(snapshots = [], options = {}) {
     // next backup, and the row stays — so only the recorded hashes this run would
     // orphan are HEADed, and only the absent ones are left out.
     const { deleted } = await readDeletionRecords(set.bucket);
+    const explaining = explainingDeletions(referencedBySet, deleted);
     const sizes = await storedObjectSizes(set.bucket, [
-      ...orphaned.intersection(deleted),
+      ...orphaned.intersection(explaining),
     ]);
     /** @type {Set<string>} */
     const gone = new Set();

@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { lstat, utimes } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { platform, stderr } from "node:process";
 import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
@@ -145,7 +145,7 @@ export async function restore(paths = [], options = {}) {
   const name = options.snapshot ?? /** @type {string} */ (names[0]);
 
   const snapshot = await readRemoteSnapshot(set.bucket, set.name, name);
-  const { entries, dirs } = snapshot;
+  const { entries, dirs, instant } = snapshot;
   const targets = selectEntries(entries.keys(), paths);
   // The rows the reader refused (ADR-0101): restored nowhere, reported, exit 1.
   const invalid = selectEntries(snapshot.refused.keys(), paths).map((path) => ({
@@ -163,6 +163,7 @@ export async function restore(paths = [], options = {}) {
   // their original absolute location.
   /** @type {(path: string) => string | undefined} */
   let destFor = (path) => path;
+  const outDir = options.output ? resolve(options.output) : undefined;
   if (options.output) {
     destFor = reroot(dirs, targets, options.output);
   } else {
@@ -248,13 +249,24 @@ export async function restore(paths = [], options = {}) {
   // the happy path never pays for them.
   /** @type {Map<string, RecordedDeletion> | undefined} */
   let deletionRecords;
-  /** @param {string} hash */
+  /**
+   * The deletion that explains this snapshot's missing object, if any. Only a
+   * row newer than the snapshot's START counts: the object was in the bucket
+   * when the snapshot was uploaded, so an older deletion can't be why it's gone
+   * now, and that miss is damage. Two machines' clocks meet here; one that puts
+   * a real deletion before the backup reports damage, the safe side, as does a
+   * hand-edited snapshot with no START to compare.
+   * @param {string} hash
+   */
   const recordFor = async (hash) => {
     if (!deletionRecords) {
       const records = await readDeletionRecords(set.bucket);
       deletionRecords = records.deleted;
     }
-    return deletionRecords.get(hash);
+    const record = deletionRecords.get(hash);
+    return record && instant !== undefined && record.deletedOn > instant
+      ? record
+      : undefined;
   };
   /** @param {RecordedDeletion | undefined} record @param {string} dest */
   const reportAbsent = (record, dest) => {
@@ -291,6 +303,8 @@ export async function restore(paths = [], options = {}) {
       reportAbsent(fate.record, step.dest);
     } else if (fate?.kind === "corrupt") {
       corrupt.push(step.dest);
+    } else if (outDir !== undefined && linkedFolder(step.dest, outDir)) {
+      blocked.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       !lstatSync(step.dest).isSymbolicLink() &&
@@ -550,6 +564,23 @@ function isInTheWay(error, dest) {
       (statOrNothing(dest)?.isDirectory() === true ||
         statOrNothing(dest, lstatSync)?.isSymbolicLink() === true))
   );
+}
+
+/**
+ * Whether a link sits where one of `dest`'s folders inside `outDir` should be.
+ * `mkdir` and the rename both follow one, so the file would land wherever the
+ * link points, outside `<output>`. Links above `outDir` are the user's own
+ * layout and are followed. Node's `lstat` calls a junction a link too.
+ * @param {string} dest - A destination `reroot` built under `outDir`
+ * @param {string} outDir - `resolve(--output)`, the prefix `reroot` joined onto
+ */
+function linkedFolder(dest, outDir) {
+  for (let dir = dirname(dest); dir !== outDir; dir = dirname(dir)) {
+    if (statOrNothing(dir, lstatSync)?.isSymbolicLink()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

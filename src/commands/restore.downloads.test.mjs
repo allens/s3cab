@@ -73,7 +73,11 @@ mock.module("../lib/env.mjs", {
 mock.module("../lib/remote.mjs", {
   exports: {
     listRemoteSnapshots: async () => ["2026-07-19T1200"],
-    readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
+    readRemoteSnapshot: async () => ({
+      refused: new Map(),
+      instant: "2026-07-19T12:00:00.000Z",
+      ...snapshot,
+    }),
   },
 });
 mock.module("../lib/objects.mjs", {
@@ -825,6 +829,19 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     assert.deepEqual(result.missing, [dest("last.txt")]);
     assert.equal(process.exitCode, 1);
   });
+
+  it("a record older than the snapshot's START doesn't explain its miss", async () => {
+    // The object was in the bucket when this snapshot was uploaded, so an
+    // earlier deletion of the same content isn't why it's gone now.
+    failures.set("bbb", named("NoSuchKey"));
+    deletionRecords.set("bbb", { deletedOn: "2026-07-18T09:00:00.000Z" });
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.deleted, []);
+    assert.deepEqual(result.missing, [dest("gone.txt"), dest("gone-copy.txt")]);
+    assert.equal(process.exitCode, 1);
+  });
 });
 
 describe("restore when something on disk is in the way", () => {
@@ -918,6 +935,24 @@ describe("restore when something on disk is in the way", () => {
       assert.ok(over.restored.includes(dest("first.txt")));
       assert.ok(lstatSync(dest("first.txt")).isFile());
     }
+  });
+
+  it("reports a link where a file's folder should be as in the way, never writing through it", async () => {
+    // A junction needs no privilege on Windows; elsewhere it's a plain link.
+    mkdirSync(join(output, "elsewhere"));
+    symlinkSync(join(output, "elsewhere"), join(output, "data"), "junction");
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(
+      result.blocked,
+      [...fourFiles.entries.keys()].map((path) =>
+        dest(path.slice("/data/".length)),
+      ),
+    );
+    assert.deepEqual(readdirSync(join(output, "elsewhere")), []);
+    assert.deepEqual(fetched, []);
+    assert.equal(process.exitCode, 1);
   });
 
   it("replaces a link at a copied path under --overwrite, never writing through it", async (t) => {
