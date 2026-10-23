@@ -152,12 +152,16 @@ export const COARSEST_DISK_MS = 2000;
  */
 export function reroot(dirs, paths, output) {
   const roots = dirs
-    // A doubled separator past the root is an empty segment, which no valid
-    // path has, so that `DIR` matches nothing (guide/format.md). Dropped here
-    // because `segments` below filters empties out, which would match it as
-    // the path without one. Trailing separators are ignored, as everywhere.
+    // A `DIR` that isn't absolute, or holds a doubled separator past its root
+    // (an empty segment, which no valid path has), matches nothing
+    // (guide/format.md). Dropped here because `segments` below drops the root
+    // and the empties, which would match it as an absolute path without them.
+    // Trailing separators are ignored, as everywhere.
     .filter((dir) => {
-      const { path } = preparePath(dir);
+      const { path, foldCase } = preparePath(dir);
+      if (!foldCase && !path.startsWith(posix.sep)) {
+        return false;
+      }
       const names = path.slice(rootLength(path)).replace(/\/+$/, "");
       return names === "" || !names.split(posix.sep).includes("");
     })
@@ -179,11 +183,13 @@ export function reroot(dirs, paths, output) {
     })
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
-  /** @param {string} path */
-  const split = (path) =>
-    preparePath(path).path.split(posix.sep).filter(Boolean);
-  /** @param {string[]} segments @param {boolean} fold - The path's own kind is Windows */
-  const rootOf = (segments, fold) =>
+  /** @param {string} p */
+  const split = (p) => {
+    const { path, foldCase } = preparePath(p);
+    return { segments: path.split(posix.sep).filter(Boolean), fold: foldCase };
+  };
+  /** @param {{ segments: string[], fold: boolean }} path - `fold`: its kind is Windows */
+  const rootOf = ({ segments, fold }) =>
     roots.find(
       (r) =>
         r.fold === fold &&
@@ -198,9 +204,7 @@ export function reroot(dirs, paths, output) {
         }),
     );
 
-  const reached = new Set(
-    paths.map((path) => rootOf(split(path), foldsCase(path))),
-  );
+  const reached = new Set(paths.map((path) => rootOf(split(path))));
   const used = roots.filter((root) => reached.has(root));
   const apart =
     "Restore them one at a time with a path filter, or to their original locations.";
@@ -230,14 +234,14 @@ export function reroot(dirs, paths, output) {
   const outDir = resolve(output);
   const windows = foldsCase(outDir);
   return (path) => {
-    const segments = split(path);
-    const root = rootOf(segments, foldsCase(path));
+    const parts = split(path);
+    const root = rootOf(parts);
     if (!root) {
       throw new Error(
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
       );
     }
-    const named = [root.base, ...segments.slice(root.segments.length)];
+    const named = [root.base, ...parts.segments.slice(root.segments.length)];
     // The reader refuses a `.`/`..` segment (ADR-0101), but splits on `/` alone.
     // Windows also reads a POSIX name's `\` as a separator, so `back\slash.txt`
     // would land as a folder and `a\..\..\x` outside `<output>`, once `join`

@@ -128,9 +128,9 @@ export function pathMatcher(folders) {
   if (needles.length === 0) {
     return undefined;
   }
-  return (path) => {
-    const hay = normalize(path);
-    const windows = foldsCase(path);
+  return (p) => {
+    const { path, foldCase: windows } = preparePath(p);
+    const hay = windows ? path.toLowerCase() : path;
     return needles.some(
       (n) =>
         n.windows === windows &&

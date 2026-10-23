@@ -683,16 +683,16 @@ claim `…\trees\edgeX\file.txt`. Decide first whether the `DIR` is a
 and split both the directory and the path into segments: a valid path has no empty
 segment, so a `DIR` with a doubled separator anywhere after its root matches nothing, and
 every path under it is refused. Nor does a `DIR` that isn't an absolute path match
-anything. Which separators count depends on the path, not the machine
-reading it: a Windows path splits on `/` *and* `\`, any other on `/` alone, since there a
-`\` is an ordinary character in a filename — so a Windows snapshot reads correctly on a
-POSIX machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or
-POSIX, so a POSIX `/` holds no `\\server\share` path. Where several directories match, the **longest wins**,
-counted in segments, so a member directory nested inside another takes precedence over its
-parent. Two that match equally, such as a `DIR` written twice, are one directory, and the
-first in the file is the one that counts. A path under no `DIR` at all has nowhere to land,
-so its row is [refused](#valid-and-invalid-files) rather than guessed at; only a
-hand-edited snapshot can hold one.
+anything. Which separators count depends on the path, not the machine reading it: a
+Windows path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an
+ordinary character in a filename — so a Windows snapshot reads correctly on a POSIX
+machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or POSIX, so
+a POSIX `/` holds no `\\server\share` path. Where several directories match, the
+**longest wins**, counted in segments, so a member directory nested inside another takes
+precedence over its parent. Two that match equally, such as a `DIR` written twice, are one
+directory, and the first in the file is the one that counts. A path under no `DIR` at all
+has nowhere to land, so its row is [refused](#valid-and-invalid-files) rather than guessed
+at; only a hand-edited snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
@@ -986,10 +986,10 @@ For a restorer, or anything else that reads the files.
   makes nothing at all. .NET Framework, the one Windows PowerShell runs on, also stops after
   the first stream, where .NET 10 joins them. Neither says where a stream ended, so neither
   can find the next one or bytes after the last: to meet the rules above, read the gzip
-  framing yourself and inflate with `DeflateStream` or your own. zlib's `gzread` passes a file that isn't gzip
-  through as plain text, and ignores bytes after the last stream: check the magic bytes
-  yourself, and drive `inflate` to see the end. Apple's Compression framework reads raw
-  DEFLATE, not the gzip wrapper around it; the system's zlib reads gzip.
+  framing yourself and inflate with `DeflateStream` or your own. zlib's `gzread` passes a
+  file that isn't gzip through as plain text, and ignores bytes after the last stream: check
+  the magic bytes yourself, and drive `inflate` to see the end. Apple's Compression
+  framework reads raw DEFLATE, not the gzip wrapper around it; the system's zlib reads gzip.
 - **Fields in C.** `strtok` takes two tabs in a row as one, so a blank column vanishes and
   every later field shifts left: split with `strsep` or `memchr`. `isspace` isn't the trim
   set, and `strtoull` accepts leading spaces and a sign, so `-1` reads as

@@ -227,6 +227,15 @@ describe("reroot", () => {
     );
   });
 
+  it("drops a member dir that isn't absolute, which matches nothing", () => {
+    const paths = ["/home/a.txt", "/etc/b"];
+    const map = reroot(["/", "home/"], paths, "out");
+    assert.deepEqual(paths.map(map), [
+      join(resolve("out"), "home", "a.txt"),
+      join(resolve("out"), "etc", "b"),
+    ]);
+  });
+
   it("rejects `/` beside another member dir, which its files could mix with", () => {
     const paths = ["/etc/hosts", "/home/me/Photos/a.jpg"];
     assert.throws(

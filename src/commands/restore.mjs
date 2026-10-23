@@ -322,6 +322,10 @@ export async function restore(paths = [], options = {}) {
           await getObject(set.bucket, step.hash, step.dest);
         }
       } catch (error) {
+        // Before the abort below, too: a stopped run leaves no folder either.
+        if (made !== undefined) {
+          removeMade(dirname(step.dest), made);
+        }
         // This one file's problem, and only that: absent content
         // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there"),
         // corrupt content (writeFileAtomic's digest check), or a name this
@@ -339,9 +343,6 @@ export async function restore(paths = [], options = {}) {
           outcome = "blocked";
         } else {
           throw error;
-        }
-        if (made !== undefined) {
-          removeMade(dirname(step.dest), made);
         }
       }
       if (outcome === "found") {
@@ -470,22 +471,28 @@ const NTFS_EPOCH_MS = Date.UTC(1601, 0, 1);
 
 /**
  * The outermost of `dir` and its parents that doesn't exist yet, or `undefined`
- * when `dir` does: the first folder a row's `mkdir` would make.
+ * when `dir` does: the first folder a row's `mkdir` would make. Stops at a root,
+ * which is its own `dirname`: an unmounted drive or an offline share never
+ * exists, and the walk would never end.
  * @param {string} dir
  */
 function firstMissing(dir) {
   let top;
   for (let at = dir; !existsSync(at); at = dirname(at)) {
     top = at;
+    if (dirname(at) === at) {
+      break;
+    }
   }
   return top;
 }
 
 /**
  * Remove the folders a failed row made, `dir` up to `top`, so a folder is left
- * only where a file landed (guide/format.md). `rmdir` refuses one that isn't
- * empty, which ends the walk: only an empty folder this row made is removed,
- * never one that was there before the restore.
+ * only where a file landed (guide/format.md). A folder that isn't there is one
+ * a `mkdir` that failed partway never made, so the walk climbs past it. `rmdir`
+ * refuses one that isn't empty, which ends the walk: only an empty folder this
+ * row made is removed, never one that was there before the restore.
  * @param {string} dir
  * @param {string} top - The first folder the row made, from {@link firstMissing}
  */
@@ -493,10 +500,13 @@ function removeMade(dir, top) {
   for (let at = dir; ; at = dirname(at)) {
     try {
       rmdirSync(at);
-    } catch {
-      return;
+    } catch (error) {
+      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") {
+        return;
+      }
     }
-    if (at === top) {
+    if (at === top || dirname(at) === at) {
       return;
     }
   }
