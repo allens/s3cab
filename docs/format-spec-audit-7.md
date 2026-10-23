@@ -6,9 +6,10 @@ at `xhigh`, all reading the spec as of [PR #439](https://github.com/allens/s3cab
 [macOS](format-spec-audit-5.md) and [Windows](format-spec-audit-6.md); restores on Linux (this
 run), [macOS](format-spec-audit-8.md) and [Windows](format-spec-audit-9.md).
 
-- **Program:** [`crestore/`](https://github.com/allens/s3cab/tree/a2cb93351d5e293123a9fac096d42409ef3749ce/scripts/cleanroom/restorers/crestore), C with OpenSSL, zlib, expat
-  and ICU, and no S3 library. It is the reconcile phase's program; its notes, logs and test tools
-  stay with the run, outside the repo.
+- **Program:**
+  [`crestore/`](https://github.com/allens/s3cab/tree/a2cb93351d5e293123a9fac096d42409ef3749ce/scripts/cleanroom/restorers/crestore),
+  C with OpenSSL, zlib, expat and ICU, and no S3 library. It is the reconcile phase's program; its
+  notes, logs and test tools stay with the run, outside the repo.
 - **Checker:** the spec-only phase's restorer matches, and so does the reconcile phase's. The
   spec-only verdict is the evidence about the format.
 - **Audit:** 7 moves flagged. The judge first voided 4 of them, because the audit cut each command

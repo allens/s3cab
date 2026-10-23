@@ -25,7 +25,6 @@ backups on [Linux](../../docs/format-spec-audit-10.md),
 [macOS](../../docs/format-spec-audit-11.md) and [Windows](../../docs/format-spec-audit-12.md),
 restores on [Linux](../../docs/format-spec-audit-13.md),
 [macOS](../../docs/format-spec-audit-14.md) and [Windows](../../docs/format-spec-audit-15.md).
-The programs here are the latest set's; an earlier set's record links its own.
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 
@@ -51,8 +50,9 @@ build scripts and the restore's reconcile script, the modules they share (`clean
 `compare-snapshot.mjs`, `check-restore.mjs` with `compare.py`, and
 `audit-transcript.mjs` with `judge-audit.mjs`.
 A clean room's program is frozen — never updated, because its value is being a
-fixed reading of the spec on a given date — and kept only while it reads the
-current format. Then it goes, and its report links the last commit that held it.
+fixed reading of the spec on a given date — and kept until the next real set
+replaces it, or until it stops reading the current format. Then it goes, and its
+report's links are re-pinned to the last commit that held it.
 
 Two buckets, one per role
 ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
@@ -193,8 +193,9 @@ repo with its token cost. A quiet experiment proves nothing about the spec.
 one model at `xhigh`**, the best model you have when the set starts. **Real runs
 happen only in CI**; a run at home is for a shakedown, or a fallback when CI is
 blocked. A run in a real set is recorded if the judge found no move that voids
-it, a restore's with both verdicts, the spec-only one stated as the evidence
-about the format. Its report
+it, or, when the judge can't rule, a hand reading kept with the run as
+`judge-manual.txt` found none; a restore's with both verdicts, the spec-only one
+stated as the evidence about the format. Its report
 continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
 role and the platform, the model and the effort; a backup program goes in
 `backup/<platform>/` here (`linux`, `windows`, `macos`), and a restorer in

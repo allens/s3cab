@@ -6,8 +6,9 @@ at `xhigh`, all reading the spec as of [PR #439](https://github.com/allens/s3cab
 [Windows](format-spec-audit-6.md); restores on [Linux](format-spec-audit-7.md),
 [macOS](format-spec-audit-8.md) and [Windows](format-spec-audit-9.md).
 
-- **Program:** [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/a2cb93351d5e293123a9fac096d42409ef3749ce/scripts/cleanroom/backup/macos/s3cab-backup.py), Python with
-  boto3. Its notes, logs and test tools stay with the run, outside the repo.
+- **Program:**
+  [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/a2cb93351d5e293123a9fac096d42409ef3749ce/scripts/cleanroom/backup/macos/s3cab-backup.py),
+  Python with boto3. Its notes, logs and test tools stay with the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** nothing outside the sandbox was flagged.
 - **Tokens:** input 114, cache write 276,567, cache read 9,218,509, output 179,766.
