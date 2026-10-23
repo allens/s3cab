@@ -250,12 +250,9 @@ export async function restore(paths = [], options = {}) {
   /** @type {Map<string, RecordedDeletion> | undefined} */
   let deletionRecords;
   /**
-   * The deletion that explains this snapshot's missing object, if any. Only a
-   * row newer than the snapshot's START counts: the object was in the bucket
-   * when the snapshot was uploaded, so an older deletion can't be why it's gone
-   * now, and that miss is damage. Two machines' clocks meet here; one that puts
-   * a real deletion before the backup reports damage, the safe side, as does a
-   * hand-edited snapshot with no START to compare.
+   * The deletion that explains this snapshot's missing object, if any: only a
+   * row newer than its START (ADR-0064; the bucket-wide form is
+   * `explainingDeletions`).
    * @param {string} hash
    */
   const recordFor = async (hash) => {
@@ -293,18 +290,21 @@ export async function restore(paths = [], options = {}) {
   for (const step of plan) {
     const fate =
       step.action === "write" ? fateByHash.get(step.hash) : undefined;
-    if (step.action === "skip") {
-      skipped.push(step.dest);
-    } else if (step.action === "refuse") {
+    // A refused row's `dest` is its source path, outside `<output>`. The link
+    // test comes before the skip: the plan's `lstat` follows a link at a folder
+    // position, so a file beyond one reads as already there.
+    if (step.action === "refuse") {
       refused.push(step.dest);
+    } else if (outDir !== undefined && linkedFolder(step.dest, outDir)) {
+      blocked.push(step.dest);
+    } else if (step.action === "skip") {
+      skipped.push(step.dest);
     } else if (step.action === "block") {
       blocked.push(step.dest);
     } else if (fate?.kind === "absent") {
       reportAbsent(fate.record, step.dest);
     } else if (fate?.kind === "corrupt") {
       corrupt.push(step.dest);
-    } else if (outDir !== undefined && linkedFolder(step.dest, outDir)) {
-      blocked.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       !lstatSync(step.dest).isSymbolicLink() &&
@@ -575,7 +575,13 @@ function isInTheWay(error, dest) {
  * @param {string} outDir - `resolve(--output)`, the prefix `reroot` joined onto
  */
 function linkedFolder(dest, outDir) {
-  for (let dir = dirname(dest); dir !== outDir; dir = dirname(dir)) {
+  // The root stop: a `dest` not under `outDir` by string would otherwise spin
+  // forever at the root, its own `dirname`.
+  for (
+    let dir = dirname(dest);
+    dir !== outDir && dirname(dir) !== dir;
+    dir = dirname(dir)
+  ) {
     if (statOrNothing(dir, lstatSync)?.isSymbolicLink()) {
       return true;
     }

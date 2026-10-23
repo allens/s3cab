@@ -113,6 +113,26 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     ]);
   });
 
+  it("carries each read snapshot's START, which the deletion rows are dated against", async () => {
+    snapshotKeys = [key("s", "2025-07-01T0800"), key("s", "2025-07-02T0800")];
+    const start =
+      "@SNAPSHOT\tSTART\t\t2025-07-01T08:00:00.000Z\tEurope/London\n";
+    onGetStream = async (uri) =>
+      Readable.from([
+        gzipSync(HEADING + (uri.includes("07-01") ? start : "") + ".\n"),
+      ]);
+
+    const bySet = await referencedObjects(BUCKET);
+
+    assert.deepEqual(
+      bySet.get("s")?.starts,
+      new Map([
+        ["2025-07-02T0800", undefined],
+        ["2025-07-01T0800", "2025-07-01T08:00:00.000Z"],
+      ]),
+    );
+  });
+
   it("skips a set's `<set>.info` marker, which sits beside its folder, not in it", async () => {
     snapshotKeys = ["snapshots/s.info", key("s", "2025-06-01T0800")];
     onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);

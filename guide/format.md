@@ -216,7 +216,8 @@ the snapshot's `@SNAPSHOT START`, compared as text:
   explain the miss, and the miss is damage;
 - the two instants come from two machines' clocks, so a clock that puts a real deletion
   before the backup makes it read as damage, the safe side;
-- a snapshot with no `START` has nothing to compare, and its miss is damage too;
+- a snapshot with no `START` has nothing to compare, and its miss is damage too. A `START`
+  that isn't a real instant in the 24-character form counts as none;
 - s3cab's `verify` asks this of every snapshot that references the hash.
 
 The record is what lets any tool — s3cab or a future reader of the bare files — tell

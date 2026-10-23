@@ -102,20 +102,19 @@ export function addSnapshotReferences(referenced, name, entries) {
  * @returns {Map<string, Row>} The rows that still explain an absence
  */
 export function explainingDeletions(referencedBySet, deleted) {
-  const explaining = new Map(deleted);
-  for (const { referenced, starts } of referencedBySet.values()) {
-    for (const [hash, { deletedOn }] of explaining) {
-      for (const { snapshots } of referenced.get(hash)?.paths.values() ?? []) {
-        for (const name of snapshots) {
+  /** @param {string} hash @param {string} deletedOn */
+  const ruledOut = (hash, deletedOn) =>
+    referencedBySet.values().some(({ referenced, starts }) =>
+      (referenced.get(hash)?.paths.values() ?? []).some(({ snapshots }) =>
+        snapshots.values().some((name) => {
           const start = starts.get(name);
-          if (start === undefined || deletedOn <= start) {
-            explaining.delete(hash);
-          }
-        }
-      }
-    }
-  }
-  return explaining;
+          return start === undefined || deletedOn <= start;
+        }),
+      ),
+    );
+  return new Map(
+    deleted.entries().filter(([hash, row]) => !ruledOut(hash, row.deletedOn)),
+  );
 }
 
 /**

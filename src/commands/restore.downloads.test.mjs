@@ -955,6 +955,23 @@ describe("restore when something on disk is in the way", () => {
     assert.equal(process.exitCode, 1);
   });
 
+  it("reports a file already beyond such a link as in the way, not skipped", async () => {
+    // The plan's `lstat` follows the link at the folder, so it sees the file.
+    mkdirSync(join(output, "elsewhere"));
+    writeFileSync(join(output, "elsewhere", "gone.txt"), "outside");
+    symlinkSync(join(output, "elsewhere"), join(output, "data"), "junction");
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.skipped, []);
+    assert.ok(result.blocked.includes(dest("gone.txt")));
+    assert.equal(
+      readFileSync(join(output, "elsewhere", "gone.txt"), "utf8"),
+      "outside",
+    );
+    assert.equal(process.exitCode, 1);
+  });
+
   it("replaces a link at a copied path under --overwrite, never writing through it", async (t) => {
     // `gone-copy.txt` shares `gone.txt`'s content, so it is copied from it.
     mkdirSync(join(output, "data"));

@@ -426,9 +426,8 @@ function createWalkCallbackFn(baseDir, patterns, found) {
 /**
  * Whether a canonical path is in the backup: in or under a member directory,
  * and not inside a folder below it that `walkFiles` never enters. That test is
- * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`, whatever case
- * the path folds in. A `.s3cab` above the member directory doesn't count: the
- * walk starts below it.
+ * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
+ * above the member directory doesn't count: the walk starts below it.
  *
  * Compared exactly, not case-folded like `pathKey`: both sides are real paths,
  * which already agree in case wherever the disk ignores it, and in a
