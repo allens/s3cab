@@ -47,13 +47,16 @@ import { shellCommand } from "./style.mjs";
  * in remote.mjs): the `referenced` map, how many snapshots were read successfully
  * (`snapshotsChecked`), the `unreadable` snapshots — those that failed to
  * decompress/parse, a finding in their own right (their references went
- * unchecked) — and the `invalid` rows of the ones that read, each refused with
- * its path (ADR-0101) and referencing nothing.
+ * unchecked) — the `invalid` rows of the ones that read, each refused with
+ * its path (ADR-0101) and referencing nothing, and each read snapshot's
+ * `@SNAPSHOT START` (`starts`), which {@link explainingDeletions} dates a
+ * deletion against.
  * @typedef {Object} ReferencedResult
  * @property {Map<string, ReferencedObject>} referenced
  * @property {number} snapshotsChecked
  * @property {{ snapshot: string, reason: string }[]} unreadable
  * @property {{ snapshot: string, path: string, reason: string }[]} invalid
+ * @property {Map<string, string | undefined>} starts - Snapshot name → its START instant, undefined for a file with none
  */
 
 /**
@@ -82,6 +85,36 @@ export function addSnapshotReferences(referenced, name, entries) {
     ref.sizes.add(size);
     ref.snapshots.add(name);
   }
+}
+
+/**
+ * The deletion rows that can explain a referenced object's absence: a row
+ * counts only when it is newer than the START of every snapshot, in any set,
+ * that references the hash. A snapshot that started after the deletion was
+ * uploaded with the object in the bucket (objects first, snapshot last), so if
+ * the object is gone now, that deletion isn't why, and the miss is damage. A
+ * snapshot with no START has nothing to compare, so it rules the row out too:
+ * the side that reports damage. Two machines' clocks meet here, and a skew that
+ * puts a real deletion before a backup errs the same way.
+ * @template {{ deletedOn: string }} Row
+ * @param {Map<string, ReferencedResult>} referencedBySet - The bucket's per-set enumeration (`referencedObjects`)
+ * @param {Map<string, Row>} deleted - The deletion record: hash → its row (`readDeletionRecords`)
+ * @returns {Map<string, Row>} The rows that still explain an absence
+ */
+export function explainingDeletions(referencedBySet, deleted) {
+  /** @param {string} hash @param {string} deletedOn */
+  const ruledOut = (hash, deletedOn) =>
+    referencedBySet.values().some(({ referenced, starts }) =>
+      (referenced.get(hash)?.paths.values() ?? []).some(({ snapshots }) =>
+        snapshots.values().some((name) => {
+          const start = starts.get(name);
+          return start === undefined || deletedOn <= start;
+        }),
+      ),
+    );
+  return new Map(
+    deleted.entries().filter(([hash, row]) => !ruledOut(hash, row.deletedOn)),
+  );
 }
 
 /**

@@ -208,14 +208,22 @@ compaction below), and *when* and *who* live inside the rows. `<n>` is a whole n
 up, in decimal digits with no leading zero, and a key spelled any other way, such as
 `objects.deleted-01.tsv`, is not a record.
 
-**Read every `objects.deleted-<n>.tsv` key, and treat them as one set.** A hash is
-deliberately gone if *any* record row lists it. Nothing depends on which file a row sits
-in: when two rows list the same hash, the only thing at stake is cosmetic — which date to
-show for it — and s3cab shows the newest row's.
+**Read every `objects.deleted-<n>.tsv` key, and treat them as one set.** Nothing depends on
+which file a row sits in: when two rows list the same hash, s3cab takes the newest. For a
+snapshot, a hash is deliberately gone only when a row lists it with an instant later than
+the snapshot's `@SNAPSHOT START`, compared as text:
+- the object was in the bucket when that snapshot was uploaded, so an older row doesn't
+  explain the miss, and the miss is damage;
+- the two instants come from two machines' clocks, so a clock that puts a real deletion
+  before the backup makes it read as damage, the safe side;
+- a snapshot with no `START` has nothing to compare, and its miss is damage too;
+- a `START` that isn't a real instant in the 24-character form counts as none;
+- s3cab's `verify` asks this of every snapshot that references the hash.
 
 The record is what lets any tool — s3cab or a future reader of the bare files — tell
 *deliberately gone* from *corrupted*: an object a snapshot references but the store lacks is
-**expected** if a record lists its hash, and an integrity fault if none does. A record
+**expected** if a record lists its hash after the snapshot started, and an integrity fault
+otherwise. A record
 carries **no paths** — whoever meets the absence is already holding a snapshot with the
 path in front of them; what the record adds is that the absence is deliberate, when, and by
 whom.
@@ -502,8 +510,9 @@ such as OneDrive's online-only files, are ordinary files and directories.
 A link to a file or directory leads **into the backup** when the place it finally resolves
 to, through any further links, is a member directory or lies inside one, and **out of the
 backup** otherwise. Compare the [real path](#paths) of each, spelled as the filesystem
-reports it, by whole segments: ignoring case by the mapping [Paths](#paths) gives on a
-Windows path, and exactly on any other, even where the disk itself ignores case. A
+reports it, by whole segments, exactly. Both are real paths, so where the disk ignores
+case they already agree; in a case-sensitive Windows folder, `Photos` and `photos` are two
+folders, and a link to the one beside a member directory named as the other leads out. A
 writer's own working folder inside a member directory, such as s3cab's `.s3cab`, counts as
 out: nothing in it gets a row, so its target would be recorded nowhere.
 
@@ -737,8 +746,14 @@ looking. Restoring to a chosen directory, it writes each file to
   skipped, unless the restore was asked to overwrite; a skip alone leaves the exit status 0.
   A destination this restore has already written is another matter: two rows landing on one
   file is a collision, so the first row restores, and each later one is reported, exit 1.
-  Something in the way, a folder where a file should land or a file where one of its folders
-  should be, is reported, exit 1. Nothing else already in `<output>` is touched.
+  Something in the way is reported, exit 1:
+  - a folder where a file should land;
+  - a file where one of its folders should be;
+  - a link, or a Windows junction, where one of its folders inside `<output>` should be, since
+    writing through it would land the file wherever it points.
+
+  A link at the file's own name is a file already there. Nothing else already in `<output>`
+  is touched.
 
 **None of this binds you.** A different layout is a different tool making a different
 decision, not a misreading of the format.
@@ -933,8 +948,9 @@ For a restorer, or anything else that reads the files.
   hashes to that key. The hash decides: s3cab never compares the size column with the
   download.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
-  read as one set. A hash a record lists was [deliberately deleted](#the-deletion-record);
-  any other miss is damage, and so is a download that doesn't hash to its key, which s3cab
+  read as one set. A hash a record lists, in a row dated after the snapshot's `START`, was
+  [deliberately deleted](#the-deletion-record); any other miss is damage, and so is a
+  download that doesn't hash to its key, which s3cab
   doesn't fetch again. A miss is a
   404 whose S3 error code is `NoSuchKey` or `NotFound`. s3cab stops the whole
   restore on any other failure:
@@ -961,6 +977,11 @@ For a restorer, or anything else that reads the files.
   restores, and each later one is reported, exit 1.
 - Set each restored file's modification time to the stored one, [to the
   millisecond](#paths). s3cab sets its access time to the same instant.
+- Read each time back:
+  - one off by less than 2 seconds is the disk's own rounding (FAT, exFAT, HFS+): say how
+    many files it touched, exit 0;
+  - one off by more, or one the destination can't hold at all, is reported with the time
+    the file has, exit 1, and the file is kept.
 - Never write outside your destination, and never let a partial restore pass for a full one.
 
 **What trips people up:**
@@ -1037,9 +1058,7 @@ For a restorer, or anything else that reads the files.
   nothing past April 2262, so setting a year-2300 time succeeds and stores 2262, and under
   WSL a Windows drive (`/mnt/c`) drops the fraction of a second, so `.674` lands as `.000`.
   Read the time back, and tell rounding from a time not kept: FAT keeps 2-second steps,
-  exFAT 10 milliseconds, HFS+ whole seconds. s3cab's own restore counts a time off by less
-  than 2 seconds as rounded, says how many files that touched, and exits 0; one off by more
-  it reports with the time kept, exit 1, keeping the file. On Windows it can't check a time
+  exFAT 10 milliseconds, HFS+ whole seconds. On Windows s3cab can't check a time
   before 1970 or after 2106, since Node reads those back wrong there, though NTFS holds them.
   NTFS can't hold a time before 1601 at all: Windows refuses an earlier one, and takes
   1601-01-01 itself, a FILETIME of 0, as "leave the time alone", so a file copied from
@@ -1051,8 +1070,9 @@ For a restorer, or anything else that reads the files.
 - **Writing the restored files.** POSIX `rename` replaces an existing file without a word:
   to keep one that was there before, use `renameat2` with `RENAME_NOREPLACE` on Linux, or
   `link` then `unlink`. Linux's `O_TMPFILE` lets a download be hashed before it has a name
-  at all, and `linkat` gives it one. A link already inside the output folder leads out of
-  it, so don't write through a folder this restore didn't make without checking it. To
+  at all, and `linkat` gives it one. `mkdir -p` and `rename` both follow a link at a folder
+  position, so check each folder between the output folder and the file with `lstat`, which
+  doesn't follow it; `stat` does. To
   tell a file that was there before from one this restore wrote, under any spelling, keep
   each written file's identity, its device and inode or Windows' file ID (from
   `GetFileInformationByHandle`: the volume serial number and the file index); s3cab keeps
@@ -1110,12 +1130,16 @@ For a restorer, or anything else that reads the files.
   - an entry's name has no UTF-8 form, whatever kind of entry it is;
   - a directory can't be listed;
   - the same file turns up under two member directories, because one is inside the other,
-    or both are the same directory.
+    or both are the same directory;
+  - a member directory's real path, on Windows, has no drive letter and no share: on a
+    volume mounted only under a folder, or with no mount point at all
+    (`\\?\Volume{GUID}\…`). No path a reader accepts can name it.
 
   If your tool can leave entries out, that is the way past most of these: leaving out the
   name, or the inner directory from the outer one's walk, which then gets the `#excluded`
-  row any entry left out does. Past a missing member directory, or one named twice, the
-  way is to change the set. A run that stops exits nonzero; s3cab's exits 1.
+  row any entry left out does. Past a missing member directory, one named twice, or one
+  with no drive letter, the way is to change the set; for the last, back up a folder with
+  an ordinary path. A run that stops exits nonzero; s3cab's exits 1.
 - In an `#excluded` or `#error` row, where a name with a tab, CR or LF can still appear,
   write those characters as `␉` (U+2409), `␍` (U+240D) or `␊` (U+240A).
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows):
@@ -1144,7 +1168,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   - with a `notes` beside it, that file's bytes are read instead: a wrong hash under the
     right name, with no error at all.
 
-  Python's `os.path.abspath` drops the dot or space too; `os.path.normpath` keeps it.
+  Python's `os.path.abspath` drops the dot or space too; `os.path.normpath` keeps it. For a
+  directory on a volume with no drive letter, `GetFinalPathNameByHandle` reports *not
+  found*, and Python's `os.path.realpath` then hands back the path as typed unless given
+  `strict=True`.
 - **Links on Windows.** Python's `os.walk(top, followlinks=False)` still descends into a
   junction, recording what lies beyond it as if it were inside the member directory, and
   `os.path.islink()` is `False` for a junction (`os.path.isjunction()` catches it). A broken

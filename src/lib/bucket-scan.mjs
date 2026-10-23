@@ -1,5 +1,6 @@
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { listStoredObjects } from "./objects.mjs";
+import { explainingDeletions } from "./referenced.mjs";
 import { referencedObjects } from "./remote.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
@@ -47,7 +48,7 @@ import { referencedObjects } from "./remote.mjs";
  * @typedef {Object} BucketScan
  * @property {Map<string, ReferencedResult>} referencedBySet - The referenced enumeration per set name (`referencedObjects`)
  * @property {Map<string, { size: number, lastModified?: Date }>} stored - Every stored object: hash → LIST size and age
- * @property {Map<string, RecordedDeletion>} deleted - The deletion record: hash → when it was deliberately deleted
+ * @property {Map<string, RecordedDeletion>} deleted - The deletion rows that explain an absence (`explainingDeletions`): hash → when it was deliberately deleted
  * @property {InvalidRecord[]} invalidRecords - The deletion record files that aren't valid (ADR-0101)
  */
 
@@ -72,5 +73,10 @@ export async function scanBucket(bucket) {
 
   const { deleted, invalid } = await readDeletionRecords(bucket);
 
-  return { referencedBySet, stored, deleted, invalidRecords: invalid };
+  return {
+    referencedBySet,
+    stored,
+    deleted: explainingDeletions(referencedBySet, deleted),
+    invalidRecords: invalid,
+  };
 }

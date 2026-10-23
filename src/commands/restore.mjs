@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { lstat, utimes } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { platform, stderr } from "node:process";
 import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
@@ -145,7 +145,7 @@ export async function restore(paths = [], options = {}) {
   const name = options.snapshot ?? /** @type {string} */ (names[0]);
 
   const snapshot = await readRemoteSnapshot(set.bucket, set.name, name);
-  const { entries, dirs } = snapshot;
+  const { entries, dirs, instant } = snapshot;
   const targets = selectEntries(entries.keys(), paths);
   // The rows the reader refused (ADR-0101): restored nowhere, reported, exit 1.
   const invalid = selectEntries(snapshot.refused.keys(), paths).map((path) => ({
@@ -163,6 +163,7 @@ export async function restore(paths = [], options = {}) {
   // their original absolute location.
   /** @type {(path: string) => string | undefined} */
   let destFor = (path) => path;
+  const outDir = options.output ? resolve(options.output) : undefined;
   if (options.output) {
     destFor = reroot(dirs, targets, options.output);
   } else {
@@ -248,13 +249,21 @@ export async function restore(paths = [], options = {}) {
   // the happy path never pays for them.
   /** @type {Map<string, RecordedDeletion> | undefined} */
   let deletionRecords;
-  /** @param {string} hash */
+  /**
+   * The deletion that explains this snapshot's missing object, if any: only a
+   * row newer than its START (ADR-0064; the bucket-wide form is
+   * `explainingDeletions`).
+   * @param {string} hash
+   */
   const recordFor = async (hash) => {
     if (!deletionRecords) {
       const records = await readDeletionRecords(set.bucket);
       deletionRecords = records.deleted;
     }
-    return deletionRecords.get(hash);
+    const record = deletionRecords.get(hash);
+    return record && instant !== undefined && record.deletedOn > instant
+      ? record
+      : undefined;
   };
   /** @param {RecordedDeletion | undefined} record @param {string} dest */
   const reportAbsent = (record, dest) => {
@@ -278,19 +287,30 @@ export async function restore(paths = [], options = {}) {
   // on a six-figure restore happens five times mid-run.
   const total = formatCount(plan.length);
   let done = 0;
+  /** @type {Map<string, boolean>} */
+  const linkedFolders = new Map();
   for (const step of plan) {
     const fate =
       step.action === "write" ? fateByHash.get(step.hash) : undefined;
-    if (step.action === "skip") {
-      skipped.push(step.dest);
-    } else if (step.action === "refuse") {
+    // A refusal is reported as one whatever is on disk, and content already
+    // found absent or corrupt is reported as that, a link or not. The link test
+    // comes before the skip: the plan's `lstat` follows a link at a folder
+    // position, so a file beyond one reads as already there.
+    if (step.action === "refuse") {
       refused.push(step.dest);
-    } else if (step.action === "block") {
-      blocked.push(step.dest);
     } else if (fate?.kind === "absent") {
       reportAbsent(fate.record, step.dest);
     } else if (fate?.kind === "corrupt") {
       corrupt.push(step.dest);
+    } else if (
+      outDir !== undefined &&
+      linkedFolder(step.dest, outDir, linkedFolders)
+    ) {
+      blocked.push(step.dest);
+    } else if (step.action === "skip") {
+      skipped.push(step.dest);
+    } else if (step.action === "block") {
+      blocked.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       !lstatSync(step.dest).isSymbolicLink() &&
@@ -550,6 +570,35 @@ function isInTheWay(error, dest) {
       (statOrNothing(dest)?.isDirectory() === true ||
         statOrNothing(dest, lstatSync)?.isSymbolicLink() === true))
   );
+}
+
+/**
+ * Whether a link sits where one of `dest`'s folders inside `outDir` should be.
+ * `mkdir` and the rename both follow one, so the file would land wherever the
+ * link points, outside `<output>`. Links above `outDir` are the user's own
+ * layout and are followed. Node's `lstat` calls a junction a link too.
+ * @param {string} dest - A destination `reroot` built under `outDir`
+ * @param {string} outDir - `resolve(--output)`, the prefix `reroot` joined onto
+ * @param {Map<string, boolean>} known - This run's answers per folder, so a
+ *   re-run that skips every file still `lstat`s each folder once. Sound because
+ *   restore never makes a link.
+ * @returns {boolean}
+ */
+function linkedFolder(dest, outDir, known) {
+  const dir = dirname(dest);
+  // The root test is for a `dest` `reroot` didn't build: the root is its own
+  // `dirname`, so the climb would never end.
+  if (dir === outDir || dirname(dir) === dir) {
+    return false;
+  }
+  let linked = known.get(dir);
+  if (linked === undefined) {
+    linked =
+      statOrNothing(dir, lstatSync)?.isSymbolicLink() === true ||
+      linkedFolder(dir, outDir, known);
+    known.set(dir, linked);
+  }
+  return linked;
 }
 
 /**

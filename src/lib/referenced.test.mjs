@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
+  explainingDeletions,
   isCorruptSnapshotError,
   safeSize,
   sizeDisagreements,
@@ -38,6 +39,53 @@ const object = (spec) => {
   }
   return built;
 };
+
+describe("explainingDeletions", () => {
+  const ROWS = new Map([
+    ["gone", { deletedOn: "2026-07-19T14:22:41.000Z" }],
+    ["unreferenced", { deletedOn: "2026-07-19T14:22:41.000Z" }],
+  ]);
+
+  it("keeps a row newer than every referencing snapshot's START", () => {
+    const explaining = explainingDeletions(
+      enumeration({ photos: { s1: { "/a.txt": ["gone"] } } }),
+      ROWS,
+    );
+
+    assert.deepEqual([...explaining.keys()], ["gone", "unreferenced"]);
+  });
+
+  it("drops a row older than a referencing snapshot's START, in any set", () => {
+    // The later snapshot was uploaded with the object in the bucket, so the
+    // deletion can't be why it's gone now.
+    const explaining = explainingDeletions(
+      enumeration(
+        {
+          photos: { s1: { "/a.txt": ["gone"] } },
+          laptop: { s2: { "/b.txt": ["gone"] } },
+        },
+        {},
+        { s2: "2026-07-20T08:00:00.000Z" },
+      ),
+      ROWS,
+    );
+
+    assert.deepEqual([...explaining.keys()], ["unreferenced"]);
+  });
+
+  it("drops a row a snapshot with no START references", () => {
+    const explaining = explainingDeletions(
+      enumeration(
+        { photos: { s1: { "/a.txt": ["gone"] } } },
+        {},
+        { s1: undefined },
+      ),
+      ROWS,
+    );
+
+    assert.deepEqual([...explaining.keys()], ["unreferenced"]);
+  });
+});
 
 describe("unreadableSnapshots", () => {
   it("qualifies each snapshot with its set, bucket-wide", () => {

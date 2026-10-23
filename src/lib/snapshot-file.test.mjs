@@ -576,6 +576,18 @@ describe("parseSnapshotStream", () => {
     assert.equal(refused.size, 0);
   });
 
+  it("reads a START that isn't a 24-character instant as no START", async () => {
+    // A deletion date is compared with it as text; a space for the `T` would
+    // sort it before every real instant of the same day.
+    const text = [HEADING, DIR, START.replace("T08", " 08"), TERMINATOR].join(
+      "\n",
+    );
+
+    const { instant } = await parse(text);
+
+    assert.equal(instant, undefined);
+  });
+
   it("drops a last row torn inside the path, which looks whole but isn't", async () => {
     // The dangerous tear, and the reason the last line is taken on its LF's word
     // rather than on its own looks: cut inside the path and all five columns

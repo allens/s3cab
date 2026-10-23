@@ -13,7 +13,7 @@ import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { pathKey, preparePath } from "./path-match.mjs";
+import { preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -426,20 +426,26 @@ function createWalkCallbackFn(baseDir, patterns, found) {
 /**
  * Whether a canonical path is in the backup: in or under a member directory,
  * and not inside a folder below it that `walkFiles` never enters. That test is
- * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`, whatever case
- * the path folds in. A `.s3cab` above the member directory doesn't count: the
- * walk starts below it.
+ * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
+ * above the member directory doesn't count: the walk starts below it.
+ *
+ * Compared exactly, not case-folded like `pathKey`: both sides are real paths,
+ * which already agree in case wherever the disk ignores it, and in a
+ * case-sensitive Windows folder `Photos` and `photos` are two folders, so
+ * folding would count a link to the other one as saved.
  * @param {string[]} roots - The member directories, canonical
  * @returns {(path: string, isDir: boolean) => boolean}
  */
 export function backupMatcher(roots) {
+  /** @param {string} path */
+  const exact = (path) => preparePath(path).path.replace(/\/+$/, "");
   const keyed = roots.map((root) => {
-    const key = pathKey(root);
+    const key = exact(root);
     return { key, depth: key.split(posix.sep).filter(Boolean).length };
   });
   return (path, isDir) => {
-    const key = pathKey(path);
-    const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
+    const key = exact(path);
+    const segments = key.split(posix.sep).filter(Boolean);
     const folders = isDir ? segments : segments.slice(0, -1);
     return keyed.some(
       (root) =>
