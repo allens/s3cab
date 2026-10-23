@@ -1,86 +1,98 @@
 #!/usr/bin/env python3
-"""Back up one s3cab set to an S3 bucket, written from format.md (the spec of 2026-10-20) alone.
+"""
+s3cab-backup.py -- an independent writer of the s3cab repository format.
 
-    python s3cab-backup.py <bucket> <set> <dir>...
+    python s3cab-backup.py [--take-over] <bucket> <set> <dir>...
 
-Walks the member directories, stores every file's content at objects/<sha256>, then uploads
-the snapshot snapshots/<set>/<YYYY-MM-DDTHHMM>.tsv.gz that names them. The first run claims
-the set (snapshots/<set>.info); the OWNER/CLAIMED pair it wrote, and a copy of every snapshot,
-are kept in cleanroom-backup-state/ beside this file.
+Written from the format specification alone (format.md, the spec of 2026-10-23).
+Python 3 standard library plus boto3, nothing else; meant to run unchanged on
+Linux, macOS and Windows.
 
-Exit status: 0 backed up; 1 backed up, with #error rows; 2 stopped, no snapshot uploaded.
+Correct, not fast: every file is read and hashed on every run, one at a time,
+and nothing is cached between runs except what the spec says a tool keeps: the
+OWNER/CLAIMED pair it wrote when it claimed a set, which lives in
+s3cab-backup.state.json beside this program.
+
+Exit status: 0 when the snapshot was uploaded and holds no #error row; 1 when
+the run stopped (nothing uploaded) or the snapshot was uploaded with #error
+rows; 2 when this program found a fault in its own output and refused to
+upload it.
 """
 
-import sys
-
-sys.dont_write_bytecode = True  # nothing outside our own folder, not even boto3's .pyc files
-
 import base64
-import datetime
 import errno
 import getpass
 import gzip
 import hashlib
 import io
+import json
 import os
 import re
 import socket
 import stat
+import sys
 import time
-import traceback
-import unicodedata
-
-try:
-    import fcntl
-except ImportError:  # Windows
-    fcntl = None
+import zlib
+from decimal import Decimal, ROUND_HALF_UP
 
 import boto3
+import botocore
 from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import ClientError
 
-SPEC_DATE = "2026-10-20"
-CLIENT_NAME = "cleanroom-backup"
-CLIENT_VERSION = "1.0"
+# --------------------------------------------------------------------------
+# Constants fixed by the spec
+# --------------------------------------------------------------------------
+
+SPEC_DATE = "2026-10-23"
+CLIENT_NAME = "s3cab-backup"
+CLIENT_VERSION = "0.1.0"
 FORMAT_URL = "https://s3cab.plantegral.com/guide/format"
+HEADING = ("@S3CAB", "FORMAT", "size", "time", FORMAT_URL)
+
+SET_NAME_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+SNAPSHOT_NAME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{4}")
+HASH_RE = re.compile(r"[0-9a-f]{64}")
+INSTANT_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z")
+
+# The trim set for leading fields: JavaScript's trim() set, exactly.
+TRIM_CHARS = (
+    "\t\n\v\f\r"
+    " \u00a0\u1680" + "".join(chr(c) for c in range(0x2000, 0x200B)) + "\u202f\u205f\u3000"
+    "\u2028\u2029\ufeff"
+)
+
+KNOWN_TYPES = {"-", "#error", "#excluded", "@S3CAB", "@CLIENT", "@SET", "@SNAPSHOT"}
 
 WINDOWS = os.name == "nt"
 SEP = "\\" if WINDOWS else "/"
-STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cleanroom-backup-state")
+EXT = "\\\\?\\"            # \\?\
+EXT_UNC = "\\\\?\\UNC\\"   # \\?\UNC\
 
-PART_SIZE = 16 * 1024 * 1024  # a file larger than this is uploaded in parts
-READ_CHUNK = 1024 * 1024
-HASH_ATTEMPTS = 3  # a file that keeps changing while it is read gets an #error row
+CHUNK = 1024 * 1024
 
-HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
-INSTANT_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\Z")
-SET_RE = re.compile(r"[a-z0-9-]+\Z")
-SNAPSHOT_KEY_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz\Z")
-EPOCH = datetime.datetime(1970, 1, 1)
+STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "s3cab-backup.state.json")
 
 
-class Refuse(Exception):
-    """The run stops here, and no snapshot is uploaded."""
+class Stop(Exception):
+    """The run stops without writing a snapshot; the message says why."""
 
 
-class Changed(Exception):
-    """A file no longer holds the bytes its row names."""
+# --------------------------------------------------------------------------
+# Console
+# --------------------------------------------------------------------------
 
-
-# ---------------------------------------------------------------------------- output
-
-
-def setup_output():
-    # Before Python 3.15, redirected output on Windows is in the locale's code page, which
-    # can't print every path; a path that fails to print must not stop a backup halfway.
-    for stream in (sys.stdout, sys.stderr):
+def _reconfigure_streams():
+    # Redirected output on Windows is encoded in the locale's code page before
+    # Python 3.15; a path such as a combining-accent cafe.txt would raise.
+    for s in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            s.reconfigure(encoding="utf-8", errors="backslashreplace")
         except (AttributeError, ValueError):
             pass
 
 
-def log(msg):
+def say(msg):
     print(msg, flush=True)
 
 
@@ -88,1022 +100,1075 @@ def warn(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
-def show(path):
-    return repr(path)
-
-
-def describe(e):
-    """An OSError as `ENAME: text`."""
-    name = errno.errorcode.get(e.errno) if isinstance(e.errno, int) else None
-    text = e.strerror or str(e)
-    if getattr(e, "winerror", None):
-        text = "%s (winerror %d)" % (text, e.winerror)
-    return "%s: %s" % (name, text) if name else text
-
-
-# ---------------------------------------------------------------------------- text
-
-
-SPELL_OUT = str.maketrans({"\t": "\u2409", "\r": "\u240d", "\n": "\u240a"})
-
-
-def as_text(s):
-    """A value for any field but a file row's path: valid UTF-8 (U+FFFD for what doesn't
-    decode), with tab, CR and LF spelled out as Control Pictures."""
+def display_name(name):
+    """A name for a message: parts with no UTF-8 form shown as U+FFFD, tab/CR/LF spelled out."""
     try:
-        s.encode("utf-8")
-    except UnicodeEncodeError:
-        try:
-            s = os.fsencode(s).decode("utf-8", "replace")
-        except UnicodeError:
-            s = s.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
-    return s.translate(SPELL_OUT)
+        if WINDOWS:
+            text = name.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
+        else:
+            text = os.fsencode(name).decode("utf-8", "replace")
+    except (UnicodeError, ValueError):
+        text = name.encode("utf-8", "replace").decode("utf-8", "replace")
+    return spell(text)
 
 
-def name_problem(name):
-    """Why a name can't go into a snapshot at all, or None."""
-    if "\t" in name or "\r" in name or "\n" in name:
-        return "holds a tab, CR or LF, which no snapshot row can hold"
-    try:
-        name.encode("utf-8")
-    except UnicodeEncodeError:
-        return "is not valid Unicode, so has no UTF-8 form (%s)" % as_text(name)
-    return None
+# --------------------------------------------------------------------------
+# Time
+# --------------------------------------------------------------------------
 
-
-def trim(s):
-    """The trim for a leading field: tab, VT, FF, CR, LF, Unicode spaces (Zs), U+2028,
-    U+2029 and a BOM, but not U+0085."""
-
-    def blank(c):
-        return c in "\t\x0b\x0c\r\n\u2028\u2029\ufeff" or unicodedata.category(c) == "Zs"
-
-    i, j = 0, len(s)
-    while i < j and blank(s[i]):
-        i += 1
-    while j > i and blank(s[j - 1]):
-        j -= 1
-    return s[i:j]
-
-
-# ---------------------------------------------------------------------------- time
-
-
-def instant(ms):
-    """Milliseconds since 1970 as YYYY-MM-DDTHH:MM:SS.sssZ, or None if that can't hold it."""
-    try:
-        t = EPOCH + datetime.timedelta(milliseconds=ms)
-    except OverflowError:
-        return None
-    return "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" % (
-        t.year, t.month, t.day, t.hour, t.minute, t.second, t.microsecond // 1000)
+NS_PER_MS = 1_000_000
 
 
 def ms_nearest(ns):
-    return (ns + 500000) // 1000000  # a tie goes to the later millisecond
+    """Nanoseconds to milliseconds, nearest, a tie to the later one."""
+    return (ns + NS_PER_MS // 2) // NS_PER_MS
 
 
-def ms_down(ns):
-    return ns // 1000000
+def ms_floor(ns):
+    return ns // NS_PER_MS
 
 
-def ms_up(ns):
-    return -(-ns // 1000000)
+def ms_ceil(ns):
+    return -((-ns) // NS_PER_MS)
 
 
-def duration(ms):
-    s = (ms + 500) // 1000
+def civil_from_days(z):
+    """Days since 1970-01-01 to (year, month, day), proleptic Gregorian, any sign."""
+    z += 719468
+    era = z // 146097
+    doe = z - era * 146097
+    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    y = yoe + era * 400
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    d = doy - (153 * mp + 2) // 5 + 1
+    m = mp + 3 if mp < 10 else mp - 9
+    if m <= 2:
+        y += 1
+    return y, m, d
+
+
+def days_from_civil(y, m, d):
+    y -= m <= 2
+    era = y // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146097 + doe - 719468
+
+
+def instant(ms):
+    """The 24-character UTC form for a millisecond count since the epoch, or None
+    when the year falls outside 0000..9999."""
+    days, rem = divmod(ms, 86_400_000)
+    y, mo, d = civil_from_days(days)
+    if y < 0 or y > 9999:
+        return None
+    h, rem = divmod(rem, 3_600_000)
+    mi, rem = divmod(rem, 60_000)
+    s, msec = divmod(rem, 1000)
+    return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:{s:02d}.{msec:03d}Z"
+
+
+def is_real_instant(text):
+    """True when text is the 24-character form naming a day the calendar has."""
+    m = INSTANT_RE.fullmatch(text)
+    if not m:
+        return False
+    y, mo, d, h, mi, s, _ = (int(g) for g in m.groups())
+    if not (1 <= mo <= 12 and 1 <= d <= 31 and h <= 23 and mi <= 59 and s <= 59):
+        return False
+    return civil_from_days(days_from_civil(y, mo, d)) == (y, mo, d)
+
+
+def local_snapshot_name(ns):
+    lt = time.localtime(ns // 1_000_000_000)
+    return time.strftime("%Y-%m-%dT%H%M", lt)
+
+
+def local_zone_name():
+    """The best name this machine gives for its zone. Written for people only."""
+    tz = os.environ.get("TZ", "")
+    if tz.startswith(":"):
+        tz = tz[1:]
+    if tz and ("/" in tz or tz in ("UTC", "GMT")) and not tz.startswith("/"):
+        return tz
+    try:
+        target = os.readlink("/etc/localtime")
+        i = target.find("zoneinfo/")
+        if i >= 0 and target[i + 9:]:
+            return target[i + 9:]
+    except OSError:
+        pass
+    try:
+        with open("/etc/timezone", encoding="utf-8") as f:
+            name = f.read().strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    if WINDOWS:
+        try:
+            import ctypes
+            icu = ctypes.WinDLL("icu.dll")
+            fn = icu.ucal_getDefaultTimeZone
+            fn.restype = ctypes.c_int32
+            fn.argtypes = [ctypes.c_wchar_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+            buf = ctypes.create_unicode_buffer(128)
+            status = ctypes.c_int32(0)
+            n = fn(buf, 128, ctypes.byref(status))
+            if status.value <= 0 and n > 0:
+                return buf.value[:n]
+        except Exception:
+            pass
+    lt = time.localtime()
+    off = lt.tm_gmtoff or 0
+    sign = "+" if off >= 0 else "-"
+    off = abs(off)
+    name = (lt.tm_zone or "").strip()
+    return f"{name} (UTC{sign}{off // 3600:02d}:{off % 3600 // 60:02d})".strip()
+
+
+def duration_text(ms):
+    s = max(ms, 0) // 1000
     if s < 60:
-        return "%ds" % s
+        return f"{s}s"
     if s < 3600:
-        return "%dm %02ds" % (s // 60, s % 60)
-    return "%dh %02dm" % (s // 3600, (s % 3600) // 60)
+        return f"{s // 60}m {s % 60:02d}s"
+    return f"{s // 3600}h {s % 3600 // 60:02d}m"
+
+
+# --------------------------------------------------------------------------
+# Text
+# --------------------------------------------------------------------------
+
+def spell(s):
+    """Tab, CR and LF as the Unicode Control Pictures, for any field but a file row's path."""
+    return s.replace("\t", "\u2409").replace("\r", "\u240d").replace("\n", "\u240a")
+
+
+def trim(s):
+    return s.strip(TRIM_CHARS)
+
+
+def row(c1, c2="", c3="", c4="", c5=""):
+    """One canonical line: column 1 unpadded, 2 right-padded to 64, 3 left-padded
+    to 12, 4 right-padded to 24 (all in code points), 5 verbatim."""
+    return f"{c1}\t{c2.ljust(64)}\t{c3.rjust(12)}\t{c4.ljust(24)}\t{c5}\n"
 
 
 def readable_size(n):
-    """`@SNAPSHOT SIZE`'s readable form: powers of 1000, one decimal rounded half up."""
     if n < 1000:
-        return "%dB" % n
-    for power, unit in enumerate(("kB", "MB", "GB", "TB", "PB"), 1):
-        div = 1000 ** power
-        tenths = (n * 10 + div // 2) // div
-        if tenths < 10000 or unit == "PB":
-            return "%d.%d%s" % (tenths // 10, tenths % 10, unit)
+        return f"{n}B"
+    for k, unit in enumerate(("kB", "MB", "GB", "TB", "PB"), start=1):
+        v = (Decimal(n) / (Decimal(1000) ** k)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        if v < 1000 or unit == "PB":
+            return f"{v}{unit}"
 
 
-def zone_name(local):
-    """The best name we have for the local time zone (free text: it is written for people)."""
-    tz = os.environ.get("TZ", "").lstrip(":")
-    if tz:
-        i = tz.find("zoneinfo/")
-        if i >= 0:
-            return tz[i + len("zoneinfo/"):]
-        if not os.path.isabs(tz):
-            return tz
-    if WINDOWS:
-        name = _icu_zone()
-        if name:
-            return name
-    else:
-        try:
-            link = os.readlink("/etc/localtime")
-            i = link.find("zoneinfo/")
-            if i >= 0:
-                return link[i + len("zoneinfo/"):]
-        except OSError:
-            pass
-        try:
-            with open("/etc/timezone", "rb") as f:
-                name = f.read().decode("utf-8").strip()
-            if name:
-                return name
-        except (OSError, UnicodeDecodeError):
-            pass
-    return getattr(local, "tm_zone", None) or time.tzname[local.tm_isdst > 0] or "local time"
+def has_forbidden(path):
+    return "\t" in path or "\r" in path or "\n" in path
 
 
-def _icu_zone():
-    # Windows 10 1903 and later ship ICU, which knows the IANA name; the registry doesn't.
-    try:
-        import ctypes
-
-        icu = ctypes.WinDLL("icu.dll")
-        get = icu.ucal_getDefaultTimeZone
-        get.restype = ctypes.c_int32
-        get.argtypes = [ctypes.c_wchar_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_int)]
-        buf = ctypes.create_unicode_buffer(128)
-        status = ctypes.c_int(0)
-        n = get(buf, 128, ctypes.byref(status))
-        if status.value <= 0 and 0 < n < 128:
-            return buf.value[:n]
-    except Exception:
-        pass
-    return None
+def err_text(e):
+    code = errno.errorcode.get(e.errno, "") if getattr(e, "errno", None) is not None else ""
+    text = e.strerror or str(e)
+    win = getattr(e, "winerror", None)
+    if win is not None:
+        text = f"{text} (winerror {win})"
+    return f"{code}: {text}" if code else text
 
 
-def who():
-    """`user@machine`, for OWNER and BY."""
-    try:
-        user = getpass.getuser()
-    except Exception:
-        user = os.environ.get("USERNAME") or os.environ.get("USER") or "unknown"
-    machine = socket.gethostname().split(".")[0] or "unknown"
-    return as_text("%s@%s" % (user, machine))
-
-
-# ---------------------------------------------------------------------------- paths
-
+# --------------------------------------------------------------------------
+# Paths
+# --------------------------------------------------------------------------
 
 def os_path(p):
-    """The path to give the OS. On Windows, through \\\\?\\, so a name ending in a dot or a
-    space, a reserved name or a long path is taken exactly as written."""
-    if not WINDOWS or p.startswith("\\\\?\\"):
+    """The form of a recorded path to hand to the operating system: on Windows
+    through \\\\?\\ so a trailing dot or space, a reserved name and a long path are
+    taken exactly as written."""
+    if not WINDOWS or p.startswith(EXT):
         return p
     if p.startswith("\\\\"):
-        return "\\\\?\\UNC\\" + p[2:]
-    return "\\\\?\\" + p
+        return EXT_UNC + p[2:]
+    return EXT + p
 
 
 def plain_path(p):
-    """The path as recorded: no \\\\?\\ prefix, a Windows drive letter in uppercase."""
-    if WINDOWS:
-        if p.startswith("\\\\?\\UNC\\"):
-            p = "\\\\" + p[8:]
-        elif p.startswith("\\\\?\\"):
-            p = p[4:]
-        if len(p) >= 2 and p[1] == ":":
-            p = p[0].upper() + p[1:]
+    """A path Windows handed back, without its \\\\?\\ prefix."""
+    if p.startswith(EXT_UNC):
+        return "\\\\" + p[len(EXT_UNC):]
+    if p.startswith(EXT):
+        return p[len(EXT):]
     return p
 
 
-def join(d, name):
-    return d + name if d.endswith(SEP) else d + SEP + name
+def is_windows_path(p):
+    if len(p) >= 3 and p[0].isascii() and p[0].isalpha() and p[1] == ":" and p[2] in "\\/":
+        return True
+    return len(p) >= 2 and p[0] in "\\/" and p[1] in "\\/"
 
 
-def with_sep(p):
+def path_key(p):
+    """(kind, root, segments) for comparing two real paths by whole segments:
+    case-insensitive on a Windows path, exact on any other."""
+    if is_windows_path(p):
+        norm = p.replace("/", "\\")
+        if norm[1:3] == ":\\":
+            root, rest = norm[:3], norm[3:]
+        else:
+            root, rest = "\\\\", norm[2:]
+        segs = [s for s in rest.split("\\") if s]
+        return ("win", root.lower(), tuple(s.lower() for s in segs))
+    return ("posix", "/", tuple(s for s in p.split("/") if s))
+
+
+def is_within(child, parent, or_equal):
+    if child[0] != parent[0] or child[1] != parent[1]:
+        return False
+    c, p = child[2], parent[2]
+    if len(c) < len(p) or (len(c) == len(p) and not or_equal):
+        return False
+    return c[:len(p)] == p
+
+
+def with_trailing_sep(p):
     return p if p.endswith(SEP) else p + SEP
 
 
-def inside(p, d):
-    """p is d, or lies under it, compared by whole segments."""
-    return p == d or p.startswith(with_sep(d))
-
-
-def resolve(p):
-    """os.path.realpath(p, strict=True), on Windows through \\\\?\\ (normpath, not abspath,
-    which drops a trailing dot or space)."""
-    if WINDOWS:
-        if not os.path.isabs(p):
-            p = os.path.join(os.getcwd(), p)
-        p = os_path(os.path.normpath(p))
+def _macos_name_on_disk(path):
+    """macOS: the name as the disk spells it, by getattrlist(ATTR_CMN_NAME).
+    Needs only search permission on the path, where listing or opening the
+    parent may be refused. None when it can't be had."""
     try:
-        real = os.path.realpath(p, strict=True)
-    except TypeError:  # Python before 3.10
-        real = os.path.realpath(p)
-        os.stat(real)
-    return plain_path(real)
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
+        class AttrList(ctypes.Structure):
+            _fields_ = [("bitmapcount", ctypes.c_ushort), ("reserved", ctypes.c_ushort),
+                        ("commonattr", ctypes.c_uint32), ("volattr", ctypes.c_uint32),
+                        ("dirattr", ctypes.c_uint32), ("fileattr", ctypes.c_uint32),
+                        ("forkattr", ctypes.c_uint32)]
 
-def true_case(p):
-    """A resolved absolute path spelled with the case (and normalization) the filesystem
-    reports. realpath keeps the case as typed on macOS and in a Linux directory that ignores
-    case; on Windows it already asked the filesystem for the final path."""
-    if WINDOWS:
-        return p
-    got = _getpath_dir(p)
-    if got is not None:
-        return got
-    parent, name = os.path.split(p)
-    if not name or parent == p:
-        return p
-    parent = true_case(parent)
-    return join(parent, _listed_name(parent, name))
-
-
-def _getpath_dir(p):
-    # macOS: the kernel reports a directory's path as spelled on disk, without needing
-    # permission to list its parents. Not used for files: a hard-linked file may report
-    # its other name.
-    if fcntl is None or not hasattr(fcntl, "F_GETPATH"):
+        ATTR_BIT_MAP_COUNT, ATTR_CMN_NAME, FSOPT_NOFOLLOW = 5, 0x00000001, 0x1
+        al = AttrList(ATTR_BIT_MAP_COUNT, 0, ATTR_CMN_NAME, 0, 0, 0, 0)
+        buf = ctypes.create_string_buffer(4096)
+        r = libc.getattrlist(os.fsencode(path), ctypes.byref(al), buf, ctypes.sizeof(buf), FSOPT_NOFOLLOW)
+        if r != 0:
+            return None
+        off = ctypes.c_int32.from_buffer_copy(buf.raw, 4).value
+        ln = ctypes.c_uint32.from_buffer_copy(buf.raw, 8).value
+        name = buf.raw[4 + off:4 + off + ln].split(b"\0", 1)[0]
+        return os.fsdecode(name) or None
+    except Exception:
         return None
-    try:
-        fd = os.open(p, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    except OSError:
-        return None
-    try:
-        got = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0]
-    except OSError:
-        return None
-    finally:
-        os.close(fd)
-    got = os.fsdecode(got)
-    try:
-        a, b = os.stat(p), os.stat(got)
-    except OSError:
-        return None
-    return got if (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino) else None
 
 
-def _listed_name(parent, name):
-    # Look the name up in its parent's listing, matching the entry by identity.
+def _macos_name_from_handle(parent, seg):
     try:
-        names = os.listdir(os_path(parent))
-    except OSError:
-        return name
-    if name in names:
-        return name
-    try:
-        want = os.lstat(os_path(join(parent, name)))
-    except OSError:
-        return name
-    same = []
-    for n in names:
+        import fcntl
+        fd = os.open(os.path.join(parent, seg), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         try:
-            st = os.lstat(os_path(join(parent, n)))
-        except OSError:
-            continue
-        if (st.st_dev, st.st_ino) == (want.st_dev, want.st_ino):
-            same.append(n)
-    if len(same) > 1:  # hard links: prefer the one that differs only in case/normalization
-
-        def fold(s):
-            return unicodedata.normalize("NFD", s).casefold()
-
-        same = [n for n in same if fold(n) == fold(name)]
-    return same[0] if len(same) == 1 else name
+            buf = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)
+        finally:
+            os.close(fd)
+        path = buf.split(b"\0", 1)[0].decode("utf-8", "surrogateescape")
+        return path.rsplit("/", 1)[-1] or None
+    except (OSError, AttributeError, ImportError):
+        return None
 
 
-def identity(st):
-    return (st.st_dev, st.st_ino) if st.st_ino else None
-
-
-def ancestor_ids(p):
-    """(dev, ino) of p and each directory above it."""
-    ids = []
-    while True:
-        try:
-            ident = identity(os.stat(os_path(p)))
-        except OSError:
-            ident = None
-        if ident:
-            ids.append(ident)
-        parent = os.path.dirname(p)
-        if parent == p:
-            return ids
-        p = parent
-
-
-def is_link(st):
-    """A symbolic link, or on Windows a junction. Other reparse points are ordinary."""
-    if stat.S_ISLNK(st.st_mode):
-        return True
-    tag = getattr(st, "st_reparse_tag", 0)
-    return bool(tag) and tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
-
-
-def vanished(e):
-    """lstat failed because the entry is no longer there."""
-    w = getattr(e, "winerror", None)
-    if w is not None:
-        return w in (2, 3)
-    return e.errno in (errno.ENOENT, errno.ENOTDIR)
-
-
-def broken(e):
-    """Following a link failed because it's broken: nothing where it points, a file used as
-    a directory, or a loop. Anything else is somewhere this computer can't resolve."""
-    w = getattr(e, "winerror", None)
-    if w is not None:
-        return w in (2, 3, 1921)
-    return e.errno in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)
-
-
-def open_file(path):
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags |= getattr(os, "O_NONBLOCK", 0)  # never hang on something swapped for a pipe
-    fd = os.open(os_path(path), flags)
-    f = os.fdopen(fd, "rb", buffering=0)
-    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-        f.close()
-        raise Changed("is no longer a regular file")
-    return f
-
-
-def read_some(f, n):
+def _fix_case_posix(resolved):
+    """realpath keeps the case as typed on macOS and in a case-folding Linux
+    directory; look each name up in its parent's listing instead."""
     out = []
-    while n > 0:
-        chunk = f.read(min(n, READ_CHUNK))
-        if not chunk:
-            break
-        out.append(chunk)
-        n -= len(chunk)
-    return b"".join(out)
-
-
-def hash_file(path):
-    """(sha256 hex, size, mtime_ns) of a file, or the text of the #error it gets."""
-    problem = "kept changing while it was read"
-    for _ in range(HASH_ATTEMPTS):
+    for seg in [s for s in resolved.split("/") if s]:
+        parent = "/" + "/".join(out)
+        name = seg
         try:
-            f = open_file(path)
-        except Changed as e:
-            problem = str(e)
-            continue
+            names = os.listdir(parent)
+        except OSError:
+            names = None
+        if names is None:
+            if sys.platform == "darwin":
+                name = (_macos_name_on_disk(os.path.join(parent, seg))
+                        or _macos_name_from_handle(parent, seg) or seg)
+        elif seg not in names:
+            try:
+                want = os.lstat(os.path.join(parent, seg))
+                for n in names:
+                    try:
+                        if os.path.samestat(os.lstat(os.path.join(parent, n)), want):
+                            name = n
+                            break
+                    except OSError:
+                        continue
+            except OSError:
+                pass
+        out.append(name)
+    return "/" + "/".join(out)
+
+
+def real_path(p):
+    """The real path of p as the filesystem spells it: every link, junction,
+    subst drive, short name and letter case resolved. Raises OSError (strict)
+    when it can't be resolved."""
+    if WINDOWS:
+        q = p
+        if not q.startswith(EXT):
+            q = os.path.normpath(q)
+            if not os.path.isabs(q):
+                q = os.path.normpath(os.path.join(os.getcwd(), q))
+            if not os.path.isabs(q):
+                q = os.path.abspath(q)
+            q = os_path(q)
+        r = plain_path(os.path.realpath(q, strict=True))
+        if len(r) >= 2 and r[1] == ":":
+            r = r[0].upper() + r[1:]
+        return r
+    return _fix_case_posix(os.path.realpath(p, strict=True))
+
+
+def entry_is_link(entry, st):
+    """A symbolic link, or on Windows a junction (a volume mount point is one too)."""
+    if entry.is_symlink():
+        return True
+    if WINDOWS:
+        is_junction = getattr(entry, "is_junction", None)
+        if is_junction is not None:
+            try:
+                return bool(is_junction())
+            except OSError:
+                pass
+        tag = getattr(st, "st_reparse_tag", 0)
+        return tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
+    return False
+
+
+OPEN_FLAGS = os.O_RDONLY
+for _flag in ("O_BINARY", "O_NOFOLLOW", "O_NONBLOCK", "O_CLOEXEC", "O_NOCTTY"):
+    OPEN_FLAGS |= getattr(os, _flag, 0)
+
+
+# --------------------------------------------------------------------------
+# Walking the member directories
+# --------------------------------------------------------------------------
+
+class Walker:
+    def __init__(self, member_dirs):
+        self.member_dirs = member_dirs                 # real paths, each ending in SEP
+        self.member_keys = [path_key(m) for m in member_dirs]
+        self.top_rows = []     # #error rows known before any file is read
+        self.rows = []         # file rows, with an #error among them for a file that failed while read
+        self.objects = {}      # hash -> (path, size, mtime_ns): the first path in the snapshot
+        self.files = 0
+        self.total = 0
+        self.errors = 0
+
+    # -- rows -------------------------------------------------------------
+
+    def _error_top(self, message, path):
+        # Column 2 is trimmed on reading, so write it trimmed: the file stays canonical.
+        self.top_rows.append(("#error", trim(spell(message)), "", "", spell(path)))
+        self.errors += 1
+        warn(f"#error {spell(path)}: {spell(message)}")
+
+    def _error_row(self, message, path):
+        self.rows.append(("#error", trim(spell(message)), "", "", spell(path)))
+        self.errors += 1
+        warn(f"#error {spell(path)}: {spell(message)}")
+
+    # -- walking -----------------------------------------------------------
+
+    def walk_member(self, d):
+        self._walk_dir(d, member=True)
+
+    def _walk_dir(self, d, member=False):
+        try:
+            with os.scandir(os_path(d)) as it:
+                entries = list(it)
+        except FileNotFoundError as e:
+            if member:
+                raise Stop(f"member directory vanished: {display_name(d)}: {err_text(e)}")
+            # It was there to back up when it was listed, like a file that vanishes
+            # before it is read; the spec gives that an #error row, so this does too.
+            self._error_top(f"directory vanished before it could be walked: {err_text(e)}", d)
+            return
         except OSError as e:
-            return "can't open: " + describe(e)
+            raise Stop(f"cannot list directory {display_name(d)}: {err_text(e)}")
+        for entry in entries:
+            self._visit(d, entry)
+
+    def _visit(self, d, entry):
+        name = entry.name
         try:
-            with f:
-                before = os.fstat(f.fileno())
+            name.encode("utf-8")
+        except UnicodeEncodeError:
+            raise Stop(f"name has no UTF-8 form: {display_name(d)}{display_name(name)}")
+        path = d + name
+        try:
+            st = entry.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return  # vanished between being listed and its type being known
+        except OSError as e:
+            self._error_top(err_text(e), path)
+            return
+        if entry_is_link(entry, st):
+            self._visit_link(path)
+        elif stat.S_ISDIR(st.st_mode):
+            self._walk_dir(path + SEP)
+        elif stat.S_ISREG(st.st_mode):
+            self._visit_file(path)
+        # else: a pipe, socket, device or other special entry gets no row
+
+    def _visit_file(self, path):
+        if has_forbidden(path):
+            raise Stop(f"a file's path holds a tab, CR or LF: {spell(path)}")
+        try:
+            fd = os.open(os_path(path), OPEN_FLAGS)
+        except FileNotFoundError:
+            self._error_row("vanished before it could be read", path)
+            return
+        except OSError as e:
+            self._error_row(err_text(e), path)
+            return
+        try:
+            try:
+                st = os.fstat(fd)
+                if not stat.S_ISREG(st.st_mode):
+                    self._error_row("not a regular file when opened", path)
+                    return
+                size = st.st_size
+                mtime_ns = st.st_mtime_ns
+                when = instant(ms_nearest(mtime_ns))
+                if when is None:
+                    self._error_row("modification time outside the years 0000 to 9999", path)
+                    return
                 h = hashlib.sha256()
-                n = 0
                 while True:
-                    chunk = f.read(READ_CHUNK)
+                    chunk = os.read(fd, CHUNK)
                     if not chunk:
                         break
                     h.update(chunk)
-                    n += len(chunk)
-                after = os.fstat(f.fileno())
-        except OSError as e:
-            return "can't read: " + describe(e)
-        if n == before.st_size == after.st_size and before.st_mtime_ns == after.st_mtime_ns:
-            return h.hexdigest(), n, after.st_mtime_ns
-    return problem
+            except OSError as e:
+                self._error_row(err_text(e), path)
+                return
+        finally:
+            os.close(fd)
+        digest = h.hexdigest()
+        self.rows.append(("-", digest, str(size), when, path))
+        self.files += 1
+        self.total += size
+        self.objects.setdefault(digest, (path, size, mtime_ns))
 
-
-# ---------------------------------------------------------------------------- the walk
-
-
-class Walk:
-    """Walks the member directories and collects the snapshot's per-path rows."""
-
-    def __init__(self, members):
-        self.members = members  # [(real path, identity)]
-        self.member_ids = {ident for _, ident in members if ident}
-        self.notes = []  # #excluded / #error rows, listed above the files
-        self.body = []  # file rows, with an #error among them for a file that failed
-        self.files = []  # (hash, size, path)
-        self.stops = []  # why the run must stop
-        self.errors = 0
+    def _visit_link(self, path):
         try:
-            self.own_id = identity(os.stat(STATE_DIR))
-        except OSError:
-            self.own_id = None
-
-    def stop(self, why):
-        self.stops.append(why)
-
-    def note(self, kind, text, path):
-        self.notes.append((kind, text, "", "", path))
-        if kind == "#error":
-            self.errors += 1
-
-    def listing(self, d):
-        try:
-            with os.scandir(os_path(d)) as it:
-                return [e.name for e in it]
+            target = os.readlink(os_path(path))
+            target_text = spell(plain_path(target))
         except OSError as e:
-            self.stop("can't list directory %s: %s" % (show(d), describe(e)))
-            return []
-
-    def run(self):
-        for member, _ in self.members:
-            stack = [iter([(member, n) for n in self.listing(member)])]
-            while stack:
-                try:
-                    d, name = next(stack[-1])
-                except StopIteration:
-                    stack.pop()
-                    continue
-                child = self.entry(d, name)
-                if child is not None:
-                    stack.append(iter([(child, n) for n in self.listing(child)]))
-
-    def entry(self, d, name):
-        """Record one directory entry; return its path if it is a directory to walk."""
-        path = join(d, name)
-        problem = name_problem(name)
-        if problem:
-            self.stop("%s: the name %s" % (show(path), problem))
-            return None
+            target_text = f"<target unreadable: {err_text(e)}>"
         try:
-            st = os.lstat(os_path(path))
+            real = real_path(path)
+            tst = os.stat(os_path(real))
+        except (FileNotFoundError, NotADirectoryError):
+            return  # broken: nothing exists where it points
         except OSError as e:
-            if not vanished(e):
-                self.note("#error", "can't tell what this is: " + describe(e), path)
-            return None
-        if is_link(st):
-            self.link(path)
-        elif stat.S_ISDIR(st.st_mode):
-            if self.own_id and identity(st) == self.own_id:
-                return None  # our own working folder: no row
-            return path
-        elif stat.S_ISREG(st.st_mode):
-            self.file(path)
-        return None  # pipes, sockets, devices: no row
-
-    def file(self, path):
-        if self.stops:
-            return  # no snapshot will be written: don't spend the time hashing
-        got = hash_file(path)
-        if isinstance(got, str):
-            self.body.append(("#error", got, "", "", path))
-            self.errors += 1
+            if e.errno == errno.ELOOP or (WINDOWS and getattr(e, "winerror", None) in (2, 3, 1921)):
+                return  # broken: a loop, or Windows' spelling of not found
+            self._error_top(f"link to {target_text} leads somewhere this computer can't resolve: {err_text(e)}", path)
             return
-        digest, size, mtime_ns = got
-        when = instant(ms_nearest(mtime_ns))
-        if when is None:
-            self.body.append(("#error", "modification time %d ns after 1970 can't be written "
-                              "as YYYY-MM-DDTHH:MM:SS.sssZ" % mtime_ns, "", "", path))
-            self.errors += 1
-            return
-        self.body.append(("-", digest, str(size), when, path))
-        self.files.append((digest, size, path))
-
-    def link(self, path):
-        try:
-            real = resolve(path)
-            st = os.stat(os_path(real))
-        except OSError as e:
-            if broken(e):
-                return  # broken: no row
-            try:
-                target = os.readlink(os_path(path))
-            except OSError:
-                target = "?"
-            self.note("#error", "link to somewhere this computer can't resolve: %s (%s)"
-                      % (target, describe(e)), path)
-            return
-        if stat.S_ISDIR(st.st_mode):
-            kind = "folder"
-        elif stat.S_ISREG(st.st_mode):
-            kind = "file"
+        if stat.S_ISDIR(tst.st_mode):
+            kind, row_path = "a folder", path + SEP
+        elif stat.S_ISREG(tst.st_mode):
+            kind, row_path = "a file", path
         else:
-            return  # to a pipe, socket or device: no row
-        real = true_case(real)
-        if self.into_backup(real):
-            return  # the target is recorded where it lies
-        self.note("#error", "link to a %s outside the backup: %s" % (kind, real),
-                  with_sep(path) if kind == "folder" else path)
-
-    def into_backup(self, real):
-        ids = ancestor_ids(real)
-        if self.own_id and self.own_id in ids:
-            return False  # into our own working folder, which gets no rows
-        if any(inside(real, m) for m, _ in self.members):
-            return True
-        # One directory can have two real paths (macOS firmlinks: /Users and
-        # /System/Volumes/Data/Users), so compare identities too.
-        return any(i in self.member_ids for i in ids)
+            return  # to a pipe, socket or device
+        key = path_key(real)
+        if any(is_within(key, m, or_equal=True) for m in self.member_keys):
+            return  # into the backup: the target is recorded where it lies
+        self._error_top(f"link to {kind} outside the backup: {target_text}", row_path)
 
 
-def member_dirs(args):
-    members = []
-    for arg in args:
-        try:
-            real = resolve(arg)
-            st = os.stat(os_path(real))
-        except OSError as e:
-            raise Refuse("member directory %s: %s" % (show(arg), describe(e)))
-        if not stat.S_ISDIR(st.st_mode):
-            raise Refuse("member directory %s is not a directory" % show(arg))
-        real = true_case(real)
-        problem = name_problem(real)
-        if problem:
-            raise Refuse("member directory %s: its path %s" % (show(real), problem))
-        members.append((real, identity(st)))
-    for i, (a, _) in enumerate(members):
-        above = ancestor_ids(a)
-        for j, (b, b_id) in enumerate(members):
-            if i != j and (inside(a, b) or (b_id and b_id in above)):
-                raise Refuse("member directory %s is %s %s, so its files would turn up under "
-                             "both" % (show(a), "the same as" if a == b else "inside", show(b)))
-    return members
+# --------------------------------------------------------------------------
+# The snapshot text, and a reader's check of it before upload
+# --------------------------------------------------------------------------
 
-
-# ---------------------------------------------------------------------------- the snapshot
-
-
-def line(kind, c2="", c3="", c4="", c5=""):
-    # Canonical form: column 1 unpadded; 2 padded right to 64 code points, 3 left to 12,
-    # 4 right to 24; the last never padded.
-    return "%s\t%s\t%s\t%s\t%s\n" % (kind, c2.ljust(64), c3.rjust(12), c4.ljust(24), c5)
-
-
-def note_line(kind, c2, c3, c4, c5):
-    if kind == "-":
-        return line(kind, c2, c3, c4, c5)
-    return line(kind, as_text(c2), c3, c4, as_text(c5))
-
-
-def render(set_name, bucket, endpoint, members, snap_name, by, start_ms, zone, walk, finish_ms):
-    rows = [
-        line("@S3CAB", "FORMAT", "size", "time", FORMAT_URL),
-        line("@S3CAB", "SPEC", c5=SPEC_DATE),
-        line("@CLIENT", "NAME", c5=CLIENT_NAME),
-        line("@CLIENT", "VERSION", c5=CLIENT_VERSION),
-        line("@SET", "NAME", c5=set_name),
-        line("@SET", "BUCKET", c5="s3://" + bucket),
+def build_snapshot(bucket, endpoint, set_name, member_dirs, snap_name, by, start_ns, zone, walker):
+    lines = [
+        row(*HEADING),
+        row("@S3CAB", "SPEC", "", "", SPEC_DATE),
+        row("@CLIENT", "NAME", "", "", CLIENT_NAME),
+        row("@CLIENT", "VERSION", "", "", CLIENT_VERSION),
+        row("@SET", "NAME", "", "", set_name),
+        row("@SET", "BUCKET", "", "", f"s3://{bucket}"),
     ]
     if endpoint:
-        rows.append(line("@SET", "ENDPOINT", c5=as_text(endpoint)))
-    rows += [line("@SET", "DIR", c5=with_sep(m)) for m, _ in members]
-    rows += [
-        line("@SNAPSHOT", "NAME", c5=snap_name),
-        line("@SNAPSHOT", "BY", c5=by),
-        line("@SNAPSHOT", "START", c4=instant(start_ms), c5=as_text(zone)),
+        lines.append(row("@SET", "ENDPOINT", "", "", spell(endpoint)))
+    for d in member_dirs:
+        lines.append(row("@SET", "DIR", "", "", spell(d)))
+    lines += [
+        row("@SNAPSHOT", "NAME", "", "", snap_name),
+        row("@SNAPSHOT", "BY", "", "", spell(by)),
+        row("@SNAPSHOT", "START", "", instant(ms_floor(start_ns)), spell(zone)),
     ]
-    rows += [note_line(*r) for r in walk.notes]
-    rows += [note_line(*r) for r in walk.body]
-    total = sum(size for _, size, _ in walk.files)
-    rows += [
-        line("@SNAPSHOT", "FILES", c5=str(len(walk.files))),
-        line("@SNAPSHOT", "SIZE", c5="%d (%s)" % (total, readable_size(total))),
-        line("@SNAPSHOT", "FINISH", c4=instant(finish_ms), c5=duration(finish_ms - start_ms)),
+    for r in walker.top_rows:
+        lines.append(row(*r))
+    for r in walker.rows:
+        lines.append(row(*r))
+    finish_ns = time.time_ns()
+    finish = instant(ms_ceil(finish_ns))
+    if finish is None:
+        raise Stop("the clock is outside the years 0000 to 9999")
+    lines += [
+        row("@SNAPSHOT", "FILES", "", "", str(walker.files)),
+        row("@SNAPSHOT", "SIZE", "", "", f"{walker.total} ({readable_size(walker.total)})"),
+        row("@SNAPSHOT", "FINISH", "", finish, duration_text(ms_ceil(finish_ns) - ms_floor(start_ns))),
         ".\n",
     ]
-    return "".join(rows).encode("utf-8")  # strict: a lone surrogate here is a bug, not data
+    return "".join(lines)
 
 
-def gzip_bytes(raw):
+def gzip_single_stream(data):
     buf = io.BytesIO()
-    # No file name and no time in the header, and one stream.
     with gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0) as gz:
-        gz.write(raw)
+        gz.write(data)
     return buf.getvalue()
 
 
-def check_snapshot(gz, set_dirs):
-    """Read the snapshot back as a reader would, and raise rather than upload one a reader
-    would refuse, whole or a path at a time."""
+class SelfCheckFailed(Exception):
+    pass
 
-    def need(ok, why):
-        if not ok:
-            raise RuntimeError("refusing to upload a snapshot a reader would refuse: " + why)
 
-    text = gzip.decompress(gz).decode("utf-8")
-    need(not text.startswith("\ufeff"), "BOM")
-    lines = text.split("\n")
-    need(lines[-1] == "" and lines[-2] == ".", "the file doesn't end with the . line")
-    rows = [l.split("\t") for l in lines[:-2]]
-    need(all(len(r) == 5 for r in rows), "a line without five fields")
-    heading = [trim(f) for f in rows[0][:4]] + [rows[0][4]]
-    need(heading == ["@S3CAB", "FORMAT", "size", "time", FORMAT_URL], "heading row")
-    known = {"-", "#excluded", "#error", "@S3CAB", "@CLIENT", "@SET", "@SNAPSHOT"}
-    counts = {}
-    paths = set()
-    files = set()
-    for r in rows[1:]:
-        kind = trim(r[0])
-        need(kind in known, "unknown type %r" % kind)
-        if kind.startswith("@"):
-            prop = (kind, trim(r[1]))
-            counts[prop] = counts.get(prop, 0) + 1
+def self_check(gz_bytes, expected_text, member_dirs):
+    """Read the snapshot back the way the spec tells a reader to, and refuse to
+    upload anything a reader would refuse. A failure here is a fault in this
+    program, not in the files being backed up."""
+    def fail(why):
+        raise SelfCheckFailed(why)
+
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    raw = d.decompress(gz_bytes)
+    if not d.eof or d.unused_data:
+        fail("not exactly one gzip stream")
+    if raw != expected_text.encode("utf-8"):
+        fail("decompressed text differs from what was written")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        fail(f"not UTF-8: {e}")
+    if text.startswith("\ufeff"):
+        fail("starts with a BOM")
+    if "\r" in text:
+        fail("holds a CR")
+    if not text.endswith("\n"):
+        fail("last line unterminated")
+    lines = text.split("\n")[:-1]
+    if len(lines) < 2 or lines[-1] != ".":
+        fail("does not end with the '.' line")
+
+    def fields_of(line):
+        f = line.split("\t", 4)
+        while len(f) < 5:
+            f.append("")
+        return [trim(x) for x in f[:4]] + [f[4]]
+
+    if tuple(fields_of(lines[0])) != HEADING:
+        fail("first line is not the heading row")
+    dir_keys = [path_key(d) for d in member_dirs]
+    seen = {}
+    file_paths = []
+    counts = {"files": 0, "total": 0}
+    props = {}
+    for n, line in enumerate(lines[:-1], start=1):
+        f = fields_of(line)
+        if row(*f) != line + "\n":
+            fail(f"line {n} is not in canonical form")
+        typ = f[0]
+        if typ not in KNOWN_TYPES:
+            fail(f"line {n}: unknown type {typ!r}")
+        if typ.startswith("@"):
+            props.setdefault((typ, f[1]), []).append(f)
             continue
-        path = r[4]
-        need(not any(c in path for c in "\t\r\n"), "tab, CR or LF in a path")
-        need(path not in paths, "path in two rows: %r" % path)
-        paths.add(path)
-        need(any(path.startswith(d) and len(path) > len(d) for d in set_dirs),
-             "path not strictly inside a @SET DIR: %r" % path)
-        if kind == "-":
-            need(HASH_RE.match(trim(r[1])), "hash")
-            need(trim(r[2]).isdigit() and trim(r[2]).isascii(), "size")
-            need(INSTANT_RE.match(trim(r[3])), "time")
-            rest = [d for d in set_dirs if path.startswith(d)]
-            for seg in path[len(max(rest, key=len)):].split(SEP):
-                need(seg not in ("", ".", ".."), "bad segment in %r" % path)
-            files.add(path)
-    for p in files:
-        parent = os.path.dirname(p)
-        while parent and parent != os.path.dirname(parent):
-            need(parent not in files, "file row runs through another: %r" % p)
-            parent = os.path.dirname(parent)
-    for prop in (("@S3CAB", "SPEC"), ("@CLIENT", "NAME"), ("@CLIENT", "VERSION")):
-        need(counts.get(prop) == 1, "not exactly one %s %s" % prop)
-    need(trim(rows[-1][0]) == "@SNAPSHOT" and trim(rows[-1][1]) == "FINISH", "FINISH last")
+        path = f[4]
+        if has_forbidden(path):
+            fail(f"line {n}: path holds a tab, CR or LF")
+        if path in seen:
+            fail(f"line {n}: path already has a row: {path}")
+        seen[path] = typ
+        if typ != "-":
+            continue
+        if not HASH_RE.fullmatch(f[1]):
+            fail(f"line {n}: bad hash")
+        if not f[2].isascii() or not f[2].isdigit():
+            fail(f"line {n}: bad size")
+        if not is_real_instant(f[3]):
+            fail(f"line {n}: bad time {f[3]!r}")
+        if "\0" in path:
+            fail(f"line {n}: NUL in path")
+        key = path_key(path)
+        if not key[2] or any(s in (".", "..") for s in key[2]):
+            fail(f"line {n}: bad path segment in {path}")
+        windows = key[0] == "win"
+        if windows:
+            if not is_windows_path(path):
+                fail(f"line {n}: not absolute")
+        elif not path.startswith("/") or path.startswith("//"):
+            fail(f"line {n}: not an absolute POSIX path with one leading slash")
+        if any(is_within(key, dk, or_equal=True) and key[2] == dk[2] for dk in dir_keys):
+            fail(f"line {n}: a file row names a DIR itself: {path}")
+        if not any(is_within(key, dk, or_equal=False) for dk in dir_keys):
+            fail(f"line {n}: path under no @SET DIR: {path}")
+        file_paths.append(path)
+        counts["files"] += 1
+        counts["total"] += int(f[2])
+    # one path running through another as a folder
+    folders = set()
+    for p in file_paths:
+        sep = "\\" if is_windows_path(p) else "/"
+        parts = p.split(sep)
+        for i in range(1, len(parts)):
+            folders.add(sep.join(parts[:i]))
+    for p in file_paths:
+        if p in folders:
+            fail(f"a file row's path runs through another's: {p}")
+    for key in (("@S3CAB", "SPEC"), ("@CLIENT", "NAME"), ("@CLIENT", "VERSION")):
+        if len(props.get(key, [])) != 1:
+            fail(f"not exactly one {key[0]} {key[1]} row")
+    if not props.get(("@SET", "DIR")):
+        fail("no @SET DIR row")
+    if props.get(("@SNAPSHOT", "FILES"), [[None] * 5])[0][4] != str(counts["files"]):
+        fail("@SNAPSHOT FILES disagrees with the file rows")
+    size_value = props.get(("@SNAPSHOT", "SIZE"), [[None] * 5])[0][4] or ""
+    if size_value.split(" ")[0] != str(counts["total"]):
+        fail("@SNAPSHOT SIZE disagrees with the size column")
+    return counts
 
 
-# ---------------------------------------------------------------------------- the bucket
+# --------------------------------------------------------------------------
+# S3
+# --------------------------------------------------------------------------
+
+def make_client(endpoint):
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    config = Config(
+        retries={"max_attempts": 3, "mode": "standard"},
+        connect_timeout=10,
+        read_timeout=30,
+    )
+    kwargs = {"region_name": region, "config": config}
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+    return boto3.client("s3", **kwargs)
 
 
-def b64sha256(data):
-    return base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
+def error_code(e):
+    return e.response.get("Error", {}).get("Code", "")
 
 
-def http_status(e):
+def status_code(e):
     return e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
 
 
-def _add_if_none_match(params, **kwargs):
-    params["headers"]["If-None-Match"] = "*"
+class S3Repo:
+    def __init__(self, bucket, endpoint):
+        self.bucket = bucket
+        self.endpoint = endpoint
+        self.s3 = make_client(endpoint)
+        self.aws = not endpoint  # ask AWS, and no other provider, for SSE
 
+    def _put_kwargs(self, key, body, checksum_b64):
+        kw = {"Bucket": self.bucket, "Key": key, "Body": body, "IfNoneMatch": "*", "ChecksumSHA256": checksum_b64}
+        if self.aws:
+            kw["ServerSideEncryption"] = "AES256"
+        return kw
 
-class Bucket:
-    def __init__(self, name):
-        self.name = name
-        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-        retries = {"retries": {"mode": "standard", "max_attempts": 5}}
-        try:
-            # boto3 1.36+ otherwise adds checksums of its own (and aws-chunked) to requests
-            config = Config(request_checksum_calculation="when_required",
-                            response_checksum_validation="when_required", **retries)
-        except TypeError:
-            config = Config(**retries)
-        self.s3 = boto3.session.Session(region_name=region).client("s3", config=config)
-        self.endpoint = None
-        if os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get("AWS_ENDPOINT_URL"):
-            self.endpoint = self.s3.meta.endpoint_url
-        model = self.s3.meta.service_model.operation_model("PutObject").input_shape.members
-        self.native_if_none_match = "IfNoneMatch" in model
-        if not self.native_if_none_match:  # boto3 1.34 has no IfNoneMatch parameter
-            for op in ("PutObject", "CompleteMultipartUpload"):
-                self.s3.meta.events.register("before-call.s3.%s" % op, _add_if_none_match)
+    def list_keys(self, prefix, delimiter=None):
+        kwargs = {"Bucket": self.bucket, "Prefix": prefix}
+        if delimiter:
+            kwargs["Delimiter"] = delimiter
+        paginator = self.s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(**kwargs):
+            for obj in page.get("Contents", []):
+                yield obj["Key"]
 
-    def exists(self, key):
-        try:
-            self.s3.head_object(Bucket=self.name, Key=key)
-            return True
-        except ClientError as e:
-            if http_status(e) == 404:
-                return False
-            raise
+    def object_hashes(self):
+        """Every hash stored under objects/, on the bucket's word."""
+        hashes = set()
+        for key in self.list_keys("objects/", delimiter="/"):
+            name = key[len("objects/"):]
+            if HASH_RE.fullmatch(name):
+                hashes.add(name)
+        return hashes
+
+    def snapshot_names(self, set_name):
+        """Names of the snapshots directly under snapshots/<set>/."""
+        prefix = f"snapshots/{set_name}/"
+        names = []
+        for key in self.list_keys(prefix, delimiter="/"):
+            name = key[len(prefix):]
+            if name.endswith(".tsv.gz") and SNAPSHOT_NAME_RE.fullmatch(name[:-len(".tsv.gz")]):
+                names.append(name[:-len(".tsv.gz")])
+        return names
 
     def get(self, key):
+        """(bytes, etag) or (None, None) when the key is missing."""
         try:
-            return self.s3.get_object(Bucket=self.name, Key=key)["Body"].read()
+            r = self.s3.get_object(Bucket=self.bucket, Key=key)
         except ClientError as e:
-            if http_status(e) == 404:
-                return None
+            if status_code(e) == 404 and error_code(e) in ("NoSuchKey", "NotFound", "404"):
+                return None, None
             raise
+        return r["Body"].read(), r.get("ETag")
 
-    def keys(self, prefix):
-        out = []
-        for page in self.s3.get_paginator("list_objects_v2").paginate(Bucket=self.name,
-                                                                      Prefix=prefix):
-            out += [o["Key"] for o in page.get("Contents", [])]
-        return out
-
-    def create(self, key, body):
-        """Store body at key unless the key exists: True if stored, False if it was there.
-        S3 checks the bytes against x-amz-checksum-sha256 and stores nothing on a mismatch,
-        and with a checksum given boto3 sends a plain body (no aws-chunked encoding)."""
-        checksum = b64sha256(body)
-        args = dict(Bucket=self.name, Key=key, Body=body, ChecksumSHA256=checksum)
-        if self.native_if_none_match:
-            args["IfNoneMatch"] = "*"
+    def put_new(self, key, data):
+        """Conditional PUT of bytes; True when stored, False when the key already exists (412)."""
+        digest = base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
         try:
-            r = self.s3.put_object(**args)
+            self.s3.put_object(**self._put_kwargs(key, data, digest))
         except ClientError as e:
-            if http_status(e) == 412:
+            if status_code(e) == 412:
                 return False
             raise
-        if r.get("ChecksumSHA256", checksum) != checksum:
-            raise RuntimeError("S3 stored %s with checksum %s, not %s"
-                               % (key, r.get("ChecksumSHA256"), checksum))
         return True
 
-    def store_file(self, digest, size, path):
-        """Store a file's bytes at objects/<digest>, checking they hash to the key before
-        they become visible. True if stored, False if already there; Changed if the file
-        no longer holds those bytes."""
-        key = "objects/" + digest
-        if size > PART_SIZE:
-            return self._store_in_parts(key, digest, size, path)
+    def put_over(self, key, data, etag):
+        """Rewrite an existing key, only if it is still the one read (If-Match)."""
+        digest = base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
+        kw = self._put_kwargs(key, data, digest)
+        del kw["IfNoneMatch"]
+        if etag:
+            kw["IfMatch"] = etag
         try:
-            with open_file(path) as f:
-                data = read_some(f, size + 1)
-        except OSError as e:
-            raise Changed("can't be read now: " + describe(e))
-        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
-            raise Changed("its content changed after it was hashed")
-        return self.create(key, data)
+            self.s3.put_object(**kw)
+        except ClientError as e:
+            if status_code(e) == 412:
+                return False
+            raise
+        return True
 
-    def _store_in_parts(self, key, digest, size, path):
-        # A multipart object's stored checksum isn't the file's hash, so: S3 checks each
-        # part's SHA-256; the whole file is hashed from those same bytes; and the upload is
-        # completed only if that hash is the key, and aborted otherwise.
-        part_size = max(PART_SIZE, -(-size // 9000))
-        upload = self.s3.create_multipart_upload(Bucket=self.name, Key=key,
-                                                 ChecksumAlgorithm="SHA256")
-        uid = upload["UploadId"]
-        completed = False
-        try:
-            whole = hashlib.sha256()
-            parts = []
-            n = 0
-            try:
-                with open_file(path) as f:
-                    while True:
-                        data = read_some(f, part_size)
-                        if not data:
-                            break
-                        n += len(data)
-                        if n > size:
-                            raise Changed("it grew after it was hashed")
-                        whole.update(data)
-                        checksum = b64sha256(data)
-                        number = len(parts) + 1
-                        r = self.s3.upload_part(Bucket=self.name, Key=key, UploadId=uid,
-                                                PartNumber=number, Body=data,
-                                                ChecksumSHA256=checksum)
-                        if r.get("ChecksumSHA256", checksum) != checksum:
-                            raise RuntimeError("S3 stored part %d of %s with checksum %s"
-                                               % (number, key, r.get("ChecksumSHA256")))
-                        parts.append({"PartNumber": number, "ETag": r["ETag"],
-                                      "ChecksumSHA256": checksum})
-            except OSError as e:
-                raise Changed("can't be read now: " + describe(e))
-            if n != size or whole.hexdigest() != digest:
-                raise Changed("its content changed after it was hashed")
-            args = dict(Bucket=self.name, Key=key, UploadId=uid,
-                        MultipartUpload={"Parts": parts})
-            if self.native_if_none_match:
-                args["IfNoneMatch"] = "*"
-            try:
-                self.s3.complete_multipart_upload(**args)
-            except ClientError as e:
-                if http_status(e) == 412:
-                    return False
-                raise
-            completed = True
-            return True
-        finally:
-            if not completed:
-                try:
-                    self.s3.abort_multipart_upload(Bucket=self.name, Key=key, UploadId=uid)
-                except (ClientError, BotoCoreError) as e:
-                    warn("couldn't abort the multipart upload of %s: %s" % (key, e))
+    def delete(self, key):
+        self.s3.delete_object(Bucket=self.bucket, Key=key)
 
 
-# ---------------------------------------------------------------------------- holding a set
+class HashingReader:
+    """A file-like body that hashes what is read through it, so the digest is of
+    the bytes actually sent. A seek back to the start restarts the hash, since
+    boto3 reads the body more than once; a seek elsewhere invalidates it."""
+
+    def __init__(self, f):
+        self._f = f
+        self._h = hashlib.sha256()
+        self._hashed = 0
+        self.valid = True
+
+    def read(self, n=-1):
+        data = self._f.read(n)
+        if self.valid:
+            self._h.update(data)
+            self._hashed += len(data)
+        return data
+
+    def seek(self, offset, whence=0):
+        pos = self._f.seek(offset, whence)
+        if pos == 0:
+            self._h = hashlib.sha256()
+            self._hashed = 0
+            self.valid = True
+        elif pos != self._hashed:
+            self.valid = False
+        return pos
+
+    def tell(self):
+        return self._f.tell()
+
+    def hexdigest(self):
+        return self._h.hexdigest() if self.valid else None
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+
+# --------------------------------------------------------------------------
+# Who holds the set
+# --------------------------------------------------------------------------
+
+def load_state():
+    try:
+        with open(STATE_PATH, "rb") as f:
+            state = json.loads(f.read().decode("utf-8"))
+        if isinstance(state, dict):
+            return state
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def save_state(state):
+    data = json.dumps(state, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    tmp = STATE_PATH + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, STATE_PATH)
 
 
 def parse_info(data):
-    """snapshots/<set>.info: UTF-8, split on LF, one trailing CR stripped, each line split at
-    its first '='. A key given twice with two values is unusable (None)."""
-    text = data.decode("utf-8")
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    values = {}
-    for ln in text.split("\n"):
-        if ln.endswith("\r"):
-            ln = ln[:-1]
-        if "=" not in ln:
-            continue
-        key, value = ln.split("=", 1)
-        if key in values and values[key] != value:
-            value = None
-        values[key] = value
-    return values
-
-
-def held_pair(data):
+    """The .info file's own rule: UTF-8, split on LF, one trailing CR stripped,
+    split at the first '=', last repeated key wins; lines with no '=' skipped."""
     try:
-        info = parse_info(data)
+        text = data.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    return info.get("OWNER"), info.get("CLAIMED")
-
-
-class Claim:
-    """The OWNER/CLAIMED pair this tool wrote when it claimed a set, kept beside the program."""
-
-    def __init__(self, bucket, set_name):
-        self.path = os.path.join(STATE_DIR, "bucket-" + bucket, "set-" + set_name + ".claim")
-
-    def load(self):
-        try:
-            with open(self.path, "rb") as f:
-                info = parse_info(f.read())
-        except (OSError, UnicodeDecodeError):
-            return None
-        if info.get("OWNER") is None or info.get("CLAIMED") is None:
-            return None
-        return info["OWNER"], info["CLAIMED"]
-
-    def save(self, pair):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "wb") as f:
-            f.write(("OWNER=%s\nCLAIMED=%s\n" % pair).encode("utf-8"))
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, self.path)
-
-    def forget(self):
-        try:
-            os.remove(self.path)
-        except FileNotFoundError:
-            pass
-
-
-def hold(bucket, set_name, claim):
-    """Make sure this machine holds the set, claiming it if it is new; return the pair."""
-    key = "snapshots/%s.info" % set_name
-    kept = claim.load()
-    data = bucket.get(key)
-    if data is not None:
-        pair = held_pair(data)
-        if kept is not None and pair == kept:
-            return kept
-        raise Refuse("set %r is held by %r (claimed %r), not by this machine's kept claim %r; "
-                     "this tool doesn't take sets over" % ((set_name,) + (pair or (None, None))
-                                                           + (kept,)))
-    if bucket.keys("snapshots/%s/" % set_name):
-        raise Refuse("set %r already has snapshots but no snapshots/%s.info; taking it over "
-                     "must be asked for, which this tool doesn't offer" % (set_name, set_name))
-    now = instant(ms_down(time.time_ns()))
-    pair = (who(), now)
-    claim.save(pair)  # kept before the PUT, so a lost reply can't lock the holder out
-    body = ("OWNER=%s\nCLAIMED=%s\nCREATED=%s\n" % (pair[0], now, now)).encode("utf-8")
-    if not bucket.create(key, body):
-        current = bucket.get(key)
-        if current is None or held_pair(current) != pair:
-            claim.forget()
-            raise Refuse("another claim of set %r got there first" % set_name)
-    log("claimed set %r as %s at %s" % (set_name, pair[0], now))
-    return pair
-
-
-def check_holder(bucket, set_name, pair):
-    data = bucket.get("snapshots/%s.info" % set_name)
-    if data is None:
-        raise Refuse("snapshots/%s.info has gone, so this machine no longer holds the set"
-                     % set_name)
-    current = held_pair(data)
-    if current != pair:
-        raise Refuse("set %r was taken over: .info names %r, not the kept %r"
-                     % (set_name, current, pair))
-
-
-def keep_local(path, data):
-    """Keep a copy of the snapshot, never over an existing one."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.lexists(path):
-        raise Refuse("a snapshot named %s already exists locally" % show(path))
-    tmp = "%s.%d.partial" % (path, os.getpid())
-    with open(tmp, "xb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    try:
-        if WINDOWS:
-            os.rename(tmp, path)  # refuses an existing target on Windows
-        else:
-            os.link(tmp, path)  # os.rename would silently replace one on Linux and macOS
-            os.remove(tmp)
-    except FileExistsError:
-        os.remove(tmp)
-        raise Refuse("a snapshot named %s already exists locally" % show(path))
-
-
-# ---------------------------------------------------------------------------- the run
-
-
-def backup(bucket_name, set_name, dirs, t0):
-    if not SET_RE.match(set_name):
-        raise Refuse("a set's name is lowercase letters, digits and hyphens, not %r" % set_name)
-    if not bucket_name or "/" in bucket_name:
-        raise Refuse("%r is not a bucket name" % bucket_name)
-    start_ms = ms_down(t0)
-    local = time.localtime(t0 // 1000000000)
-    snap_name = time.strftime("%Y-%m-%dT%H%M", local)
-    zone = zone_name(local)
-    by = who()
-
-    members = member_dirs(dirs)
-    bucket = Bucket(bucket_name)
-    claim = Claim(bucket_name, set_name)
-    pair = hold(bucket, set_name, claim)
-
-    snap_key = "snapshots/%s/%s.tsv.gz" % (set_name, snap_name)
-    local_copy = os.path.join(STATE_DIR, "bucket-" + bucket_name, "set-" + set_name,
-                              snap_name + ".tsv.gz")
-    names = [k.rsplit("/", 1)[1] for k in bucket.keys("snapshots/%s/" % set_name)]
-    names = [n for n in names if SNAPSHOT_KEY_RE.match(n)]
-    if snap_name + ".tsv.gz" in names or os.path.lexists(local_copy):
-        raise Refuse("set %r already has a snapshot named %s: a second one in the same minute "
-                     "is refused" % (set_name, snap_name))
-    if names and max(names) > snap_name + ".tsv.gz":
-        warn("warning: %s sorts before the existing %s (the clock went back), so it won't be "
-             "taken as the latest" % (snap_name, max(names)))
-
-    log("walking %s" % ", ".join(show(m) for m, _ in members))
-    walk = Walk(members)
-    walk.run()
-    if walk.stops:
-        raise Refuse("can't back this set up:\n  " + "\n  ".join(walk.stops))
-    finish_ms = ms_up(time.time_ns())
-    raw = render(set_name, bucket_name, bucket.endpoint, members, snap_name, by, start_ms, zone,
-                 walk, finish_ms)
-    gz = gzip_bytes(raw)
-    check_snapshot(gz, [with_sep(m) for m, _ in members])
-
-    # Objects first ...
-    by_hash = {}
-    for digest, size, path in walk.files:
-        by_hash.setdefault(digest, []).append((size, path))
-    stored = present = 0
-    for digest, sources in by_hash.items():
-        if bucket.exists("objects/" + digest):
-            present += 1  # counted as stored, without downloading it to check
+    info = {}
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if "=" not in line:
             continue
-        why = []
-        for size, path in sources:
-            try:
-                if bucket.store_file(digest, size, path):
-                    stored += 1
-                else:
-                    present += 1
-                break
-            except Changed as e:
-                why.append("%s %s" % (show(path), e))
-        else:
-            raise Refuse("objects/%s couldn't be stored (%s); the snapshot names it, so it "
-                         "isn't uploaded" % (digest, "; ".join(why)))
-    log("objects: %d uploaded, %d already stored" % (stored, present))
+        k, v = line.split("=", 1)
+        info[k] = v
+    return info
 
-    # ... the snapshot last, by its holder only, never over another.
-    check_holder(bucket, set_name, pair)
-    if not bucket.create(snap_key, gz):
-        if bucket.get(snap_key) != gz:
-            raise Refuse("%s already exists with different bytes; refusing to overwrite it"
-                         % snap_key)
-        log("%s was already uploaded" % snap_key)
-    total = sum(size for _, size, _ in walk.files)
-    log("uploaded %s: %d files, %s" % (snap_key, len(walk.files), readable_size(total)))
+
+def info_text(owner, claimed, created):
+    return f"OWNER={owner}\nCLAIMED={claimed}\nCREATED={created}\n".encode("utf-8")
+
+
+def ensure_holder(repo, set_name, snap_name, by, now, take_over, state):
+    """Claim a new set, or check that this program is the set's holder. Also
+    refuses a second snapshot of the set in the same minute."""
+    key = f"snapshots/{set_name}.info"
+    state_key = f"s3://{repo.bucket}/{set_name}"
+    claims = state.setdefault("claims", {})
+    kept = claims.get(state_key)
+
+    names = repo.snapshot_names(set_name)
+    if snap_name in names:
+        raise Stop(f"snapshots/{set_name}/{snap_name}.tsv.gz already exists: a second snapshot of a set in the same minute is refused")
+
+    data, etag = repo.get(key)
+    if data is None:
+        if names and not take_over:
+            raise Stop(f"set {set_name!r} has snapshots but no snapshots/{set_name}.info, so no holder; run with --take-over to take it over")
+        pair = {"OWNER": by, "CLAIMED": now}
+        if repo.put_new(key, info_text(by, now, now)):
+            claims[state_key] = pair
+            save_state(state)
+            say(f"claimed set {set_name!r}: OWNER={by} CLAIMED={now}" + (" (taken over: no .info was there)" if names else ""))
+            return
+        data, etag = repo.get(key)
+        if data is None:
+            raise Stop(f"snapshots/{set_name}.info appeared and vanished while claiming; try again")
+
+    info = parse_info(data)
+    if info is None:
+        raise Stop(f"snapshots/{set_name}.info is not UTF-8")
+    owner, claimed = info.get("OWNER"), info.get("CLAIMED")
+    if kept and kept.get("OWNER") == owner and kept.get("CLAIMED") == claimed:
+        say(f"set {set_name!r} is held by this program: OWNER={owner} CLAIMED={claimed}")
+        return
+    if kept:
+        del claims[state_key]  # it can never match again
+        save_state(state)
+    if not take_over:
+        raise Stop(f"set {set_name!r} is held by OWNER={owner!r} CLAIMED={claimed!r}, not by this program; run with --take-over to take it over")
+    created = info.get("CREATED") or now
+    if not repo.put_over(key, info_text(by, now, created), etag):
+        raise Stop(f"snapshots/{set_name}.info changed while taking the set over; try again")
+    claims[state_key] = {"OWNER": by, "CLAIMED": now}
+    save_state(state)
+    say(f"took over set {set_name!r}: OWNER={by} CLAIMED={now} CREATED={created}")
+
+
+def check_holder(repo, set_name, state):
+    """Immediately before the snapshot's upload: the .info must still name the pair we kept."""
+    key = f"snapshots/{set_name}.info"
+    kept = state.get("claims", {}).get(f"s3://{repo.bucket}/{set_name}")
+    if not kept:
+        raise Stop("no OWNER/CLAIMED pair is kept for this set")
+    data, _ = repo.get(key)
+    if data is None:
+        raise Stop(f"snapshots/{set_name}.info is gone: the set has no holder, so the snapshot is not uploaded")
+    info = parse_info(data) or {}
+    if info.get("OWNER") != kept["OWNER"] or info.get("CLAIMED") != kept["CLAIMED"]:
+        raise Stop(f"set {set_name!r} is now held by OWNER={info.get('OWNER')!r} CLAIMED={info.get('CLAIMED')!r}; the snapshot is not uploaded")
+
+
+# --------------------------------------------------------------------------
+# Uploading
+# --------------------------------------------------------------------------
+
+def upload_objects(repo, objects):
+    """Store every object the snapshot names. Returns a list of (path, why) for
+    content that could not be stored; the snapshot must not be uploaded then."""
+    stored = repo.object_hashes()
+    failures = []
+    uploaded = skipped = 0
+    for digest, (path, size, mtime_ns) in objects.items():
+        key = f"objects/{digest}"
+        if digest in stored:
+            skipped += 1
+            continue
+        try:
+            st = os.stat(os_path(path), follow_symlinks=False)
+        except OSError as e:
+            failures.append((path, f"could not be checked before upload: {err_text(e)}"))
+            continue
+        if not stat.S_ISREG(st.st_mode) or st.st_size != size or st.st_mtime_ns != mtime_ns:
+            failures.append((path, "size or modification time changed since it was hashed"))
+            continue
+        checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
+        try:
+            fd = os.open(os_path(path), OPEN_FLAGS)
+        except OSError as e:
+            failures.append((path, f"could not be opened for upload: {err_text(e)}"))
+            continue
+        try:
+            with open(fd, "rb", closefd=True) as f:
+                reader = HashingReader(f)
+                try:
+                    repo.s3.put_object(**repo._put_kwargs(key, reader, checksum))
+                except ClientError as e:
+                    if status_code(e) == 412:
+                        skipped += 1  # already stored, on the bucket's word
+                        continue
+                    if error_code(e) == "BadDigest":
+                        failures.append((path, "content changed while it was being sent (the store refused the bytes)"))
+                        continue
+                    raise
+        except OSError as e:
+            failures.append((path, f"could not be read for upload: {err_text(e)}"))
+            continue
+        sent = reader.hexdigest()
+        if sent != digest:
+            # The store checked the bytes against the key itself, so this should
+            # not happen on AWS; on a store that didn't, leave nothing under the key.
+            repo.delete(key)
+            failures.append((path, f"bytes sent hashed to {sent}, not to the key; removed"))
+            continue
+        uploaded += 1
+        say(f"stored {key} ({size} bytes) from {spell(path)}")
+    say(f"objects: {len(objects)} unique, {uploaded} uploaded, {skipped} already stored, {len(failures)} failed")
+    return failures
+
+
+def upload_snapshot(repo, set_name, snap_name, gz_bytes):
+    key = f"snapshots/{set_name}/{snap_name}.tsv.gz"
+    if repo.put_new(key, gz_bytes):
+        say(f"uploaded {key} ({len(gz_bytes)} bytes)")
+        return
+    existing, _ = repo.get(key)
+    if existing == gz_bytes:
+        say(f"{key} is already there with the same bytes")
+        return
+    raise Stop(f"{key} already exists with different bytes: refusing to overwrite a snapshot")
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def usage():
+    warn("usage: python s3cab-backup.py [--take-over] <bucket> <set> <dir>...")
+    return 2
+
+
+def resolve_members(dirs):
+    """Each member directory's real path, ending in a separator; stops on a
+    missing one, a non-directory, or two that are nested or the same."""
+    members = []
+    stats = []
+    for d in dirs:
+        try:
+            real = real_path(d)
+            st = os.stat(os_path(real))
+        except OSError as e:
+            raise Stop(f"member directory {display_name(d)} does not exist or can't be resolved: {err_text(e)}")
+        if not stat.S_ISDIR(st.st_mode):
+            raise Stop(f"member directory {display_name(d)} is not a directory")
+        members.append(with_trailing_sep(real))
+        stats.append(st)
+    keys = [path_key(m) for m in members]
+    for i in range(len(members)):
+        for j in range(len(members)):
+            if i == j:
+                continue
+            if is_within(keys[i], keys[j], or_equal=True) or os.path.samestat(stats[i], stats[j]):
+                if keys[i] == keys[j] or os.path.samestat(stats[i], stats[j]):
+                    raise Stop(f"member directories {dirs[i]!r} and {dirs[j]!r} are the same directory: {members[i]}")
+                raise Stop(f"member directory {members[i]} lies inside {members[j]}: the same files would turn up twice")
+    return members
+
+
+def main(argv):
+    _reconfigure_streams()
+    args = list(argv)
+    take_over = False
+    if args and args[0] == "--take-over":
+        take_over = True
+        args = args[1:]
+    if len(args) < 3:
+        return usage()
+    bucket, set_name, dirs = args[0], args[1], args[2:]
+    if not SET_NAME_RE.fullmatch(set_name):
+        raise Stop(f"set name {set_name!r} is not letters a-z and digits with single hyphens between them")
+    endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get("AWS_ENDPOINT_URL") or ""
+
+    start_ns = time.time_ns()                   # one clock reading: START and the name both come from it
+    snap_name = local_snapshot_name(start_ns)
+    start = instant(ms_floor(start_ns))
+    if start is None:
+        raise Stop("the clock is outside the years 0000 to 9999")
+    zone = local_zone_name()
     try:
-        keep_local(local_copy, gz)  # the local copy is the uploaded snapshot, byte for byte
-    except (Refuse, OSError) as e:
-        warn("warning: the snapshot is uploaded, but no local copy was kept: %s" % e)
-    if walk.errors:
-        for kind, text, _, _, path in walk.notes + walk.body:
-            if kind == "#error":
-                warn("#error %s: %s" % (show(path), as_text(text)))
-        warn("%d #error row(s): not everything was backed up" % walk.errors)
+        user = getpass.getuser()
+    except Exception:
+        user = "unknown"
+    by = f"{user}@{socket.gethostname()}"
+    say(f"set {set_name!r} in s3://{bucket}: snapshot {snap_name}, START {start} {zone}, BY {by}")
+
+    members = resolve_members(dirs)
+    for m in members:
+        say(f"@SET DIR {spell(m)}")
+
+    repo = S3Repo(bucket, endpoint)
+    state = load_state()
+    ensure_holder(repo, set_name, snap_name, by, start, take_over, state)
+
+    walker = Walker(members)
+    for m in members:
+        walker.walk_member(m)
+    say(f"walked: {walker.files} file rows, {walker.total} bytes, {len(walker.objects)} unique contents, {walker.errors} #error rows")
+
+    text = build_snapshot(bucket, endpoint, set_name, members, snap_name, by, start_ns, zone, walker)
+    gz_bytes = gzip_single_stream(text.encode("utf-8"))
+    self_check(gz_bytes, text, members)
+
+    failures = upload_objects(repo, walker.objects)
+    if failures:
+        for path, why in failures:
+            warn(f"not stored: {spell(path)}: {why}")
+        raise Stop(f"{len(failures)} object(s) could not be stored; the snapshot is not uploaded")
+
+    check_holder(repo, set_name, state)
+    upload_snapshot(repo, set_name, snap_name, gz_bytes)
+    if walker.errors:
+        warn(f"snapshot written with {walker.errors} #error row(s); exit 1")
         return 1
     return 0
 
 
-def main(argv):
-    t0 = time.time_ns()  # one clock reading for the snapshot's name and START
-    setup_output()
-    if len(argv) < 4:
-        warn("usage: python s3cab-backup.py <bucket> <set> <dir>...")
-        return 2
-    try:
-        return backup(argv[1], argv[2], argv[3:], t0)
-    except Refuse as e:
-        warn("stopped, no snapshot uploaded: %s" % e)
-    except (ClientError, BotoCoreError) as e:
-        warn("stopped, snapshot not confirmed uploaded: %s" % e)
-    except KeyboardInterrupt:
-        warn("interrupted, snapshot not confirmed uploaded")
-    except Exception:
-        traceback.print_exc()
-        warn("stopped by the error above, snapshot not confirmed uploaded")
-    return 2
-
-
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Stop as e:
+        print(f"stopped: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    except SelfCheckFailed as e:
+        print(f"refusing to upload: this program's own snapshot failed a reader's check: {e}", file=sys.stderr, flush=True)
+        sys.exit(2)
+    except (ClientError, botocore.exceptions.BotoCoreError) as e:
+        # Any S3 failure not handled above (403, NoSuchBucket, a 5xx after retries,
+        # a dropped connection): nothing further is written, and the snapshot stays unpublished.
+        print(f"stopped: S3 request failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
