@@ -448,6 +448,30 @@ describe("parseSnapshotStream", () => {
       );
     });
 
+    it("for a Windows share path under a POSIX @SET DIR of /", async () => {
+      // Normalized, a share path starts `//`, which `/` would claim as a string.
+      const { entries, refused } = await parse(
+        [
+          HEADING,
+          "@SET\tDIR\t\t\t/",
+          START,
+          fileRow(hashA, 12, "/home/me/a.txt"),
+          fileRow(hashB, 34, "\\\\nas\\photos\\b.jpg"),
+          TERMINATOR,
+        ].join("\n"),
+      );
+      assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
+      assert.deepEqual(
+        [...refused],
+        [
+          [
+            "\\\\nas\\photos\\b.jpg",
+            "its path isn't inside any of the snapshot's @SET DIR folders",
+          ],
+        ],
+      );
+    });
+
     it("for a path that is a nested @SET DIR, though inside the outer one", async () => {
       const { entries, refused } = await parse(
         [

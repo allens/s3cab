@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-22.
+This is the spec of 2026-10-23.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -72,9 +72,10 @@ and nothing else below needs special handling. (A set's `.info` file has
   and a parser that strips every field restores `" notes.txt "` as `"notes.txt"` — the wrong
   file, with nothing reported.
 - **Every line is five fields, split at its first four tabs.** So a fifth tab is part of
-  the last field, never the start of a sixth. A file row with a tab in its path is
-  [refused](#valid-and-invalid-files), and an `@` row with fewer than five fields has no
-  value: a `@SET DIR` without one is no directory.
+  the last field, never the start of a sixth, and a line with fewer reads the missing ones
+  as empty. A file row with a tab in its path is [refused](#valid-and-invalid-files), and
+  an `@` row with fewer than five fields has no value: a `@SET DIR` without one is no
+  directory.
 
 ## The remote repository (the keystone)
 
@@ -225,7 +226,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-22
+@S3CAB    SPEC                                                        2026-10-23
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -341,7 +342,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-22
+@S3CAB    SPEC                                                        2026-10-23
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -671,7 +672,9 @@ file rows with each other, and a `@SET DIR` takes part in neither: a file row wh
 runs through a `DIR` with no file row under it breaks nothing. On Windows,
 `C:\P\a.txt`, `C:/P/a.txt` and `c:\P\a.txt` are three paths to these checks, though they
 name one file: s3cab never writes more than one of them, and a hand-edited file that holds
-several meets the destination's collision rule instead (see [reading](#reading)).
+several meets the destination's rules instead (see [reading](#reading)). So do `C:\P\a` and
+`C:/P/a/b.txt`: the first row in the file restores, and the other is reported as a
+collision or as in the way, exit 1.
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
@@ -679,15 +682,17 @@ claim `…\trees\edgeX\file.txt`. Decide first whether the `DIR` is a
 [Windows path](#paths), from the row as written; then ignore the separators it ends with,
 and split both the directory and the path into segments: a valid path has no empty
 segment, so a `DIR` with a doubled separator anywhere after its root matches nothing, and
-every path under it is refused. Which separators count depends on the path, not the machine
-reading it: a Windows path splits on `/` *and* `\`, any other on `/` alone, since there a
-`\` is an ordinary character in a filename — so a Windows snapshot reads correctly on a
-POSIX machine, and the reverse. Where several directories match, the **longest wins**,
-counted in segments, so a member directory nested inside another takes precedence over its
-parent. Two that match equally, such as a `DIR` written twice, are one directory, and the
-first in the file is the one that counts. A path under no `DIR` at all has nowhere to land,
-so its row is [refused](#valid-and-invalid-files) rather than guessed at; only a
-hand-edited snapshot can hold one.
+every path under it is refused. Nor does a `DIR` that isn't an absolute path match
+anything. Which separators count depends on the path, not the machine reading it: a
+Windows path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an
+ordinary character in a filename — so a Windows snapshot reads correctly on a POSIX
+machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or POSIX, so
+a POSIX `/` holds no `\\server\share` path. Where several directories match, the
+**longest wins**, counted in segments, so a member directory nested inside another takes
+precedence over its parent. Two that match equally, such as a `DIR` written twice, are one
+directory, and the first in the file is the one that counts. A path under no `DIR` at all
+has nowhere to land, so its row is [refused](#valid-and-invalid-files) rather than guessed
+at; only a hand-edited snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
@@ -702,6 +707,9 @@ looking. Restoring to a chosen directory, it writes each file to
 
 - The folder takes the `DIR` row's spelling, and the rest of the path the file row's, even
   where a Windows `DIR` matched a path spelled in another case.
+- A member directory nested inside another lands beside it, not inside it: under `C:\P\`
+  and `C:\P\Q\`, a row for `C:\P\Q\a.txt` lands at `<output>\Q\a.txt`, next to
+  `<output>\P\`.
 - A root has no name of its own:
   - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
     lands at `<output>\C\Users\me\a.txt`;
@@ -709,7 +717,8 @@ looking. Restoring to a chosen directory, it writes each file to
   - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
     they could mix with that one's folder, so s3cab refuses a restore that reaches both.
 - Folders are made only as files land in them, so a member directory with no files restored
-  leaves no folder at all, and a restore that writes nothing makes no `<output>` either.
+  leaves no folder at all, and a restore that writes nothing makes no `<output>` either. A
+  file that fails, missing or withheld or refused, leaves none of the folders made for it.
 - Two `DIR` rows whose names collide both want the same destination directory
   (`C:\a\Photos\` and `D:\b\photos\`); s3cab refuses a restore that reaches both rather
   than merging them, and restores either one on its own. In detail:
@@ -813,7 +822,8 @@ of four things:
 - **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
   end with the `.`, has rows after the `.`, or holds an unknown type starting with neither `@`
   nor `#`. Each means the file isn't what it claims, was cut short, or comes from a newer
-  s3cab, and restoring part of it would pass for a full restore.
+  s3cab, and restoring part of it would pass for a full restore. A deletion record is the
+  exception: it is distrusted instead (below), and its well-formed rows still count.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, or a
   file row whose path breaks one of the path rules above. Where a rule is about two file rows
   (one path in both, or one running through the other), **both rows are refused, so no
@@ -847,14 +857,17 @@ names would look unused and be deleted.
 `#deleted` row is refused, so its object counts as not deleted, and its absence is reported
 as unexplained damage with a nonzero exit. That is the safe direction: a damaged record can
 never make missing content look intentional. The well-formed rows of an invalid record
-still explain an absence. While any record file is invalid, `backup` and `status` check
+still explain an absence, even in one with no heading row or no `.`. While any record file
+is invalid, `backup` and `status` check
 what the bucket actually holds rather than trust an earlier snapshot's word, and `cleanup`
 refuses to delete or compact anything, since compacting would rewrite only the rows it
 could read and lose the rest for good.
 
 **What a reader promises, even for an invalid file:** it never writes outside the
 destination, never writes bytes that don't hash to the row, never chooses between
-conflicting rows, and never lets a partial restore pass for a full one. What it can't
+conflicting rows, and never lets a partial restore pass for a full one. Two spellings of
+one file aren't conflicting rows to the format: they meet the destination's rules, which
+[report](#paths) every row but the first. What it can't
 promise is that a valid but edited file is true: a hash changed to another stored object
 restores the wrong content, faithfully.
 
@@ -913,12 +926,16 @@ For a restorer, or anything else that reads the files.
   longest winning](#paths), and the first in the file of two that match equally. On a
   [Windows path](#paths), ignore case by the mapping given there. Where it lands from there
   is your tool's decision.
+- Write each name as the name it is. On Windows, a POSIX name holding `\` would be split
+  into folders, and one holding `:` written to a hidden stream of the file named before
+  it, both without an error. s3cab refuses such a row before anything is written, exit 1.
 - Fetch each file row's content from `objects/<hash>`, and check that what you downloaded
   hashes to that key. The hash decides: s3cab never compares the size column with the
   download.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
   read as one set. A hash a record lists was [deliberately deleted](#the-deletion-record);
-  any other miss is damage, and so is a download that doesn't hash to its key. A miss is a
+  any other miss is damage, and so is a download that doesn't hash to its key, which s3cab
+  doesn't fetch again. A miss is a
   404 whose S3 error code is `NoSuchKey` or `NotFound`. s3cab stops the whole
   restore on any other failure:
   - a 404 `NoSuchBucket`, which says nothing about the file;
@@ -965,12 +982,14 @@ For a restorer, or anything else that reads the files.
   also joins several gzip streams into one without a word, and so does s3cab's own reader;
   bytes after the stream that aren't gzip make it refuse the file. .NET's `GZipStream`
   never reports a file cut short. Missing only its 8-byte trailer, the file decompresses
-  whole; cut deeper, .NET Framework hands back nothing and .NET 10 what it could
-  decompress. .NET Framework, the one Windows PowerShell runs on, also stops after the
-  first stream, where .NET 10 joins them. zlib's `gzread` passes a file that isn't gzip
-  through as plain text, and ignores bytes after the last stream: check the magic bytes
-  yourself, and drive `inflate` to see the end. Apple's Compression framework reads raw
-  DEFLATE, not the gzip wrapper around it; the system's zlib reads gzip.
+  whole; cut deeper, it hands back what it could decompress, which .NET Framework sometimes
+  makes nothing at all. .NET Framework, the one Windows PowerShell runs on, also stops after
+  the first stream, where .NET 10 joins them. Neither says where a stream ended, so neither
+  can find the next one or bytes after the last: to meet the rules above, read the gzip
+  framing yourself and inflate with `DeflateStream` or your own. zlib's `gzread` passes a
+  file that isn't gzip through as plain text, and ignores bytes after the last stream: check
+  the magic bytes yourself, and drive `inflate` to see the end. Apple's Compression
+  framework reads raw DEFLATE, not the gzip wrapper around it; the system's zlib reads gzip.
 - **Fields in C.** `strtok` takes two tabs in a row as one, so a blank column vanishes and
   every later field shifts left: split with `strsep` or `memchr`. `isspace` isn't the trim
   set, and `strtoull` accepts leading spaces and a sign, so `-1` reads as
@@ -981,20 +1000,30 @@ For a restorer, or anything else that reads the files.
   compare by the current culture, not code point by code point: pass
   `StringComparison.Ordinal`. .NET's `Trim()` removes U+0085 and keeps U+FEFF, the reverse
   of the trim here. In a .NET regex, `$` also matches before a final `\n`, and `\d` any
-  Unicode digit: use `\z` and `[0-9]`.
+  Unicode digit: use `\z` and `[0-9]`. The C# compiler takes a literal U+2028 or U+2029 in
+  source as a line end, so write the trim set with escapes, not the characters.
 - **Case mapping.** C has no Unicode case mapping: `towlower` maps one character at a time,
   by the locale. .NET's `ToLowerInvariant` and Swift's `lowercased()` skip Final_Sigma, so
   `ΟΔΟΣ` becomes `οδοσ` where JavaScript's `toLowerCase()` gives `οδος`, and two readers put
-  a file under different `DIR`s. ICU's `u_strToLower` with the root locale matches
-  JavaScript.
+  a file under different `DIR`s. JavaScript looks past a `.` or an apostrophe for a letter
+  after the `Σ`, so `ΟΔΟΣ.txt` becomes `οδοσ.txt` in both; they differ where none follows,
+  as at the end of a name or before a digit, space, `-` or `_`. .NET also
+  leaves `İ` (U+0130) as it is, where JavaScript gives `i` and U+0307. ICU's
+  `u_strToLower` with the root locale matches JavaScript.
 - **Times in C.** `mktime` reads its fields as local time; `timegm` reads them as UTC. C's
   `/` truncates toward zero, so split a time before 1970 into seconds and milliseconds with
   floor division.
+- **Times in .NET.** `DateTime` starts at the year 1, so it can't hold a row from the year
+  0000, which the 24-character form allows. Check the instant by hand, and keep it as a
+  count of milliseconds until you know it fits.
 - **Windows paths: go through `\\?\`.** Prefixed with `\\?\`, an absolute path is taken
   exactly as written, reserved names such as `CON` and `aux.txt` included. Without it,
   Windows drops a trailing space or dot from a name, so a file restored as `notes.` lands as
   `notes` with no error, and a path past 260 characters (`MAX_PATH`) fails. Re-rooting under
-  an output directory makes a deep tree deeper.
+  an output directory makes a deep tree deeper. Even through `\\?\`, NTFS refuses a name
+  holding `"`, `*`, `<`, `>`, `?`, `|` or a control character such as VT or FF. Keep the
+  prefix through the whole path: .NET's `Path.GetFullPath` drops a trailing space even from
+  a `\\?\` path, and a share is written `\\?\UNC\server\share`.
 - **`\\?\` in a .NET Framework program built with bare `csc`.** It runs with the old path
   handling, which throws on `\\?\` and on a path past 260 characters. Add
   `[assembly: TargetFramework(".NETFramework,Version=v4.8")]` to the source, or set
@@ -1025,18 +1054,20 @@ For a restorer, or anything else that reads the files.
   at all, and `linkat` gives it one. A link already inside the output folder leads out of
   it, so don't write through a folder this restore didn't make without checking it. To
   tell a file that was there before from one this restore wrote, under any spelling, keep
-  each written file's identity, its device and inode or Windows' file ID; s3cab keeps its
-  real path. On Windows, a `:` in a name writes to an alternate data stream of the file
-  named before it, with no error.
+  each written file's identity, its device and inode or Windows' file ID (from
+  `GetFileInformationByHandle`: the volume serial number and the file index); s3cab keeps
+  its real path. Without one, .NET's `File.Exists` answers for a case twin, so the second
+  row reads as a file already there and is skipped, with exit 0.
 - **The destination's limits.** Linux allows 255 bytes in a name, not 255 characters, so a
   long name from Windows can fail there. ext4 keeps times from 1901 to 2446 and clamps the
   rest without a word; APFS keeps a time before 1970 exactly.
 - **Restoring on another operating system, or where case is ignored.** A snapshot can hold
   two paths differing only in case, from Linux or from a Windows directory set to be
   case-sensitive, and a Linux one can hold characters Windows forbids. The twins collide in
-  an ordinary Windows or macOS directory, and most of the characters fail on Windows. Some
-  names Windows misreads instead: `\` is a separator to it, so `a\..\x` climbs out of the
-  output directory like a hand-added `..`. The format records what was there; what to do on
+  an ordinary Windows or macOS directory, and the characters NTFS refuses (above) fail on
+  Windows. Some names Windows misreads instead, which the checklist covers: `\` is a
+  separator to it, so `a\..\x` climbs out of the output directory like a hand-added `..`.
+  The format records what was there; what to do on
   arrival is your tool's choice, worth stating, and so is whether a download that doesn't
   hash to its key is still worth writing, clearly flagged, or better withheld. s3cab's:
   - of paths the destination holds as one file, by letter case or by macOS's Unicode
@@ -1044,8 +1075,6 @@ For a restorer, or anything else that reads the files.
   - a file where the destination already has a folder of that name in another case, or
     the reverse, is in the way, and reported the same way;
   - a name the destination won't create is reported, exit 1, and the rest restore;
-  - a name Windows would misread rather than refuse, one holding `\` or `:`, is refused
-    before anything is written, and reported the same way;
   - a download that doesn't hash to its key is withheld.
 - **Storage class.** A bucket lifecycle rule that moves `objects/` to an archive tier breaks
   a plain download for every tool, s3cab included.

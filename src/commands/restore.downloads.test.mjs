@@ -468,6 +468,35 @@ describe("restore with an object missing from the bucket", () => {
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
   });
 
+  it("leaves no folder that only a missing file would have filled", async () => {
+    snapshot = {
+      entries: new Map([
+        ["/data/kept.txt", { ...at, hash: "aaa" }],
+        ["/data/deep/er/gone.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+    failures.set("bbb", named("NoSuchKey"));
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.missing, [dest(join("deep", "er", "gone.txt"))]);
+    assert.deepEqual(readdirSync(join(output, "data")), ["kept.txt"]);
+  });
+
+  it("keeps an empty folder that was there before the restore", async () => {
+    snapshot = {
+      entries: new Map([["/data/before/gone.txt", { ...at, hash: "bbb" }]]),
+      dirs: ["/data"],
+    };
+    mkdirSync(join(output, "data", "before"), { recursive: true });
+    failures.set("bbb", named("NoSuchKey"));
+
+    await restore([], { set: "photos", output });
+
+    assert.deepEqual(readdirSync(join(output, "data", "before")), []);
+  });
+
   it("treats a provider's HEAD-style NotFound as missing too", async () => {
     failures.set("ccc", named("NotFound"));
     const result = await restore([], { set: "photos", output });
@@ -482,6 +511,19 @@ describe("restore with an object missing from the bucket", () => {
       name: "AccessDenied",
     });
     assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("leaves no folder made for the file it stopped on", async () => {
+    snapshot = {
+      entries: new Map([["/data/deep/x.txt", { ...at, hash: "bbb" }]]),
+      dirs: ["/data"],
+    };
+    failures.set("bbb", named("AccessDenied"));
+
+    await assert.rejects(restore([], { set: "photos", output }), {
+      name: "AccessDenied",
+    });
+    assert.deepEqual(readdirSync(output), []);
   });
 
   it("leaves the exit code alone when nothing is missing", async () => {
@@ -526,6 +568,21 @@ describe("restore with a corrupt object in the bucket", () => {
     assert.deepEqual(result.deleted, []);
     assert.equal(recordReads, 0);
     assert.equal(process.exitCode, 1);
+  });
+
+  it("leaves no folder that only a corrupt file would have filled", async () => {
+    snapshot = {
+      entries: new Map([
+        ["/data/kept.txt", { ...at, hash: "aaa" }],
+        ["/data/deep/bad.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+    failures.set("bbb", new IntegrityError("Integrity check failed"));
+
+    await restore([], { set: "photos", output });
+
+    assert.deepEqual(readdirSync(join(output, "data")), ["kept.txt"]);
   });
 });
 
@@ -615,6 +672,47 @@ describe("restore with a name this disk refuses", () => {
     assert.deepEqual(fetched, ["aaa", "bbb", "aaa"]);
     assert.equal(process.exitCode, savedExitCode);
   });
+
+  it("leaves none of the folders a refused folder name stopped partway", async () => {
+    // `mkdir` makes `data`, `new` and `sub` before the long name fails it.
+    snapshot = {
+      entries: new Map([
+        [`/data/new/sub/${long}/inner.txt`, { ...at, hash: "aaa" }],
+      ]),
+      dirs: ["/data"],
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.equal(result.refused.length, 1);
+    assert.deepEqual(readdirSync(output), []);
+  });
+
+  it(
+    "reports a file on a drive that isn't there, rather than hang",
+    {
+      skip: process.platform === "win32" ? false : "a Windows drive letter",
+      timeout: 10_000,
+    },
+    async (t) => {
+      const letter = [..."ZYXWVUTSRQPONMLKJIHGFED"].find(
+        (l) => !existsSync(`${l}:\\`),
+      );
+      if (letter === undefined) {
+        t.skip("every drive letter is in use");
+        return;
+      }
+      const path = `${letter}:\\data\\a.txt`;
+      snapshot = {
+        entries: new Map([[path, { ...at, hash: "aaa" }]]),
+        dirs: [`${letter}:\\data\\`],
+      };
+
+      const result = await restore([], { set: "photos" });
+
+      assert.deepEqual(result.refused, [path]);
+    },
+  );
 
   it(
     "refuses a `:` in a name before writing anything, rather than into a stream",

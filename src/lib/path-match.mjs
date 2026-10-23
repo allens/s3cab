@@ -113,20 +113,29 @@ export const pathKey = (folder) => normalize(folder).replace(/\/+$/, "");
  * folder matches a path that equals it or lies under it (a `/`-boundary prefix),
  * separators unified and case folded for a Windows-shaped path, a trailing
  * separator ignored — so `/` is the root, and every absolute POSIX path is under
- * it. `restore`'s path filters, and the snapshot reader's test that a row's path
- * is under a `@SET DIR` (ADR-0101).
+ * it. Only a path of the folder's own kind, Windows or POSIX: normalized, a share
+ * path starts `//`, which `/` would otherwise claim. `restore`'s path filters,
+ * and the snapshot reader's test that a row's path is under a `@SET DIR`
+ * (ADR-0101).
  * @param {string[]} folders - Paths to match under
  * @returns {((path: string) => boolean) | undefined} `undefined` when no folder
  *   is given, or all are blank
  */
 export function pathMatcher(folders) {
-  const needles = folders.filter((folder) => folder.trim() !== "").map(pathKey);
+  const needles = folders
+    .filter((folder) => folder.trim() !== "")
+    .map((folder) => ({ key: pathKey(folder), windows: foldsCase(folder) }));
   if (needles.length === 0) {
     return undefined;
   }
-  return (path) => {
-    const hay = normalize(path);
-    return needles.some((n) => hay === n || hay.startsWith(n + posix.sep));
+  return (p) => {
+    const { path, foldCase: windows } = preparePath(p);
+    const hay = windows ? path.toLowerCase() : path;
+    return needles.some(
+      (n) =>
+        n.windows === windows &&
+        (hay === n.key || hay.startsWith(n.key + posix.sep)),
+    );
   };
 }
 
