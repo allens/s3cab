@@ -475,14 +475,24 @@ export async function fileChange(path, recorded) {
   } catch (error) {
     // try/catch, not `.catch()`: a synchronous throw (a path `lstat` rejects
     // outright) has to be caught here too, or it escapes the transform.
-    return isENOENT(error)
-      ? { reason: "removed" }
-      : { reason: "unreadable", cause: error };
+    return fileChangeFrom(error);
   }
   const { size, mtime } = statProps(current);
   const changed = size !== recorded.size || mtime !== recorded.mtime;
   return changed ? { reason: "changed" } : undefined;
 }
+
+/**
+ * The {@link FileChange} a failure to hash or `lstat` a file stands for.
+ * @param {unknown} error
+ * @returns {FileChange}
+ */
+const fileChangeFrom = (error) =>
+  error instanceof ChangedWhileReadError
+    ? { reason: "changed" }
+    : isENOENT(error)
+      ? { reason: "removed" }
+      : { reason: "unreadable", cause: error };
 
 /**
  * Upload the snapshot manifest itself — the **last** step of any backup, which
@@ -679,7 +689,7 @@ export async function uploadSnapshot({
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
-  /** @type {Drift[]} files that changed or went missing while hashed */
+  /** @type {Drift[]} files that failed their hash */
   const unhashed = [];
 
   /** One row at a time, so hashing and sending interleave per file. */
@@ -689,14 +699,7 @@ export async function uploadDir({ bucket, dir, excludePath }) {
       try {
         props = await fileProps(path);
       } catch (error) {
-        unhashed.push({
-          path,
-          ...(error instanceof ChangedWhileReadError
-            ? { reason: "changed" }
-            : isENOENT(error)
-              ? { reason: "removed" }
-              : { reason: "unreadable", cause: error }),
-        });
+        unhashed.push({ path, ...fileChangeFrom(error) });
         continue;
       }
       yield /** @type {SnapshotRow} */ ([path, props]);
