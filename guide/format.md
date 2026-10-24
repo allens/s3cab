@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-23.
+This is the spec of 2026-10-24.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -234,7 +234,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-23
+@S3CAB    SPEC                                                        2026-10-24
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -333,9 +333,9 @@ A reader still decompresses what it is given, not what was promised:
   joined, as `gunzip` does. Two snapshots joined that way then read as rows after the `.`,
   and are refused whole; a reader that stops after the first stream restores the older one
   and reports nothing.
-- **Bytes after a stream that don't start another** make the file damaged, with one
-  exception: s3cab, through Node's gunzip, stops at a zero byte there, and ignores it and
-  everything after it.
+- **A zero byte after a stream ends the file**: it and everything after it are ignored, as
+  Node's gunzip does for s3cab.
+- **Any other byte after a stream that doesn't start another** makes the file damaged.
 - **Any gzip error** makes the file damaged, the CRC-32 and length check at its very end
   included, even when the text before it looks whole.
 
@@ -350,7 +350,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-23
+@S3CAB    SPEC                                                        2026-10-24
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -398,7 +398,9 @@ For a file row:
 - **mtime** — the file's modification time as exactly `YYYY-MM-DDTHH:MM:SS.sssZ`: 24
   characters, always three fractional digits, always a literal trailing `Z`. Never a
   `+00:00` offset, never a comma for the decimal point, never a different digit count. And
-  always a real instant: a day the calendar has, hours `00` to `23`, seconds `00` to `59`.
+  always a real instant: a day the proleptic Gregorian calendar has, hours `00` to `23`,
+  seconds `00` to `59`. That calendar's year `0000` is a leap year, and its October 1582
+  has all 31 days, whatever a date library says.
   Many date parsers turn 30 February into 2 March, or hour 24 into the next day, without a
   word.
 - **path** — absolute, in the OS's native style, last on the line so the padded columns
@@ -411,6 +413,9 @@ five fields, padding aside, are exactly:
 
 | `@S3CAB` | `FORMAT` | `size` | `time` | `https://s3cab.plantegral.com/guide/format` |
 | --- | --- | --- | --- | --- |
+
+The first four are trimmed, like every leading field. The last is the address verbatim,
+like every last field, so a heading with a fifth tab or a trailing space isn't one.
 
 It names the size and time columns because Excel's AutoFilter takes row 1 as its headings,
 and ends with the address of this page, so a file found on its own says where it is
@@ -442,10 +447,11 @@ a tool adds, `BY`, `START`'s zone and `FINISH`'s duration. No reader depends on 
 exact duration is `FINISH` minus `START`. Column 2 is trimmed on reading like every leading
 field, so a value written there loses any spaces at either end.
 
-The canonical form of a file row and of a `@SET DIR` row, written out as JSON strings so
-every tab and space shows:
+The canonical form of the heading row, a file row and a `@SET DIR` row, written out as JSON
+strings so every tab and space shows:
 
 ```
+"@S3CAB\tFORMAT                                                          \t        size\ttime                    \thttps://s3cab.plantegral.com/guide/format\n"
 "-\t3b8e4c2d9a7f6e5b1c0d8a9b7e6f5c4d3b2a1908f7e6d5c4b3a21807f6e5c0a1\t     4915200\t2025-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg\n"
 "@SET\tDIR                                                             \t            \t                        \t/home/me/Photos/\n"
 ```
@@ -683,7 +689,9 @@ runs through a `DIR` with no file row under it breaks nothing. On Windows,
 name one file: s3cab never writes more than one of them, and a hand-edited file that holds
 several meets the destination's rules instead (see [reading](#reading)). So do `C:\P\a` and
 `C:/P/a/b.txt`: the first row in the file restores, and the other is reported as a
-collision or as in the way, exit 1.
+collision or as in the way, exit 1. After an exact prefix, though, any separator of the
+path's kind counts: `C:\P\a` runs through `C:\P\a/c.txt`, and both rows are refused. A POSIX
+path's only separator is `/`.
 
 **How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
 this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
@@ -692,10 +700,12 @@ claim `…\trees\edgeX\file.txt`. Decide first whether the `DIR` is a
 and split both the directory and the path into segments: a valid path has no empty
 segment, so a `DIR` with a doubled separator anywhere after its root matches nothing, and
 every path under it is refused. Nor does a `DIR` that isn't an absolute path match
-anything. Which separators count depends on the path, not the machine reading it: a
-Windows path splits on `/` *and* `\`, any other on `/` alone, since there a `\` is an
-ordinary character in a filename — so a Windows snapshot reads correctly on a POSIX
-machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or POSIX, so
+anything, nor a share `DIR` with no server or no share name (`\\`, `\\server\`). The root is
+compared like the segments, so `c:\` and `C:/` are one root, and `\\nas\photos\` and
+`//NAS/photos/` one share. Which separators count depends on the path, not the machine
+reading it: a Windows path splits on `/` *and* `\`, any other on `/` alone, since there a
+`\` is an ordinary character in a filename — so a Windows snapshot reads correctly on a
+POSIX machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or POSIX, so
 a POSIX `/` holds no `\\server\share` path. Where several directories match, the
 **longest wins**, counted in segments, so a member directory nested inside another takes
 precedence over its parent. Two that match equally, such as a `DIR` written twice, are one
@@ -721,7 +731,9 @@ looking. Restoring to a chosen directory, it writes each file to
   `<output>\P\`.
 - A root has no name of its own:
   - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
-    lands at `<output>\C\Users\me\a.txt`;
+    lands at `<output>\C\Users\me\a.txt`. The letter is spelled as the `@SET DIR` row
+    spells it, so `d:\` makes `d`, which only a destination that keeps case can tell from
+    `D`;
   - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
   - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
     they could mix with that one's folder, so s3cab refuses a restore that reaches both.
@@ -775,7 +787,9 @@ there the restored time is rounded to what the disk keeps.
 **The last line of every snapshot and deletion record is exactly `.`, and it means the file
 is complete.** A file without it was cut short, whatever the cause, so one check catches
 every kind. It is a terminator, not a row: the one line without five fields, and whose first
-field isn't a type. Like every line it ends with LF, so a `.` without its LF doesn't count:
+field isn't a type. It is the whole line, byte for byte: a line whose first field trims to
+`.` but holds anything more, such as `. ` or `.` and a tab, is neither the `.` nor a row, and
+refuses the file. Like every line it ends with LF, so a `.` without its LF doesn't count:
 the file was cut there. gzip does notice a cut-short file, but only at the end: `gunzip -c`
 and Python's `gzip` module both hand over every line they can decompress *before* reporting
 the cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of
@@ -923,14 +937,19 @@ For a restorer, or anything else that reads the files.
 - Read every snapshot and deletion record by the [five reading rules](#reading-the-text-five-rules-that-hold-everywhere):
   strict UTF-8, split on LF alone, no escaping, the leading fields trimmed, and the last
   taken verbatim after the fourth tab.
-- Decompress a snapshot as gzip, [every stream in turn](#snapshot-files). Other bytes after
-  a stream, or any gzip error, make the file damaged.
+- Decompress a snapshot as gzip, [every stream in turn](#snapshot-files). A zero byte after
+  a stream ends the file. Any other byte there that doesn't start a stream, or any gzip
+  error, makes the file damaged.
 - Asked for a set's latest snapshot, s3cab takes the key directly under
-  `snapshots/<set>/` whose [name](#the-last-line) sorts last. It ignores any key not named
-  exactly `YYYY-MM-DDTHHMM.tsv.gz`, and any key in a folder below, such as
-  `snapshots/<set>/old/2099-01-01T0000.tsv.gz`. It doesn't fall back to an earlier one when
-  that one is refused. Neither the upload time
-  nor `START` decides.
+  `snapshots/<set>/` whose [name](#the-last-line) sorts last:
+  - It ignores any key not named exactly `YYYY-MM-DDTHHMM.tsv.gz`, digits in those places
+    and nothing more.
+  - It doesn't check that the digits make a date, so a hand-placed `2026-13-45T9999.tsv.gz`
+    counts, and sorts by its text like any other.
+  - It ignores any key in a folder below, such as
+    `snapshots/<set>/old/2099-01-01T0000.tsv.gz`.
+  - It doesn't fall back to an earlier one when that one is refused.
+  - Neither the upload time nor `START` decides.
 - Take a row's type from its first field, and an `@` row's property from its second, each
   trimmed and compared case-sensitively.
 - Check every snapshot and deletion record as [valid and invalid files](#valid-and-invalid-files)

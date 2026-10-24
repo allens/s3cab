@@ -845,7 +845,13 @@ describe("requestErrorRelay network retries", () => {
     assert.equal(output, "", "a single fast retry should be silent");
   });
 
-  it("reports the wait, then the recovery, for a real interruption", async () => {
+  it("reports the wait, then the recovery, for a real interruption", async (t) => {
+    // The clock is faked because the line names what is left of the window after
+    // the first retry, and half a second spent there (its random wait, a slow
+    // runner) rounds "2 minutes" down to "1 minute, 59 seconds". Pinning the
+    // random wait only keeps the test quick.
+    t.mock.method(Date, "now", () => 0);
+    t.mock.method(Math, "random", () => 0);
     let calls = 0;
     const next = async () => {
       calls += 1;

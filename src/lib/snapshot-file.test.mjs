@@ -255,6 +255,16 @@ describe("parseSnapshotStream", () => {
         /heading row/,
       );
     });
+
+    it("when the heading row has a field after its URL, which is then part of it", async () => {
+      await refuses(
+        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
+          "guide/format",
+          "guide/format\textra",
+        ),
+        /heading row/,
+      );
+    });
   });
 
   describe("refuses one path and reads the rest (ADR-0101)", () => {
@@ -470,6 +480,24 @@ describe("parseSnapshotStream", () => {
           ],
         ],
       );
+    });
+
+    it("for a share path under a share @SET DIR with no server or no share name", async () => {
+      for (const dir of ["\\\\", "\\\\nas\\", "//nas"]) {
+        const { entries, refused } = await parse(
+          [
+            HEADING,
+            DIR,
+            `@SET\tDIR\t\t\t${dir}`,
+            START,
+            fileRow(hashA, 12, "/home/me/a.txt"),
+            fileRow(hashB, 34, "\\\\nas\\photos\\b.jpg"),
+            TERMINATOR,
+          ].join("\n"),
+        );
+        assert.deepEqual([...entries.keys()], ["/home/me/a.txt"], dir);
+        assert.deepEqual([...refused.keys()], ["\\\\nas\\photos\\b.jpg"], dir);
+      }
     });
 
     it("for a path that is a nested @SET DIR, though inside the outer one", async () => {
