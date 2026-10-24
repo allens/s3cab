@@ -149,6 +149,7 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
   }
 
   let hash;
+  let read = size;
   // Slurp small files (one-shot crypto.hash) and stream larger ones to bound
   // memory. The 5 MB boundary was chosen empirically on real data; worth
   // re-measuring during any future perf pass (proposals/performance.md).
@@ -170,10 +171,20 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
     });
     await pipeline(source, hasher);
     hash = hasher.digest("hex");
+    read = source.bytesRead;
   } else if (size) {
-    hash = crypto.hash("sha256", readFileSync(path), "hex");
+    const bytes = readFileSync(path);
+    hash = crypto.hash("sha256", bytes, "hex");
+    read = bytes.length;
   } else {
     hash = EMPTY_DIGEST;
+  }
+  // The row would pair the `lstat`'s size with bytes of another length. Not a
+  // second `stat` to catch a same-length change too: per-file cost on the hot path.
+  if (read !== size) {
+    throw new Error(
+      `File changed while it was read (${read} bytes, where it had ${size}): ${path}`,
+    );
   }
 
   return {
