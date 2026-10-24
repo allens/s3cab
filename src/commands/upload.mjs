@@ -1,7 +1,11 @@
 import assert from "node:assert";
 import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
-import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
+import {
+  ChangedWhileReadError,
+  MissingArgError,
+  ParseArgsError,
+} from "../lib/error.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
@@ -147,9 +151,22 @@ export async function upload(setName, options = {}) {
     // supplies the bucket and applies its env layer (loadSet, ADR-0022).
     const targetBucket = bucket ?? loadSet(setName).bucket;
 
+    const target = bucket ? `--bucket ${bucket}` : setName;
+
     // prop() does the file validation (rejects non-regular files) and the
     // streaming SHA-256; reuse it rather than re-deriving either here (#6).
-    const props = await prop(file);
+    let props;
+    try {
+      props = await prop(file);
+    } catch (error) {
+      if (error instanceof ChangedWhileReadError) {
+        throw fileUnconfirmedError(file, target, {
+          reason: "changed",
+          cause: error,
+        });
+      }
+      throw error;
+    }
     const { hash, size } = props;
 
     // The same window the bulk paths guard (ADR-0069): hashing then re-reading to
@@ -161,11 +178,7 @@ export async function upload(setName, options = {}) {
     // no concept of, and its dedup/skip-list machinery is dead weight for one file.
     const change = await fileChange(file, props);
     if (change) {
-      throw fileUnconfirmedError(
-        file,
-        bucket ? `--bucket ${bucket}` : setName,
-        change,
-      );
+      throw fileUnconfirmedError(file, target, change);
     }
 
     const uploaded = await putObject(targetBucket, hash, file, { force });

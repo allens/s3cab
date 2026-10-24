@@ -55,12 +55,13 @@ const configUri = (bucket, set, file) =>
 
 /**
  * A marker for this machine, claimed now.
- * @param {string} [created] - The set's `CREATED`, kept on a takeover; a new set's is now
+ * @param {string} [created] - The set's `CREATED`, kept on a takeover; a new set's, or an empty one, is now
  * @returns {SetInfo}
  */
 export function freshInfo(created) {
   const claimed = localMoment("seconds").instant;
-  return { owner: userAtMachine(), claimed, created: created ?? claimed };
+  // `||`, not `??`: a `.info` with no `CREATED` line parses as an empty one.
+  return { owner: userAtMachine(), claimed, created: created || claimed };
 }
 
 /**

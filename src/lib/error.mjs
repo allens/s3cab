@@ -166,6 +166,25 @@ export class IntegrityError extends Error {
 }
 
 /**
+ * A file whose read returned another number of bytes than its `lstat` reported:
+ * it changed while `fileProps` (lib/file-props.mjs) hashed it.
+ *
+ * A subclass because `upload --file` and the folder seed (`uploadDir`) catch it
+ * *by type*, to report the file as changed rather than unreadable. The snapshot
+ * pass needs no type: any hashing failure there is an `#error` row.
+ */
+export class ChangedWhileReadError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "ChangedWhileReadError";
+  }
+}
+
+/**
  * The missing-argument sentence, given an argument's *display* form. One home for
  * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's
