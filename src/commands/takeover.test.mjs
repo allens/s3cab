@@ -111,6 +111,24 @@ describe("takeover", () => {
     assert.match(warnings.join("\n"), /from bob@laptop/);
   });
 
+  it("gives a marker with no CREATED, or an empty one, the new CLAIMED", async () => {
+    for (const marker of [
+      "OWNER=bob@laptop\nCLAIMED=2026-01-01T00:00:00.000Z\n",
+      "OWNER=bob@laptop\nCLAIMED=2026-01-01T00:00:00.000Z\nCREATED=\n",
+    ]) {
+      await using dir = await mkTmpDir();
+      useTempHome(dir.path);
+      texts.clear();
+      texts.set(INFO, marker);
+
+      await takeover("photos", [], { bucket: "b" });
+
+      const info = fields(texts.get(INFO));
+      assert.match(info.CREATED ?? "", /^\d{4}-/);
+      assert.equal(info.CREATED, info.CLAIMED);
+    }
+  });
+
   it("claims a set with no marker, CREATED being the moment it claimed", async () => {
     // A set another client wrote: snapshots, and neither a marker nor s3cab's
     // config. The conditional create stands in for the rewrite.

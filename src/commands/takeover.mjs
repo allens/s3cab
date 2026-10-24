@@ -87,7 +87,8 @@ export async function takeover(name, directories = [], options = {}) {
     }
   }
 
-  const claim = freshInfo(info?.created);
+  // `||`, not `??`: a `.info` with no `CREATED` line reads as an empty one.
+  const claim = freshInfo(info?.created || undefined);
   if (info) {
     await writeRemoteInfo(set.bucket, name, claim);
   } else {
