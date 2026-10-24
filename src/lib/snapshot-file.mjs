@@ -24,6 +24,7 @@ import {
 import { s3cabDir, tildeify } from "./home.mjs";
 import {
   foldsCase,
+  isMatchableDir,
   pathKey,
   pathMatcher,
   preparePath,
@@ -78,7 +79,7 @@ export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
  * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
  * moves when the format does, never for a wording edit to guide/format.md.
  */
-export const SPEC_DATE = "2026-10-23";
+export const SPEC_DATE = "2026-10-24";
 
 /**
  * The last line of every whole s3cab file, and its completeness check
@@ -1045,8 +1046,9 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // snapshot lists a folder's files together, so each answer is kept for the
   // next row: without that, the passes cost a 100k-row read 20% (POSIX paths)
   // to 40% (Windows) more; with it, nothing measurable.
-  const underDir = pathMatcher(dirs) ?? (() => false);
-  const dirKeys = new Set(dirs.map(pathKey));
+  const members = dirs.filter(isMatchableDir);
+  const underDir = pathMatcher(members) ?? (() => false);
+  const dirKeys = new Set(members.map(pathKey));
   const dirParents = new Set(
     [...dirKeys].map((key) => key.slice(0, key.lastIndexOf("/"))),
   );
@@ -1225,8 +1227,10 @@ async function* utf8Lines(input) {
  * @param {string} line
  */
 export const isHeadingRow = (line) => {
-  const [type = "", col2 = "", size = "", time = "", url = ""] =
+  const [type = "", col2 = "", size = "", time = "", ...rest] =
     line.split("\t");
+  // A fifth tab is part of the last field, as in every row.
+  const url = rest.join("\t");
   return (
     type.trim() === S3CAB &&
     col2.trim() === FORMAT &&

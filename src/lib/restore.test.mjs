@@ -200,9 +200,8 @@ describe("reroot", () => {
   });
 
   it("knows a drive by its shape, not by how many segments a root has", () => {
-    // Both hand-edited: a UNC server with no share, and a device path.
-    const map = reroot(["\\\\nas\\", "\\\\?\\E:\\"], [], "out");
-    assert.equal(map("\\\\nas\\a.txt"), join(resolve("out"), "nas", "a.txt"));
+    // Hand-edited: a device path, whose last segment is the drive.
+    const map = reroot(["\\\\?\\E:\\"], [], "out");
     assert.equal(map("\\\\?\\E:\\b.txt"), join(resolve("out"), "E", "b.txt"));
   });
 
@@ -371,6 +370,17 @@ describe("reroot", () => {
         map(file),
         join(resolve("out"), ...lands.split("/")),
         nested,
+      );
+    }
+  });
+
+  it("matches nothing with a share @SET DIR that has no server or no share name", () => {
+    for (const dir of ["\\\\", "\\\\nas\\", "//nas"]) {
+      const map = reroot([dir], ["\\\\nas\\photos\\b.jpg"], "out");
+      assert.throws(
+        () => map("\\\\nas\\photos\\b.jpg"),
+        /not under any backed-up directory/,
+        dir,
       );
     }
   });

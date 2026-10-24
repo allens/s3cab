@@ -2,9 +2,9 @@ import { join, posix, resolve, win32 } from "node:path";
 
 import {
   foldsCase,
+  isMatchableDir,
   pathMatcher,
   preparePath,
-  rootLength,
 } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
@@ -152,19 +152,9 @@ export const COARSEST_DISK_MS = 2000;
  */
 export function reroot(dirs, paths, output) {
   const roots = dirs
-    // A `DIR` that isn't absolute, or holds a doubled separator past its root
-    // (an empty segment, which no valid path has), matches nothing
-    // (guide/format.md). Dropped here because `segments` below drops the root
-    // and the empties, which would match it as an absolute path without them.
-    // Trailing separators are ignored, as everywhere.
-    .filter((dir) => {
-      const { path, foldCase } = preparePath(dir);
-      if (!foldCase && !path.startsWith(posix.sep)) {
-        return false;
-      }
-      const names = path.slice(rootLength(path)).replace(/\/+$/, "");
-      return names === "" || !names.split(posix.sep).includes("");
-    })
+    // Dropped here because `segments` below drops the root and the empties,
+    // which would match a `DIR` that matches nothing as one that does.
+    .filter(isMatchableDir)
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
       // Not `preparePath`'s own `base`: that answers "what follows the last

@@ -90,6 +90,26 @@ export const rootLength = (path) =>
   path.startsWith("//") ? 2 : foldsCase(path) ? 3 : 1;
 
 /**
+ * Whether a `@SET DIR` can match any path (guide/format.md): absolute, with no
+ * empty segment past its root, and a share's naming both server and share.
+ * Trailing separators are ignored, as everywhere. Without this, `\\` would
+ * hold every share path and `\\server\` every share on that server.
+ * @param {string} dir
+ * @returns {boolean}
+ */
+export function isMatchableDir(dir) {
+  const { path, foldCase } = preparePath(dir);
+  if (!foldCase && !path.startsWith(posix.sep)) {
+    return false;
+  }
+  const names = path.slice(rootLength(path)).replace(/\/+$/, "");
+  const segments = names === "" ? [] : names.split(posix.sep);
+  return (
+    !segments.includes("") && (!path.startsWith("//") || segments.length >= 2)
+  );
+}
+
+/**
  * Normalize a path for containment: separators to `/` and case folded for a
  * Windows-shaped path, both left alone for a POSIX one.
  * @param {string} p
