@@ -3,7 +3,11 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
-import { ContentMismatchError, isENOENT } from "./error.mjs";
+import {
+  ChangedWhileReadError,
+  ContentMismatchError,
+  isENOENT,
+} from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
@@ -670,15 +674,31 @@ export async function uploadSnapshot({
  * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
  * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
  *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
- *   (the rest were already stored); `skipped` = files the guard refused.
+ *   (the rest were already stored); `skipped` = files that failed their hash or
+ *   the guard.
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
+  /** @type {Drift[]} files that changed or went missing while hashed */
+  const unhashed = [];
 
   /** One row at a time, so hashing and sending interleave per file. */
   async function* rows() {
     for (const path of files) {
-      const props = await fileProps(path);
+      let props;
+      try {
+        props = await fileProps(path);
+      } catch (error) {
+        unhashed.push({
+          path,
+          ...(error instanceof ChangedWhileReadError
+            ? { reason: "changed" }
+            : isENOENT(error)
+              ? { reason: "removed" }
+              : { reason: "unreadable", cause: error }),
+        });
+        continue;
+      }
       yield /** @type {SnapshotRow} */ ([path, props]);
     }
   }
@@ -691,7 +711,7 @@ export async function uploadDir({ bucket, dir, excludePath }) {
   if (failure) {
     throw failure;
   }
-  return { candidates, uploaded, skipped: drifted };
+  return { candidates, uploaded, skipped: [...unhashed, ...drifted] };
 }
 
 /**

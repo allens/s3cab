@@ -35,15 +35,21 @@ describe("fileProps and a file that changed while it was read", () => {
 
   it("refuses one read whole, and one streamed, naming the file", async () => {
     const real = fs.statSync(FILE).size;
-    // 1 byte is under the streaming threshold, 5 MB at it.
-    for (const reported of [1n, 5_000_000n]) {
-      size = reported;
+    // Only the streamed read reports its start, so each case proves its branch.
+    for (const [reported, streamed] of [
+      [1n, false],
+      [5_000_000n, true],
+    ]) {
+      size = /** @type {bigint} */ (reported);
+      let started = false;
       await assert.rejects(
-        () => fileProps(FILE),
+        () =>
+          fileProps(FILE, undefined, { onHashStart: () => (started = true) }),
         new RegExp(
-          `^Error: File changed while it was read \\(${real} bytes, where it had ${reported}\\): .*hello-world\\.txt$`,
+          `^ChangedWhileReadError: File changed while it was read \\(read ${real} bytes; its size was ${reported}\\): .*hello-world\\.txt$`,
         ),
       );
+      assert.equal(started, streamed);
     }
   });
 });

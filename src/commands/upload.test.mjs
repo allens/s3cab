@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
+import { ChangedWhileReadError } from "../lib/error.mjs";
 
 /** @import { Drift, FileChange } from "../lib/upload.mjs" */
 
@@ -38,6 +39,8 @@ let fileChangeCalls = [];
 /** @type {FileChange | undefined} what the faked guard reports */
 let fileChangeResult;
 let putResult = true;
+/** @type {Error | undefined} what the faked hashing throws */
+let propError;
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -51,6 +54,9 @@ mock.module("./prop.mjs", {
   exports: {
     prop: async (/** @type {string} */ path) => {
       propCalls.push(path);
+      if (propError) {
+        throw propError;
+      }
       return { hash: "abc123", size: 42 };
     },
   },
@@ -101,6 +107,7 @@ beforeEach(() => {
   fileChangeCalls = [];
   fileChangeResult = undefined;
   putResult = true;
+  propError = undefined;
 });
 
 describe("upload validation", () => {
@@ -294,6 +301,16 @@ describe("upload --file confirmation guard", () => {
       [],
       "the stale fingerprint was never used",
     );
+  });
+
+  it("says the same of a file that changed size while it was hashed", async () => {
+    propError = new ChangedWhileReadError("grew");
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw" }),
+      /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw/,
+    );
+    assert.deepEqual(putObjectCalls, []);
   });
 
   it("names the retry with the set it was given", async () => {

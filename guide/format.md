@@ -178,10 +178,10 @@ The rules for writers:
   lock its own holder out. With no `.info` there, refuse too: the set has no holder until
   one takes it over. Where you keep the pair is your tool's choice; s3cab keeps it per set,
   and forgets it once it stops matching, since it never can again.
-- **Taking a set over** rewrites `OWNER` and `CLAIMED` and keeps `CREATED`. s3cab
-  rewrites it with a plain PUT, not a conditional one, and a `.info` with no `CREATED`, or
-  an empty one, gets the new `CLAIMED`. A set with no `.info` is taken over by creating one
-  with a conditional PUT, `CREATED` equal to `CLAIMED`.
+- **Taking a set over** rewrites `OWNER` and `CLAIMED`, and keeps `CREATED`, or sets it to
+  the new `CLAIMED` when it is missing or empty. s3cab rewrites it with a plain PUT, not a
+  conditional one. A set with no `.info` is taken over by creating one with a conditional
+  PUT, `CREATED` equal to `CLAIMED`.
 - **Reading needs no `.info`**: nothing a restore needs is in it.
 
 Three gaps are known, and left open:
@@ -902,8 +902,8 @@ gone by the time it is read is invalid too, and explains nothing.
 A record that isn't UTF-8 isn't distrusted for that alone. Read it with U+FFFD in place of
 the bad bytes, and judge each line as it then reads:
 
-- one in the heading row, or in a `#deleted` row's hash, size or instant, makes that line
-  wrong and the record invalid;
+- one in the heading row, in the closing `.` line, at the start of a line, or in a
+  `#deleted` row's hash, size or instant, makes that line wrong and the record invalid;
 - one in a last field, or in a row a reader skips, changes nothing;
 - no line is lost or joined to another, since an LF byte is never part of another
   character.
@@ -1001,7 +1001,7 @@ For a restorer, or anything else that reads the files.
   - a 403, which S3 also answers for a missing key when the caller may not list the
     bucket, and the records can't tell that from a permissions fault;
   - a request that still fails after its retries;
-  - any failure but a 404 listing or reading the deletion records.
+  - any failure listing the deletion records, and any but a miss reading one.
 - Retry a request before giving up on a dropped connection or a 5xx, which is also how S3
   throttles (`503 SlowDown`): neither says anything about the file. Each wait is random,
   under a ceiling that doubles every time. s3cab retries:

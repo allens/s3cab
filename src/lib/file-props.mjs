@@ -1,6 +1,7 @@
 import crypto, { createHash } from "node:crypto";
 import { createReadStream, lstatSync, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
+import { ChangedWhileReadError } from "./error.mjs";
 
 /** @import { BigIntStats } from "node:fs" */
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
@@ -149,7 +150,7 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
   }
 
   let hash;
-  let read = size;
+  let read = 0;
   // Slurp small files (one-shot crypto.hash) and stream larger ones to bound
   // memory. The 5 MB boundary was chosen empirically on real data; worth
   // re-measuring during any future perf pass (proposals/performance.md).
@@ -182,8 +183,8 @@ export async function fileProps(path, lookup, { onHashStart } = {}) {
   // The row would pair the `lstat`'s size with bytes of another length. Not a
   // second `stat` to catch a same-length change too: per-file cost on the hot path.
   if (read !== size) {
-    throw new Error(
-      `File changed while it was read (${read} bytes, where it had ${size}): ${path}`,
+    throw new ChangedWhileReadError(
+      `File changed while it was read (read ${read} bytes; its size was ${size}): ${path}`,
     );
   }
 
