@@ -1286,10 +1286,13 @@ export function renderUpload(result, { color = false } = {}) {
       line,
       ``,
       `Skipped ${countOf(skipped.length, "file")} that couldn't be confirmed while being read:`,
-      ...skipped.map(({ path, reason }) => `  ${path}   (${reason})`),
+      ...skipped.map(({ path, reason, cause }) => {
+        const code = /** @type {NodeJS.ErrnoException} */ (cause)?.code;
+        return `  ${path}   (${reason}${code ? `: ${code}` : ""})`;
+      }),
       ``,
       `Nothing references them, so there is nothing to repair — a backup will ` +
-        `store them:`,
+        `store them once they can be read and have stopped changing:`,
       `  ${shellCommand(`s3cab backup ${set}`, color)}`,
     ].join("\n");
   }

@@ -11,6 +11,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
+import { ChangedWhileReadError } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -129,6 +130,8 @@ let driftAfterHash = new Set();
 let rewrittenAfterHash = [];
 /** @type {string[]} `hash:`/`put:` events interleaved, proving lazy row production. */
 let callOrder = [];
+/** @type {Map<string, Error>} what hashing a path throws, in place of its props */
+const failHash = new Map();
 // Reproduce drift through the real mechanism rather than by faking props: the
 // wrapper returns the genuine props for the bytes it hashed, then edits the file,
 // so what the guard re-stats really is a different file from the one hashed. The
@@ -141,6 +144,10 @@ mock.module("./file-props.mjs", {
       /** @type {string} */ path,
       /** @type {HashSource} */ lookup,
     ) => {
+      const failure = failHash.get(path);
+      if (failure) {
+        throw failure;
+      }
       const props = await fileProps(path, lookup);
       callOrder.push(`hash:${basename(path)}`);
       if (driftAfterHash.has(path)) {
@@ -176,6 +183,7 @@ beforeEach(() => {
   driftAfterHash = new Set();
   rewrittenAfterHash = [];
   callOrder = [];
+  failHash.clear();
 });
 
 /**
@@ -1102,6 +1110,35 @@ describe("uploadDir (seed a folder's objects)", () => {
       .sort();
     assert.deepEqual(putFiles.map(({ uri }) => uri).sort(), expected);
     assert.equal(result.uploaded, 2);
+  });
+
+  it("skips a file whose hash fails, by its reason, and seeds the rest", async () => {
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    const eacces = Object.assign(new Error("denied"), { code: "EACCES" });
+    failHash.set(join(root, "a.txt"), new ChangedWhileReadError("grew"));
+    failHash.set(
+      join(root, "c.txt"),
+      Object.assign(new Error("gone"), { code: "ENOENT" }),
+    );
+    failHash.set(join(root, "sub", "d.txt"), eacces);
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    assert.deepEqual(
+      putFiles.map(({ uri }) => uri),
+      [`s3://seed-bucket/objects/${sha("hello")}`],
+      "b.txt still went up",
+    );
+    assert.deepEqual(result.skipped, [
+      { path: join(root, "a.txt"), reason: "changed" },
+      { path: join(root, "c.txt"), reason: "removed" },
+      { path: join(root, "sub", "d.txt"), reason: "unreadable", cause: eacces },
+    ]);
   });
 
   it("still throws when the transfer itself fails", async () => {

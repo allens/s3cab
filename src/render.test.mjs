@@ -1480,11 +1480,16 @@ describe("renderUpload", () => {
       skipped: [
         { path: "/home/me/Photos/2026/live.raw", reason: "changed" },
         { path: "/home/me/Photos/2026/gone.raw", reason: "removed" },
+        {
+          path: "/home/me/Photos/2026/locked.raw",
+          reason: "unreadable",
+          cause: Object.assign(new Error("busy"), { code: "EBUSY" }),
+        },
       ],
     });
 
     assert.match(text, /uploaded 38 of 40 objects/);
-    assert.match(text, /Skipped 2 files that couldn't be confirmed/);
+    assert.match(text, /Skipped 3 files that couldn't be confirmed/);
     assert.match(
       text,
       / {2}\/home\/me\/Photos\/2026\/live\.raw {3}\(changed\)/,
@@ -1492,6 +1497,10 @@ describe("renderUpload", () => {
     assert.match(
       text,
       / {2}\/home\/me\/Photos\/2026\/gone\.raw {3}\(removed\)/,
+    );
+    assert.match(
+      text,
+      / {2}\/home\/me\/Photos\/2026\/locked\.raw {3}\(unreadable: EBUSY\)/,
     );
     assert.match(text, /nothing to repair/);
     assert.match(text, / {2}s3cab backup photos$/);
