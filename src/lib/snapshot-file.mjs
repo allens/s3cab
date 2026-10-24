@@ -922,16 +922,9 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   const parseLine = (line) => {
     // The five columns, named for their *position* only: what each holds depends
     // on the type in col1, so each earns a real name inside the branch that has
-    // read it. The leading four are space-padded so the raw file reads as
-    // columns, and readers trim them (guide/format.md); col5 is never padded and
-    // never trimmed, because a filename may begin or end with a space. col5 is
-    // the whole rest of the line: a tab in a hand-edited path must reach
-    // `pathFault` and be refused, not cut the path short at the tab.
-    const [col1 = "", col2 = "", col3 = "", col4 = "", ...rest] =
-      line.split("\t");
-    const col5 = rest.join("\t");
-    const type = col1.trim();
-    const property = col2.trim();
+    // read it.
+    const [type, col2, col3, col4, col5] = rowFields(line);
+    const property = col2;
 
     if (!headed) {
       assert(
@@ -962,25 +955,20 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
         return;
       }
       seen.add(path);
-      const fault = fileRowFault(col2.trim(), col3.trim(), col4.trim(), path);
+      const fault = fileRowFault(col2, col3, col4, path);
       if (fault) {
         refuse(path, fault);
       } else {
-        entries.set(path, {
-          size: Number(col3.trim()),
-          mtime: col4.trim(),
-          hash: col2.trim(),
-        });
+        entries.set(path, { size: Number(col3), mtime: col4, hash: col2 });
       }
     } else if (type === ERROR && col5) {
-      errors.set(col5, col2.trim());
+      errors.set(col5, col2);
     } else if (type === SET && property === DIR && col5) {
       dirs.push(col5);
     } else if (type === SNAPSHOT && property === START) {
       // Any other shape reads as no START, for every reader of `instant`:
       // compared as text against deletion instants, it would decide at random.
-      const start = col4.trim();
-      instant = isInstant(start) ? start : undefined;
+      instant = isInstant(col4) ? col4 : undefined;
     } else if (type === SNAPSHOT && property === "BY") {
       by = col5 || undefined;
     } else {
@@ -1227,17 +1215,28 @@ async function* utf8Lines(input) {
  * @param {string} line
  */
 export const isHeadingRow = (line) => {
-  const [type = "", col2 = "", size = "", time = "", ...rest] =
-    line.split("\t");
-  // A fifth tab is part of the last field, as in every row.
-  const url = rest.join("\t");
+  const [type, col2, size, time, url] = rowFields(line);
   return (
-    type.trim() === S3CAB &&
-    col2.trim() === FORMAT &&
-    size.trim() === "size" &&
-    time.trim() === "time" &&
+    type === S3CAB &&
+    col2 === FORMAT &&
+    size === "size" &&
+    time === "time" &&
     url === HEADING_URL
   );
+};
+
+/**
+ * A row's five fields (guide/format.md). The leading four are space-padded so
+ * the raw file reads as columns, and come back trimmed. The last never is,
+ * because a filename may begin or end with a space, and it is the whole rest of
+ * the line: a tab in a hand-edited path must reach `pathFault` and be refused,
+ * not cut the path short at the tab.
+ * @param {string} line
+ * @returns {[string, string, string, string, string]}
+ */
+export const rowFields = (line) => {
+  const [a = "", b = "", c = "", d = "", ...rest] = line.split("\t");
+  return [a.trim(), b.trim(), c.trim(), d.trim(), rest.join("\t")];
 };
 
 /**

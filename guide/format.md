@@ -731,8 +731,9 @@ looking. Restoring to a chosen directory, it writes each file to
   `<output>\P\`.
 - A root has no name of its own:
   - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
-    lands at `<output>\C\Users\me\a.txt`. The letter is spelled as the row spells it, so
-    `d:\` makes `d`, which only a destination that keeps case can tell from `D`;
+    lands at `<output>\C\Users\me\a.txt`. The letter is spelled as the `@SET DIR` row
+    spells it, so `d:\` makes `d`, which only a destination that keeps case can tell from
+    `D`;
   - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
   - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
     they could mix with that one's folder, so s3cab refuses a restore that reaches both.
@@ -940,13 +941,15 @@ For a restorer, or anything else that reads the files.
   a stream ends the file. Any other byte there that doesn't start a stream, or any gzip
   error, makes the file damaged.
 - Asked for a set's latest snapshot, s3cab takes the key directly under
-  `snapshots/<set>/` whose [name](#the-last-line) sorts last. It ignores any key not named
-  exactly `YYYY-MM-DDTHHMM.tsv.gz`, digits in those places and nothing more. s3cab doesn't
-  check that the digits make a date, so a hand-placed `2026-13-45T9999.tsv.gz` counts, and
-  sorts last. It also ignores any key in a folder below, such as
-  `snapshots/<set>/old/2099-01-01T0000.tsv.gz`. It doesn't fall back to an earlier one when
-  that one is refused. Neither the upload time
-  nor `START` decides.
+  `snapshots/<set>/` whose [name](#the-last-line) sorts last:
+  - It ignores any key not named exactly `YYYY-MM-DDTHHMM.tsv.gz`, digits in those places
+    and nothing more.
+  - It doesn't check that the digits make a date, so a hand-placed `2026-13-45T9999.tsv.gz`
+    counts, and sorts by its text like any other.
+  - It ignores any key in a folder below, such as
+    `snapshots/<set>/old/2099-01-01T0000.tsv.gz`.
+  - It doesn't fall back to an earlier one when that one is refused.
+  - Neither the upload time nor `START` decides.
 - Take a row's type from its first field, and an `@` row's property from its second, each
   trimmed and compared case-sensitively.
 - Check every snapshot and deletion record as [valid and invalid files](#valid-and-invalid-files)

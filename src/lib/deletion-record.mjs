@@ -6,6 +6,7 @@ import {
   isHeadingRow,
   isInstant,
   openingRows,
+  rowFields,
   TERMINATOR,
 } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
@@ -109,11 +110,7 @@ export function parseDeletionRecord(text) {
     if (line.trim() === "") {
       continue;
     }
-    const [col1 = "", col2 = "", col3 = "", col4 = "", ...rest] =
-      line.split("\t");
-    const by = rest.join("\t");
-    const type = col1.trim();
-    const [hash, size, instant] = [col2.trim(), col3.trim(), col4.trim()];
+    const [type, hash, size, instant, by] = rowFields(line);
     if (ended) {
       invalid ??= 'rows follow the closing "." line';
     } else if (line === TERMINATOR) {
