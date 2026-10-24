@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import {
   ChangedWhileReadError,
+  ContentMismatchError,
   MissingArgError,
   ParseArgsError,
 } from "../lib/error.mjs";
@@ -181,7 +182,18 @@ export async function upload(setName, options = {}) {
       throw fileUnconfirmedError(file, target, change);
     }
 
-    const uploaded = await putObject(targetBucket, hash, file, { force });
+    let uploaded;
+    try {
+      uploaded = await putObject(targetBucket, hash, file, { force });
+    } catch (error) {
+      if (error instanceof ContentMismatchError) {
+        throw fileUnconfirmedError(file, target, {
+          reason: "changed",
+          cause: error,
+        });
+      }
+      throw error;
+    }
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
 

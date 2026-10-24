@@ -127,14 +127,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
   holding the false time, and restore sets it. Restore's read-back of each time skips these
   on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
-- **A crash can leave wrong bytes under an object's key.** `putFile` (`src/lib/s3.mjs`) hashes
-  the bytes as they stream and, on a mismatch, deletes the object its no-clobber PUT just
-  created. The object is visible in between, so a run killed there leaves bytes that don't hash
-  to their key, which every later backup dedups against and every restore of that content
-  fails on. [guide/format.md](../guide/format.md)'s Uploading rule says to leave nothing
-  stored. The expected digest is known before the PUT, so sending it as
-  `x-amz-checksum-sha256` would have S3 refuse the mismatch for a single-part upload; a
-  multipart one could check its running hash before completing, and abort instead.
 - **`setup` accepts a set that `restore --output` will refuse.** Two member directories with
   the same final name (`C:\a\Photos`, `D:\b\Photos`) back up fine, but `reroot`
   (`src/lib/restore.mjs`) refuses to restore both at once, so the user finds out only when

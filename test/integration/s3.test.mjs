@@ -7,6 +7,7 @@ import { after, before, describe, it } from "node:test";
 import {
   AbortMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  ListMultipartUploadsCommand,
   S3Client,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
@@ -93,15 +94,13 @@ describe("putFile multipart (real bucket)", () => {
     }
   });
 
-  it("verifies the streamed bytes against `sha256` and removes a mismatched object (the C1 guard)", async () => {
+  it("stores nothing when the streamed bytes mismatch `sha256` (the C1 guard)", async () => {
     // The mid-transfer-mutation shape, arranged statically: the file on disk
     // already differs from the digest the caller recorded for it. putFile hashes
-    // the bytes it actually streams, so it must refuse — and because S3 has
-    // accepted the PUT by the time the digest is known, "refuse" must mean the
-    // object is *removed*, not merely reported: a later backup's conditional PUT
-    // would otherwise see the key present and trust the wrong bytes forever.
-    // Single-PUT sized on purpose — the check runs after `upload.done()`
-    // regardless of part count, and the multipart plumbing has its own tests.
+    // the bytes it actually streams and compares before the upload completes, so
+    // a later backup's conditional PUT never finds the wrong bytes under the key.
+    // Both sizes: a single PUT that is never sent, and a multipart upload that is
+    // aborted, leaving no parts behind either.
     const smallFile = join(dir, "mismatch.bin");
     const smallContent = randomBytes(1024);
     writeFileSync(smallFile, smallContent);
@@ -109,16 +108,22 @@ describe("putFile multipart (real bucket)", () => {
       .update(Buffer.concat([smallContent, Buffer.from("stale")]))
       .digest("hex");
     const uri = `s3://${bucket}/objects/${recorded}`;
+    const client = new S3Client(clientConfig());
     try {
-      await assert.rejects(
-        putFile(smallFile, uri, { noClobber: true, sha256: recorded }),
-        { name: "ContentMismatchError" },
-      );
-      assert.equal(
-        await objectExists(uri),
-        false,
-        "the mis-stored object must be removed, not left under the wrong key",
-      );
+      for (const sent of [smallFile, file]) {
+        await assert.rejects(
+          putFile(sent, uri, { noClobber: true, sha256: recorded }),
+          { name: "ContentMismatchError" },
+        );
+        assert.equal(await objectExists(uri), false, `no object from ${sent}`);
+        const { Uploads = [] } = await client.send(
+          new ListMultipartUploadsCommand({
+            Bucket: bucket,
+            Prefix: `objects/${recorded}`,
+          }),
+        );
+        assert.deepEqual(Uploads, [], `no unfinished upload from ${sent}`);
+      }
 
       // And the honest digest still uploads — the guard rejects mismatches,
       // not the feature.
@@ -135,7 +140,7 @@ describe("putFile multipart (real bucket)", () => {
         await deleteObject(trueUri);
       }
     } finally {
-      // Belt and braces: gone already if the removal worked.
+      // Absent unless the guard failed.
       await deleteObject(uri).catch(() => {});
     }
   });

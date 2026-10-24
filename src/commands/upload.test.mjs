@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
-import { ChangedWhileReadError } from "../lib/error.mjs";
+import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 
 /** @import { Drift, FileChange } from "../lib/upload.mjs" */
 
@@ -41,6 +41,8 @@ let fileChangeResult;
 let putResult = true;
 /** @type {Error | undefined} what the faked hashing throws */
 let propError;
+/** @type {Error | undefined} what the faked object PUT throws */
+let putError;
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -71,6 +73,9 @@ mock.module("../lib/objects.mjs", {
       /** @type {object} */ options,
     ) => {
       putObjectCalls.push([bucket, hash, path, options]);
+      if (putError) {
+        throw putError;
+      }
       return putResult;
     },
   },
@@ -108,6 +113,7 @@ beforeEach(() => {
   fileChangeResult = undefined;
   putResult = true;
   propError = undefined;
+  putError = undefined;
 });
 
 describe("upload validation", () => {
@@ -311,6 +317,17 @@ describe("upload --file confirmation guard", () => {
       /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw/,
     );
     assert.deepEqual(putObjectCalls, []);
+  });
+
+  it("says the same of a file that changed while it was sent, forced or not", async () => {
+    putError = new ContentMismatchError("streamed as something else");
+
+    for (const force of [false, true]) {
+      await assert.rejects(
+        () => upload("photos", { file: "/f/photo.raw", force }),
+        /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw/,
+      );
+    }
   });
 
   it("names the retry with the set it was given", async () => {

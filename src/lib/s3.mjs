@@ -732,17 +732,12 @@ export function putObjectParams(uri, { noClobber } = {}) {
  * @param {(transfer: Transfer) => void} [options.onProgress] - Take the transfer's
  *   bytes instead of the built-in byte bar, for a caller drawing its own line.
  * @param {string} [options.sha256] - The content's expected SHA-256 (lowercase
- *   hex). The bytes actually streamed are hashed en route and checked once the
- *   transfer completes, so a file rewritten *during* its upload never leaves
- *   wrong bytes stored under the promised digest: with `noClobber` the
- *   just-created object is deleted and a {@link ContentMismatchError} thrown;
- *   without it the mis-stored object is left in place (see the mismatch branch)
- *   and a plain `Error` reports it.
+ *   hex). The bytes actually streamed are hashed en route and checked before
+ *   the upload completes, so a file rewritten *during* its upload never leaves
+ *   wrong bytes stored under the promised digest.
  * @returns {Promise<boolean>} True if the file was uploaded.
  * @throws {ContentMismatchError} The streamed bytes hash differently from
- *   `sha256` on a `noClobber` upload (the mis-stored object has already been
- *   removed). Without `noClobber` the same mismatch throws a plain `Error` and
- *   the object stays.
+ *   `sha256`. Nothing was stored, and what the key held before is untouched.
  */
 export async function putFile(path, uri, options = {}) {
   const { noClobber, onProgress, sha256 } = options;
@@ -768,6 +763,13 @@ export async function putFile(path, uri, options = {}) {
   // that are not the preimage of the object's key. Tapping the one stream that
   // is being sent costs nothing extra; re-hashing the file afterwards would
   // both double the read and race the same window again.
+  //
+  // The digest is compared when the stream ends, before lib-storage has the
+  // last part: it sends a single PUT, or completes a multipart upload, only
+  // after the body has ended, and on a throw from it aborts the multipart
+  // upload. So a mismatch stores nothing, even if the process dies the moment
+  // after. Not a check after `done()` and a delete: a crash between the two
+  // left the wrong bytes under the key.
   const hasher = sha256 ? createHash("sha256") : undefined;
   const source = createReadStream(path);
   const body = hasher
@@ -776,6 +778,13 @@ export async function putFile(path, uri, options = {}) {
           for await (const chunk of source) {
             hasher.update(chunk);
             yield chunk;
+          }
+          const got = hasher.digest("hex");
+          if (got !== sha256) {
+            throw new ContentMismatchError(
+              `Content changed during upload: ${path} streamed as ${got}, ` +
+                `not the recorded ${sha256}; nothing was stored`,
+            );
           }
         })(),
       )
@@ -842,51 +851,6 @@ export async function putFile(path, uri, options = {}) {
   // run would scroll a wall of identical full bars past whatever line is
   // actually tracking the run.
   progress.clear();
-
-  if (hasher) {
-    const got = hasher.digest("hex");
-    if (got !== sha256) {
-      // The object just stored is the wrong bytes under the promised digest.
-      // Cleaning up is safe only for a no-clobber PUT: `IfNoneMatch: "*"` means
-      // it can only have *created* the key, so deleting it destroys nothing but
-      // what this call wrote a moment ago — which is what lets the mismatch
-      // error certify the store is clean and every later conditional PUT see
-      // the key honestly absent. A forced overwrite has no such proof. The key
-      // may have held a good object that any number of snapshots reference, and
-      // that copy is already gone; deleting the replacement too would turn one
-      // bad upload into a hole every one of those restores would fall into.
-      // Wrong bytes under a name can be overwritten later, a missing object
-      // cannot be recovered — so the force path leaves it and says so.
-      if (!noClobber) {
-        throw new Error(
-          `Couldn't upload '${path}' — it changed while it was being sent, so ` +
-            `this object now holds bytes that don't match the fingerprint it ` +
-            `is named for:\n` +
-            `  ${uri}\n\n` +
-            `It was left in place: the upload was forced, so s3cab can't tell ` +
-            `whether that name already held good content, and removing an ` +
-            `object a snapshot points at would be worse than storing the wrong ` +
-            `bytes. Run the same upload again once the file has stopped ` +
-            `changing — it overwrites this object.`,
-        );
-      }
-      try {
-        await deleteObject(uri);
-      } catch (cause) {
-        throw new Error(
-          `Couldn't back up '${path}' — it changed during its upload, and ` +
-            `removing the mis-stored copy failed too (${uri}). That object ` +
-            `may hold the wrong content for its name: delete it from the ` +
-            `bucket, then back up again.`,
-          { cause },
-        );
-      }
-      throw new ContentMismatchError(
-        `Content changed during upload: ${path} streamed as ${got}, ` +
-          `not the recorded ${sha256}; the mis-stored object was removed`,
-      );
-    }
-  }
 
   if (!isInteractive(process.stderr)) {
     // No bar was drawn — leave one summary line as the log evidence, named by

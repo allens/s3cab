@@ -1335,8 +1335,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
     it was being hashed leaves a row whose hash no whole version of the file ever had.
   - Compare that hash with the key. A checksum your S3 library works out from the bytes it
     sends proves only that they arrived as sent.
-  - If they don't match, leave nothing stored under that key: a store that checked the
-    digest stored nothing, and otherwise delete what it stored, as s3cab does.
+  - If they don't match, leave nothing stored under that key. Compare before the upload
+    completes, as s3cab does: it holds back the last part until the hash matches, and
+    aborts a multipart upload when it doesn't. Deleting the object afterwards leaves it
+    under the key if your tool stops in between.
 
   Either way, don't upload the snapshot, which names an object the repository doesn't hold.
   Content several paths share is sent once, from any one of them. s3cab takes the first in
