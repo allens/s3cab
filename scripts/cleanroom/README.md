@@ -214,6 +214,11 @@ evidence the spec got better. Every reader is still Claude, as was s3cab's
 author, so a gap they all fill the same way can still pass the byte-for-byte
 comparison.
 
+**What a run costs**, measured on real set 3 (Fable 5.1 at `xhigh`, in CI, 2026-10-23): a
+backup ran 35 to 46 minutes and a restore 58 to 70. One backup used about 24% of a Max 5x
+plan's 5-hour window, 4% of its weekly Fable allowance and 2% of its weekly allowance across
+all models. A restore's share wasn't measured; it runs longer, so it likely costs more.
+
 ## cleanroom.mjs
 
 Reads the one root every script here takes, and writes the clean room each
