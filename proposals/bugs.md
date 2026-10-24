@@ -162,14 +162,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   native ext4 never shows it. `land`'s cleanup is `rm(tmpPath, { force: true })` with every
   error swallowed, so a failed delete leaves no trace. Unconfirmed: that DrvFs refuses or
   defers the delete while the write stream `pipeline` destroyed is still closing.
-- **"reports the wait, then the recovery, for a real interruption" is timing-dependent.** The
-  test (`src/lib/s3.test.mjs`) asserts `up to 2 minutes`, but the message announces what is
-  left of the window (`network-status.mjs`), counted from the first failure, after the real
-  retry waits. On a slow runner enough time passes that it reads `up to 1 minute, 59 seconds`
-  and the test fails: CI's `windows-latest`, 2026-10-23, run
-  [40014355152](https://github.com/allens/s3cab/actions/runs/40014355152), which passed on a
-  re-run. Asserting the shape (`up to 1 minute, 5\d seconds` or `2 minutes`), or driving the
-  clock, would make it hold everywhere.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

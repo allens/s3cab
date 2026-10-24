@@ -845,7 +845,10 @@ describe("requestErrorRelay network retries", () => {
     assert.equal(output, "", "a single fast retry should be silent");
   });
 
-  it("reports the wait, then the recovery, for a real interruption", async () => {
+  it("reports the wait, then the recovery, for a real interruption", async (t) => {
+    // The line names what is left of the window after the first retry, whose
+    // random wait of up to 500ms could round it down to "1 minute, 59 seconds".
+    t.mock.method(Math, "random", () => 0);
     let calls = 0;
     const next = async () => {
       calls += 1;
