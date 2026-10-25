@@ -37,7 +37,6 @@ import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 /** @import { S3ClientConfig, _Object, PutObjectCommandInput } from "@aws-sdk/client-s3" */
-/** @import { Progress } from "@aws-sdk/lib-storage" */
 
 /**
  * One file's transfer, as it stands right now: which file, how many of its bytes
@@ -644,10 +643,10 @@ const queueSize = 32;
 
 /**
  * Build the upload-progress line (pure): an ASCII bar and the humanized byte
- * counts, labelled by the local file being uploaded. `total` can be absent in an
- * httpUploadProgress event, so it omits the "of <total>" segment rather than
- * rendering a misleading "of 0B". Returns the rendered `message` and the bar
- * `fill` (lit chars), which the handler reuses to position the cursor.
+ * counts, labelled by the local file being uploaded. A file that grows during
+ * its upload sends more than `total`, so the fill stops at full. Returns the
+ * rendered `message` and the bar `fill` (lit chars), which the handler reuses
+ * to position the cursor.
  *
  * Field order and padding are deliberate: the fixed-width bar leads, then the
  * byte counts in fixed-width columns (progress right-aligned so its digits grow
@@ -661,19 +660,19 @@ const queueSize = 32;
  * key: the content-addressed hash is storage machinery of no interest to someone
  * backing up files (design #1), so the human-facing line names the file (the
  * file's stored hash is recorded in the snapshot manifest).
- * @param {Progress} progress
+ * @param {{ loaded: number, total: number }} transfer - The bytes sent so far,
+ *   and the file's size
  * @param {string} label - The local path of the file being uploaded
  * @returns {{ message: string, fill: number }}
  */
-export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
-  const fill = total ? Math.round((loaded / total) * PROGRESS_BAR_RANGE) : 0;
+export const formatUploadProgress = ({ loaded, total }, label) => {
+  const fill = Math.min(
+    Math.round((loaded / total) * PROGRESS_BAR_RANGE),
+    PROGRESS_BAR_RANGE,
+  );
   const bar = "*".repeat(fill) + ".".repeat(PROGRESS_BAR_RANGE - fill);
   const loadedCol = formatByteValue(loaded).padStart(SIZE_COL);
-  // Reserve the " of <total>" width even when total is unknown, so the trailing
-  // path lands in the same column either way.
-  const sizes = total
-    ? `${loadedCol} of ${formatByteValue(total).padEnd(SIZE_COL)}`
-    : loadedCol.padEnd(SIZE_COL + " of ".length + SIZE_COL);
+  const sizes = `${loadedCol} of ${formatByteValue(total).padEnd(SIZE_COL)}`;
   return { message: `${bar}  ${sizes}  ${label}`, fill };
 };
 
@@ -846,16 +845,10 @@ export async function putFile(path, uri, options = {}) {
     if (mismatch) {
       // lib-storage rethrows the body's error only after its abort, so a failed
       // abort, or a part that failed alongside, would otherwise replace it.
+      // Not a warning that parts were left: after a clean abort, the error can
+      // be a sibling part's, and nothing here tells the two apart.
       if (error !== mismatch) {
         mismatch.cause = error;
-        // The cause prints only under S3CAB_DEBUG, and parts left behind are
-        // billed until the bucket's lifecycle rule clears them.
-        progress.clear();
-        console.warn(
-          `Stopping the upload of '${path}' failed too, so the parts already ` +
-            `sent may stay in the bucket until its rule for incomplete uploads ` +
-            `clears them:\n\n${Error.isError(error) ? error.message : error}`,
-        );
       }
       throw mismatch;
     } else if (noClobber && isPreconditionFailed(error)) {
@@ -1036,9 +1029,8 @@ export async function getText(uri) {
  * CloudFormation template it writes (it is what the identity s3cab backs up as
  * carries), and docs/integration-testing.md §1 builds the test identity's policy
  * on it. That one grants more, so a verb missing here passes the integration
- * suite unnoticed. The two statements split because the
- * object actions target `…/*` while bucket-level `ListBucket` targets the bare
- * bucket ARN.
+ * suite unnoticed. The two statements split because the object actions target
+ * `…/*` while bucket-level `ListBucket` targets the bare bucket ARN.
  *
  * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
  * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete

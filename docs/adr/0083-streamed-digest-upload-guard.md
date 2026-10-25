@@ -55,7 +55,10 @@ passes it: under `objects/` the key *is* the digest.
    `AbortMultipartUpload`, so a refused abort, or a part that failed alongside, would replace it.
    `putFile` keeps the mismatch and rethrows it, the other error as its `cause`. The everyday
    policy grants `s3:AbortMultipartUpload` ([0033](0033-bucket-onboarding-security-model.md)), so
-   the abort normally succeeds.
+   the abort normally succeeds. Where it doesn't (an older identity, a hand-written policy), the
+   parts stay until the bucket's lifecycle rule for incomplete uploads clears them, and only
+   `S3CAB_DEBUG` shows why. Not a warning saying so: after a clean abort, the other error can be
+   a sibling part's, so the warning would sometimes be false.
 
 Not `x-amz-checksum-sha256`, which would have S3 refuse the mismatch itself: it covers a single
 PUT only, since S3 has no whole-object SHA-256 for a multipart upload, and S3-compatible

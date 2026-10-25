@@ -529,25 +529,13 @@ describe("formatUploadProgress", () => {
     );
   });
 
-  it("omits the 'of <total>' segment when total is unknown", () => {
+  it("stops the fill at full when a growing file sends more than its size", () => {
     const { message, fill } = formatUploadProgress(
-      { loaded: 1500 },
-      "photos/beach.jpg",
+      { loaded: 48 * 1024 * 1024, total: 32 * 1024 * 1024 },
+      "capture.mp4",
     );
-    assert.match(message, /1\.5kB/);
-    assert.doesNotMatch(message, / of /); // no misleading "of 0B"
-    assert.equal(fill, 0); // no bar fill without a known total
-  });
-
-  it("keeps the path aligned whether or not the total is known", () => {
-    const known = formatUploadProgress({ loaded: 41, total: 41 }, "x.txt");
-    const unknown = formatUploadProgress({ loaded: 41 }, "x.txt");
-    // The unknown-total line reserves the " of <total>" width, so the path does
-    // not jump left when a progress event arrives without a total.
-    assert.equal(
-      known.message.indexOf("x.txt"),
-      unknown.message.indexOf("x.txt"),
-    );
+    assert.equal(fill, 20);
+    assert.match(message, /^\*{20} /);
   });
 
   it("fills the bar proportionally when total is known", () => {
@@ -1554,11 +1542,10 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     );
   });
 
-  it("still reports the mismatch when the abort that follows it is refused", async (t) => {
+  it("still reports the mismatch when the abort that follows it is refused", async () => {
     // An identity without s3:AbortMultipartUpload: lib-storage's error would be
     // the abort's AccessDenied, which reads as a transport failure.
     deleteStatus = 403;
-    const warn = t.mock.method(console, "warn", () => {});
     await assert.rejects(
       putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
       (/** @type {Error} */ error) => {
@@ -1572,12 +1559,6 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       },
     );
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
-    // The left-behind parts are said out loud, not only in the cause.
-    assert.equal(warn.mock.callCount(), 1);
-    assert.match(
-      String(warn.mock.calls[0]?.arguments[0]),
-      /parts already sent may stay in the bucket[^]*don't have permission/,
-    );
   });
 
   it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
