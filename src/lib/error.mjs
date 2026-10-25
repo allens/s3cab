@@ -118,8 +118,8 @@ export class InterruptedError extends Error {
 
 /**
  * The bytes actually streamed to the store did not hash to the digest the
- * caller promised — raised by `putFile` (lib/s3.mjs) *after* it has removed the
- * mis-stored object, so throwing it certifies the store holds nothing wrong.
+ * caller promised — raised by `putFile` (lib/s3.mjs) before the upload
+ * completes, so throwing it certifies the store holds nothing wrong.
  * The one way this happens in practice is a file rewritten mid-transfer: the
  * drift guard re-checks size/mtime before the PUT starts, but a multipart
  * upload re-reads the file for minutes, and a write landing inside that window
@@ -128,7 +128,8 @@ export class InterruptedError extends Error {
  * A subclass because `uploadObjects` (lib/upload.mjs) catches it *by type* to
  * branch behaviour: this is a per-file drift (skip the file, keep uploading the
  * rest, report it like every other drift), while any other `putFile` throw is a
- * transport failure that stops the remaining transfers.
+ * transport failure that stops the remaining transfers. `upload --file` catches
+ * it too, to say the file changed.
  */
 export class ContentMismatchError extends Error {
   /**

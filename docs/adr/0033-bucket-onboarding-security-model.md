@@ -19,9 +19,15 @@ single source of truth, emitted by `s3cab aws` and referenced by
 ## 1. One everyday identity, explicit-verb least privilege
 
 The policy grants exactly `s3:ListBucket` on the bucket plus `s3:GetObject` / `s3:PutObject` /
-`s3:DeleteObject` on its objects — **explicit verbs, never the `s3:*Object` wildcard.** The two
-statements split because the object actions target `…/*` while bucket-level `ListBucket` targets
-the bare bucket ARN. One identity covers the common case; no extra users are minted.
+`s3:DeleteObject` / `s3:AbortMultipartUpload` on its objects — **explicit verbs, never the
+`s3:*Object` wildcard.** The two statements split because the object actions target `…/*` while
+bucket-level `ListBucket` targets the bare bucket ARN. One identity covers the common case; no
+extra users are minted.
+
+`AbortMultipartUpload` is not covered by `PutObject`. Without it, a multipart upload that fails
+(including one stopped by [0083](0083-streamed-digest-upload-guard.md)'s digest check) can't
+clear its parts, which then wait a day for the lifecycle rule below. It can only discard an
+upload that was never completed, so it doesn't touch the soft-vs-permanent seam.
 
 ## 2. The privilege seam is *soft-vs-permanent*, not per-prefix
 

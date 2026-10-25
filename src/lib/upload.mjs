@@ -326,8 +326,8 @@ export function planUpload(target, stored) {
  *   minutes later. The last window — a write landing **during the transfer**
  *   itself, after the re-check passed — is closed inside `putFile`: it hashes
  *   the bytes it actually streams, and a mismatch (a {@link ContentMismatchError},
- *   the mis-stored object already removed) is recorded here as the same
- *   `"changed"` drift.
+ *   raised before anything is stored) is recorded here as the same `"changed"`
+ *   drift.
  *
  * It takes no set name: the drift message is the caller's to build, so nothing
  * here needs to know which set (or whether there is one — the folder seed reaches
@@ -399,10 +399,9 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
           } catch (error) {
             if (error instanceof ContentMismatchError) {
               // The file was rewritten *during* its transfer — putFile hashed
-              // the bytes it streamed, saw they no longer match, and already
-              // removed the mis-stored object. Same fact as the pre-PUT drift
-              // guard, caught later: a per-file skip, not a dead link, so the
-              // remaining transfers go on.
+              // the bytes it streamed, saw they no longer match, and stored
+              // nothing. Same fact as the pre-PUT drift guard, caught later: a
+              // per-file skip, not a dead link, so the remaining transfers go on.
               drifted.push({ path, reason: "changed", cause: error });
             } else {
               failure ??= Error.isError(error)

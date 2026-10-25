@@ -185,8 +185,8 @@ can open — while fork PRs get no credentials and skip) is in
 ### 1. Least-privilege IAM policy
 
 The data-plane core is the **same** least-privilege policy s3cab's onboarding generates —
-`bucketPolicy()` in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as the
-managed policy in the CloudFormation template it writes (ADR-0056), and which the everyday
+`bucketPolicy()` in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as an
+inline policy in the CloudFormation template it writes (ADR-0105), and which the everyday
 backup identity is scoped to. The test policy departs from it in three deliberate ways:
 
 - the resource is the **`test-s3cab-ci-*` wildcard**, not one bucket — every bucket inside

@@ -223,8 +223,21 @@ export class FakeS3 {
     await this.onPutFileRead?.(path, uri);
     const bytes = await readFile(path);
     onProgress?.({ path, loaded: bytes.length, total: bytes.length });
+    // The real putFile's streamed-digest check, in its single-PUT order: the
+    // body is checked before the PUT, so a mismatch stores nothing, whether or
+    // not the key is already held. (A multipart-sized no-clobber file meets a
+    // HEAD first there; this fake has no multipart.)
+    if (sha256) {
+      const got = createHash("sha256").update(bytes).digest("hex");
+      if (got !== sha256) {
+        throw new ContentMismatchError(
+          `Content changed during upload: ${path} streamed as ${got}, ` +
+            `not the recorded ${sha256}; nothing was stored`,
+        );
+      }
+    }
     const { bucket, key } = parseUri(uri);
-    const wrote = await this.#apply("PUT", uri, () => {
+    return this.#apply("PUT", uri, () => {
       const map = this.#bucket(bucket);
       if (noClobber && map.has(key)) {
         return false;
@@ -232,26 +245,6 @@ export class FakeS3 {
       map.set(key, { bytes, virtualMs: this.#now() });
       return true;
     });
-    // The real putFile's streamed-digest check, same ordering: verified only
-    // once the transfer *succeeded* (a fault from #apply throws first, a
-    // noClobber miss returns false untouched), and the mis-stored object is
-    // removed before the throw. Removal is direct rather than via
-    // `this.deleteObject` so a fault plan can't strand the corrupt object —
-    // that double-fault path (real code wraps it in a plain Error) is not
-    // modelled here. Nor is the forced (`noClobber` false) mismatch, which the
-    // real putFile leaves in place and reports as a plain Error: `uploadObjects`
-    // never forces, so no model run can reach it.
-    if (wrote && sha256) {
-      const got = createHash("sha256").update(bytes).digest("hex");
-      if (got !== sha256) {
-        this.#bucket(bucket).delete(key);
-        throw new ContentMismatchError(
-          `Content changed during upload: ${path} streamed as ${got}, ` +
-            `not the recorded ${sha256}; the mis-stored object was removed`,
-        );
-      }
-    }
-    return wrote;
   }
 
   /**

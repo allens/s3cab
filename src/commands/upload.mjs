@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import {
   ChangedWhileReadError,
+  ContentMismatchError,
   MissingArgError,
   ParseArgsError,
 } from "../lib/error.mjs";
@@ -152,6 +153,9 @@ export async function upload(setName, options = {}) {
     const targetBucket = bucket ?? loadSet(setName).bucket;
 
     const target = bucket ? `--bucket ${bucket}` : setName;
+    // A forced retry keeps --force: without it, the key's old object answers
+    // "already stored" and the overwrite never happens.
+    const retry = `s3cab upload ${target} --file "${file}"${force ? " --force" : ""}`;
 
     // prop() does the file validation (rejects non-regular files) and the
     // streaming SHA-256; reuse it rather than re-deriving either here (#6).
@@ -160,7 +164,7 @@ export async function upload(setName, options = {}) {
       props = await prop(file);
     } catch (error) {
       if (error instanceof ChangedWhileReadError) {
-        throw fileUnconfirmedError(file, target, {
+        throw fileUnconfirmedError(file, retry, {
           reason: "changed",
           cause: error,
         });
@@ -178,10 +182,21 @@ export async function upload(setName, options = {}) {
     // no concept of, and its dedup/skip-list machinery is dead weight for one file.
     const change = await fileChange(file, props);
     if (change) {
-      throw fileUnconfirmedError(file, target, change);
+      throw fileUnconfirmedError(file, retry, change);
     }
 
-    const uploaded = await putObject(targetBucket, hash, file, { force });
+    let uploaded;
+    try {
+      uploaded = await putObject(targetBucket, hash, file, { force });
+    } catch (error) {
+      if (error instanceof ContentMismatchError) {
+        throw fileUnconfirmedError(file, retry, {
+          reason: "changed",
+          cause: error,
+        });
+      }
+      throw error;
+    }
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
 
@@ -250,11 +265,11 @@ export async function upload(setName, options = {}) {
  * name in a re-run when `--bucket` was used. Wording per ADR-0030 — what happened,
  * the errno in a parenthetical, the retry as a pasteable command.
  * @param {string} path - The file that couldn't be confirmed
- * @param {string | undefined} target - How the run addressed its destination (the set, or `--bucket <b>`)
+ * @param {string} retry - The command that runs this upload again
  * @param {FileChange} change - Which of the three happened, and the raw cause if any
  * @returns {Error}
  */
-const fileUnconfirmedError = (path, target, { reason, cause }) => {
+const fileUnconfirmedError = (path, retry, { reason, cause }) => {
   const code = /** @type {NodeJS.ErrnoException} */ (cause)?.code;
   const headline = {
     changed: `it changed while s3cab was reading it, so it's no longer the file that was fingerprinted`,
@@ -267,7 +282,7 @@ const fileUnconfirmedError = (path, target, { reason, cause }) => {
       `s3cab stores a file only under a fingerprint it can confirm still ` +
       `matches, so nothing was uploaded. Try again once the file has stopped ` +
       `changing:\n` +
-      `  ${shellCommand(`s3cab upload ${target} --file ${path}`)}`,
+      `  ${shellCommand(retry)}`,
     { cause },
   );
 };

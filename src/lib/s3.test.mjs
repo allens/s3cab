@@ -457,6 +457,7 @@ describe("bucketPolicy", () => {
       (s) => s.Action,
     );
     assert.deepEqual([...actions].sort(), [
+      "s3:AbortMultipartUpload",
       "s3:DeleteObject",
       "s3:GetObject",
       "s3:ListBucket",
@@ -528,25 +529,13 @@ describe("formatUploadProgress", () => {
     );
   });
 
-  it("omits the 'of <total>' segment when total is unknown", () => {
+  it("stops the fill at full when a growing file sends more than its size", () => {
     const { message, fill } = formatUploadProgress(
-      { loaded: 1500 },
-      "photos/beach.jpg",
+      { loaded: 48 * 1024 * 1024, total: 32 * 1024 * 1024 },
+      "capture.mp4",
     );
-    assert.match(message, /1\.5kB/);
-    assert.doesNotMatch(message, / of /); // no misleading "of 0B"
-    assert.equal(fill, 0); // no bar fill without a known total
-  });
-
-  it("keeps the path aligned whether or not the total is known", () => {
-    const known = formatUploadProgress({ loaded: 41, total: 41 }, "x.txt");
-    const unknown = formatUploadProgress({ loaded: 41 }, "x.txt");
-    // The unknown-total line reserves the " of <total>" width, so the path does
-    // not jump left when a progress event arrives without a total.
-    assert.equal(
-      known.message.indexOf("x.txt"),
-      unknown.message.indexOf("x.txt"),
-    );
+    assert.equal(fill, 20);
+    assert.match(message, /^\*{20} /);
   });
 
   it("fills the bar proportionally when total is known", () => {
@@ -1252,7 +1241,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   let completeStatus;
   /** @type {number} Which UploadPart to refuse with AccessDenied (0 = none). */
   let failPartNumber;
-  /** @type {number} The status for a DeleteObject / AbortMultipartUpload. */
+  /** @type {number} The status for an AbortMultipartUpload. */
   let deleteStatus;
   /** @type {string} */
   let dir;
@@ -1364,12 +1353,12 @@ describe("putFile / putText (fake S3 on loopback)", () => {
           xml(completeStatus, errorXml("PreconditionFailed"));
         }
       } else if (request.method === "DELETE") {
-        // AbortMultipartUpload, or the mismatch guard's DeleteObject.
+        // AbortMultipartUpload.
         if (deleteStatus === 204) {
           response.writeHead(204);
           response.end();
         } else {
-          // Non-retryable, so a failing delete is one request, not three.
+          // Non-retryable, so a failing abort is one request, not three.
           xml(deleteStatus, errorXml("AccessDenied"));
         }
       } else if (putStatus === 200) {
@@ -1480,15 +1469,15 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   });
 
   // ——— The streamed-digest guard (the mid-transfer-mutation fix): with
-  // `sha256` given, putFile hashes the bytes it actually streams and holds the
-  // finished transfer to that digest. What must be observable on the wire: a
-  // mismatch on a no-clobber PUT is followed by the DELETE that un-stores the
-  // wrong bytes, a forced one is *not* (no proof it created the key), a match
-  // adds no request, and a 412 (nothing stored) skips the check entirely.
+  // `sha256` given, putFile hashes the bytes it actually streams and compares
+  // before the upload completes. What must be observable on the wire: a
+  // mismatch sends no PUT and no Complete, so a crash can't leave the wrong
+  // bytes stored; a match adds no request; and a 412 means nothing was stored.
 
-  it("removes the object and throws when the streamed bytes mismatch `sha256`", async () => {
-    // The digest of some *earlier* content — the file has since been rewritten.
-    const stale = createHash("sha256").update("what was hashed").digest("hex");
+  /** The digest of some *earlier* content — the file has since been rewritten. */
+  const stale = createHash("sha256").update("what was hashed").digest("hex");
+
+  it("sends nothing when the streamed bytes mismatch `sha256`", async () => {
     await assert.rejects(
       putFile(smallFile, "s3://bucket/key", { noClobber: true, sha256: stale }),
       (/** @type {Error} */ error) => {
@@ -1497,29 +1486,79 @@ describe("putFile / putText (fake S3 on loopback)", () => {
         return true;
       },
     );
-    // The PUT has landed by the time the digest is known, so the guard's teeth
-    // are the DELETE after it: the store never keeps bytes that aren't the
-    // preimage of their key.
-    assert.deepEqual(seen, ["PUT /bucket/key", "DELETE /bucket/key"]);
+    assert.deepEqual(seen, []);
   });
 
-  it("leaves the object where the upload was forced, and says so", async () => {
-    const stale = createHash("sha256").update("what was hashed").digest("hex");
+  it("sends nothing on a forced upload either, so the key keeps what it held", async () => {
     await assert.rejects(
       putFile(smallFile, "s3://bucket/key", { sha256: stale }),
+      {
+        name: "ContentMismatchError",
+      },
+    );
+    assert.deepEqual(seen, []);
+  });
+
+  it("aborts a multipart upload on a mismatch, never completing it", async () => {
+    await assert.rejects(
+      putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
       (/** @type {Error} */ error) => {
-        // Not a ContentMismatchError either: that type says the store is clean,
-        // and this leaves wrong bytes stored on purpose.
-        assert.equal(error.name, "Error");
-        assert.match(error.message, /left in place/);
-        assert.match(error.message, /s3:\/\/bucket\/key/);
+        assert.equal(error.name, "ContentMismatchError");
+        // The abort succeeded, so there is nothing else to report.
+        assert.equal(error.cause, undefined);
         return true;
       },
     );
-    // No DELETE. Without `IfNoneMatch` this PUT overwrote whatever the key
-    // held, so it has no proof it created the object — and an object other
-    // snapshots reference is worth more wrong than absent.
-    assert.deepEqual(seen, ["PUT /bucket/key"]);
+    // Part 1 went up before the stream ended; the last part, and the Complete
+    // that would make the object, never did.
+    assert.deepEqual(seen, [
+      "POST /bucket/key?uploads",
+      "PUT /bucket/key?partNumber=1",
+      "DELETE /bucket/key?uploadId",
+    ]);
+  });
+
+  it("draws the byte bar against the file's size when the body is hashed", async (t) => {
+    // A hashed body is a generator stream, whose length lib-storage can't
+    // measure, so the total has to come from the file.
+    const digest = createHash("sha256")
+      .update(Buffer.alloc(PART_SIZE + 1))
+      .digest("hex");
+    /** @type {string[]} */
+    const written = [];
+    const wasTTY = process.stderr.isTTY;
+    process.stderr.isTTY = true;
+    t.after(() => {
+      process.stderr.isTTY = wasTTY;
+    });
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    await putFile(multipartFile, "s3://bucket/key", { sha256: digest });
+    assert.ok(
+      written.some((text) => / of .*bigger\.bin/.test(text)),
+      `no total in ${JSON.stringify(written)}`,
+    );
+  });
+
+  it("still reports the mismatch when the abort that follows it is refused", async () => {
+    // An identity without s3:AbortMultipartUpload: lib-storage's error would be
+    // the abort's AccessDenied, which reads as a transport failure.
+    deleteStatus = 403;
+    await assert.rejects(
+      putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
+      (/** @type {Error} */ error) => {
+        assert.equal(error.name, "ContentMismatchError");
+        // The abort's AccessDenied, as s3cab's client words it.
+        assert.match(
+          /** @type {Error} */ (error.cause).message,
+          /don't have permission/,
+        );
+        return true;
+      },
+    );
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
   });
 
   it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
@@ -1532,35 +1571,28 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     assert.deepEqual(seen, ["PUT /bucket/key"]);
   });
 
-  it("skips verification when the conditional PUT found the object present", async () => {
+  it("returns false when the conditional PUT of a checked upload finds the object present", async () => {
     putStatus = 412;
-    const stale = createHash("sha256").update("what was hashed").digest("hex");
+    const digest = createHash("sha256").update("tiny").digest("hex");
     const wrote = await putFile(smallFile, "s3://bucket/key", {
       noClobber: true,
-      sha256: stale,
+      sha256: digest,
     });
-    // Nothing was stored, so there is nothing to verify or remove: the object
-    // already present is genuine content under that key, and the *file's*
-    // drift is the next run's pre-PUT guard to meet.
+    // The object already present is genuine content under that key.
     assert.equal(wrote, false);
     assert.deepEqual(seen, ["PUT /bucket/key"]);
   });
 
-  it("a mismatch whose cleanup DELETE also fails surfaces the stranded object", async () => {
-    deleteStatus = 403;
-    const stale = createHash("sha256").update("what was hashed").digest("hex");
+  it("reports a mismatch below multipart size even when the key is already held", async () => {
+    // The body is checked before the conditional PUT that would find the key
+    // held, so the file's change is reported, not hidden by the 412. At
+    // multipart size the HEAD preflight answers first, without reading it.
+    putStatus = 412;
     await assert.rejects(
       putFile(smallFile, "s3://bucket/key", { noClobber: true, sha256: stale }),
-      (/** @type {Error} */ error) => {
-        // Deliberately NOT a ContentMismatchError: that type certifies the
-        // store was left clean, and here it wasn't — this must reach the
-        // caller as a terminal failure, never as a skippable drift.
-        assert.equal(error.name, "Error");
-        assert.match(error.message, /removing the mis-stored copy failed/);
-        return true;
-      },
+      { name: "ContentMismatchError" },
     );
-    assert.deepEqual(seen, ["PUT /bucket/key", "DELETE /bucket/key"]);
+    assert.deepEqual(seen, []);
   });
 
   it("multipart-sized + no-clobber, present: one HEAD, never the body", async () => {

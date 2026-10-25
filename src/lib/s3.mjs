@@ -37,7 +37,6 @@ import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 /** @import { S3ClientConfig, _Object, PutObjectCommandInput } from "@aws-sdk/client-s3" */
-/** @import { Progress } from "@aws-sdk/lib-storage" */
 
 /**
  * One file's transfer, as it stands right now: which file, how many of its bytes
@@ -644,10 +643,10 @@ const queueSize = 32;
 
 /**
  * Build the upload-progress line (pure): an ASCII bar and the humanized byte
- * counts, labelled by the local file being uploaded. `total` can be absent in an
- * httpUploadProgress event, so it omits the "of <total>" segment rather than
- * rendering a misleading "of 0B". Returns the rendered `message` and the bar
- * `fill` (lit chars), which the handler reuses to position the cursor.
+ * counts, labelled by the local file being uploaded. A file that grows during
+ * its upload sends more than `total`, so the fill stops at full. Returns the
+ * rendered `message` and the bar `fill` (lit chars), which the handler reuses
+ * to position the cursor.
  *
  * Field order and padding are deliberate: the fixed-width bar leads, then the
  * byte counts in fixed-width columns (progress right-aligned so its digits grow
@@ -661,19 +660,19 @@ const queueSize = 32;
  * key: the content-addressed hash is storage machinery of no interest to someone
  * backing up files (design #1), so the human-facing line names the file (the
  * file's stored hash is recorded in the snapshot manifest).
- * @param {Progress} progress
+ * @param {{ loaded: number, total: number }} transfer - The bytes sent so far,
+ *   and the file's size
  * @param {string} label - The local path of the file being uploaded
  * @returns {{ message: string, fill: number }}
  */
-export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
-  const fill = total ? Math.round((loaded / total) * PROGRESS_BAR_RANGE) : 0;
+export const formatUploadProgress = ({ loaded, total }, label) => {
+  const fill = Math.min(
+    Math.round((loaded / total) * PROGRESS_BAR_RANGE),
+    PROGRESS_BAR_RANGE,
+  );
   const bar = "*".repeat(fill) + ".".repeat(PROGRESS_BAR_RANGE - fill);
   const loadedCol = formatByteValue(loaded).padStart(SIZE_COL);
-  // Reserve the " of <total>" width even when total is unknown, so the trailing
-  // path lands in the same column either way.
-  const sizes = total
-    ? `${loadedCol} of ${formatByteValue(total).padEnd(SIZE_COL)}`
-    : loadedCol.padEnd(SIZE_COL + " of ".length + SIZE_COL);
+  const sizes = `${loadedCol} of ${formatByteValue(total).padEnd(SIZE_COL)}`;
   return { message: `${bar}  ${sizes}  ${label}`, fill };
 };
 
@@ -732,17 +731,12 @@ export function putObjectParams(uri, { noClobber } = {}) {
  * @param {(transfer: Transfer) => void} [options.onProgress] - Take the transfer's
  *   bytes instead of the built-in byte bar, for a caller drawing its own line.
  * @param {string} [options.sha256] - The content's expected SHA-256 (lowercase
- *   hex). The bytes actually streamed are hashed en route and checked once the
- *   transfer completes, so a file rewritten *during* its upload never leaves
- *   wrong bytes stored under the promised digest: with `noClobber` the
- *   just-created object is deleted and a {@link ContentMismatchError} thrown;
- *   without it the mis-stored object is left in place (see the mismatch branch)
- *   and a plain `Error` reports it.
+ *   hex). The bytes actually streamed are hashed en route and checked before
+ *   the upload completes, so a file rewritten *during* its upload never leaves
+ *   wrong bytes stored under the promised digest.
  * @returns {Promise<boolean>} True if the file was uploaded.
  * @throws {ContentMismatchError} The streamed bytes hash differently from
- *   `sha256` on a `noClobber` upload (the mis-stored object has already been
- *   removed). Without `noClobber` the same mismatch throws a plain `Error` and
- *   the object stays.
+ *   `sha256`. Nothing was stored, and what the key held before is untouched.
  */
 export async function putFile(path, uri, options = {}) {
   const { noClobber, onProgress, sha256 } = options;
@@ -768,14 +762,31 @@ export async function putFile(path, uri, options = {}) {
   // that are not the preimage of the object's key. Tapping the one stream that
   // is being sent costs nothing extra; re-hashing the file afterwards would
   // both double the read and race the same window again.
-  const hasher = sha256 ? createHash("sha256") : undefined;
+  //
+  // The digest is compared when the stream ends, before lib-storage has the
+  // last part: it sends a single PUT, or completes a multipart upload, only
+  // after the body has ended, and on a throw from it aborts the multipart
+  // upload. So a mismatch stores nothing, even if the process dies the moment
+  // after. Not a check after `done()` and a delete: a crash between the two
+  // left the wrong bytes under the key.
+  /** @type {ContentMismatchError | undefined} */
+  let mismatch;
   const source = createReadStream(path);
-  const body = hasher
+  const body = sha256
     ? Readable.from(
         (async function* () {
+          const hasher = createHash("sha256");
           for await (const chunk of source) {
             hasher.update(chunk);
             yield chunk;
+          }
+          const got = hasher.digest("hex");
+          if (got !== sha256) {
+            mismatch = new ContentMismatchError(
+              `Content changed during upload: ${path} streamed as ${got}, ` +
+                `not the recorded ${sha256}; nothing was stored`,
+            );
+            throw mismatch;
           }
         })(),
       )
@@ -817,8 +828,13 @@ export async function putFile(path, uri, options = {}) {
       onProgress({ path, loaded, total: size });
     });
   } else if (size >= partSize) {
-    upload.on("httpUploadProgress", (event) => {
-      const { message, fill } = formatUploadProgress(event, path);
+    // The file's size again: lib-storage can't measure a hashed body's length,
+    // so its events carry no total.
+    upload.on("httpUploadProgress", ({ loaded = 0 }) => {
+      const { message, fill } = formatUploadProgress(
+        { loaded, total: size },
+        path,
+      );
       progress.update(message, { cursor: fill });
     });
   }
@@ -826,7 +842,16 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
-    if (noClobber && isPreconditionFailed(error)) {
+    if (mismatch) {
+      // lib-storage rethrows the body's error only after its abort, so a failed
+      // abort, or a part that failed alongside, would otherwise replace it.
+      // Not a warning that parts were left: after a clean abort, the error can
+      // be a sibling part's, and nothing here tells the two apart.
+      if (error !== mismatch) {
+        mismatch.cause = error;
+      }
+      throw mismatch;
+    } else if (noClobber && isPreconditionFailed(error)) {
       // Already present — no upload, and nothing to leave behind.
       progress.clear();
       return false;
@@ -842,51 +867,6 @@ export async function putFile(path, uri, options = {}) {
   // run would scroll a wall of identical full bars past whatever line is
   // actually tracking the run.
   progress.clear();
-
-  if (hasher) {
-    const got = hasher.digest("hex");
-    if (got !== sha256) {
-      // The object just stored is the wrong bytes under the promised digest.
-      // Cleaning up is safe only for a no-clobber PUT: `IfNoneMatch: "*"` means
-      // it can only have *created* the key, so deleting it destroys nothing but
-      // what this call wrote a moment ago — which is what lets the mismatch
-      // error certify the store is clean and every later conditional PUT see
-      // the key honestly absent. A forced overwrite has no such proof. The key
-      // may have held a good object that any number of snapshots reference, and
-      // that copy is already gone; deleting the replacement too would turn one
-      // bad upload into a hole every one of those restores would fall into.
-      // Wrong bytes under a name can be overwritten later, a missing object
-      // cannot be recovered — so the force path leaves it and says so.
-      if (!noClobber) {
-        throw new Error(
-          `Couldn't upload '${path}' — it changed while it was being sent, so ` +
-            `this object now holds bytes that don't match the fingerprint it ` +
-            `is named for:\n` +
-            `  ${uri}\n\n` +
-            `It was left in place: the upload was forced, so s3cab can't tell ` +
-            `whether that name already held good content, and removing an ` +
-            `object a snapshot points at would be worse than storing the wrong ` +
-            `bytes. Run the same upload again once the file has stopped ` +
-            `changing — it overwrites this object.`,
-        );
-      }
-      try {
-        await deleteObject(uri);
-      } catch (cause) {
-        throw new Error(
-          `Couldn't back up '${path}' — it changed during its upload, and ` +
-            `removing the mis-stored copy failed too (${uri}). That object ` +
-            `may hold the wrong content for its name: delete it from the ` +
-            `bucket, then back up again.`,
-          { cause },
-        );
-      }
-      throw new ContentMismatchError(
-        `Content changed during upload: ${path} streamed as ${got}, ` +
-          `not the recorded ${sha256}; the mis-stored object was removed`,
-      );
-    }
-  }
 
   if (!isInteractive(process.stderr)) {
     // No bar was drawn — leave one summary line as the log evidence, named by
@@ -1041,16 +1021,16 @@ export async function getText(uri) {
 
 /**
  * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
- * `ListBucket` plus per-object `Get`/`Put`/`Delete`. **AWS-only** — the
+ * `ListBucket` plus per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
+ * so a failed multipart upload can clear its parts. **AWS-only** — the
  * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
  *
- * The single source of truth for this policy. The `bucket` onboarding command
- * emits it (it is what a user attaches to the identity s3cab backs up as), and
- * docs/integration-testing.md §1 references it as the test identity's policy too
- * — with explicit verbs the everyday-backup and test policies are *identical*, so
- * one definition genuinely serves both. The two statements split because the
- * object actions target `…/*` while bucket-level `ListBucket` targets the bare
- * bucket ARN.
+ * The single source of truth for this policy. `s3cab aws` embeds it in the
+ * CloudFormation template it writes (it is what the identity s3cab backs up as
+ * carries), and docs/integration-testing.md §1 builds the test identity's policy
+ * on it. That one grants more, so a verb missing here passes the integration
+ * suite unnoticed. The two statements split because the object actions target
+ * `…/*` while bucket-level `ListBucket` targets the bare bucket ARN.
  *
  * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
  * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete
@@ -1072,7 +1052,12 @@ export const bucketPolicy = (bucketName) => ({
     {
       Sid: "ObjectAccess",
       Effect: "Allow",
-      Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      Action: [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+      ],
       Resource: [`arn:aws:s3:::${bucketName}/*`],
     },
   ],
