@@ -141,6 +141,7 @@ for (const [label, yaml] of identityTemplates) {
       assert.match(yaml, /"s3:GetObject"/);
       assert.match(yaml, /"s3:PutObject"/);
       assert.match(yaml, /"s3:DeleteObject"/);
+      assert.match(yaml, /"s3:AbortMultipartUpload"/);
       assert.match(yaml, /"arn:aws:s3:::my-backups\/\*"/);
       assert.doesNotMatch(yaml, /s3:\*Object/);
       assert.doesNotMatch(yaml, /DeleteObjectVersion/);

@@ -46,7 +46,16 @@ passes it: under `objects/` the key *is* the digest.
    `putFile` throw is still a transport failure that stops the run. `upload --file` catches it
    too, and says the file changed while it was read.
 5. **A 412 (object already present) means nothing was stored**; the object under the key is
-   genuine content that hashes to it.
+   genuine content that hashes to it. A file below multipart size meets the check before its PUT,
+   so one that changed is a `"changed"` drift even when the key is already held. A multipart-sized
+   no-clobber file meets the HEAD preflight first, and a held key skips it unread. Both outcomes
+   store nothing wrong; the file's change goes unreported only when its old bytes are stored
+   already.
+6. **A mismatch survives the abort.** lib-storage rethrows the body's error only after its
+   `AbortMultipartUpload`, so a refused abort, or a part that failed alongside, would replace it.
+   `putFile` keeps the mismatch and rethrows it, the other error as its `cause`. The everyday
+   policy grants `s3:AbortMultipartUpload` ([0033](0033-bucket-onboarding-security-model.md)), so
+   the abort normally succeeds.
 
 Not `x-amz-checksum-sha256`, which would have S3 refuse the mismatch itself: it covers a single
 PUT only, since S3 has no whole-object SHA-256 for a multipart upload, and S3-compatible

@@ -319,15 +319,13 @@ describe("upload --file confirmation guard", () => {
     assert.deepEqual(putObjectCalls, []);
   });
 
-  it("says the same of a file that changed while it was sent, forced or not", async () => {
+  it("says the same of a file that changed while it was sent", async () => {
     putError = new ContentMismatchError("streamed as something else");
 
-    for (const force of [false, true]) {
-      await assert.rejects(
-        () => upload("photos", { file: "/f/photo.raw", force }),
-        /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw/,
-      );
-    }
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw" }),
+      /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw$/,
+    );
   });
 
   it("names the retry with the set it was given", async () => {
@@ -367,6 +365,16 @@ describe("upload --file confirmation guard", () => {
       /changed while s3cab was reading it/,
     );
     assert.deepEqual(putObjectCalls, []);
+  });
+
+  it("keeps --force in the retry, so the overwrite still happens", async () => {
+    // Without it, the pasted retry finds the key's old object and stores nothing.
+    putError = new ContentMismatchError("streamed as something else");
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw", force: true }),
+      /s3cab upload photos --file \/f\/photo\.raw --force$/,
+    );
   });
 });
 

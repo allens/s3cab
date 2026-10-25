@@ -469,9 +469,9 @@ describe("hostile trees: files changing mid-run", () => {
       return true;
     });
 
-    // The store is clean: the mis-stored object was removed (not merely
-    // detected), no manifest was published, and the content-address invariant
-    // holds for everything that remains.
+    // The store is clean: the changed bytes were never stored, no manifest was
+    // published, and the content-address invariant holds for everything that
+    // remains.
     const model = new RepoModel(BUCKET, backendHolder.current);
     assert.deepEqual(await checkStore(model), []);
     const originalHash = sha256("original bytes");

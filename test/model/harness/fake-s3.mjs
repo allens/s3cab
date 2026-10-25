@@ -223,9 +223,10 @@ export class FakeS3 {
     await this.onPutFileRead?.(path, uri);
     const bytes = await readFile(path);
     onProgress?.({ path, loaded: bytes.length, total: bytes.length });
-    // The real putFile's streamed-digest check, same ordering: the body is
-    // checked before the upload completes, so a mismatch stores nothing and
-    // sends no PUT, whether or not the key is already held.
+    // The real putFile's streamed-digest check, in its single-PUT order: the
+    // body is checked before the PUT, so a mismatch stores nothing, whether or
+    // not the key is already held. (A multipart-sized no-clobber file meets a
+    // HEAD first there; this fake has no multipart.)
     if (sha256) {
       const got = createHash("sha256").update(bytes).digest("hex");
       if (got !== sha256) {

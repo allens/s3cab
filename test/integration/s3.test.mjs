@@ -140,6 +140,7 @@ describe("putFile multipart (real bucket)", () => {
         await deleteObject(trueUri);
       }
     } finally {
+      client.destroy();
       // Absent unless the guard failed.
       await deleteObject(uri).catch(() => {});
     }

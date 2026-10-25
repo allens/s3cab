@@ -457,6 +457,7 @@ describe("bucketPolicy", () => {
       (s) => s.Action,
     );
     assert.deepEqual([...actions].sort(), [
+      "s3:AbortMultipartUpload",
       "s3:DeleteObject",
       "s3:GetObject",
       "s3:ListBucket",
@@ -1252,7 +1253,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   let completeStatus;
   /** @type {number} Which UploadPart to refuse with AccessDenied (0 = none). */
   let failPartNumber;
-  /** @type {number} The status for a DeleteObject / AbortMultipartUpload. */
+  /** @type {number} The status for an AbortMultipartUpload. */
   let deleteStatus;
   /** @type {string} */
   let dir;
@@ -1364,12 +1365,12 @@ describe("putFile / putText (fake S3 on loopback)", () => {
           xml(completeStatus, errorXml("PreconditionFailed"));
         }
       } else if (request.method === "DELETE") {
-        // AbortMultipartUpload, or the mismatch guard's DeleteObject.
+        // AbortMultipartUpload.
         if (deleteStatus === 204) {
           response.writeHead(204);
           response.end();
         } else {
-          // Non-retryable, so a failing delete is one request, not three.
+          // Non-retryable, so a failing abort is one request, not three.
           xml(deleteStatus, errorXml("AccessDenied"));
         }
       } else if (putStatus === 200) {
@@ -1524,6 +1525,25 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     ]);
   });
 
+  it("still reports the mismatch when the abort that follows it is refused", async () => {
+    // An identity without s3:AbortMultipartUpload: lib-storage's error would be
+    // the abort's AccessDenied, which reads as a transport failure.
+    deleteStatus = 403;
+    await assert.rejects(
+      putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
+      (/** @type {Error} */ error) => {
+        assert.equal(error.name, "ContentMismatchError");
+        // The abort's AccessDenied, as s3cab's client words it.
+        assert.match(
+          /** @type {Error} */ (error.cause).message,
+          /don't have permission/,
+        );
+        return true;
+      },
+    );
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+  });
+
   it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
     const digest = createHash("sha256").update("tiny").digest("hex");
     const wrote = await putFile(smallFile, "s3://bucket/key", {
@@ -1544,6 +1564,18 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     // The object already present is genuine content under that key.
     assert.equal(wrote, false);
     assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("reports a mismatch below multipart size even when the key is already held", async () => {
+    // The body is checked before the conditional PUT that would find the key
+    // held, so the file's change is reported, not hidden by the 412. At
+    // multipart size the HEAD preflight answers first, without reading it.
+    putStatus = 412;
+    await assert.rejects(
+      putFile(smallFile, "s3://bucket/key", { noClobber: true, sha256: stale }),
+      { name: "ContentMismatchError" },
+    );
+    assert.deepEqual(seen, []);
   });
 
   it("multipart-sized + no-clobber, present: one HEAD, never the body", async () => {

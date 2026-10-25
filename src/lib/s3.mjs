@@ -770,21 +770,24 @@ export async function putFile(path, uri, options = {}) {
   // upload. So a mismatch stores nothing, even if the process dies the moment
   // after. Not a check after `done()` and a delete: a crash between the two
   // left the wrong bytes under the key.
-  const hasher = sha256 ? createHash("sha256") : undefined;
+  /** @type {ContentMismatchError | undefined} */
+  let mismatch;
   const source = createReadStream(path);
-  const body = hasher
+  const body = sha256
     ? Readable.from(
         (async function* () {
+          const hasher = createHash("sha256");
           for await (const chunk of source) {
             hasher.update(chunk);
             yield chunk;
           }
           const got = hasher.digest("hex");
           if (got !== sha256) {
-            throw new ContentMismatchError(
+            mismatch = new ContentMismatchError(
               `Content changed during upload: ${path} streamed as ${got}, ` +
                 `not the recorded ${sha256}; nothing was stored`,
             );
+            throw mismatch;
           }
         })(),
       )
@@ -835,7 +838,14 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
-    if (noClobber && isPreconditionFailed(error)) {
+    if (mismatch) {
+      // lib-storage rethrows the body's error only after its abort, so a failed
+      // abort, or a part that failed alongside, would otherwise replace it.
+      if (error !== mismatch) {
+        mismatch.cause = error;
+      }
+      throw mismatch;
+    } else if (noClobber && isPreconditionFailed(error)) {
       // Already present — no upload, and nothing to leave behind.
       progress.clear();
       return false;
@@ -1005,7 +1015,8 @@ export async function getText(uri) {
 
 /**
  * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
- * `ListBucket` plus per-object `Get`/`Put`/`Delete`. **AWS-only** — the
+ * `ListBucket` plus per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
+ * so a failed multipart upload can clear its parts. **AWS-only** — the
  * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
  *
  * The single source of truth for this policy. The `bucket` onboarding command
@@ -1036,7 +1047,12 @@ export const bucketPolicy = (bucketName) => ({
     {
       Sid: "ObjectAccess",
       Effect: "Allow",
-      Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      Action: [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+      ],
       Resource: [`arn:aws:s3:::${bucketName}/*`],
     },
   ],

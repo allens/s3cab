@@ -48,10 +48,8 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * snapshot); the write is held to it — `putFile` hashes the bytes it actually
  * streams and refuses if they no longer match, so a file rewritten mid-transfer
  * can't be stored under the stale hash — and the read verifies again
- * (`getObject`). The refusal removes the object it just created; under `force`,
- * which overwrites an existing object instead of skipping it, it can't (the
- * name may have held content this call already destroyed), so there the object
- * is left and the error says so.
+ * (`getObject`). The refusal comes before the upload completes, so it stores
+ * nothing, and under `force` the key keeps whatever it held.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The file's SHA-256, its key under `objects/`
  * @param {string} path - Local path of the file to store
