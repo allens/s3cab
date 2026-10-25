@@ -1046,8 +1046,9 @@ describe("writeSnapshot", () => {
       excluded: [{ pattern: "*.tmp", path: scratch, isDir: false }],
       errors: [
         { path: locked, reason: "EACCES: permission denied, lstat" },
-        // A folder link's `#error` ends its path with a separator (ADR-0098).
-        { path: archive, reason: outside, isDir: true },
+        // A folder link's `#error` ends its path with a separator (ADR-0098),
+        // as the walk spells it.
+        { path: archive + sep, reason: outside },
       ],
       getProps: async (p) => {
         // A file the walk can't hash becomes an #error row, not an entry.

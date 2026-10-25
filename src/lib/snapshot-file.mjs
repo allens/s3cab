@@ -590,9 +590,7 @@ export async function writeSnapshot(
         showControlChars(isDir ? asFolder(path) : path),
       ),
     ),
-    ...errors.map(({ path, reason, isDir }) =>
-      errorLine(reason, isDir ? asFolder(path) : path),
-    ),
+    ...errors.map(({ path, reason }) => errorLine(reason, path)),
   ].join("");
   return withSnapshotFile(
     snapshotDir,
@@ -1244,7 +1242,7 @@ export const rowFields = (line) => {
  * already has one.
  * @param {string} path
  */
-export const asFolder = (path) => (path.endsWith(sep) ? path : path + sep);
+const asFolder = (path) => (path.endsWith(sep) ? path : path + sep);
 
 // How long the row generator runs before handing the event loop a turn, so an
 // interrupt can be heard (see `propsRows`). Measured, the handler then runs

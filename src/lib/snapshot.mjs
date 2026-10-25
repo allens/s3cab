@@ -13,7 +13,6 @@ import {
 import { tildeify } from "./home.mjs";
 import { clockedLine, terminalWidth } from "./progress.mjs";
 import {
-  asFolder,
   assertNoWorkFile,
   listSnapshotNames,
   readParkedLookup,
@@ -384,13 +383,7 @@ export async function generateSnapshot(
     bytes: bytesDone,
     hashedFiles,
     hashedBytes,
-    errors: [
-      ...walkErrors.map(({ path, reason, isDir }) => ({
-        path: isDir ? asFolder(path) : path,
-        reason,
-      })),
-      ...errored,
-    ],
+    errors: [...walkErrors, ...errored],
     roots,
     elapsedMs: performance.now() - startedAt,
   };

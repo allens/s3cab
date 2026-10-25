@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { isUtf8 } from "node:buffer";
-import { isAbsolute, posix, resolve } from "node:path";
+import { isAbsolute, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
@@ -34,9 +34,9 @@ import { readLines } from "./read-lines.mjs";
 /**
  * An entry the walk couldn't check, or a link leading out of the backup
  * (ADR-0103), with the message — an `#error` row, the same shape as a file that
- * couldn't be hashed. `isDir` marks a folder link, whose path the row ends with
- * a separator.
- * @typedef {{ path: string, reason: string, isDir?: boolean }} WalkError
+ * couldn't be hashed. Its path is spelled as the row spells it: a folder link's
+ * ends with a separator.
+ * @typedef {{ path: string, reason: string }} WalkError
  */
 
 /** @typedef {{ files: string[], excluded: ExclusionRecord[], errors: WalkError[] }} WalkResult */
@@ -534,10 +534,10 @@ function checkLink(path, excludedBy, found) {
     return;
   }
 
+  const errorPath = isDir ? path + sep : path;
   const unresolved = {
-    path,
+    path: errorPath,
     reason: `link to a place this computer can't resolve: ${target}`,
-    isDir,
   };
   if (!stats) {
     found.errors.push(unresolved);
@@ -553,9 +553,8 @@ function checkLink(path, excludedBy, found) {
   }
   if (!found.inBackup(resolved, isDir)) {
     found.errors.push({
-      path,
+      path: errorPath,
       reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,
-      isDir,
     });
   }
 }
