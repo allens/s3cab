@@ -829,8 +829,13 @@ export async function putFile(path, uri, options = {}) {
       onProgress({ path, loaded, total: size });
     });
   } else if (size >= partSize) {
-    upload.on("httpUploadProgress", (event) => {
-      const { message, fill } = formatUploadProgress(event, path);
+    // The file's size again: lib-storage can't measure a hashed body's length,
+    // so its events carry no total.
+    upload.on("httpUploadProgress", ({ loaded = 0 }) => {
+      const { message, fill } = formatUploadProgress(
+        { loaded, total: size },
+        path,
+      );
       progress.update(message, { cursor: fill });
     });
   }

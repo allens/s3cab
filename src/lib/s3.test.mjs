@@ -1530,6 +1530,30 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     ]);
   });
 
+  it("draws the byte bar against the file's size when the body is hashed", async (t) => {
+    // A hashed body is a generator stream, whose length lib-storage can't
+    // measure, so the total has to come from the file.
+    const digest = createHash("sha256")
+      .update(Buffer.alloc(PART_SIZE + 1))
+      .digest("hex");
+    /** @type {string[]} */
+    const written = [];
+    const wasTTY = process.stderr.isTTY;
+    process.stderr.isTTY = true;
+    t.after(() => {
+      process.stderr.isTTY = wasTTY;
+    });
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    await putFile(multipartFile, "s3://bucket/key", { sha256: digest });
+    assert.ok(
+      written.some((text) => / of .*bigger\.bin/.test(text)),
+      `no total in ${JSON.stringify(written)}`,
+    );
+  });
+
   it("still reports the mismatch when the abort that follows it is refused", async (t) => {
     // An identity without s3:AbortMultipartUpload: lib-storage's error would be
     // the abort's AccessDenied, which reads as a transport failure.
