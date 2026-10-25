@@ -1244,7 +1244,7 @@ export const rowFields = (line) => {
  * already has one.
  * @param {string} path
  */
-const asFolder = (path) => (path.endsWith(sep) ? path : path + sep);
+export const asFolder = (path) => (path.endsWith(sep) ? path : path + sep);
 
 // How long the row generator runs before handing the event loop a turn, so an
 // interrupt can be heard (see `propsRows`). Measured, the handler then runs

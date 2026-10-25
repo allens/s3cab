@@ -401,7 +401,7 @@ function createWalkCallbackFn(baseDir, patterns, found) {
     if (Error.isError(fileType)) {
       // Vanished between listing and checking: there is nothing to record.
       if (!isENOENT(fileType)) {
-        found.errors.push({ path, reason: fileType.message });
+        recordUninspectable(path, fileType, excludedBy, found);
       }
       return false;
     }
@@ -421,6 +421,29 @@ function createWalkCallbackFn(baseDir, patterns, found) {
     }
     return true;
   };
+}
+
+/**
+ * Record an entry the walk couldn't inspect, such as a locked OneDrive Personal
+ * Vault (a link that can't be read): `#excluded` when a pattern leaves it out,
+ * else an `#error` saying why. Its type is unknown, so it is matched as a file,
+ * like a broken link (guide/exclude.md). Not as a folder too: that would lose
+ * nothing, but one form per entry keeps the rule the one users already know.
+ * @param {string} path
+ * @param {unknown} error - Why it couldn't be inspected
+ * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
+ * @param {Found} found
+ */
+function recordUninspectable(path, error, excludedBy, found) {
+  const pattern = excludedBy(path, false);
+  if (pattern) {
+    found.excluded.push({ pattern, path, isDir: false });
+  } else {
+    found.errors.push({
+      path,
+      reason: Error.isError(error) ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -485,10 +508,7 @@ function checkLink(path, excludedBy, found) {
     target = readlinkSync(path);
   } catch (error) {
     if (!isENOENT(error)) {
-      found.errors.push({
-        path,
-        reason: Error.isError(error) ? error.message : String(error),
-      });
+      recordUninspectable(path, error, excludedBy, found);
     }
     return;
   }

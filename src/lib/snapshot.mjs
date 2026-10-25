@@ -13,6 +13,7 @@ import {
 import { tildeify } from "./home.mjs";
 import { clockedLine, terminalWidth } from "./progress.mjs";
 import {
+  asFolder,
   assertNoWorkFile,
   listSnapshotNames,
   readParkedLookup,
@@ -177,7 +178,7 @@ export async function readBaseline(set, { rehash, resume }) {
  * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
  * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
- * @property {CompareError[]} errors - Paths it couldn't check or hash (`#error`), with the reason each row records
+ * @property {CompareError[]} errors - Paths it couldn't check or hash (`#error`), each with the path and reason its row records: a folder link's path ends with a separator, so it matches the previous snapshot's `#error` paths
  * @property {string[]} roots - The member directories as the walk resolved them — the spelling every path above starts with, which `dirs.txt`'s text need not be
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
@@ -383,7 +384,13 @@ export async function generateSnapshot(
     bytes: bytesDone,
     hashedFiles,
     hashedBytes,
-    errors: [...walkErrors, ...errored],
+    errors: [
+      ...walkErrors.map(({ path, reason, isDir }) => ({
+        path: isDir ? asFolder(path) : path,
+        reason,
+      })),
+      ...errored,
+    ],
     roots,
     elapsedMs: performance.now() - startedAt,
   };

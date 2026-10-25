@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { describe, it } from "node:test";
@@ -71,6 +77,46 @@ describe("a pass over files that vanish before they are read", () => {
     for (const { reason } of pass.errors) {
       assert.match(reason, /^ENOENT: /);
     }
+    const { errors } = await readSnapshot(snapshotsDir, pass.name);
+    assert.deepEqual(
+      pass.errors,
+      [...errors].map(([path, reason]) => ({ path, reason })),
+    );
+  });
+});
+
+describe("a pass over a link to a folder outside the backup", () => {
+  it("spells its path as the #error row does, separator and all", async (/** @type {TestContext} */ t) => {
+    // `backup` matches these paths against the previous snapshot's `#error`
+    // rows to decide what to suggest excluding.
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const data = join(dir.path, "data");
+    const away = join(dir.path, "away");
+    const snapshotsDir = join(dir.path, "snapshots");
+    mkdirSync(data);
+    mkdirSync(away);
+    mkdirSync(snapshotsDir);
+    // A junction on Windows, which needs no Developer Mode; a symlink elsewhere.
+    symlinkSync(resolve(away), join(data, "vault"), "junction");
+
+    const pass = await generateSnapshot({
+      name: "photos",
+      dirs: [resolve(data)],
+      bucket: "b",
+      dir: dir.path,
+      snapshotsDir,
+      dirsPath: join(dir.path, "dirs.txt"),
+      excludePath: join(dir.path, "exclude.txt"),
+      envPath: join(dir.path, "env"),
+      claimPath: join(dir.path, "claim"),
+    });
+
+    const root = realpathSync.native(data);
+    assert.deepEqual(
+      pass.errors.map(({ path }) => path),
+      [join(root, "vault") + sep],
+    );
     const { errors } = await readSnapshot(snapshotsDir, pass.name);
     assert.deepEqual(
       pass.errors,
