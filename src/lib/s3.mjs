@@ -843,6 +843,14 @@ export async function putFile(path, uri, options = {}) {
       // abort, or a part that failed alongside, would otherwise replace it.
       if (error !== mismatch) {
         mismatch.cause = error;
+        // The cause prints only under S3CAB_DEBUG, and parts left behind are
+        // billed until the bucket's lifecycle rule clears them.
+        progress.clear();
+        console.warn(
+          `Stopping the upload of '${path}' failed too, so the parts already ` +
+            `sent may stay in the bucket until its rule for incomplete uploads ` +
+            `clears them:\n\n${Error.isError(error) ? error.message : error}`,
+        );
       }
       throw mismatch;
     } else if (noClobber && isPreconditionFailed(error)) {
@@ -1019,11 +1027,11 @@ export async function getText(uri) {
  * so a failed multipart upload can clear its parts. **AWS-only** — the
  * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
  *
- * The single source of truth for this policy. The `bucket` onboarding command
- * emits it (it is what a user attaches to the identity s3cab backs up as), and
- * docs/integration-testing.md §1 references it as the test identity's policy too
- * — with explicit verbs the everyday-backup and test policies are *identical*, so
- * one definition genuinely serves both. The two statements split because the
+ * The single source of truth for this policy. `s3cab aws` embeds it in the
+ * CloudFormation template it writes (it is what the identity s3cab backs up as
+ * carries), and docs/integration-testing.md §1 builds the test identity's policy
+ * on it. That one grants more, so a verb missing here passes the integration
+ * suite unnoticed. The two statements split because the
  * object actions target `…/*` while bucket-level `ListBucket` targets the bare
  * bucket ARN.
  *

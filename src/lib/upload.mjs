@@ -400,9 +400,8 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
             if (error instanceof ContentMismatchError) {
               // The file was rewritten *during* its transfer — putFile hashed
               // the bytes it streamed, saw they no longer match, and stored
-              // nothing. Same fact as the pre-PUT drift
-              // guard, caught later: a per-file skip, not a dead link, so the
-              // remaining transfers go on.
+              // nothing. Same fact as the pre-PUT drift guard, caught later: a
+              // per-file skip, not a dead link, so the remaining transfers go on.
               drifted.push({ path, reason: "changed", cause: error });
             } else {
               failure ??= Error.isError(error)

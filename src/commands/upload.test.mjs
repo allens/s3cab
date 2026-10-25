@@ -314,7 +314,7 @@ describe("upload --file confirmation guard", () => {
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw" }),
-      /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw/,
+      /changed while s3cab was reading it[^]*s3cab upload photos --file "\/f\/photo\.raw"/,
     );
     assert.deepEqual(putObjectCalls, []);
   });
@@ -324,7 +324,7 @@ describe("upload --file confirmation guard", () => {
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw" }),
-      /changed while s3cab was reading it[^]*s3cab upload photos --file \/f\/photo\.raw$/,
+      /changed while s3cab was reading it[^]*s3cab upload photos --file "\/f\/photo\.raw"$/,
     );
   });
 
@@ -332,8 +332,17 @@ describe("upload --file confirmation guard", () => {
     fileChangeResult = { reason: "removed" };
 
     await assert.rejects(() => upload("photos", { file: "/f/photo.raw" }), {
-      message: /s3cab upload photos --file \/f\/photo\.raw/,
+      message: /s3cab upload photos --file "\/f\/photo\.raw"/,
     });
+  });
+
+  it("quotes the path in the retry, so one with a space pastes whole", async () => {
+    fileChangeResult = { reason: "changed" };
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/My Photos/x.raw" }),
+      /s3cab upload photos --file "\/f\/My Photos\/x\.raw"$/,
+    );
   });
 
   it("names the retry with --bucket when that was how it was addressed", async () => {
@@ -373,7 +382,7 @@ describe("upload --file confirmation guard", () => {
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw", force: true }),
-      /s3cab upload photos --file \/f\/photo\.raw --force$/,
+      /s3cab upload photos --file "\/f\/photo\.raw" --force$/,
     );
   });
 });

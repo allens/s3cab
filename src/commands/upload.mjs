@@ -155,7 +155,7 @@ export async function upload(setName, options = {}) {
     const target = bucket ? `--bucket ${bucket}` : setName;
     // A forced retry keeps --force: without it, the key's old object answers
     // "already stored" and the overwrite never happens.
-    const retry = `s3cab upload ${target} --file ${file}${force ? " --force" : ""}`;
+    const retry = `s3cab upload ${target} --file "${file}"${force ? " --force" : ""}`;
 
     // prop() does the file validation (rejects non-regular files) and the
     // streaming SHA-256; reuse it rather than re-deriving either here (#6).
