@@ -427,8 +427,8 @@ function createWalkCallbackFn(baseDir, patterns, found) {
  * Record an entry the walk couldn't inspect, such as a locked OneDrive Personal
  * Vault (a link that can't be read): `#excluded` when a pattern leaves it out,
  * else an `#error` saying why. Its type is unknown, so it is matched as a file,
- * like a broken link (guide/exclude.md). Not as a folder too: that would lose
- * nothing, but one form per entry keeps the rule the one users already know.
+ * like a broken link (guide/exclude.md). Not as a folder too: a pattern ending
+ * in `/` claims a folder, and s3cab doesn't know this is one.
  * @param {string} path
  * @param {unknown} error - Why it couldn't be inspected
  * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
