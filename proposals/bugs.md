@@ -132,12 +132,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   (`src/lib/restore.mjs`) refuses to restore both at once, so the user finds out only when
   restoring, and then restores them one path filter at a time.
   Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
-- **"fits every frame to the terminal's width" fails in a checkout with a short path.** The test
-  (`src/lib/snapshot.progress.test.mjs`) sets a 60-column terminal and asserts that some frame
-  was cut short with `…`, on the premise that the temp directory's paths are longer than that.
-  Under `D:\src\s3cab` the longest frame is about 55 columns, so nothing is cut and the test
-  fails; CI's longer checkout paths hide it. A file name in the fixture long enough to overflow
-  60 columns from any root would make the premise hold everywhere.
 - **Under WSL on a Windows drive, a failed download can leave its temp file behind.**
   `src/lib/atomic-file.test.mjs`'s "leaves nothing behind when the source stream fails" finds
   a `.s3cab-tmp` file left in about one run in six on `/mnt/d` (DrvFs), on `main` too; CI's
