@@ -105,8 +105,8 @@ describe("backup → restore round trip (real bucket)", () => {
       assert.equal(r3.skipped.length, 0);
       assert.equal(sha256(firstPath), firstProps.hash);
 
-      // --output re-roots the same backup under a chosen directory, as
-      // <output>/<source-basename>/… — independent of the originals.
+      // --output re-roots the same backup under a chosen directory, each file
+      // at its full original path — independent of the originals.
       const outDir = join(dir.path, "restored");
       const r4 = await restore([], { all: true, set: setName, output: outDir });
       assert.equal(r4.skipped.length, 0);

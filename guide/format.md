@@ -679,8 +679,8 @@ That is a promise about what s3cab *writes*. Reading is more forgiving, because 
 are yours to edit: on Windows paths, where two spellings name one file, `@SET DIR` rows are
 matched against paths case-insensitively. Both are lowercased by Unicode's full default
 case mapping, Final_Sigma included, as JavaScript's `toLowerCase()` does, and never
-normalized — so hand-editing a snapshot's `DIR` rows won't stop `restore --output` finding
-where a file belongs. Every other path is matched exactly, since a case-sensitive
+normalized — so a `DIR` row hand-edited into another case still holds its file rows. Every
+other path is matched exactly, since a case-sensitive
 filesystem really can hold both `Photos` and `photos`, and so can a Windows directory set to
 be case-sensitive.
 
@@ -697,8 +697,7 @@ collision or as in the way, exit 1. After an exact prefix, though, any separator
 path's kind counts: `C:\P\a` runs through `C:\P\a/c.txt`, and both rows are refused. A POSIX
 path's only separator is `/`.
 
-**How a `@SET DIR` matches a path**, since anything re-rooting a tree depends on getting
-this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
+**How a `@SET DIR` matches a path**, since a file row under none is refused. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
 claim `…\trees\edgeX\file.txt`. Decide first whether the `DIR` is a
 [Windows path](#paths), from the row as written; then ignore the separators it ends with,
 and split both the directory and the path into segments: a valid path has no empty
@@ -711,56 +710,35 @@ compared like the segments, so `c:\` and `C:/` are one root, and `\\nas\photos\`
 reading it: a Windows path splits on `/` *and* `\`, any other on `/` alone, since there a
 `\` is an ordinary character in a filename — so a Windows snapshot reads correctly on a
 POSIX machine, and the reverse. A `DIR` matches only paths of its own kind, Windows or POSIX, so
-a POSIX `/` holds no `\\server\share` path. Where several directories match, the
-**longest wins**, counted in segments, so a member directory nested inside another takes
-precedence over its parent. Two that are equal by these rules, such as a `DIR` written
-twice, or `C:\a\Photos\` beside `c:/A/PHOTOS`, are one directory, and the first in the file
-is the one that counts. A path under no `DIR` at all
-has nowhere to land, so its row is [refused](#valid-and-invalid-files) rather than guessed
-at; only a hand-edited snapshot can hold one.
+a POSIX `/` holds no `\\server\share` path. A path under no `DIR` at all belongs to no
+member directory, so its row is [refused](#valid-and-invalid-files) rather than guessed at;
+only a hand-edited snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
 the recorded paths, to a chosen directory, or anywhere else. What s3cab itself does is
 written down here for one reason only: so that *"does my restore agree with s3cab's?"* is a
 question with an answer, rather than something you can settle only by running the tool and
-looking. Restoring to a chosen directory, it writes each file to
-`<output>/<name of the DIR that matched>/<the rest of the path below that DIR>`, the rest's
-segments joined with the destination's separator. So under a
-`@SET DIR` of `C:\Users\me\Photos\`, a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
-`<output>\Photos\2024\beach.jpg` — the member directory's *name*, not a rebuilt
-`C\Users\me\…` chain. In detail:
+looking. Restoring to a chosen directory, it writes each file at its whole path under
+`<output>`, the root turned into a folder and the segments joined with the destination's
+separator. So a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
+`<output>\C\Users\me\Photos\2024\beach.jpg`. Where a file lands depends on its own path
+alone, not on the `@SET DIR` it is under, so two rows with different paths never meet. In
+detail:
 
-- The folder takes the `DIR` row's spelling, and the rest of the path the file row's, even
-  where a Windows `DIR` matched a path spelled in another case.
-- A member directory nested inside another lands beside it, not inside it: under `C:\P\`
-  and `C:\P\Q\`, a row for `C:\P\Q\a.txt` lands at `<output>\Q\a.txt`, next to
-  `<output>\P\`.
-- A root has no name of its own:
-  - a drive root's folder is its letter, so under `C:\` a row for `C:\Users\me\a.txt`
-    lands at `<output>\C\Users\me\a.txt`. The letter is spelled as the `@SET DIR` row
-    spells it, so `d:\` makes `d`, which only a destination that keeps case can tell from
-    `D`;
-  - a share's is the share's name, so `\\nas\photos\` lands in `<output>\photos\`;
-  - `/` has no folder, and its files land straight in `<output>`. Beside any other `DIR`
-    they could mix with that one's folder, so s3cab refuses a restore that reaches both.
+- The root's folder:
+  - a drive's is its letter, upper case however the row spells it, so `d:\a.txt` lands at
+    `<output>\D\a.txt`;
+  - a share's is `UNC`, as Windows' own long-path form spells it, so `\\nas\photos\a.jpg`
+    lands at `<output>\UNC\nas\photos\a.jpg`;
+  - a device path's is its plain form's: `\\?\C:\` and `\\.\C:\` land as `C:\` does, and
+    `\\?\UNC\nas\` as `\\nas\`;
+  - `/` has none, so `/home/me/a.jpg` lands at `<output>/home/me/a.jpg`.
+- Every other segment keeps the file row's spelling, the member directory's parents
+  included.
 - Folders are made only as files land in them, so a member directory with no files restored
   leaves no folder at all, and a restore that writes nothing makes no `<output>` either. A
   file that fails, missing or withheld or refused, leaves none of the folders made for it.
-- Two `DIR` rows whose names collide both want the same destination directory
-  (`C:\a\Photos\` and `D:\b\photos\`); s3cab refuses a restore that reaches both rather
-  than merging them, and restores either one on its own. In detail:
-  - the names are the folder names above, lowercased by the same mapping as Windows paths,
-    and never normalized, whatever kind of path each `DIR` is;
-  - a `DIR` is reached when a file row the restore selects, one that is valid and that any
-    path filter matches, counts for it, whether or not its file turns out to be there
-    already. A file counts only for the deepest `DIR` it is
-    under, so a filter reaching only a nested `DIR` doesn't reach the one around it;
-  - refusing is for the whole restore, before anything is written, with exit 1;
-  - `/` beside another reached `DIR` is refused the same way.
-
-  The snapshot itself is valid, and restores to its recorded paths, so a writer has nothing
-  to refuse.
 - A file already at a destination before the restore began is left alone and reported as
   skipped, unless the restore was asked to overwrite; a skip alone leaves the exit status 0.
   A destination this restore has already written is another matter: two rows landing on one
@@ -977,12 +955,11 @@ For a restorer, or anything else that reads the files.
   sets out: refuse the whole file, refuse one path and carry on, or ignore the row. A file
   whose first line isn't the [heading row](#the-columns), all five fields, or whose last line
   isn't the `.`, is refused whole.
-- Place each file row under the `@SET DIR` it falls in, [matched by whole segments, the
-  longest winning](#paths), and the first in the file of two that match equally. On a
-  [Windows path](#paths), ignore case by the mapping given there. Where it lands from there
-  is your tool's decision.
-- Write each name as the name it is, the folder made from a `DIR`'s last segment included.
-  On Windows, a POSIX name holding `\` would be split
+- Check that each file row falls inside a `@SET DIR`, [matched by whole segments](#paths).
+  On a [Windows path](#paths), ignore case by the mapping given there. Where it lands is
+  your tool's decision.
+- Write each name as the name it is, the folders above the member directory included. On
+  Windows, a POSIX name holding `\` would be split
   into folders, and one holding `:` written to a hidden stream of the file named before
   it, both without an error. s3cab refuses such a row before anything is written, exit 1.
 - Fetch each file row's content from `objects/<hash>`, an empty file's

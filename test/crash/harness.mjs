@@ -1,10 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { RealS3 } from "../model/harness/real-inspector.mjs";
 import { checkStore } from "../model/harness/invariants.mjs";
-import { RepoModel, captureTree } from "../model/harness/model.mjs";
+import { RepoModel, asRestored, captureTree } from "../model/harness/model.mjs";
 
 // The crash/concurrency tier's orchestration: spawn the real CLI as child
 // processes (separate `S3CAB_HOME` per simulated machine) against the real
@@ -275,7 +275,9 @@ export function restoreAndCompare({ set, scratch, expected, dirs }) {
   mkdirSync(home, { recursive: true });
   mkdirSync(output, { recursive: true });
   seedSet(home, set, dirs);
-  const result = s3cab(["restore", "--set", set, "--output", output], { home });
+  const result = s3cab(["restore", "--set", set, "--all", "--output", output], {
+    home,
+  });
   /** @type {string[]} */
   const violations = [];
   if (result.status !== 0) {
@@ -284,12 +286,12 @@ export function restoreAndCompare({ set, scratch, expected, dirs }) {
     );
     return { violations, result };
   }
-  const actualDirs = [];
-  for (const dir of dirs) {
-    actualDirs.push(join(output, basenameOf(dir)));
-  }
-  const actual = captureTree(actualDirs);
-  for (const [file, bytes] of expected) {
+  // As the snapshot spells them: the walk canonicalizes each root, and a
+  // Windows runner's temp path is short (8.3).
+  const canonical = dirs.map((dir) => realpathSync.native(dir));
+  const laidOut = asRestored(expected, canonical, output);
+  const actual = captureTree([output]);
+  for (const [file, bytes] of laidOut) {
     const got = actual.get(file);
     if (got === undefined) {
       violations.push(`restore of '${set}' is missing ${file}`);
@@ -300,7 +302,7 @@ export function restoreAndCompare({ set, scratch, expected, dirs }) {
     }
   }
   for (const file of actual.keys()) {
-    if (!expected.has(file)) {
+    if (!laidOut.has(file)) {
       violations.push(`restore of '${set}' invented ${file}`);
     }
   }

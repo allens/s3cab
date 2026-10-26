@@ -119,9 +119,9 @@ export const COARSEST_DISK_MS = 2000;
  * ([ADR-0109](../../docs/adr/0109-restore-output-keeps-the-full-path.md)) — a
  * drive keeps its letter (`C:\Users\a.jpg` → `<dir>/C/Users/a.jpg`), a share goes
  * under `UNC`, as Windows' own long-path form does (`\\nas\x\a.jpg` →
- * `<dir>/UNC/nas/x/a.jpg`), and a POSIX path keeps its segments. Where a file
- * lands depends on its own path alone, so two paths never meet, and the result
- * is valid on *this* machine wherever the backup was taken.
+ * `<dir>/UNC/nas/x/a.jpg`), and a POSIX path keeps its segments. A device path
+ * (`\\?\C:\…`, `\\?\UNC\nas\…`) lands where its plain form does. Where a file
+ * lands depends on its own path alone, so two paths never meet.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: paths are split by `path-match.mjs`'s `preparePath` — both separators
@@ -131,29 +131,39 @@ export const COARSEST_DISK_MS = 2000;
  * side-effect-free (unit-testable without S3), like `selectEntries`.
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string | undefined} Maps a snapshot path to its
- *   destination, or `undefined` for one a Windows output can't place
+ *   destination, or `undefined` for one it can't place
  */
 export function reroot(output) {
   const outDir = resolve(output);
   const windows = foldsCase(outDir);
   return (path) => {
-    const { path: unified, foldCase } = preparePath(path);
+    const unified = preparePath(path).path.replace(
+      /^\/\/[?.]\/(unc\/)?/i,
+      (_, unc) => (unc ? "//" : ""),
+    );
+    const drive = /^[A-Za-z]:\//.test(unified);
+    // Relative only in a hand-edited snapshot, which the reader refuses.
+    if (!drive && !unified.startsWith("/")) {
+      return undefined;
+    }
+    // A drive's `C:` is no name a Windows folder can have, so it takes the
+    // letter, in the one case Windows reads both as; `UNC` is three letters, so
+    // no drive folder can meet a share's.
+    const root = unified.startsWith("//")
+      ? ["UNC"]
+      : drive
+        ? [unified.charAt(0).toUpperCase()]
+        : [];
     const names = unified
       .slice(rootLength(unified))
       .split(posix.sep)
       .filter(Boolean);
-    // A drive's `C:` is no name a Windows folder can have, so it takes the
-    // letter; `UNC` is three letters, so no drive folder can meet a share's.
-    const root = unified.startsWith("//")
-      ? ["UNC"]
-      : foldCase
-        ? [unified.charAt(0)]
-        : [];
     const named = [...root, ...names];
     // The reader refuses a `.`/`..` segment (ADR-0101), but splits on `/` alone.
     // Windows also reads a POSIX name's `\` as a separator, so `back\slash.txt`
     // would land as a folder and `a\..\..\x` outside `<output>`, once `join`
-    // resolves the `..`.
+    // resolves the `..`. Every segment is checked, the member directory's
+    // parents too, since all of them become folders.
     if (windows && named.some((segment) => segment.includes("\\"))) {
       return undefined;
     }

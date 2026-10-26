@@ -743,7 +743,7 @@ the `--force` first written above (clearer, and it never overwrites like `upload
 ### Slice 4 — `restore` + adoption
 
 Restore semantics as specified (skip-existing default, `--overwrite`, `--output`
-per-root-basename mapping with clash detection, `paths…` filters, mtime restoration);
+re-rooting, `paths…` filters, mtime restoration);
 fresh-machine adoption; `compare --remote`.
 
 **Built (PR #44):** `restore` to original locations — skip-existing default + `--overwrite`,
@@ -751,8 +751,8 @@ fresh-machine adoption; `compare --remote`.
 verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
 mtime restoration; `setup` is now uniformly async. `--output` re-rooting **is now
 built** (`parseSnapshotStream` surfaces the `@SET DIR`/`@SNAPSHOT` rows it used to drop;
-`readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
-under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
+`readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` places each file at its
+full path under `<output>`, [ADR-0109](../adr/0109-restore-output-keeps-the-full-path.md)). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
 retired with it), later split into the standalone `reattach` command

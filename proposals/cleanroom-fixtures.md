@@ -37,10 +37,6 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   comment, a member directory reached through a symlink, and one written with a trailing `/`.
   The seed writes every `dirs.txt` clean, with LF endings. A member directory kept as typed
   rather than resolved changes every path in the restore fixtures.
-- **Nested member directories separated by an exclude.** Use `dirs` set to
-  `[nest/outer, nest/outer/inner]` with the pattern `inner/`. s3cab accepts this and writes
-  nested `@SET DIR`s, which exercises "the **longest wins**". A restorer that takes the first match
-  lays the files out differently. **Silent**, though layout is the tool's own decision.
 - **A tab, LF or CR in an excluded name**: `edge/odd\nname.jpg` and `edge/odd\rname.jpg` with
   the pattern `odd*name.jpg`. s3cab spells them out (`odd␊name.jpg`). A restorer that reads
   them raw splits the row. Loud. (With no pattern, such a name is the `ledger` set a backup

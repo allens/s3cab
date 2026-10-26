@@ -392,10 +392,7 @@ Run 2 added four more, each for a rule the corpus asserted but never made a run
 *obey* — its report described its handling of all four as written and never
 executed. `spread` is the only set with more than one member directory, without
 which the two candidate restore layouts produce identical trees and the corpus
-makes its own Tier 1 question unanswerable. (Two member dirs sharing a
-*basename* are deliberately absent: s3cab refuses that under `--output`, so the
-set would have no reference tree, and the refusal is already the answer.)
-`faults/deleted.txt` is deleted and left deleted, so a file is absent *and*
+makes its own Tier 1 question unanswerable. `faults/deleted.txt` is deleted and left deleted, so a file is absent *and*
 recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor

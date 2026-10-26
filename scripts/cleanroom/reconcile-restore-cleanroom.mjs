@@ -135,6 +135,7 @@ for (const name of goldenSets) {
       name,
       "--snapshot",
       snapshot,
+      "--all",
       "--output",
       target,
     ]);

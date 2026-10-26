@@ -142,12 +142,12 @@ describe("reroot", () => {
     );
   });
 
-  it("turns a drive into its letter, in either separator, on any OS", () => {
+  it("turns a drive into its letter, upper case, in either separator, on any OS", () => {
     assert.equal(
       map("C:\\Users\\me\\a.txt"),
       join(out, "C", "Users", "me", "a.txt"),
     );
-    assert.equal(map("d:/b.txt"), join(out, "d", "b.txt"));
+    assert.equal(map("d:/b.txt"), join(out, "D", "b.txt"));
   });
 
   it("puts a share under UNC, on any OS", () => {
@@ -155,6 +155,19 @@ describe("reroot", () => {
       map("\\\\nas\\photos\\2024\\a.jpg"),
       join(out, "UNC", "nas", "photos", "2024", "a.jpg"),
     );
+  });
+
+  it("puts a device path where its plain form goes", () => {
+    assert.equal(map("\\\\?\\E:\\b.txt"), join(out, "E", "b.txt"));
+    assert.equal(map("\\\\.\\E:\\b.txt"), join(out, "E", "b.txt"));
+    assert.equal(
+      map("\\\\?\\UNC\\nas\\photos\\a.jpg"),
+      join(out, "UNC", "nas", "photos", "a.jpg"),
+    );
+  });
+
+  it("places no relative path", () => {
+    assert.equal(map("data/x.txt"), undefined);
   });
 
   it("keeps two member dirs with one last name apart", () => {

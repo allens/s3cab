@@ -146,14 +146,15 @@ export async function restore(paths = [], options = {}) {
   if (!options.all && named.length === 0 && fromFile === undefined) {
     throw nothingNamedError(set);
   }
-  if (fromFile !== undefined) {
-    const listed = await readPathList(fromFile, set);
-    if (named.length === 0 && listed.length === 0) {
-      throw new Error(
-        `No paths to restore: ${fromFile === "-" ? "standard input" : `'${fromFile}'`} lists none.`,
-      );
-    }
-    named.push(...listed);
+  // Not `push(...list)`: a list of 200k lines overflows the call's arguments.
+  const filters =
+    fromFile === undefined
+      ? named
+      : named.concat(await readPathList(fromFile, set));
+  if (!options.all && filters.length === 0) {
+    throw new Error(
+      `No paths to restore: ${fromFile === "-" ? "standard input" : `'${fromFile}'`} lists none.`,
+    );
   }
 
   // One listing picks the source and validates `--snapshot` against what's
@@ -178,15 +179,17 @@ export async function restore(paths = [], options = {}) {
 
   const snapshot = await readRemoteSnapshot(set.bucket, set.name, name);
   const { entries, instant } = snapshot;
-  const targets = selectEntries(entries.keys(), named);
+  const targets = selectEntries(entries.keys(), filters);
   // The rows the reader refused (ADR-0101): restored nowhere, reported, exit 1.
-  const invalid = selectEntries(snapshot.refused.keys(), named).map((path) => ({
-    path,
-    reason: /** @type {string} */ (snapshot.refused.get(path)),
-  }));
-  if (named.length && targets.length === 0 && invalid.length === 0) {
+  const invalid = selectEntries(snapshot.refused.keys(), filters).map(
+    (path) => ({
+      path,
+      reason: /** @type {string} */ (snapshot.refused.get(path)),
+    }),
+  );
+  if (filters.length && targets.length === 0 && invalid.length === 0) {
     throw new Error(
-      `No files in snapshot '${name}' matched: ${named.join(", ")}`,
+      `No files in snapshot '${name}' matched: ${filters.join(", ")}`,
     );
   }
 

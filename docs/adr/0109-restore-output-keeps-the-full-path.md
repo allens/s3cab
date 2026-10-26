@@ -23,10 +23,11 @@ arise: restic (`/tmp/restore/home/user/work/foo`), borg (into the working direct
 `--output <dir>` places each file at its full original path under `<dir>`, the root turned into
 a folder:
 
-- a drive path keeps its letter without the colon: `C:\Users\me\a.jpg` →
-  `<dir>\C\Users\me\a.jpg`;
+- a drive path keeps its letter without the colon, upper case, since Windows reads `c:` and
+  `C:` as one drive: `C:\Users\me\a.jpg` → `<dir>\C\Users\me\a.jpg`;
 - a network share goes under `UNC`, as Windows' own long-path form does: `\\nas\photos\a.jpg` →
   `<dir>\UNC\nas\photos\a.jpg`. A drive folder is one letter, so the two can't collide;
+- a device path lands where its plain form does: `\\?\C:\a.jpg` as `C:\a.jpg`;
 - a POSIX path keeps its segments: `/home/me/a.jpg` → `<dir>/home/me/a.jpg`.
 
 The rule is the same however the paths were named ([0110](0110-restore-takes-paths-a-list-or-all.md)).
@@ -64,6 +65,10 @@ restore is finished by running it again.
 - **One file restored to compare it lands deep** (`<dir>\C\Users\me\Photos\report.pdf`).
   Restore can print where it put it; copying one item out to a place of the user's choosing is
   a separate decision, additive to this one.
+- **A POSIX folder name holding `\` is refused on a Windows output**, wherever it is in the
+  path: Windows would read it as a separator. Above the member directory that is new, since
+  those folders used to be dropped, so a Linux set under `/home/u/we\ird/` restores with
+  `--output` only off Windows.
 - **Every path grows by `<dir>`'s length.** One already near Windows' 260-character limit can
   pass it, which some Windows programs still handle badly. Not measured.
 - `reroot` (`src/lib/restore.mjs`) loses the last-name and drive-letter rules and both

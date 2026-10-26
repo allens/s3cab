@@ -63,20 +63,53 @@ const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
- * Where `restore --output <output>` puts a member directory: at its full path,
- * a drive's letter kept as a folder (ADR-0109). Written from the spec, not
- * imported, like the rest of this file; local paths only, as the harness's are.
+ * The folders `restore --output` puts a member directory under: its full path,
+ * a drive's letter, upper case, as the first (ADR-0109). Written from the
+ * spec, not imported, like the rest of this file; local paths only, as the
+ * harness's are.
+ * @param {string} dir - An absolute local path
+ * @returns {string[]}
+ */
+const restoredSegments = (dir) =>
+  dir
+    .replace(/^([A-Za-z]):/, (_, letter) => letter.toUpperCase())
+    .split(/[\\/]/)
+    .filter(Boolean);
+
+/**
+ * Where `restore --output <output>` puts a member directory.
  * @param {string} output
  * @param {string} dir - An absolute local path
  * @returns {string}
  */
 export const restoredAt = (output, dir) =>
-  join(output, ...dir.replace(/^([A-Za-z]):/, "$1").split(/[\\/]/));
+  join(output, ...restoredSegments(dir));
+
+/**
+ * A captured tree as `restore --output <output>` lays it out, keyed as
+ * `captureTree([output])` keys the restore, so comparing the two sees a file
+ * anywhere under the output, not only in the folders expected.
+ * @param {Tree} tree - `captureTree(dirs)`
+ * @param {string[]} dirs - The member directories it was captured from
+ * @param {string} output
+ * @returns {Tree}
+ */
+export function asRestored(tree, dirs, output) {
+  /** @type {Tree} */
+  const laidOut = new Map();
+  for (const [file, bytes] of tree) {
+    const slash = file.indexOf("/");
+    const base = file.slice(0, slash);
+    const dir = /** @type {string} */ (dirs.find((d) => basename(d) === base));
+    const key = [basename(output), ...restoredSegments(dir)].join("/");
+    laidOut.set(`${key}/${file.slice(slash + 1)}`, bytes);
+  }
+  return laidOut;
+}
 
 /**
  * Read a directory tree the way the harness captures expected content:
- * regular files only, keyed `<dirBasename>/<posix relpath>`, which is the same
- * for a member directory and for where `restore --output` recreates it.
+ * regular files only, keyed `<dirBasename>/<posix relpath>`.
  * @param {string[]} dirs - The set's member directories (absolute)
  * @returns {Tree}
  */

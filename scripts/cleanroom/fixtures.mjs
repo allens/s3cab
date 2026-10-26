@@ -34,10 +34,9 @@
  * The sets. `edge` is the crafted adversarial set, one fixture per finding; `docs` ordinary
  * data; `bulk` past ListObjectsV2's 1000-key page; `media` one object over the multipart
  * part size; `hollow` a set with no files (F16); `spread` the only set with more than one
- * member directory, which is what makes the restore layout question answerable (two
- * member directories sharing a basename are deliberately absent: s3cab refuses that under
- * `--output`, so the set would have no reference tree); `faults` and `corrupt` are the raw
- * material for the golden set's damage (seed-restore-cleanroom-bucket.mjs), ordinary
+ * member directory, which is what makes the restore layout question answerable; `faults`
+ * and `corrupt` are the raw material for the golden set's damage
+ * (seed-restore-cleanroom-bucket.mjs), ordinary
  * trees in a backup room. Two sets a backup must **refuse** rather than publish: `scans`,
  * one file whose name has no UTF-8 form (a lone surrogate on Windows, a stray byte
  * elsewhere), and `ledger`, one file with a tab in its name. The seed has exclude
@@ -652,8 +651,8 @@ export const fixtures = [
   // ── hollow: no files at all — a legal snapshot with no file rows (F16) ──
   { set: "hollow", path: [], kind: "dir", why: "a set with no files (F16)" },
 
-  // ── spread: two member directories, so `<out>/<basename of DIR>/…` and `<out>/<set>/…`
-  // restore different trees. The rest are matched against `excludes`' patterns in the
+  // ── spread: two member directories, so a layout that keeps them apart and one that
+  // merges them restore different trees. The rest are matched against `excludes`' patterns in the
   // seed, each rule with a path it drops and a near miss it keeps.
   .../** @type {[string, string][]} */ ([
     ["alpha/from-alpha.txt", "member directory alpha"],
