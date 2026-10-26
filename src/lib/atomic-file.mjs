@@ -62,10 +62,14 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
         },
         fd.createWriteStream(),
       );
-    } finally {
-      // Closed before `land` renames or removes the temp, on every path.
-      await fd.close();
+    } catch (error) {
+      // Once `pipeline` rejects, the stream lets go of the file in its own time,
+      // and `land` can't remove the temp until it has. A failed close is
+      // dropped here: the error that stopped the download is the one to report.
+      await fd.close().catch(() => {});
+      throw error;
     }
+    await fd.close();
     if (hasher) {
       const got = hasher.digest("hex");
       if (got !== hash) {

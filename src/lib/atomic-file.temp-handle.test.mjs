@@ -7,16 +7,18 @@ import { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it, mock } from "node:test";
 
-// writeFileAtomic on a filesystem whose `open` is slow, such as a Windows drive
-// under WSL, where every call is a round trip to Windows. A source that fails
-// before the temp has been opened must still leave nothing behind.
+// writeFileAtomic when the temp's file misbehaves: an `open` that is slow, as on
+// a Windows drive under WSL, where every call is a round trip to Windows, and a
+// `close` that fails.
 //
-// Its own file, and a dotted aspect name (ADR-0049), because slowing the open
-// means mocking `node:fs` and `node:fs/promises` before `atomic-file.mjs` is
-// loaded.
+// Its own file, and a dotted aspect name (ADR-0049), because both mean mocking
+// `node:fs` and `node:fs/promises` before `atomic-file.mjs` is loaded.
 
 /** How long each open takes: far longer than the source takes to fail. */
 const OPEN_DELAY_MS = 100;
+
+/** Set by a test to make each temp's `close` fail, after really closing it. */
+let closeFails = false;
 
 /** Every delayed open, so the test can wait until each has created its file. */
 const opens = /** @type {Promise<unknown>[]} */ ([]);
@@ -37,7 +39,18 @@ mock.module("node:fs/promises", {
     rename: realFsPromises.rename,
     rm: realFsPromises.rm,
     /** @type {typeof realFsPromises.open} */
-    open: (...args) => slowly(() => realFsPromises.open(...args)),
+    open: (...args) =>
+      slowly(async () => {
+        const handle = await realFsPromises.open(...args);
+        if (closeFails) {
+          const close = handle.close.bind(handle);
+          handle.close = async () => {
+            await close();
+            throw Object.assign(new Error("close failed"), { code: "EIO" });
+          };
+        }
+        return handle;
+      }),
   },
 });
 // The lazy open the race came from, slowed too, so going back to
@@ -78,14 +91,15 @@ mock.module("node:fs", {
 
 const { writeFileAtomic } = await import("./atomic-file.mjs");
 
-describe("writeFileAtomic when the temp opens slowly", () => {
-  it("leaves nothing behind when the source fails before the open completes", async () => {
+async function* failingSource() {
+  yield "some bytes";
+  throw new Error("connection reset");
+}
+
+describe("writeFileAtomic's temp file", () => {
+  it("is open before the source can fail, however slow the open", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
 
-    async function* failingSource() {
-      yield "some bytes";
-      throw new Error("connection reset");
-    }
     await assert.rejects(
       () =>
         writeFileAtomic(
@@ -96,5 +110,22 @@ describe("writeFileAtomic when the temp opens slowly", () => {
     );
     await Promise.all(opens);
     assert.deepEqual(realFs.readdirSync(dir.path), []);
+  });
+
+  it("doesn't hide the download's error when its close fails too", async (t) => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    closeFails = true;
+    t.after(() => {
+      closeFails = false;
+    });
+
+    await assert.rejects(
+      () =>
+        writeFileAtomic(
+          join(dir.path, "out.bin"),
+          Readable.from(failingSource()),
+        ),
+      /connection reset/,
+    );
   });
 });
