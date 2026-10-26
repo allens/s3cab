@@ -308,12 +308,10 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         {
           path: "out-file",
           reason: `link to a file outside the backup: ${join(away, "a.txt")}`,
-          isDir: false,
         },
         {
           path: "out-folder",
           reason: `link to a folder outside the backup: ${join(away, "folder")}`,
-          isDir: true,
         },
       ]);
     },
@@ -337,12 +335,10 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         {
           path: "to-file",
           reason: `link to a file outside the backup: ${join(root, ".s3cab", "kept.txt")}`,
-          isDir: false,
         },
         {
           path: "to-folder",
           reason: `link to a folder outside the backup: ${join(root, ".s3cab")}`,
-          isDir: true,
         },
       ]);
     },
@@ -405,11 +401,11 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
       );
 
       const { errors } = walkDirs([base], []);
+      // A folder link, so its path ends with a separator, as its row's does.
       assert.deepStrictEqual(errors, [
         {
-          path: link,
+          path: link + sep,
           reason: "link to a place this computer can't resolve: sub",
-          isDir: true,
         },
       ]);
     },

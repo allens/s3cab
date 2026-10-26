@@ -197,6 +197,13 @@ export async function backup(setName, options = {}) {
     process.exitCode = 1;
   }
 
+  // Compared without a folder link's separator: a OneDrive Personal Vault is a
+  // link s3cab can't read while locked and a folder link once unlocked, so its
+  // row gains or loses one between runs.
+  const failedBefore = new Set(
+    [...previousErrors.keys()].map(withoutSeparator),
+  );
+
   return {
     set: set.name,
     bucket: set.bucket,
@@ -219,7 +226,7 @@ export async function backup(setName, options = {}) {
     // client's lock file nobody wants and an Outlook .pst that only needs Outlook
     // closed — suggesting an exclude for the second loses someone's mail.
     excludeSuggestions: pass.errors
-      .filter(({ path }) => previousErrors.has(path))
+      .filter(({ path }) => failedBefore.has(withoutSeparator(path)))
       .map(({ path }) => excludePattern(pass.roots, path)),
     excludePath: set.excludePath,
     comparison,
@@ -227,13 +234,14 @@ export async function backup(setName, options = {}) {
 }
 
 /**
- * The exclude pattern naming exactly one file: its path relative to the member
+ * The exclude pattern naming exactly one entry: its path relative to the member
  * directory holding it, in the platform's own separator, as the starter
  * `exclude.txt` is written (ADR-0051).
  * @param {string[]} roots - The member directories as the walk resolved them,
  *   never `dirs.txt`'s text: a symlinked or differently-cased entry contains
  *   none of the walk's paths
- * @param {string} path - A file the walk found beneath one of them
+ * @param {string} path - An entry the walk found beneath one of them, as its
+ *   `#error` row spells it: a folder link's ends with a separator
  * @returns {string}
  */
 function excludePattern(roots, path) {
@@ -243,8 +251,15 @@ function excludePattern(roots, path) {
       return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
     })
   );
-  return relative(root, path);
+  // `relative` drops a folder link's trailing separator, without which the
+  // pattern would match only a file.
+  const rel = relative(root, path);
+  return path.endsWith(sep) ? rel + sep : rel;
 }
+
+/** @param {string} path */
+const withoutSeparator = (path) =>
+  path.endsWith(sep) ? path.slice(0, -1) : path;
 
 /**
  * The "the bytes didn't all make it" error a backup ends with when an upload

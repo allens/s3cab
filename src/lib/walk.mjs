@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { isUtf8 } from "node:buffer";
-import { isAbsolute, posix, resolve } from "node:path";
+import { isAbsolute, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
@@ -34,9 +34,9 @@ import { readLines } from "./read-lines.mjs";
 /**
  * An entry the walk couldn't check, or a link leading out of the backup
  * (ADR-0103), with the message — an `#error` row, the same shape as a file that
- * couldn't be hashed. `isDir` marks a folder link, whose path the row ends with
- * a separator.
- * @typedef {{ path: string, reason: string, isDir?: boolean }} WalkError
+ * couldn't be hashed. Its path is spelled as the row spells it: a folder link's
+ * ends with a separator.
+ * @typedef {{ path: string, reason: string }} WalkError
  */
 
 /** @typedef {{ files: string[], excluded: ExclusionRecord[], errors: WalkError[] }} WalkResult */
@@ -401,7 +401,7 @@ function createWalkCallbackFn(baseDir, patterns, found) {
     if (Error.isError(fileType)) {
       // Vanished between listing and checking: there is nothing to record.
       if (!isENOENT(fileType)) {
-        found.errors.push({ path, reason: fileType.message });
+        recordUninspectable(path, fileType, excludedBy, found);
       }
       return false;
     }
@@ -421,6 +421,29 @@ function createWalkCallbackFn(baseDir, patterns, found) {
     }
     return true;
   };
+}
+
+/**
+ * Record an entry the walk couldn't inspect, such as a locked OneDrive Personal
+ * Vault (a link that can't be read): `#excluded` when a pattern leaves it out,
+ * else an `#error` saying why. Its type is unknown, so it is matched as a file,
+ * like a broken link (guide/exclude.md). Not as a folder too: a pattern ending
+ * in `/` claims a folder, and s3cab doesn't know this is one.
+ * @param {string} path
+ * @param {unknown} error - Why it couldn't be inspected
+ * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
+ * @param {Found} found
+ */
+function recordUninspectable(path, error, excludedBy, found) {
+  const pattern = excludedBy(path, false);
+  if (pattern) {
+    found.excluded.push({ pattern, path, isDir: false });
+  } else {
+    found.errors.push({
+      path,
+      reason: Error.isError(error) ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -485,10 +508,7 @@ function checkLink(path, excludedBy, found) {
     target = readlinkSync(path);
   } catch (error) {
     if (!isENOENT(error)) {
-      found.errors.push({
-        path,
-        reason: Error.isError(error) ? error.message : String(error),
-      });
+      recordUninspectable(path, error, excludedBy, found);
     }
     return;
   }
@@ -514,10 +534,10 @@ function checkLink(path, excludedBy, found) {
     return;
   }
 
+  const errorPath = isDir ? path + sep : path;
   const unresolved = {
-    path,
+    path: errorPath,
     reason: `link to a place this computer can't resolve: ${target}`,
-    isDir,
   };
   if (!stats) {
     found.errors.push(unresolved);
@@ -533,9 +553,8 @@ function checkLink(path, excludedBy, found) {
   }
   if (!found.inBackup(resolved, isDir)) {
     found.errors.push({
-      path,
+      path: errorPath,
       reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,
-      isDir,
     });
   }
 }

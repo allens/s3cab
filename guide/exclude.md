@@ -75,6 +75,15 @@ to every directory in the set.
   on the end (unlike git, where `foo/` never matches a link).
 - A broken link, or one whose target can't be reached, is matched like a file, so
   only a pattern without the `/` matches it.
+- Anything s3cab can't read is listed as an error, unless a pattern leaves it out.
+- The exception is a folder it can't list: that stops the backup, and no snapshot
+  is written. A pattern leaves that out too.
+- A pattern ending in `/` matches only what s3cab knows to be a folder. An entry it
+  can't inspect (a link it can't read, or anything whose type it can't check) is
+  matched like a file, so only a pattern without the `/` matches it.
+- A OneDrive Personal Vault is such an entry while locked, and a folder link once
+  unlocked. Leaving it out in both states takes a pattern for each, such as the
+  two lines `Personal Vault` and `Personal Vault/`.
 
 **Case, and other rules**
 

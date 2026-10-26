@@ -527,7 +527,7 @@ describe("compareSnapshots", () => {
       },
       files: [],
       excluded: [],
-      errors: [{ path: resolve(dir.path, "sub"), reason, isDir: true }],
+      errors: [{ path: resolve(dir.path, "sub") + sep, reason }],
       getProps: async () => assert.fail("no files to hash"),
     });
 

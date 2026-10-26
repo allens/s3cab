@@ -590,9 +590,7 @@ export async function writeSnapshot(
         showControlChars(isDir ? asFolder(path) : path),
       ),
     ),
-    ...errors.map(({ path, reason, isDir }) =>
-      errorLine(reason, isDir ? asFolder(path) : path),
-    ),
+    ...errors.map(({ path, reason }) => errorLine(reason, path)),
   ].join("");
   return withSnapshotFile(
     snapshotDir,
