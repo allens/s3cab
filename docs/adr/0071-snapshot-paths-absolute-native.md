@@ -50,9 +50,10 @@ that is the whole point of the tool.
 
 The "path-translation story" exists and is `--output`:
 
-- [`reroot`](../../src/lib/restore.mjs) is **separator-agnostic by construction** — roots and
-  paths are split on both `/` and `\` and matched by whole segments, then rebuilt with the
-  restoring platform's separator. A Windows snapshot re-roots correctly on POSIX and vice versa.
+- [`reroot`](../../src/lib/restore.mjs) is **separator-agnostic by construction** — a
+  Windows-shaped path is split on both `/` and `\`, then rebuilt at its full path with the
+  restoring platform's separator ([0109](0109-restore-output-keeps-the-full-path.md)). A
+  Windows snapshot re-roots correctly on POSIX and vice versa.
 - **Plain `restore` refuses rather than scattering.** Every target must be `isAbsolute` on *this*
   platform before anything touches disk; otherwise POSIX would cheerfully create a file literally
   named `C:\Users\…` in the working directory. The error names the likely cause and points at

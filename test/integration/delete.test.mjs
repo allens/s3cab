@@ -177,7 +177,11 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       // ── restore: graceful, dated skip ───────────────────────────────────
       process.exitCode = savedExitCode; // isolate restore's exit contribution
       const outDir = join(dir.path, "restored");
-      const restored = await restore([], { set: setName, output: outDir });
+      const restored = await restore([], {
+        all: true,
+        set: setName,
+        output: outDir,
+      });
       assert.deepEqual(
         restored.missing,
         [],

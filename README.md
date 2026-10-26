@@ -134,7 +134,7 @@ Restored 1 file from 'photos' (snapshot 2025-11-12T0915).
 
 That's the whole loop: set up once, `backup` whenever, `restore` when you need something
 back. To pull an _older_ version, add `--snapshot <name>`; to recover everything (the
-disaster-recovery case), run `restore` with no paths. By default `restore` leaves files that
+disaster-recovery case), run `restore --all`. By default `restore` leaves files that
 still exist untouched — your accidental deletions come back while everything else stays put —
 so pass `--overwrite` when you actually want to replace what's there.
 [guide/restore.md](guide/restore.md) covers all of it.
@@ -216,7 +216,7 @@ The cloud round trip, plus the maintenance that keeps a repository healthy
 | Command                                  | What it does |
 | ---------------------------------------- | ------------ |
 | `s3cab backup [<set>]`                   | Take a fresh snapshot and upload it — and the files it references — to the set's bucket. `--rehash` re-reads every file instead of trusting an unchanged size and modification time ([guide](guide/backup.md)). |
-| `s3cab restore --set <set> [<path>…]`    | Recover from the set's cloud backup: name paths for specific files, or none for the whole set. `--snapshot` pulls an older version, `--overwrite` replaces files that still exist, `-o`/`--output` restores under a directory you choose ([guide](guide/restore.md)). |
+| `s3cab restore --set <set> <path>…`      | Recover from the set's cloud backup: name paths for specific files, `--from-file` for a list of them, or `--all` for the whole set. `--snapshot` pulls an older version, `--overwrite` replaces files that still exist, `-o`/`--output` restores under a directory you choose ([guide](guide/restore.md)). |
 | `s3cab verify <bucket>`                  | Check a repository's backups are complete and undamaged — every referenced file stored, at the right size (findings reported per set). |
 | `s3cab forget --set <set> <snapshot>…`   | Remove snapshots from a backup: previews what would become unrestorable, then confirms once (`-f`/`--force` for scripts). The files themselves are left for `cleanup` to reclaim. |
 | `s3cab delete --bucket <bucket> <hash>…` | Permanently delete content from every backup, named by hash — for things you no longer want stored at all. `s3cab find` produces the hashes; `--from-file` reads a saved list, `-n`/`--dry-run` previews, `-f`/`--force` skips the typed confirmation. |
@@ -255,13 +255,14 @@ them back**. You create a set once, then the commands above act on it; a set's c
 is plain files you can open and edit (`~/.s3cab/sets/<set>/`).
 
 The everyday use is **getting specific files back**: pass `paths…` to restore just part of a
-set, and `--snapshot <name>` to pull an _older_ version instead of the latest. With no
-`paths…` it restores the **whole set** — the disaster-recovery backstop. Files go back to the
+set, and `--snapshot <name>` to pull an _older_ version instead of the latest. `--all`
+restores the **whole set** — the disaster-recovery backstop. Files go back to the
 locations they were backed up from; pass `--output <dir>` to recover under a directory you
-choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is how
-you restore a backup whose original paths don't fit this machine — a different drive layout,
-or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
-`s3cab reattach <set> --bucket <bucket>` — then `restore`; to back the set up from there
+choose instead (each file lands at its full original path beneath it, as
+`<dir>/C/Users/me/…`), which is how you restore a backup whose original paths don't fit this
+machine — a different drive layout, or another OS. To recover onto a **fresh machine**, attach
+it to the existing backup — `s3cab reattach <set> --bucket <bucket>` — then `restore --all`;
+to back the set up from there
 too, `s3cab takeover <set>`. The full walkthrough is in [guide/restore.md](guide/restore.md).
 
 ### Coming next

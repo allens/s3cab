@@ -281,17 +281,18 @@ a partial manifest to close it (judged scope creep on `upload` for now).
 
 ### `restore` — put files back, never destructively by default
 
-`s3cab restore --set <set> [paths…]` restores to **original locations** (the snapshot's
+`s3cab restore --set <set> <paths…>` restores to **original locations** (the snapshot's
 absolute paths) but **never touches an existing file** — existing files are reported as
 skipped; `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
 "I deleted a directory" case both just work, and a careless restore can't destroy newer
-work. `--snapshot <name>` picks the source snapshot (default: the latest remote);
-positional `paths…` filter what is restored. Restored files get their snapshot **mtime**
-(required — the snapshot diff depends on mtimes).
+work. `--snapshot <name>` picks the source snapshot (default: the latest remote). What is
+restored is always named — positional `paths…` and/or a `--from-file` list, or `--all` for
+the whole snapshot ([ADR-0110](../adr/0110-restore-takes-paths-a-list-or-all.md)). Restored
+files get their snapshot **mtime** (required — the snapshot diff depends on mtimes).
 
-`--output <dir>` re-roots instead: each member dir's contents restore relative to it
-under `output\<root-basename>\` — shallow and human-readable. Two roots sharing a
-basename is detected up front and errors with guidance (rare, actionable).
+`--output <dir>` re-roots instead: each file lands at its full original path under it, the
+root turned into a folder (`<dir>\C\Users\…`, `<dir>\UNC\nas\…`, `<dir>/home/…`), so no two
+paths can meet ([ADR-0109](../adr/0109-restore-output-keeps-the-full-path.md)).
 
 **A missing object degrades, it doesn't abort.** The objects-first/snapshot-last invariant
 says every referenced object exists, so there is no pre-flight — but when one is absent
@@ -742,7 +743,7 @@ the `--force` first written above (clearer, and it never overwrites like `upload
 ### Slice 4 — `restore` + adoption
 
 Restore semantics as specified (skip-existing default, `--overwrite`, `--output`
-per-root-basename mapping with clash detection, `paths…` filters, mtime restoration);
+re-rooting, `paths…` filters, mtime restoration);
 fresh-machine adoption; `compare --remote`.
 
 **Built (PR #44):** `restore` to original locations — skip-existing default + `--overwrite`,
@@ -750,8 +751,8 @@ fresh-machine adoption; `compare --remote`.
 verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
 mtime restoration; `setup` is now uniformly async. `--output` re-rooting **is now
 built** (`parseSnapshotStream` surfaces the `@SET DIR`/`@SNAPSHOT` rows it used to drop;
-`readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
-under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
+`readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` places each file at its
+full path under `<output>`, [ADR-0109](../adr/0109-restore-output-keeps-the-full-path.md)). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
 retired with it), later split into the standalone `reattach` command

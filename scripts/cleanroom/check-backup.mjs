@@ -462,6 +462,7 @@ try {
           set,
           "--snapshot",
           name,
+          "--all",
           "--output",
           join(output, `${set}-${name}`),
         ]);

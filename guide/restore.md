@@ -5,7 +5,8 @@ everyday one to the rare backstop:
 
 - **one file you deleted by accident** — name it, get it back;
 - **an older version** of a file you still have — add `--snapshot`;
-- **everything**, onto a working or a replacement machine — the disaster-recovery case.
+- **everything**, onto a working or a replacement machine — the disaster-recovery case, with
+  `--all`.
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
@@ -24,8 +25,7 @@ paths you want back.
 
 ## Choosing what to restore
 
-With no paths, restore writes back **everything** in the snapshot. Any paths you pass filter
-that down:
+You always say what you want back: paths, a list of them, or `--all` (`-a`) for everything.
 
 ```console
 # One file
@@ -36,7 +36,23 @@ that down:
 
 # Several at once
 > s3cab restore --set photos C:\Users\me\Photos\2024 C:\Users\me\Photos\beach.jpg
+
+# The paths listed in a file, one per line
+> s3cab restore --set photos --from-file paths.txt
+
+# Everything in the snapshot
+> s3cab restore --set photos --all
 ```
+
+Restoring everything is the rarest restore and the largest, and most providers charge for
+downloads, so it takes `--all` rather than happening because a path was left off. A restore
+that names nothing stops and lists the set's backed-up directories, the likeliest paths to
+copy.
+
+`--from-file` reads the same format as a set's `dirs.txt` — one path per line, `#` for a
+comment — so a set's own list works as it is, and so does an edited copy of it. `-` reads the
+list from a pipe instead. Its paths count the same as paths typed after `restore`, and the two
+can be used together; `--all` can't be combined with either.
 
 Three rules worth knowing:
 
@@ -90,7 +106,7 @@ Available snapshots (newest first):
 By default restore **skips any file that already exists** and tells you which:
 
 ```console
-> s3cab restore --set photos
+> s3cab restore --set photos --all
 Restored 2 files from 'photos' (snapshot 2026-06-12T0915).
 
 Skipped 1 existing file (rerun with --overwrite to replace):
@@ -98,9 +114,10 @@ Skipped 1 existing file (rerun with --overwrite to replace):
 ```
 
 This is the behaviour that makes restore safe to reach for. Your accidental deletion comes
-back; everything you've worked on since stays exactly as it is. A full `s3cab restore --set photos`
-after deleting one directory does the obvious right thing — it refills the gap and leaves the
-rest alone.
+back; everything you've worked on since stays exactly as it is. A full
+`s3cab restore --set photos --all` after deleting one directory does the obvious right thing
+— it refills the gap and leaves the rest alone. It is also why an interrupted restore needs
+nothing special: run the same command again, and it carries on past the files already back.
 
 Pass `--overwrite` when you genuinely want the backup's copy to win:
 
@@ -114,17 +131,24 @@ restore names them all.
 ## Restoring somewhere else
 
 `--output <dir>` (`-o`) re-roots the restore under a directory you choose instead of writing
-to the original locations. Each backed-up directory lands under its own name:
+to the original locations. Each file lands at its full original path beneath it, its drive
+turned into a folder:
 
 ```console
-> s3cab restore --set photos --output D:\recovered
+> s3cab restore --set photos --all --output D:\recovered
 ```
 
-A set covering `C:\Users\me\Photos` restores to `D:\recovered\Photos\…`. It's shallow and
-readable — you get the backed-up directory's _name_, not a rebuilt `D:\recovered\C\Users\me\…`
-chain. A whole drive has no name of its own, so it lands under its letter: a set covering
-`E:\` restores to `D:\recovered\E\…`. A backup of `/` lands straight in the directory you
-chose.
+A set covering `C:\Users\me\Photos` restores to `D:\recovered\C\Users\me\Photos\…`. A network
+share goes under `UNC`, so `\\nas\photos` restores to `D:\recovered\UNC\nas\photos\…`, and a
+Linux or macOS path keeps its folders: `/home/me/Photos` restores to
+`D:\recovered\home\me\Photos\…`. Two backed-up directories with the same name, like
+`C:\a\Photos` and `D:\b\Photos`, land in two different places, and the folders show where each
+came from — which is what you need to move them into place, or to edit the set's `dirs.txt`
+on a machine laid out differently. The same goes for paths and a `--from-file` list: every file
+lands at its full path, however you named it.
+
+Files already under the directory are skipped like anywhere else, and `--overwrite` replaces
+them, so the directory needn't be empty.
 
 Reach for it when:
 
@@ -136,16 +160,6 @@ Reach for it when:
 - **you want to inspect before replacing** — recover an old version alongside the current
   one and diff them, instead of `--overwrite`.
 
-One case it can't handle: two backed-up directories with the **same name** (say `C:\a\Photos`
-and `D:\b\Photos`) would both want `<output>\Photos`. Restore rejects that up front rather
-than merging them, and so it does for a backup of `/` beside any other directory. Restore
-them one at a time, with a path filter naming one of them, or to their original locations:
-only the directories your filter reaches count, and a file belongs to the innermost
-backed-up directory it sits in, so a filter for `/home/me/Photos` doesn't reach `/`. The
-name comparison ignores letter case (`Photos` vs `photos` still collides), even for
-Linux-style paths — the restore target may be a case-insensitive disk regardless of where
-the backup came from, and refusing up front beats silently merging on arrival.
-
 ## Restoring onto a fresh machine
 
 A replacement machine knows nothing about your sets, so attach it to the existing backup
@@ -153,7 +167,7 @@ first, then restore:
 
 ```console
 > s3cab reattach photos --bucket my-backups
-> s3cab restore --set photos
+> s3cab restore --set photos --all
 ```
 
 `reattach` pulls the set's _snapshot history_ down — not the files. It's `restore` that brings
@@ -214,7 +228,7 @@ bucket after an incident. When a file's content isn't there, restore **skips tha
 carries on with the rest**, then lists everything it couldn't produce:
 
 ```console
-> s3cab restore --set photos
+> s3cab restore --set photos --all
 Restored 1,238 files from 'photos' (snapshot 2026-06-12T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
@@ -259,7 +273,7 @@ stick — upload it again to repair the backup's copy:
 ## If there's nothing to restore
 
 ```console
-> s3cab restore --set photos
+> s3cab restore --set photos --all
 No backups for set 'photos'. Back one up with: s3cab backup photos
 ```
 

@@ -1,7 +1,7 @@
 # `restore` takes paths, a list, or `--all`
 
-**Status:** proposed (2026-10-26). Extends [0040](0040-restore-requires-set-name.md)'s
-reasoning from the set to the paths.
+**Status:** accepted & implemented (2026-10-26). Extends
+[0040](0040-restore-requires-set-name.md)'s reasoning from the set to the paths.
 
 ## Context
 

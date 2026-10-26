@@ -35,10 +35,11 @@ import { gunzipSync } from "node:zlib";
 /** @typedef {Map<string, Buffer>} Tree - `<dirBasename>/<posix relpath>` → bytes */
 
 /**
- * One manifest the model saw get published, with the tree it must restore to.
- * `tree` is null only for a manifest adopted without a capture opportunity
- * (never in generator runs; targeted tests may construct such states).
- * @typedef {{ set: string, name: string, key: string, tree: Tree | null }} TrackedSnapshot
+ * One manifest the model saw get published, with the tree it must restore to,
+ * captured from `dirs`. `tree` is null only for a manifest adopted without a
+ * capture opportunity (never in generator runs; targeted tests may construct
+ * such states).
+ * @typedef {{ set: string, name: string, key: string, tree: Tree | null, dirs: string[] }} TrackedSnapshot
  */
 
 /** @typedef {{ hash: string, size: number, mtime: string, path: string }} ManifestRow */
@@ -62,9 +63,53 @@ const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
+ * The folders `restore --output` puts a member directory under: its full path,
+ * a drive's letter, upper case, as the first (ADR-0109). Written from the
+ * spec, not imported, like the rest of this file; local paths only, as the
+ * harness's are.
+ * @param {string} dir - An absolute local path
+ * @returns {string[]}
+ */
+const restoredSegments = (dir) =>
+  dir
+    .replace(/^([A-Za-z]):/, (_, letter) => letter.toUpperCase())
+    .split(/[\\/]/)
+    .filter(Boolean);
+
+/**
+ * Where `restore --output <output>` puts a member directory.
+ * @param {string} output
+ * @param {string} dir - An absolute local path
+ * @returns {string}
+ */
+export const restoredAt = (output, dir) =>
+  join(output, ...restoredSegments(dir));
+
+/**
+ * A captured tree as `restore --output <output>` lays it out, keyed as
+ * `captureTree([output])` keys the restore, so comparing the two sees a file
+ * anywhere under the output, not only in the folders expected.
+ * @param {Tree} tree - `captureTree(dirs)`
+ * @param {string[]} dirs - The member directories it was captured from
+ * @param {string} output
+ * @returns {Tree}
+ */
+export function asRestored(tree, dirs, output) {
+  /** @type {Tree} */
+  const laidOut = new Map();
+  for (const [file, bytes] of tree) {
+    const slash = file.indexOf("/");
+    const base = file.slice(0, slash);
+    const dir = /** @type {string} */ (dirs.find((d) => basename(d) === base));
+    const key = [basename(output), ...restoredSegments(dir)].join("/");
+    laidOut.set(`${key}/${file.slice(slash + 1)}`, bytes);
+  }
+  return laidOut;
+}
+
+/**
  * Read a directory tree the way the harness captures expected content:
- * regular files only, keyed `<dirBasename>/<posix relpath>` — the shape
- * `restore --output` recreates.
+ * regular files only, keyed `<dirBasename>/<posix relpath>`.
  * @param {string[]} dirs - The set's member directories (absolute)
  * @returns {Tree}
  */
@@ -276,7 +321,7 @@ export class RepoModel {
       }
       if (set === publishedSet && dirs) {
         /** @type {TrackedSnapshot} */
-        const tracked = { set, name, key, tree: captureTree(dirs) };
+        const tracked = { set, name, key, tree: captureTree(dirs), dirs };
         this.snapshots.set(`${set}/${name}`, tracked);
         adopted.push(tracked);
       } else {

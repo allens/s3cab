@@ -1,6 +1,6 @@
-import { mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { captureTree, sha256 } from "./model.mjs";
+import { asRestored, captureTree, sha256 } from "./model.mjs";
 
 /** @import { RepoModel, TrackedSnapshot, Tree } from "./model.mjs" */
 
@@ -155,11 +155,12 @@ export async function checkRestores(model, restoreSnapshot, scratchRoot) {
 export function compareTrees(tracked, output) {
   /** @type {string[]} */
   const violations = [];
-  const expected = /** @type {Tree} */ (tracked.tree);
-  const restoredDirs = readdirSync(output, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(output, entry.name));
-  const actual = captureTree(restoredDirs);
+  const expected = asRestored(
+    /** @type {Tree} */ (tracked.tree),
+    tracked.dirs,
+    output,
+  );
+  const actual = captureTree([output]);
   for (const [file, bytes] of expected) {
     const got = actual.get(file);
     if (got === undefined) {

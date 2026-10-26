@@ -15,7 +15,6 @@ import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
 import { takeover } from "./commands/takeover.mjs";
-import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
@@ -434,15 +433,16 @@ export const commands = {
     summary: "Restore files from a backup",
     guide: "restore",
     examples: [
-      "s3cab restore --set photos",
       "s3cab restore --set photos C:\\Users\\me\\Photos\\beach.jpg",
-      "s3cab restore --set photos --output D:\\recovered",
+      "s3cab restore --set photos --from-file paths.txt",
+      "s3cab restore --set photos --all",
+      "s3cab restore --set photos --all --output D:\\recovered",
     ],
     args: {
       path: {
         variadic: true,
         description:
-          "Specific files or directories to restore (default: everything)",
+          "Files or folders to restore, as backed up (required unless --from-file or --all)",
       },
     },
     options: {
@@ -456,6 +456,16 @@ export const commands = {
         short: "s",
         description: "Which snapshot to restore from (default: the latest)",
       },
+      "from-file": {
+        type: "string",
+        description:
+          "Also restore the paths listed in this file, one per line as in dirs.txt ('-' reads them from a pipe)",
+      },
+      all: {
+        type: "boolean",
+        short: "a",
+        description: "Restore everything in the snapshot",
+      },
       overwrite: {
         type: "boolean",
         description: "Replace existing files (default: skip them, untouched)",
@@ -463,7 +473,8 @@ export const commands = {
       output: {
         type: "string",
         short: "o",
-        description: `Restore under this directory (as <output>${sep}<directory-name>${sep}…) instead of the original locations`,
+        description:
+          "Restore under this folder, each file at its full original path, instead of to the original locations",
       },
     },
     exec: (options, paths = []) => restore(paths, options),

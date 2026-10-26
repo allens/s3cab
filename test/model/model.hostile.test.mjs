@@ -24,7 +24,12 @@ import {
   writeVerbatim,
 } from "./harness/hostile.mjs";
 import { checkStore } from "./harness/invariants.mjs";
-import { RepoModel, captureTree, sha256 } from "./harness/model.mjs";
+import {
+  RepoModel,
+  captureTree,
+  restoredAt,
+  sha256,
+} from "./harness/model.mjs";
 import { backup, restore, writeSet } from "./harness/seam.mjs";
 
 // Hostile file trees (Windows-first, per the brief), driven through the Tier 1
@@ -106,12 +111,12 @@ const roundtrip = async (root) => {
   process.exitCode = 0;
   const out = join(root, "out");
   mkdirSync(out, { recursive: true });
-  await restore([], { set: "hostile", output: out });
+  await restore([], { all: true, set: "hostile", output: out });
   return {
     result,
     backupExit,
     restoreExit: process.exitCode,
-    restoredData: join(out, "data"),
+    restoredData: restoredAt(out, realpathSync.native(join(root, "data"))),
   };
 };
 
@@ -384,25 +389,32 @@ describe("hostile trees: mixed-case collisions", () => {
     const out = join(dir.path, "out");
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
-    const result = await restore([], { set: "hostile", output: out });
+    const result = await restore([], {
+      all: true,
+      set: "hostile",
+      output: out,
+    });
 
     // Faithful or loud (ADR-0086): the first row's file stands untouched, the
     // colliding row is reported — never silently overwritten — and the run
     // exits 1 so scripts see the snapshot could not be fully materialized.
     // `resolve`: the temp dir is repo-relative, but restore's destinations are
     // absolute (reroot resolves `--output`).
-    assert.deepEqual(result.collided, [resolve(out, "data", "File.txt")]);
+    const restoredData = restoredAt(out, data);
+    assert.deepEqual(result.collided, [
+      resolve(join(restoredData, "File.txt")),
+    ]);
     assert.equal(result.restored.length, 2, "file.txt and zzz-copy.txt");
     assert.equal(process.exitCode, 1);
-    const names = readdirSync(join(out, "data")).sort();
+    const names = readdirSync(restoredData).sort();
     assert.deepEqual(names, ["file.txt", "zzz-copy.txt"]);
     assert.equal(
-      readFileSync(join(out, "data", "file.txt"), "utf8"),
+      readFileSync(join(restoredData, "file.txt"), "utf8"),
       "lowercase content",
       "the first row's bytes must survive the collision",
     );
     assert.equal(
-      readFileSync(join(out, "data", "zzz-copy.txt"), "utf8"),
+      readFileSync(join(restoredData, "zzz-copy.txt"), "utf8"),
       "UPPERCASE CONTENT!",
       "a path sharing a collided row's content fetches the true content",
     );
@@ -439,8 +451,8 @@ describe("hostile trees: files changing mid-run", () => {
     const out = join(dir.path, "out");
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
-    await restore([], { set: "hostile", output: out });
-    const restored = captureTree([join(out, "data")]);
+    await restore([], { all: true, set: "hostile", output: out });
+    const restored = captureTree([restoredAt(out, data)]);
     assert.equal(
       restored.get("data/aaa-first.txt")?.toString(),
       "uploads first",

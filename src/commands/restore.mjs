@@ -6,18 +6,25 @@ import {
   rmdirSync,
   statSync,
 } from "node:fs";
-import { lstat, utimes } from "node:fs/promises";
+import { lstat, readFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { platform, stderr } from "node:process";
+import { text } from "node:stream/consumers";
 import { copyFileAtomic } from "../lib/atomic-file.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
-import { IntegrityError, requireArg } from "../lib/error.mjs";
+import {
+  IntegrityError,
+  ParseArgsError,
+  isENOENT,
+  requireArg,
+} from "../lib/error.mjs";
 import { statProps } from "../lib/file-props.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
 import { foldsCase } from "../lib/path-match.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
+import { parseLines } from "../lib/read-lines.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import {
   COARSEST_DISK_MS,
@@ -26,8 +33,9 @@ import {
   selectEntries,
 } from "../lib/restore.mjs";
 import { isObjectNotFound } from "../lib/s3.mjs";
-import { shellCommand } from "../lib/style.mjs";
+import { isInteractive, shellCommand } from "../lib/style.mjs";
 
+/** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { RecordedDeletion } from "../lib/deletion-record.mjs" */
 
 // The `restore` command (docs/design/backup.md): pull a set's files back from the
@@ -41,8 +49,10 @@ import { shellCommand } from "../lib/style.mjs";
  * back to the **original absolute path** it was captured from, **never touching
  * an existing file** (it is reported skipped) unless `--overwrite` is given — so
  * the empty-disk and the "I deleted a directory" cases both just work and a
- * careless restore can't destroy newer work. Positional `paths…` filter what is
- * restored (see `selectEntries`); with none, the whole snapshot is restored.
+ * careless restore can't destroy newer work. What is restored is named: paths,
+ * as arguments and/or a `--from-file` list (see `selectEntries`), or `--all` for
+ * the whole snapshot, never by leaving the paths out
+ * ([ADR-0110](../../docs/adr/0110-restore-takes-paths-a-list-or-all.md)).
  *
  * Each object is fetched and integrity-checked by `getObject` (its SHA-256
  * must match the snapshot's hash), then given the snapshot's mtime — required, since
@@ -88,10 +98,11 @@ import { shellCommand } from "../lib/style.mjs";
  * filesystem's own equivalence, never on string folding (ADR-0086).
  *
  * `--output <dir>` re-roots instead of restoring to original locations: each
- * member directory's contents land under a folder named for it (see `reroot`).
- * That recovers a backup whose absolute paths don't fit this machine — a
- * different drive layout, or another OS entirely — and is the only mode that
- * accepts non-absolute-on-this-platform paths.
+ * file lands at its full original path under it (see `reroot`). That recovers a
+ * backup whose absolute paths don't fit this machine — a different drive
+ * layout, or another OS entirely — and is the only mode that accepts
+ * non-absolute-on-this-platform paths. Existing files there are skipped as
+ * anywhere else, so an interrupted restore finishes by running it again.
  *
  * The set must have an existing remote backup. Unlike the everyday commands, the
  * set is required — no sole-set default (ADR-0040): restore is the rare,
@@ -116,13 +127,35 @@ import { shellCommand } from "../lib/style.mjs";
  * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
- * @param {string[]} [paths] - Positional path filters (empty = restore everything)
- * @param {{ set?: string, snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options] - `set` (required) is the backup set to restore
+ * @param {string[]} [paths] - Files or folders to restore, as backed up
+ * @param {{ set?: string, snapshot?: string, all?: boolean, "from-file"?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options] - `set` (required) is the backup set to restore
  * @returns {Promise<RestoreResult>}
  */
 export async function restore(paths = [], options = {}) {
   requireArg(options.set, "set");
   const set = loadSet(options.set);
+  const fromFile = options["from-file"];
+  // A blank argument (an unset `"$path"`) names nothing. Passed on, it would
+  // read as no filter at all, which is `--all`.
+  const named = paths.filter((path) => path.trim() !== "");
+  if (options.all && (named.length || fromFile !== undefined)) {
+    throw new ParseArgsError(
+      "--all restores the whole snapshot, so it takes no paths and no --from-file.",
+    );
+  }
+  if (!options.all && named.length === 0 && fromFile === undefined) {
+    throw nothingNamedError(set);
+  }
+  // Not `push(...list)`: a list of 200k lines overflows the call's arguments.
+  const filters =
+    fromFile === undefined
+      ? named
+      : named.concat(await readPathList(fromFile, set));
+  if (!options.all && filters.length === 0) {
+    throw new Error(
+      `No paths to restore: ${fromFile === "-" ? "standard input" : `'${fromFile}'`} lists none.`,
+    );
+  }
 
   // One listing picks the source and validates `--snapshot` against what's
   // really there (newest first), so a bad name errors loudly with the choices
@@ -145,16 +178,18 @@ export async function restore(paths = [], options = {}) {
   const name = options.snapshot ?? /** @type {string} */ (names[0]);
 
   const snapshot = await readRemoteSnapshot(set.bucket, set.name, name);
-  const { entries, dirs, instant } = snapshot;
-  const targets = selectEntries(entries.keys(), paths);
+  const { entries, instant } = snapshot;
+  const targets = selectEntries(entries.keys(), filters);
   // The rows the reader refused (ADR-0101): restored nowhere, reported, exit 1.
-  const invalid = selectEntries(snapshot.refused.keys(), paths).map((path) => ({
-    path,
-    reason: /** @type {string} */ (snapshot.refused.get(path)),
-  }));
-  if (paths.length && targets.length === 0 && invalid.length === 0) {
+  const invalid = selectEntries(snapshot.refused.keys(), filters).map(
+    (path) => ({
+      path,
+      reason: /** @type {string} */ (snapshot.refused.get(path)),
+    }),
+  );
+  if (filters.length && targets.length === 0 && invalid.length === 0) {
     throw new Error(
-      `No files in snapshot '${name}' matched: ${paths.join(", ")}`,
+      `No files in snapshot '${name}' matched: ${filters.join(", ")}`,
     );
   }
 
@@ -165,7 +200,7 @@ export async function restore(paths = [], options = {}) {
   let destFor = (path) => path;
   const outDir = options.output ? resolve(options.output) : undefined;
   if (options.output) {
-    destFor = reroot(dirs, targets, options.output);
+    destFor = reroot(options.output);
   } else {
     // Every target must be absolute on *this* platform before we touch the disk.
     // A snapshot captured on another OS (Windows paths on POSIX, say) or a
@@ -476,6 +511,65 @@ export async function restore(paths = [], options = {}) {
     invalid,
     deleted,
   };
+}
+
+/**
+ * The usage error for a restore that names nothing: the whole set is the rarest
+ * and largest restore, so it is `--all`, never what a forgotten path gives
+ * (ADR-0110). The set's folders are listed because they are the likeliest
+ * paths to copy.
+ * @param {BackupSet} set
+ */
+function nothingNamedError(set) {
+  const folders = set.dirs.length
+    ? `Its folders:\n${set.dirs.map((dir) => `  ${dir}`).join("\n")}\n\n`
+    : "";
+  return new ParseArgsError(
+    `Name what to restore from set '${set.name}': files or folders, a list of ` +
+      `them, or --all for everything.\n${folders}` +
+      [
+        `${set.name} <path>...`,
+        `${set.name} --from-file <file>`,
+        `${set.name} --all`,
+      ]
+        .map((form) => `  ${shellCommand(`s3cab restore --set ${form}`)}`)
+        .join("\n"),
+  );
+}
+
+/**
+ * The paths a `--from-file` list names, in `dirs.txt`'s format, so a set's own
+ * list feeds it unchanged. `-` reads standard input, which must be a pipe: at a
+ * terminal the read would wait for input nobody was asked to type.
+ * @param {string} file - The `--from-file` value
+ * @param {BackupSet} set
+ * @returns {Promise<string[]>}
+ */
+async function readPathList(file, set) {
+  if (file === "-") {
+    if (isInteractive(process.stdin)) {
+      throw new ParseArgsError(
+        `--from-file - reads the paths to restore from a pipe, and nothing is ` +
+          `piped in.\n\nPipe a list in, or name a file:\n` +
+          `  ${shellCommand(`s3cab restore --set ${set.name} --from-file <file>`)}`,
+      );
+    }
+    const piped = await text(process.stdin);
+    return parseLines(piped);
+  }
+  try {
+    const content = await readFile(file, "utf8");
+    return parseLines(content);
+  } catch (error) {
+    if (!isENOENT(error)) {
+      throw error;
+    }
+    throw new Error(
+      `Can't read the paths to restore — there is no file '${file}' ` +
+        `(--from-file).\n\nThe set's own list of folders is:\n  ${set.dirsPath}`,
+      { cause: error },
+    );
+  }
 }
 
 /**

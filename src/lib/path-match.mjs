@@ -142,20 +142,28 @@ export const pathKey = (folder) => normalize(folder).replace(/\/+$/, "");
  *   is given, or all are blank
  */
 export function pathMatcher(folders) {
-  const needles = folders
-    .filter((folder) => folder.trim() !== "")
-    .map((folder) => ({ key: pathKey(folder), windows: foldsCase(folder) }));
-  if (needles.length === 0) {
+  const keys = { windows: new Set(), posix: new Set() };
+  for (const folder of folders) {
+    if (folder.trim() !== "") {
+      keys[foldsCase(folder) ? "windows" : "posix"].add(pathKey(folder));
+    }
+  }
+  if (keys.windows.size + keys.posix.size === 0) {
     return undefined;
   }
+  // The path and each folder above it are looked up, not each folder tested
+  // against the path: a `--from-file` list can name thousands.
   return (p) => {
-    const { path, foldCase: windows } = preparePath(p);
-    const hay = windows ? path.toLowerCase() : path;
-    return needles.some(
-      (n) =>
-        n.windows === windows &&
-        (hay === n.key || hay.startsWith(n.key + posix.sep)),
-    );
+    const { path, foldCase } = preparePath(p);
+    const hay = foldCase ? path.toLowerCase() : path;
+    const under = foldCase ? keys.windows : keys.posix;
+    for (let end = hay.length; end !== -1;) {
+      if (under.has(hay.slice(0, end))) {
+        return true;
+      }
+      end = end === 0 ? -1 : hay.lastIndexOf(posix.sep, end - 1);
+    }
+    return false;
   };
 }
 
