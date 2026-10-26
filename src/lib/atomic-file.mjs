@@ -42,17 +42,29 @@ import { IntegrityError } from "./error.mjs";
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
   const hasher = hash ? createHash("sha256") : undefined;
   await land(destPath, async (tmpPath) => {
-    // Tee every chunk to disk unchanged, hashing en route only when verifying.
-    await pipeline(
-      source,
-      async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
-        for await (const chunk of chunks) {
-          hasher?.update(chunk);
-          yield chunk;
-        }
-      },
-      createWriteStream(tmpPath),
-    );
+    const out = createWriteStream(tmpPath);
+    try {
+      // Tee every chunk to disk unchanged, hashing en route only when verifying.
+      await pipeline(
+        source,
+        async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
+          for await (const chunk of chunks) {
+            hasher?.update(chunk);
+            yield chunk;
+          }
+        },
+        out,
+      );
+    } catch (error) {
+      // `pipeline` can reject before `out` has opened its file, which appears
+      // when the open completes: wait for `out` to close, or `land` removes
+      // nothing and the temp is created after it. Seen on a Windows drive under
+      // WSL, where an open is a slow round trip.
+      if (!out.closed) {
+        await new Promise((resolve) => out.once("close", resolve));
+      }
+      throw error;
+    }
     if (hasher) {
       const got = hasher.digest("hex");
       if (got !== hash) {
