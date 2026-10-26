@@ -138,12 +138,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   Under `D:\src\s3cab` the longest frame is about 55 columns, so nothing is cut and the test
   fails; CI's longer checkout paths hide it. A file name in the fixture long enough to overflow
   60 columns from any root would make the premise hold everywhere.
-- **Under WSL on a Windows drive, a failed download can leave its temp file behind.**
-  `src/lib/atomic-file.test.mjs`'s "leaves nothing behind when the source stream fails" finds
-  a `.s3cab-tmp` file left in about one run in six on `/mnt/d` (DrvFs), on `main` too; CI's
-  native ext4 never shows it. `land`'s cleanup is `rm(tmpPath, { force: true })` with every
-  error swallowed, so a failed delete leaves no trace. Unconfirmed: that DrvFs refuses or
-  defers the delete while the write stream `pipeline` destroyed is still closing.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
