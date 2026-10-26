@@ -209,7 +209,7 @@ export async function runSequence(steps, root) {
               join(homeOf(step.machine), "sets", step.set, "exclude.txt"),
               "",
             );
-            // As setup canonicalizes it, so `restoredAt` finds its restore.
+            // As setup canonicalizes it, so `asRestored` finds its restore.
             setDirs.set(step.set, realpathSync.native(dir));
             machineSets.add(`${step.machine}:${step.set}`);
             holders.set(step.set, step.machine);

@@ -157,15 +157,6 @@ describe("reroot", () => {
     );
   });
 
-  it("puts a device path where its plain form goes", () => {
-    assert.equal(map("\\\\?\\E:\\b.txt"), join(out, "E", "b.txt"));
-    assert.equal(map("\\\\.\\E:\\b.txt"), join(out, "E", "b.txt"));
-    assert.equal(
-      map("\\\\?\\UNC\\nas\\photos\\a.jpg"),
-      join(out, "UNC", "nas", "photos", "a.jpg"),
-    );
-  });
-
   it("places no relative path", () => {
     assert.equal(map("data/x.txt"), undefined);
   });

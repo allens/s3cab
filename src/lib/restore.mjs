@@ -119,9 +119,8 @@ export const COARSEST_DISK_MS = 2000;
  * ([ADR-0109](../../docs/adr/0109-restore-output-keeps-the-full-path.md)) — a
  * drive keeps its letter (`C:\Users\a.jpg` → `<dir>/C/Users/a.jpg`), a share goes
  * under `UNC`, as Windows' own long-path form does (`\\nas\x\a.jpg` →
- * `<dir>/UNC/nas/x/a.jpg`), and a POSIX path keeps its segments. A device path
- * (`\\?\C:\…`, `\\?\UNC\nas\…`) lands where its plain form does. Where a file
- * lands depends on its own path alone, so two paths never meet.
+ * `<dir>/UNC/nas/x/a.jpg`), and a POSIX path keeps its segments. Where a file
+ * lands depends on its own path alone, not on the others restored.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: paths are split by `path-match.mjs`'s `preparePath` — both separators
@@ -137,13 +136,9 @@ export function reroot(output) {
   const outDir = resolve(output);
   const windows = foldsCase(outDir);
   return (path) => {
-    const unified = preparePath(path).path.replace(
-      /^\/\/[?.]\/(unc\/)?/i,
-      (_, unc) => (unc ? "//" : ""),
-    );
-    const drive = /^[A-Za-z]:\//.test(unified);
+    const { path: unified, foldCase } = preparePath(path);
     // Relative only in a hand-edited snapshot, which the reader refuses.
-    if (!drive && !unified.startsWith("/")) {
+    if (!foldCase && !unified.startsWith("/")) {
       return undefined;
     }
     // A drive's `C:` is no name a Windows folder can have, so it takes the
@@ -151,7 +146,7 @@ export function reroot(output) {
     // no drive folder can meet a share's.
     const root = unified.startsWith("//")
       ? ["UNC"]
-      : drive
+      : foldCase
         ? [unified.charAt(0).toUpperCase()]
         : [];
     const names = unified

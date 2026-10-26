@@ -286,8 +286,8 @@ export function restoreAndCompare({ set, scratch, expected, dirs }) {
     );
     return { violations, result };
   }
-  // As the snapshot spells them: the walk canonicalizes each root, and a
-  // Windows runner's temp path is short (8.3).
+  // As the snapshot spells them: the walk canonicalizes each root, where
+  // `resolve` keeps the cwd's case as typed.
   const canonical = dirs.map((dir) => realpathSync.native(dir));
   const laidOut = asRestored(expected, canonical, output);
   const actual = captureTree([output]);

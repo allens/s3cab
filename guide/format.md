@@ -723,16 +723,13 @@ looking. Restoring to a chosen directory, it writes each file at its whole path 
 `<output>`, the root turned into a folder and the segments joined with the destination's
 separator. So a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
 `<output>\C\Users\me\Photos\2024\beach.jpg`. Where a file lands depends on its own path
-alone, not on the `@SET DIR` it is under, so two rows with different paths never meet. In
-detail:
+alone, not on the `@SET DIR` it is under or on the other rows restored. In detail:
 
 - The root's folder:
   - a drive's is its letter, upper case however the row spells it, so `d:\a.txt` lands at
     `<output>\D\a.txt`;
   - a share's is `UNC`, as Windows' own long-path form spells it, so `\\nas\photos\a.jpg`
     lands at `<output>\UNC\nas\photos\a.jpg`;
-  - a device path's is its plain form's: `\\?\C:\` and `\\.\C:\` land as `C:\` does, and
-    `\\?\UNC\nas\` as `\\nas\`;
   - `/` has none, so `/home/me/a.jpg` lands at `<output>/home/me/a.jpg`.
 - Every other segment keeps the file row's spelling, the member directory's parents
   included.

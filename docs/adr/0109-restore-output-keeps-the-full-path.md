@@ -27,7 +27,6 @@ a folder:
   `C:` as one drive: `C:\Users\me\a.jpg` → `<dir>\C\Users\me\a.jpg`;
 - a network share goes under `UNC`, as Windows' own long-path form does: `\\nas\photos\a.jpg` →
   `<dir>\UNC\nas\photos\a.jpg`. A drive folder is one letter, so the two can't collide;
-- a device path lands where its plain form does: `\\?\C:\a.jpg` as `C:\a.jpg`;
 - a POSIX path keeps its segments: `/home/me/a.jpg` → `<dir>/home/me/a.jpg`.
 
 The rule is the same however the paths were named ([0110](0110-restore-takes-paths-a-list-or-all.md)).
