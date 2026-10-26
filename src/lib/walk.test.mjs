@@ -381,11 +381,12 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
     "makes a link whose target is there but won't resolve an error",
     symlinks,
     async (t) => {
-      // The unlocked Personal Vault: `stat` says a folder, `realpath` ENOENT.
+      // A junction onto a volume GUID with no mount point: `stat` says a
+      // folder, `realpath` ENOENT (ADR-0099).
       await using dir = await mkTmpDir();
       const base = dir.path;
       write(base, "sub/inner.txt");
-      const link = join(realpathSync.native(base), "vault");
+      const link = join(realpathSync.native(base), "unresolvable");
       symlinkSync("sub", link);
 
       const native = realpathSync.native;

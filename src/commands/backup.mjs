@@ -197,13 +197,6 @@ export async function backup(setName, options = {}) {
     process.exitCode = 1;
   }
 
-  // Compared without a folder link's separator: a OneDrive Personal Vault is a
-  // link s3cab can't read while locked and a folder link once unlocked, so its
-  // row gains or loses one between runs.
-  const failedBefore = new Set(
-    [...previousErrors.keys()].map(withoutSeparator),
-  );
-
   return {
     set: set.name,
     bucket: set.bucket,
@@ -225,8 +218,11 @@ export async function backup(setName, options = {}) {
     // Recurrence, not the error code, is the signal: EBUSY is both a sync
     // client's lock file nobody wants and an Outlook .pst that only needs Outlook
     // closed — suggesting an exclude for the second loses someone's mail.
+    // Compared exactly, separator and all, not without it: a folder link whose
+    // target is sometimes unreachable fails two different ways (`Share` can't
+    // be resolved, `Share\` is outside the backup), and each is its own failure.
     excludeSuggestions: pass.errors
-      .filter(({ path }) => failedBefore.has(withoutSeparator(path)))
+      .filter(({ path }) => previousErrors.has(path))
       .map(({ path }) => excludePattern(pass.roots, path)),
     excludePath: set.excludePath,
     comparison,
@@ -256,10 +252,6 @@ function excludePattern(roots, path) {
   const rel = relative(root, path);
   return path.endsWith(sep) ? rel + sep : rel;
 }
-
-/** @param {string} path */
-const withoutSeparator = (path) =>
-  path.endsWith(sep) ? path.slice(0, -1) : path;
 
 /**
  * The "the bytes didn't all make it" error a backup ends with when an upload

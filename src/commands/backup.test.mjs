@@ -298,42 +298,17 @@ describe("backup (the fused pass)", () => {
   });
 
   it("suggests a folder link with its separator, so the pattern matches it", async () => {
-    // An unlocked OneDrive Personal Vault: a link to a folder this computer
-    // can't resolve. Its row, and so the previous snapshot's key, end with one.
-    const root = resolve("data", "OneDrive");
+    // A link to a folder outside the backup. Its row, and so the previous
+    // snapshot's key, end with a separator.
+    const root = resolve("data", "docs");
     pass.roots = [root];
-    const vault = join(root, "Personal Vault") + sep;
-    pass.errors = [{ path: vault, reason: "link to a place …" }];
-    baseline.previousErrors = new Map([[vault, "link to a place …"]]);
+    const shared = join(root, "Shared") + sep;
+    pass.errors = [{ path: shared, reason: "link to a folder outside …" }];
+    baseline.previousErrors = new Map([[shared, "link to a folder outside …"]]);
 
     const result = await backup("photos");
 
-    assert.deepEqual(result.excludeSuggestions, [`Personal Vault${sep}`]);
-  });
-
-  it("suggests a vault that failed locked last time and unlocked this time", async () => {
-    // Locked, it is a link s3cab can't read, and its row has no separator.
-    const root = resolve("data", "OneDrive");
-    pass.roots = [root];
-    const vault = join(root, "Personal Vault");
-    pass.errors = [{ path: vault + sep, reason: "link to a place …" }];
-    baseline.previousErrors = new Map([[vault, "EINVAL: invalid argument"]]);
-
-    const result = await backup("photos");
-
-    assert.deepEqual(result.excludeSuggestions, [`Personal Vault${sep}`]);
-  });
-
-  it("suggests a vault that failed unlocked last time and locked this time", async () => {
-    const root = resolve("data", "OneDrive");
-    pass.roots = [root];
-    const vault = join(root, "Personal Vault");
-    pass.errors = [{ path: vault, reason: "EINVAL: invalid argument" }];
-    baseline.previousErrors = new Map([[vault + sep, "link to a place …"]]);
-
-    const result = await backup("photos");
-
-    assert.deepEqual(result.excludeSuggestions, ["Personal Vault"]);
+    assert.deepEqual(result.excludeSuggestions, [`Shared${sep}`]);
   });
 
   it("measures a suggestion from the root the walk resolved, not dirs.txt's text", async () => {
