@@ -68,7 +68,8 @@ handles one member directory at a time, so it needs the whole member list passed
 `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with no
 `Music` folder) and for the unlocked Personal Vault, whose target exists but can't be
 canonicalized. Reading every `ENOENT` as "missing" drops the vault silently, which is the case
-this change exists to catch.
+this change exists to catch. The vault itself no longer reaches this check: its `readlink` fails
+first (`recordUninspectable` in [src/lib/walk.mjs](../../src/lib/walk.mjs)).
 
 **A target inside a member directory but excluded there counts as inside**: that is a target the
 user chose not to back up, and the one case that would lose real content, git-annex with `.git`

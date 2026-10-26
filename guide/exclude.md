@@ -82,8 +82,8 @@ to every directory in the set.
   can't inspect (a link it can't read, or anything whose type it can't check) is
   matched like a file, so only a pattern without the `/` matches it.
 - An unlocked OneDrive Personal Vault is such an entry: a link s3cab can't read.
-  While locked it isn't there at all. So `Personal Vault` leaves it out, spelled
-  as the folder is named on your machine, since Windows translates the name.
+  While locked it isn't there at all. So one pattern without the `/` leaves it
+  out: its name exactly as its error row shows it, such as `Personal Vault`.
 
 **Case, and other rules**
 

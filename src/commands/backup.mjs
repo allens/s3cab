@@ -218,6 +218,9 @@ export async function backup(setName, options = {}) {
     // Recurrence, not the error code, is the signal: EBUSY is both a sync
     // client's lock file nobody wants and an Outlook .pst that only needs Outlook
     // closed — suggesting an exclude for the second loses someone's mail.
+    // Compared exactly, separator and all, not without it: a folder link whose
+    // target is sometimes unreachable fails two different ways (`Share` can't
+    // be resolved, `Share\` is outside the backup), and each is its own failure.
     excludeSuggestions: pass.errors
       .filter(({ path }) => previousErrors.has(path))
       .map(({ path }) => excludePattern(pass.roots, path)),

@@ -426,11 +426,11 @@ function createWalkCallbackFn(baseDir, patterns, found) {
 /**
  * Record an entry the walk couldn't inspect: `#excluded` when a pattern leaves
  * it out, else an `#error` saying why. An unlocked OneDrive Personal Vault is
- * one: its `readlink` fails with EINVAL (measured 2026-10-26, though `stat`
- * says a folder), and a locked one isn't listed at all, so a single pattern
- * without the `/` covers it. Its type is unknown, so it is matched as a file,
- * like a broken link (guide/exclude.md). Not as a folder too: a pattern ending
- * in `/` claims a folder, and s3cab doesn't know this is one.
+ * one: its `readlink` fails with EINVAL though `stat` says a folder (measured),
+ * and a locked one isn't listed at all, so a single pattern without the `/`
+ * covers it. Its type is unknown, so it is matched as a file, like a broken
+ * link (guide/exclude.md). Not as a folder too: a pattern ending in `/` claims
+ * a folder, and s3cab doesn't know this is one.
  * @param {string} path
  * @param {unknown} error - Why it couldn't be inspected
  * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
@@ -496,11 +496,11 @@ const BROKEN = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
  *
  * **`stat` before `realpath`, deliberately.** `realpathSync.native` throws
  * `ENOENT` both for a junction whose target is missing and for one whose target
- * is there but can't be canonicalized, such as a junction onto a volume GUID
- * with no mount point (ADR-0099). Only `stat` tells the two apart, and reading
- * both as "missing" would drop that target silently. (An unlocked Personal Vault
- * is such a target but never gets here: its `readlink` fails first, see
- * `recordUninspectable`.)
+ * is there but can't be canonicalized: a junction onto a volume GUID with no
+ * mount point, measured on an unlocked Personal Vault
+ * (proposals/filesystem-edge-cases.md). Only `stat` tells the two apart, and
+ * reading both as "missing" would drop that target silently. The vault itself
+ * no longer gets this far (`recordUninspectable`).
  * @param {string} path - The link's own path
  * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
  * @param {Found} found

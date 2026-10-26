@@ -6,8 +6,8 @@ import { describe, it, mock } from "node:test";
 
 /** @import { Dirent } from "node:fs" */
 
-// Entries the walk lists but can't inspect: a link that can't be read (an
-// unlocked OneDrive Personal Vault answers EINVAL) and an entry of unknown
+// Entries the walk lists but can't inspect: a link that can't be read (the
+// Personal Vault, see `recordUninspectable`) and an entry of unknown
 // type whose fallback `lstat` fails. Its own file, and a dotted aspect name
 // (ADR-0049), because both failures are made by mocking `node:fs` before
 // `walk.mjs` is loaded.
