@@ -100,6 +100,19 @@ describe("writeFileAtomic", () => {
     assert.deepEqual(readdirSync(dir.path), []);
   });
 
+  it("lets go of the source when the temp can't be opened", async () => {
+    await using dir = await mkTmpDir();
+    const source = Readable.from(content);
+
+    await assert.rejects(
+      () => writeFileAtomic(join(dir.path, "missing", "out.bin"), source),
+      { code: "ENOENT" },
+    );
+    // Unread, and with nothing left to read it: an S3 body would otherwise
+    // hold its connection.
+    assert.ok(source.destroyed);
+  });
+
   it("leaves nothing behind when the filesystem refuses the name", async () => {
     await using dir = await mkTmpDir();
     // Past 255 wherever the suite runs: ENOENT on NTFS, ENAMETOOLONG on ext4
