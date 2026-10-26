@@ -324,6 +324,18 @@ describe("backup (the fused pass)", () => {
     assert.deepEqual(result.excludeSuggestions, [`Personal Vault${sep}`]);
   });
 
+  it("suggests a vault that failed unlocked last time and locked this time", async () => {
+    const root = resolve("data", "OneDrive");
+    pass.roots = [root];
+    const vault = join(root, "Personal Vault");
+    pass.errors = [{ path: vault, reason: "EINVAL: invalid argument" }];
+    baseline.previousErrors = new Map([[vault + sep, "link to a place …"]]);
+
+    const result = await backup("photos");
+
+    assert.deepEqual(result.excludeSuggestions, ["Personal Vault"]);
+  });
+
   it("measures a suggestion from the root the walk resolved, not dirs.txt's text", async () => {
     // A symlinked or differently-cased dirs.txt entry contains none of the
     // walk's paths; only the resolved root does.
