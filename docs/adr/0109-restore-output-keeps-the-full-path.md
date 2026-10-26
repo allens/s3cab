@@ -1,8 +1,8 @@
 # `restore --output` keeps each file's full original path
 
-**Status:** proposed (2026-10-26). Would replace `reroot`'s last-name layout and both of its
-refusals, which [0071](0071-snapshot-paths-absolute-native.md) records as current behaviour; that
-ADR's decision (snapshot paths stay absolute and OS-native) is untouched.
+**Status:** accepted & implemented (2026-10-26). Replaces `reroot`'s last-name layout and both
+of its refusals; [0071](0071-snapshot-paths-absolute-native.md)'s decision (snapshot paths stay
+absolute and OS-native) is untouched.
 
 ## Context
 

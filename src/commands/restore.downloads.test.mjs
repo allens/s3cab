@@ -67,7 +67,12 @@ mock.module("node:fs/promises", {
 
 mock.module("../lib/env.mjs", {
   exports: {
-    loadSet: (/** @type {string} */ name) => ({ name, bucket: BUCKET }),
+    loadSet: (/** @type {string} */ name) => ({
+      name,
+      bucket: BUCKET,
+      dirs: ["/data"],
+      dirsPath: "/home/me/.s3cab/sets/photos/dirs.txt",
+    }),
   },
 });
 mock.module("../lib/remote.mjs", {
@@ -186,7 +191,7 @@ describe("restore reads each modification time back", () => {
   it("reports a time kept 2 seconds or more off, and exits 1", async () => {
     keeps = (mtime) => new Date(mtime.getTime() - 2000);
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.equal(result.restored.length, 4);
     assert.deepEqual(
@@ -204,7 +209,7 @@ describe("restore reads each modification time back", () => {
   it("counts a time a disk rounded by less than 2 seconds, and exits 0", async () => {
     keeps = (mtime) => new Date(mtime.getTime() + 1999);
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.equal(result.restored.length, 4);
     assert.deepEqual(result.clamped, []);
@@ -213,7 +218,7 @@ describe("restore reads each modification time back", () => {
   });
 
   it("reports nothing when every time is kept", async () => {
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.clamped, []);
     assert.equal(result.coarseTimes, 0);
@@ -236,7 +241,7 @@ describe("restore reads each modification time back", () => {
     afterFetch = (_hash, landed) => utimesSync(landed, old, old);
     const started = Date.now();
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.equal(result.restored.length, 4);
     assert.deepEqual(
@@ -265,7 +270,7 @@ describe("restore reads each modification time back", () => {
         dirs: ["/data"],
       };
 
-      const result = await restore([], { set: "photos", output });
+      const result = await restore([], { all: true, set: "photos", output });
 
       assert.deepEqual(result.restored, [dest("epoch.txt")]);
       assert.deepEqual(
@@ -297,7 +302,7 @@ describe("restore reads each modification time back", () => {
       };
       const started = Date.now();
 
-      const result = await restore([], { set: "photos", output });
+      const result = await restore([], { all: true, set: "photos", output });
 
       assert.equal(result.restored.length, 2);
       assert.deepEqual(
@@ -325,7 +330,7 @@ describe("restore reads each modification time back", () => {
         dirs: ["/data"],
       };
 
-      const result = await restore([], { set: "photos", output });
+      const result = await restore([], { all: true, set: "photos", output });
 
       assert.deepEqual(result.restored, [dest("far.txt")]);
       assert.deepEqual(result.clamped, []);
@@ -333,35 +338,164 @@ describe("restore reads each modification time back", () => {
   );
 });
 
-describe("restore --output places only the directories it restores from", () => {
+describe("restore names what it restores (ADR-0110)", () => {
+  /**
+   * A list file in the output folder, which each test throws away.
+   * @param {string} text
+   */
+  const listOf = (text) => {
+    const file = join(output, "list.txt");
+    writeFileSync(file, text);
+    return file;
+  };
+
+  /**
+   * Run with `text` on a standard input that is, or isn't, a terminal.
+   * @param {string} text
+   * @param {boolean} isTTY
+   * @param {() => Promise<unknown>} run
+   */
+  const withStdin = async (text, isTTY, run) => {
+    const stdin = Readable.from([text]);
+    Object.defineProperty(stdin, "isTTY", { value: isTTY });
+    const saved = Object.getOwnPropertyDescriptor(process, "stdin");
+    Object.defineProperty(process, "stdin", {
+      value: stdin,
+      configurable: true,
+    });
+    try {
+      return await run();
+    } finally {
+      if (saved) {
+        Object.defineProperty(process, "stdin", saved);
+      }
+    }
+  };
+
+  it("refuses to restore when nothing is named, listing the set's folders and the forms", async () => {
+    await assert.rejects(restore([], { set: "photos", output }), (error) => {
+      const { code, message } = /** @type {NodeJS.ErrnoException} */ (error);
+      assert.equal(code, "ERR_PARSE_ARGS");
+      for (const part of [
+        "--all for everything",
+        "\n  /data\n",
+        "s3cab restore --set photos <path>...",
+        "s3cab restore --set photos --from-file <file>",
+        "s3cab restore --set photos --all",
+      ]) {
+        assert.ok(message.includes(part), part);
+      }
+      return true;
+    });
+    assert.deepEqual(fetched, []);
+  });
+
+  it("reads a blank argument as naming nothing, not as everything", async () => {
+    await assert.rejects(restore([""], { set: "photos", output }), {
+      code: "ERR_PARSE_ARGS",
+    });
+    assert.deepEqual(fetched, []);
+  });
+
+  it("refuses --all beside a path or a list", async () => {
+    for (const run of [
+      () => restore(["/data/first.txt"], { all: true, set: "photos", output }),
+      () => restore([], { all: true, "from-file": "-", set: "photos", output }),
+    ]) {
+      await assert.rejects(run(), { code: "ERR_PARSE_ARGS", message: /--all/ });
+    }
+    assert.deepEqual(fetched, []);
+  });
+
+  it("restores the paths a file lists, beside the ones given as arguments", async () => {
+    const list = listOf("# from dirs.txt\r\n/data/first.txt\r\n\r\n");
+
+    const result = await restore(["/data/last.txt"], {
+      "from-file": list,
+      set: "photos",
+      output,
+    });
+
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
+  });
+
+  it("reads the list from a pipe for `-`", async () => {
+    const result = await withStdin("/data/gone.txt\n", false, () =>
+      restore([], { "from-file": "-", set: "photos", output }),
+    );
+
+    assert.deepEqual(/** @type {{ restored: string[] }} */ (result).restored, [
+      dest("gone.txt"),
+    ]);
+  });
+
+  it("won't wait on a terminal for `-`, and says how to name a file", async () => {
+    await withStdin("", true, () =>
+      assert.rejects(restore([], { "from-file": "-", set: "photos", output }), {
+        code: "ERR_PARSE_ARGS",
+        message: /--from-file <file>/,
+      }),
+    );
+    assert.deepEqual(fetched, []);
+  });
+
+  it("points a list that isn't there at the set's own list of folders", async () => {
+    await assert.rejects(
+      restore([], {
+        "from-file": join(output, "nope.txt"),
+        set: "photos",
+        output,
+      }),
+      { message: /no file '.*nope\.txt'[^]*\/sets\/photos\/dirs\.txt/ },
+    );
+  });
+
+  it("refuses a list that names nothing, rather than restore everything", async () => {
+    await assert.rejects(
+      restore([], {
+        "from-file": listOf("# nothing\n"),
+        set: "photos",
+        output,
+      }),
+      { message: /lists none/ },
+    );
+    assert.deepEqual(fetched, []);
+  });
+});
+
+describe("restore --output keeps each file's full path (ADR-0109)", () => {
   const twoPhotos = {
     entries: new Map([
       ["/a/Photos/x.jpg", { ...at, hash: "aaa" }],
-      ["/b/Photos/y.jpg", { ...at, hash: "bbb" }],
+      ["/b/Photos/x.jpg", { ...at, hash: "bbb" }],
     ]),
     dirs: ["/a/Photos", "/b/Photos"],
   };
 
-  it("refuses two directories that would share a folder", async () => {
+  it("restores two directories with one name, apart", async () => {
     snapshot = twoPhotos;
 
-    await assert.rejects(restore([], { set: "photos", output }), {
-      message: /would both land in a folder named "Photos"/,
-    });
+    const result = await restore([], { all: true, set: "photos", output });
+
+    const a = join(output, "a", "Photos", "x.jpg");
+    const b = join(output, "b", "Photos", "x.jpg");
+    assert.deepEqual(result.restored, [a, b]);
+    assert.equal(readFileSync(a, "utf8"), "aaa");
+    assert.equal(readFileSync(b, "utf8"), "bbb");
   });
 
-  it("restores one of them with a path filter, as the refusal says", async () => {
+  it("puts a path filter's files at the same full path", async () => {
     snapshot = twoPhotos;
 
     const result = await restore(["/b/Photos"], { set: "photos", output });
 
-    assert.deepEqual(result.restored, [join(output, "Photos", "y.jpg")]);
+    assert.deepEqual(result.restored, [join(output, "b", "Photos", "x.jpg")]);
   });
 });
 
 describe("restore with content shared by several paths", () => {
   it("downloads each content once and copies it to every other path", async () => {
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
     assert.equal(result.restored.length, 4);
@@ -375,6 +509,7 @@ describe("restore with content shared by several paths", () => {
     }
 
     const result = await restore([], {
+      all: true,
       set: "photos",
       output,
       overwrite: true,
@@ -389,7 +524,7 @@ describe("restore with content shared by several paths", () => {
     mkdirSync(join(output, "data"));
     writeFileSync(dest("gone.txt"), "stale");
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.skipped, [dest("gone.txt")]);
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
@@ -406,7 +541,7 @@ describe("restore with content shared by several paths", () => {
       dirs: ["/data"],
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.refused, [dest(`a-${long}`)]);
     assert.deepEqual(result.restored, [
@@ -436,7 +571,7 @@ describe("restore with content shared by several paths", () => {
       dirs: ["/data"],
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.collided, [dest("file.txt")]);
     assert.deepEqual(fetched, ["aaa", "bbb"]);
@@ -448,7 +583,7 @@ describe("restore with an object missing from the bucket", () => {
   it("skips the file, restores the rest, and reports every missing path", async () => {
     failures.set("bbb", named("NoSuchKey"));
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
     assert.deepEqual(result.missing, [dest("gone.txt"), dest("gone-copy.txt")]);
@@ -459,7 +594,7 @@ describe("restore with an object missing from the bucket", () => {
 
   it("exits 1 so a failed restore can't look like a clean one", async () => {
     failures.set("bbb", named("NoSuchKey"));
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
     assert.equal(process.exitCode, 1);
   });
 
@@ -468,7 +603,7 @@ describe("restore with an object missing from the bucket", () => {
     // said it doesn't hold: asking again would only cost a request for the same
     // answer, so it is recorded as the same casualty.
     failures.set("bbb", named("NoSuchKey"));
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
   });
 
@@ -482,7 +617,7 @@ describe("restore with an object missing from the bucket", () => {
     };
     failures.set("bbb", named("NoSuchKey"));
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.missing, [dest(join("deep", "er", "gone.txt"))]);
     assert.deepEqual(readdirSync(join(output, "data")), ["kept.txt"]);
@@ -496,14 +631,14 @@ describe("restore with an object missing from the bucket", () => {
     mkdirSync(join(output, "data", "before"), { recursive: true });
     failures.set("bbb", named("NoSuchKey"));
 
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(readdirSync(join(output, "data", "before")), []);
   });
 
   it("treats a provider's HEAD-style NotFound as missing too", async () => {
     failures.set("ccc", named("NotFound"));
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
     assert.deepEqual(result.missing, [dest("last.txt")]);
   });
 
@@ -511,7 +646,7 @@ describe("restore with an object missing from the bucket", () => {
     // A credentials failure is wrong about the run, not about one file —
     // swallowing it would restore nothing and report success.
     failures.set("bbb", named("AccessDenied"));
-    await assert.rejects(restore([], { set: "photos", output }), {
+    await assert.rejects(restore([], { all: true, set: "photos", output }), {
       name: "AccessDenied",
     });
     assert.equal(process.exitCode, savedExitCode);
@@ -524,21 +659,21 @@ describe("restore with an object missing from the bucket", () => {
     };
     failures.set("bbb", named("AccessDenied"));
 
-    await assert.rejects(restore([], { set: "photos", output }), {
+    await assert.rejects(restore([], { all: true, set: "photos", output }), {
       name: "AccessDenied",
     });
     assert.deepEqual(readdirSync(output), []);
   });
 
   it("leaves the exit code alone when nothing is missing", async () => {
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
     assert.deepEqual(result.missing, []);
     assert.equal(result.bucket, BUCKET);
     assert.equal(process.exitCode, savedExitCode);
   });
 
   it("never fetches the deletion records on a clean run — laziness is the happy path's price of zero", async () => {
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
     assert.equal(recordReads, 0);
   });
 });
@@ -549,7 +684,7 @@ describe("restore with a corrupt object in the bucket", () => {
     // reached `ccc`, whose object is fine.
     failures.set("bbb", new IntegrityError("Integrity check failed"));
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
     // The twin sharing its content is the same casualty, recorded without a
@@ -567,7 +702,7 @@ describe("restore with a corrupt object in the bucket", () => {
     failures.set("bbb", new IntegrityError("Integrity check failed"));
     deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.deleted, []);
     assert.equal(recordReads, 0);
@@ -584,7 +719,7 @@ describe("restore with a corrupt object in the bucket", () => {
     };
     failures.set("bbb", new IntegrityError("Integrity check failed"));
 
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(readdirSync(join(output, "data")), ["kept.txt"]);
   });
@@ -609,7 +744,7 @@ describe("restore with a name this disk refuses", () => {
   it("skips each refused file, restores the rest, and exits 1", async () => {
     // The Windows run of the clean-room `edge` set stopped dead at its first
     // form feed, eight files in, with the rest of the set never attempted.
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.restored, [
       dest("a-first.txt"),
@@ -628,7 +763,7 @@ describe("restore with a name this disk refuses", () => {
   });
 
   it("leaves nothing in the tree for a name refused after its download", async () => {
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(readdirSync(join(output, "data")).sort(), [
       "a-first.txt",
@@ -643,7 +778,7 @@ describe("restore with a name this disk refuses", () => {
     // The refused directory never reaches a fetch at all, and nor does `f-…`:
     // its copy fails with the source still on disk, so the name was the
     // problem, and a fetch would download it only to be refused again.
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd"]);
     assert.equal(readFileSync(dest("c-copy.txt"), "utf8"), "bbb");
@@ -668,7 +803,7 @@ describe("restore with a name this disk refuses", () => {
       }
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.refused, []);
     assert.ok(result.restored.includes(dest("c-copy.txt")));
@@ -686,7 +821,7 @@ describe("restore with a name this disk refuses", () => {
       dirs: ["/data"],
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.equal(result.refused.length, 1);
     assert.deepEqual(readdirSync(output), []);
@@ -712,7 +847,7 @@ describe("restore with a name this disk refuses", () => {
         dirs: [`${letter}:\\data\\`],
       };
 
-      const result = await restore([], { set: "photos" });
+      const result = await restore([], { all: true, set: "photos" });
 
       assert.deepEqual(result.refused, [path]);
     },
@@ -738,7 +873,7 @@ describe("restore with a name this disk refuses", () => {
         dirs: ["/data"],
       };
 
-      const result = await restore([], { set: "photos", output });
+      const result = await restore([], { all: true, set: "photos", output });
 
       assert.deepEqual(result.refused, [
         dest("b:stream.txt"),
@@ -771,7 +906,7 @@ describe("restore with a local failure that isn't about one name", () => {
         path: dest("gone.txt"),
       }),
     );
-    await assert.rejects(restore([], { set: "photos", output }), {
+    await assert.rejects(restore([], { all: true, set: "photos", output }), {
       code: "ENOSPC",
     });
     assert.equal(process.exitCode, savedExitCode);
@@ -779,7 +914,7 @@ describe("restore with a local failure that isn't about one name", () => {
 
   it("still aborts on an ENOENT that names no path", async () => {
     failures.set("bbb", Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
-    await assert.rejects(restore([], { set: "photos", output }), {
+    await assert.rejects(restore([], { all: true, set: "photos", output }), {
       code: "ENOENT",
     });
   });
@@ -790,7 +925,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     failures.set("bbb", named("NoSuchKey"));
     deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     // Both paths of the shared content are the same deliberate casualty —
     // including the twin that was never attempted.
@@ -810,7 +945,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     failures.set("ccc", named("NoSuchKey"));
     deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
-    await restore([], { set: "photos", output });
+    await restore([], { all: true, set: "photos", output });
 
     assert.equal(recordReads, 1);
   });
@@ -820,7 +955,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     failures.set("ccc", named("NoSuchKey")); // unexplained
     deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(
       result.deleted.map((d) => d.path),
@@ -836,7 +971,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
     failures.set("bbb", named("NoSuchKey"));
     deletionRecords.set("bbb", { deletedOn: "2026-07-18T09:00:00.000Z" });
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.deleted, []);
     assert.deepEqual(result.missing, [dest("gone.txt"), dest("gone-copy.txt")]);
@@ -859,7 +994,7 @@ describe("restore when something on disk is in the way", () => {
       dirs: ["/data"],
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.blocked, [
       dest(join("first.txt", "inner.txt")),
@@ -877,7 +1012,12 @@ describe("restore when something on disk is in the way", () => {
       mkdirSync(join(output, "data", "gone.txt"), { recursive: true });
       mkdirSync(join(output, "data", "gone-copy.txt"), { recursive: true });
 
-      const result = await restore([], { set: "photos", output, overwrite });
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
 
       assert.deepEqual(result.blocked, [
         dest("gone.txt"),
@@ -904,11 +1044,16 @@ describe("restore when something on disk is in the way", () => {
       throw error;
     }
 
-    const plain = await restore([], { set: "photos", output });
+    const plain = await restore([], { all: true, set: "photos", output });
     assert.deepEqual(plain.skipped, [dest("first.txt")]);
     assert.deepEqual(plain.blocked, []);
 
-    const over = await restore([], { set: "photos", output, overwrite: true });
+    const over = await restore([], {
+      all: true,
+      set: "photos",
+      output,
+      overwrite: true,
+    });
     if (process.platform === "win32") {
       assert.deepEqual(over.blocked, [dest("first.txt")]);
     } else {
@@ -925,10 +1070,15 @@ describe("restore when something on disk is in the way", () => {
     symlinkSync(join(output, "gone-folder"), dest("first.txt"), "junction");
     rmSync(join(output, "gone-folder"), { recursive: true });
 
-    const plain = await restore([], { set: "photos", output });
+    const plain = await restore([], { all: true, set: "photos", output });
     assert.deepEqual(plain.skipped, [dest("first.txt")]);
 
-    const over = await restore([], { set: "photos", output, overwrite: true });
+    const over = await restore([], {
+      all: true,
+      set: "photos",
+      output,
+      overwrite: true,
+    });
     if (process.platform === "win32") {
       assert.deepEqual(over.blocked, [dest("first.txt")]);
     } else {
@@ -942,7 +1092,7 @@ describe("restore when something on disk is in the way", () => {
     mkdirSync(join(output, "elsewhere"));
     symlinkSync(join(output, "elsewhere"), join(output, "data"), "junction");
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(
       result.blocked,
@@ -961,7 +1111,7 @@ describe("restore when something on disk is in the way", () => {
     writeFileSync(join(output, "elsewhere", "gone.txt"), "outside");
     symlinkSync(join(output, "elsewhere"), join(output, "data"), "junction");
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.skipped, []);
     assert.ok(result.blocked.includes(dest("gone.txt")));
@@ -989,6 +1139,7 @@ describe("restore when something on disk is in the way", () => {
     }
 
     const result = await restore([], {
+      all: true,
       set: "photos",
       output,
       overwrite: true,
@@ -1022,6 +1173,7 @@ describe("restore when something on disk is in the way", () => {
     }
 
     const result = await restore([], {
+      all: true,
       set: "photos",
       output,
       overwrite: true,
@@ -1044,7 +1196,7 @@ describe("restore when something on disk is in the way", () => {
       }
     };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.restored, [dest("first.txt"), dest("gone.txt")]);
     assert.deepEqual(result.blocked, [
@@ -1062,7 +1214,7 @@ describe("restore with a snapshot row the reader refused (ADR-0101)", () => {
   it("restores the rest, reports the path with why, and exits 1", async () => {
     snapshot = { ...fourFiles, refused: new Map([["/data/torn.txt", reason]]) };
 
-    const result = await restore([], { set: "photos", output });
+    const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.invalid, [{ path: "/data/torn.txt", reason }]);
     assert.equal(result.restored.length, 4);

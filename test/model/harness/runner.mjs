@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { DAY_MS, MINUTE_MS, VirtualClock, clockHolder } from "./clock.mjs";
 import { FakeS3, backendHolder } from "./fake-s3.mjs";
@@ -132,6 +138,7 @@ export async function runSequence(steps, root) {
     const restoreConsole = captureConsole([]);
     try {
       await s3cab.restore([], {
+        all: true,
         set: tracked.set,
         snapshot: tracked.name,
         output,
@@ -202,7 +209,8 @@ export async function runSequence(steps, root) {
               join(homeOf(step.machine), "sets", step.set, "exclude.txt"),
               "",
             );
-            setDirs.set(step.set, dir);
+            // As setup canonicalizes it, so `restoredAt` finds its restore.
+            setDirs.set(step.set, realpathSync.native(dir));
             machineSets.add(`${step.machine}:${step.set}`);
             holders.set(step.set, step.machine);
             break;
@@ -262,6 +270,7 @@ export async function runSequence(steps, root) {
             mkdirSync(restoreOut, { recursive: true });
             switchTo(step.machine);
             await s3cab.restore([], {
+              all: true,
               set: step.set,
               snapshot: /** @type {TrackedSnapshot} */ (target).name,
               output: restoreOut,

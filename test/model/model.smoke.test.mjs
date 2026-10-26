@@ -8,6 +8,7 @@ import { holdSet } from "../helpers/hold-set.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
 import { FakeS3, backendHolder } from "./harness/fake-s3.mjs";
+import { restoredAt } from "./harness/model.mjs";
 import { backup, restore, writeSet } from "./harness/seam.mjs";
 
 // The harness's own smoke test: proves the two module mocks actually intercept
@@ -121,14 +122,14 @@ describe("model harness smoke", () => {
 
   it("restores byte-identically into an output directory", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    await oneSet(dir.path);
+    const data = await oneSet(dir.path);
     await backup("photos");
 
     const out = join(dir.path, "out");
-    await restore([], { set: "photos", output: out });
+    await restore([], { all: true, set: "photos", output: out });
 
     assert.equal(process.exitCode, 0);
-    const restoredRoot = join(out, "data");
+    const restoredRoot = restoredAt(out, data);
     assert.equal(readFileSync(join(restoredRoot, "a.txt"), "utf8"), "alpha");
     assert.equal(readFileSync(join(restoredRoot, "b.txt"), "utf8"), "beta");
     assert.equal(readFileSync(join(restoredRoot, "copy.txt"), "utf8"), "alpha");

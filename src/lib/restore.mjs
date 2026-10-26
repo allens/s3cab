@@ -2,9 +2,9 @@ import { join, posix, resolve, win32 } from "node:path";
 
 import {
   foldsCase,
-  isMatchableDir,
   pathMatcher,
   preparePath,
+  rootLength,
 } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
@@ -86,12 +86,13 @@ export function planRestore(
 }
 
 /**
- * Select which of a snapshot's paths a restore should write, given the user's
- * positional `paths…` filters. A filter matches a path that equals it or lies
+ * Select which of a snapshot's paths a restore should write, given the paths
+ * the user named. A filter matches a path that equals it or lies
  * under it (a `/`-boundary prefix), so `…/Photos` selects `…/Photos/beach.jpg`
  * but not `…/PhotosArchive/x.jpg`. Filters are matched against the absolute
  * paths as the snapshot stored them (copy one from `list`/`tree`), and a
- * trailing separator is ignored. With no filters every path is selected.
+ * trailing separator is ignored. With no filters every path is selected:
+ * `--all`.
  *
  * Pure and order-preserving (returns the input subset in iteration order) so the
  * restore loop's reporting is deterministic and this is unit-testable without S3.
@@ -113,130 +114,46 @@ export function selectEntries(paths, filters) {
 export const COARSEST_DISK_MS = 2000;
 
 /**
- * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
- * under `<output>/<member-root-name>/<path-below-that-root>` — shallow and
- * human-readable, and valid on *this* machine regardless of where the backup was
- * taken (docs/design/backup.md). The member roots are the snapshot's `@SET DIR` rows.
- * A root's name is its last segment; a drive root's is its letter, and `/` has
- * none, so its files land in `<output>` itself.
+ * Build the path re-rooter for `restore --output <dir>`: each file lands at its
+ * full original path under `<dir>`, its root turned into a folder
+ * ([ADR-0109](../../docs/adr/0109-restore-output-keeps-the-full-path.md)) — a
+ * drive keeps its letter (`C:\Users\a.jpg` → `<dir>/C/Users/a.jpg`), a share goes
+ * under `UNC`, as Windows' own long-path form does (`\\nas\x\a.jpg` →
+ * `<dir>/UNC/nas/x/a.jpg`), and a POSIX path keeps its segments. Where a file
+ * lands depends on its own path alone, so two paths never meet, and the result
+ * is valid on *this* machine wherever the backup was taken.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
- * versa: roots and paths are split by `path-match.mjs`'s `preparePath` — both
- * separators where a root or path is Windows-shaped, `/` alone otherwise, so a
- * literal backslash in a POSIX filename stays one segment instead of being read
- * as a separator. Case-folded when — and only when — the root is Windows-shaped,
- * since there the two spellings name one file (`preparePath`'s `foldCase`); the
- * basename-collision check below folds unconditionally, deliberately, to catch
- * two roots that would land in the same `<output>` directory. The destination is
- * rebuilt with this platform's separator under `output`. The longest matching
- * root wins, so a nested member dir takes precedence over a parent.
- *
- * `snapshot` writes canonical roots, so its own headers already agree with its
- * rows — the folding is for a snapshot a *user* has edited, which is a supported
- * thing to do to a file we promise is plain text (ADR-0002). It keys on the
- * path's shape rather than `process.platform` for the reason `path-match.mjs`
- * documents: a Windows snapshot restored on Linux is exactly the case `--output`
- * exists for.
- *
- * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
- * wanting `<output>/Photos`) are rejected up front, and so is `/` beside any
- * other root — but only roots that some path to restore lands under count, so
- * a path filter restores each on its own. Pure and side-effect-free
- * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The member roots (`@SET DIR` rows)
- * @param {string[]} paths - The snapshot paths to restore, which decide the roots
- *   that must not collide
+ * versa: paths are split by `path-match.mjs`'s `preparePath` — both separators
+ * where a path is Windows-shaped, `/` alone otherwise, so a literal backslash in
+ * a POSIX filename stays one segment instead of being read as a separator. The
+ * destination is rebuilt with this platform's separator under `output`. Pure and
+ * side-effect-free (unit-testable without S3), like `selectEntries`.
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string | undefined} Maps a snapshot path to its
  *   destination, or `undefined` for one a Windows output can't place
  */
-export function reroot(dirs, paths, output) {
-  const roots = dirs
-    // Dropped here because `segments` below drops the root and the empties,
-    // which would match a `DIR` that matches nothing as one that does.
-    .filter(isMatchableDir)
-    .map((dir) => {
-      const { path, foldCase } = preparePath(dir);
-      // Not `preparePath`'s own `base`: that answers "what follows the last
-      // separator", which is empty for a `@SET DIR` row, written with a
-      // trailing one (ADR-0098). `segments` already trims those.
-      const segments = path.split(posix.sep).filter(Boolean);
-      const last = segments.at(-1) ?? "";
-      return {
-        dir,
-        segments,
-        // A drive's segment is `C:`, which no Windows folder can be called, so
-        // it takes the letter. No later segment of a Windows path has a colon.
-        base: foldCase && /^[A-Za-z]:$/.test(last) ? last.slice(0, -1) : last,
-        fold: foldCase,
-      };
-    })
-    // Longest first: a nested root must win over a parent that also matches.
-    .sort((a, b) => b.segments.length - a.segments.length);
-  /** @param {string} p */
-  const split = (p) => {
-    const { path, foldCase } = preparePath(p);
-    return { segments: path.split(posix.sep).filter(Boolean), fold: foldCase };
-  };
-  /** @param {{ segments: string[], fold: boolean }} path - `fold`: its kind is Windows */
-  const rootOf = ({ segments, fold }) =>
-    roots.find(
-      (r) =>
-        r.fold === fold &&
-        r.segments.length <= segments.length &&
-        r.segments.every((seg, i) => {
-          // The length guard above puts `i` in range; `?? ""` is for the type
-          // checker, and can't match a segment (they're non-empty by `filter`).
-          const other = segments[i] ?? "";
-          return r.fold
-            ? seg.toLowerCase() === other.toLowerCase()
-            : seg === other;
-        }),
-    );
-
-  const reached = new Set(paths.map((path) => rootOf(split(path))));
-  const used = roots.filter((root) => reached.has(root));
-  const apart =
-    "Restore them one at a time with a path filter, or to their original locations.";
-  const top = used.find(({ base }) => base === "");
-  const beside = used.find(({ base }) => base !== "");
-  if (top && beside) {
-    throw new Error(
-      `This snapshot backs up "${top.dir}" beside "${beside.dir}", and under --output ` +
-        `the files of "${top.dir}" land in the output itself, where they could mix ` +
-        `with the others. ${apart}`,
-    );
-  }
-  /** @type {Map<string, string>} */
-  const seen = new Map();
-  for (const { dir, base } of used) {
-    const key = base.toLowerCase();
-    const first = seen.get(key);
-    if (first !== undefined) {
-      throw new Error(
-        `"${first}" and "${dir}" would both land in a folder named "${base}" under ` +
-          `--output, which can't keep them apart. ${apart}`,
-      );
-    }
-    seen.set(key, dir);
-  }
-
+export function reroot(output) {
   const outDir = resolve(output);
   const windows = foldsCase(outDir);
   return (path) => {
-    const parts = split(path);
-    const root = rootOf(parts);
-    if (!root) {
-      throw new Error(
-        `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
-      );
-    }
-    const named = [root.base, ...parts.segments.slice(root.segments.length)];
+    const { path: unified, foldCase } = preparePath(path);
+    const names = unified
+      .slice(rootLength(unified))
+      .split(posix.sep)
+      .filter(Boolean);
+    // A drive's `C:` is no name a Windows folder can have, so it takes the
+    // letter; `UNC` is three letters, so no drive folder can meet a share's.
+    const root = unified.startsWith("//")
+      ? ["UNC"]
+      : foldCase
+        ? [unified.charAt(0)]
+        : [];
+    const named = [...root, ...names];
     // The reader refuses a `.`/`..` segment (ADR-0101), but splits on `/` alone.
     // Windows also reads a POSIX name's `\` as a separator, so `back\slash.txt`
     // would land as a folder and `a\..\..\x` outside `<output>`, once `join`
-    // resolves the `..`. Only the names joined here count: a `\` above the root
-    // is dropped with it.
+    // resolves the `..`.
     if (windows && named.some((segment) => segment.includes("\\"))) {
       return undefined;
     }

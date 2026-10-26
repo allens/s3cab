@@ -1,6 +1,6 @@
-import { mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { captureTree, sha256 } from "./model.mjs";
+import { captureTree, restoredAt, sha256 } from "./model.mjs";
 
 /** @import { RepoModel, TrackedSnapshot, Tree } from "./model.mjs" */
 
@@ -156,9 +156,9 @@ export function compareTrees(tracked, output) {
   /** @type {string[]} */
   const violations = [];
   const expected = /** @type {Tree} */ (tracked.tree);
-  const restoredDirs = readdirSync(output, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(output, entry.name));
+  const restoredDirs = tracked.dirs
+    .map((dir) => restoredAt(output, dir))
+    .filter((dir) => existsSync(dir));
   const actual = captureTree(restoredDirs);
   for (const [file, bytes] of expected) {
     const got = actual.get(file);

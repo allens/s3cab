@@ -14,7 +14,7 @@ import { holdSet } from "../helpers/hold-set.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
 import { FakeS3, backendHolder } from "./harness/fake-s3.mjs";
 import { checkStore } from "./harness/invariants.mjs";
-import { RepoModel, sha256 } from "./harness/model.mjs";
+import { RepoModel, restoredAt, sha256 } from "./harness/model.mjs";
 import {
   backup,
   cleanup,
@@ -163,9 +163,12 @@ describe("prior-audit findings, encoded", () => {
     const out = join(root, "out");
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
-    await restore([], { set: "lost", output: out });
+    await restore([], { all: true, set: "lost", output: out });
     assert.equal(process.exitCode, 0);
-    const restored = await readFile(join(out, "data", "f.txt"), "utf8");
+    const restored = await readFile(
+      join(restoredAt(out, data), "f.txt"),
+      "utf8",
+    );
     assert.equal(restored, "safely stored bytes");
   });
 
@@ -202,9 +205,10 @@ describe("prior-audit findings, encoded", () => {
     const out = join(root, `out-${snapshot}`);
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
-    await restore([], { set: "stale", snapshot, output: out });
+    await restore([], { all: true, set: "stale", snapshot, output: out });
     assert.equal(process.exitCode, 0);
-    return readFile(join(out, "data", "f.txt"), "utf8");
+    const data = realpathSync.native(join(root, "data"));
+    return readFile(join(restoredAt(out, data), "f.txt"), "utf8");
   };
 
   it("a same-size rewrite preserving mtime is missed by default, and `backup --rehash` sees it (ADR-0094)", async () => {
@@ -328,7 +332,7 @@ describe("prior-audit findings, encoded", () => {
     const out = join(root, "out");
     mkdirSync(out, { recursive: true });
     await assert.rejects(
-      restore([], { set: "trunc", output: out }),
+      restore([], { all: true, set: "trunc", output: out }),
       /Truncated snapshot/,
     );
   });

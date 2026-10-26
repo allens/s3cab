@@ -91,7 +91,7 @@ describe("restore's progress counter", () => {
     snapshot = filesUnder("/data", 1204);
     lines = [];
 
-    await restore([], { set: "photos", output: "/out" });
+    await restore([], { all: true, set: "photos", output: "/out" });
 
     assert.equal(lines[0], "Restoring     1/1,204…");
     assert.equal(lines.at(-1), "Restoring 1,204/1,204…");
@@ -110,7 +110,7 @@ describe("restore's refusal when a snapshot's paths aren't absolute here", () =>
       dirs: ["data"],
     };
 
-    await assert.rejects(restore([], { set: "photos" }), {
+    await assert.rejects(restore([], { all: true, set: "photos" }), {
       message: /has 1 path that isn't absolute on this system/,
     });
   });
@@ -118,7 +118,7 @@ describe("restore's refusal when a snapshot's paths aren't absolute here", () =>
   it("counts them, and agrees with itself about many", async () => {
     snapshot = filesUnder("data", 1204);
 
-    await assert.rejects(restore([], { set: "photos" }), {
+    await assert.rejects(restore([], { all: true, set: "photos" }), {
       message: /has 1,204 paths that aren't absolute on this system/,
     });
   });
@@ -128,7 +128,7 @@ describe("restore's refusal when a snapshot's paths aren't absolute here", () =>
     // `\` in its names would be read as a separator.
     snapshot = filesUnder("/data", 1);
 
-    const run = restore([], { set: "photos" });
+    const run = restore([], { all: true, set: "photos" });
     if (platform === "win32") {
       await assert.rejects(run, {
         message: /has 1 path that isn't absolute on this system/,

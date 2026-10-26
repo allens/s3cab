@@ -11,7 +11,12 @@ import { writeSet } from "../../../src/lib/sets.mjs";
 import { holdSet } from "../../helpers/hold-set.mjs";
 import { useTempHome } from "../../helpers/temp-home.mjs";
 import { checkStore } from "../harness/invariants.mjs";
-import { RepoModel, captureTree, sha256 } from "../harness/model.mjs";
+import {
+  RepoModel,
+  captureTree,
+  restoredAt,
+  sha256,
+} from "../harness/model.mjs";
 import { RealS3, bucket } from "./real-s3.mjs";
 
 // Tier 2's flagship: the Tier 1 invariants — restore byte-identity, the
@@ -95,12 +100,13 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       mkdirSync(out, { recursive: true });
       process.exitCode = 0;
       await restore([], {
+        all: true,
         set: "conf",
         snapshot: result.snapshot,
         output: out,
       });
       assert.equal(process.exitCode, 0);
-      const restored = captureTree([join(out, "data")]);
+      const restored = captureTree([restoredAt(out, data)]);
       const original = captureTree([data]);
       assert.equal(restored.size, original.size);
       for (const [file, bytes] of original) {
@@ -153,12 +159,13 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       mkdirSync(outFirst, { recursive: true });
       process.exitCode = 0;
       await restore([], {
+        all: true,
         set: "conf",
         snapshot: first.snapshot,
         output: outFirst,
       });
       assert.equal(process.exitCode, 0);
-      const restoredFirst = captureTree([join(outFirst, "data")]);
+      const restoredFirst = captureTree([restoredAt(outFirst, data)]);
       for (const [file, bytes] of firstTree) {
         const got = /** @type {Buffer} */ (restoredFirst.get(file));
         assert.ok(
@@ -170,12 +177,13 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       mkdirSync(outSecond, { recursive: true });
       process.exitCode = 0;
       await restore([], {
+        all: true,
         set: "conf",
         snapshot: second.snapshot,
         output: outSecond,
       });
       assert.equal(process.exitCode, 0);
-      const mutated = captureTree([join(outSecond, "data")]).get(
+      const mutated = captureTree([restoredAt(outSecond, data)]).get(
         "data/mutating.txt",
       );
       assert.equal(mutated?.toString(), "second version");

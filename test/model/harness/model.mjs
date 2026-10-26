@@ -35,10 +35,11 @@ import { gunzipSync } from "node:zlib";
 /** @typedef {Map<string, Buffer>} Tree - `<dirBasename>/<posix relpath>` → bytes */
 
 /**
- * One manifest the model saw get published, with the tree it must restore to.
- * `tree` is null only for a manifest adopted without a capture opportunity
- * (never in generator runs; targeted tests may construct such states).
- * @typedef {{ set: string, name: string, key: string, tree: Tree | null }} TrackedSnapshot
+ * One manifest the model saw get published, with the tree it must restore to,
+ * captured from `dirs`. `tree` is null only for a manifest adopted without a
+ * capture opportunity (never in generator runs; targeted tests may construct
+ * such states).
+ * @typedef {{ set: string, name: string, key: string, tree: Tree | null, dirs: string[] }} TrackedSnapshot
  */
 
 /** @typedef {{ hash: string, size: number, mtime: string, path: string }} ManifestRow */
@@ -62,9 +63,20 @@ const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
+ * Where `restore --output <output>` puts a member directory: at its full path,
+ * a drive's letter kept as a folder (ADR-0109). Written from the spec, not
+ * imported, like the rest of this file; local paths only, as the harness's are.
+ * @param {string} output
+ * @param {string} dir - An absolute local path
+ * @returns {string}
+ */
+export const restoredAt = (output, dir) =>
+  join(output, ...dir.replace(/^([A-Za-z]):/, "$1").split(/[\\/]/));
+
+/**
  * Read a directory tree the way the harness captures expected content:
- * regular files only, keyed `<dirBasename>/<posix relpath>` — the shape
- * `restore --output` recreates.
+ * regular files only, keyed `<dirBasename>/<posix relpath>`, which is the same
+ * for a member directory and for where `restore --output` recreates it.
  * @param {string[]} dirs - The set's member directories (absolute)
  * @returns {Tree}
  */
@@ -276,7 +288,7 @@ export class RepoModel {
       }
       if (set === publishedSet && dirs) {
         /** @type {TrackedSnapshot} */
-        const tracked = { set, name, key, tree: captureTree(dirs) };
+        const tracked = { set, name, key, tree: captureTree(dirs), dirs };
         this.snapshots.set(`${set}/${name}`, tracked);
         adopted.push(tracked);
       } else {

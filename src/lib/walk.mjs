@@ -162,7 +162,7 @@ function assertWalkableDirs(set) {
         `Edit the list:\n` +
         `  ${set.dirsPath}\n\n` +
         `Or, to get files back from a backup made elsewhere:\n` +
-        `  ${shellCommand(`s3cab restore --set ${set.name} --output <folder>`)}`,
+        `  ${shellCommand(`s3cab restore --set ${set.name} --all --output <folder>`)}`,
     );
   }
 

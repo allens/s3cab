@@ -127,11 +127,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
   holding the false time, and restore sets it. Restore's read-back of each time skips these
   on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
-- **`setup` accepts a set that `restore --output` will refuse.** Two member directories with
-  the same final name (`C:\a\Photos`, `D:\b\Photos`) back up fine, but `reroot`
-  (`src/lib/restore.mjs`) refuses to restore both at once, so the user finds out only when
-  restoring, and then restores them one path filter at a time.
-  Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

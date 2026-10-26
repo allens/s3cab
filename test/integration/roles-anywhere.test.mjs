@@ -179,7 +179,7 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
 
       try {
         rmSync(srcDir, { recursive: true, force: true });
-        const restored = await restore([], { set: setName });
+        const restored = await restore([], { all: true, set: setName });
         assert.equal(restored.snapshot, snapshot);
         assert.equal(restored.restored.length, entries.size);
         for (const [path, props] of entries) {
