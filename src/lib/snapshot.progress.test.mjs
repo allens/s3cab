@@ -166,20 +166,32 @@ describe("the fused pass's progress line", () => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     forgetFrames();
-    width = 60;
+    const columns = 60;
+    width = columns;
     t.after(() => {
       width = undefined;
     });
 
-    await generateSnapshot(threeFileSet(dir.path));
+    const set = threeFileSet(dir.path);
+    // A name longer than the line on its own, so a path must be trimmed however
+    // short the checkout's root is.
+    writeFileSync(
+      join(dir.path, "data", `${"long".repeat(columns / 4)}.txt`),
+      "x",
+    );
+
+    await generateSnapshot(set);
 
     for (const line of lines) {
-      assert.ok(line.length < 60, `expected under 60 columns, got: ${line}`);
+      assert.ok(
+        line.length < columns,
+        `expected under ${columns} columns, got: ${line}`,
+      );
     }
-    // The temp directory's paths are longer than the room, so a frame that
-    // fits did trim one.
+    // Every frame fitting proves nothing unless the long name's frame was
+    // trimmed to fit, keeping the end of the name.
     assert.ok(
-      lines.some((line) => line.includes("…")),
+      lines.some((line) => line.includes("…") && line.endsWith("long.txt")),
       JSON.stringify(lines),
     );
   });
