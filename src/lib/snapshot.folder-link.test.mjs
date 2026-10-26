@@ -23,7 +23,7 @@ describe("a pass over a link to a folder outside the backup", () => {
     mkdirSync(away);
     mkdirSync(snapshotsDir);
     // A junction on Windows, which needs no Developer Mode; a symlink elsewhere.
-    symlinkSync(resolve(away), join(data, "vault"), "junction");
+    symlinkSync(resolve(away), join(data, "shared"), "junction");
 
     const pass = await generateSnapshot({
       name: "photos",
@@ -40,7 +40,7 @@ describe("a pass over a link to a folder outside the backup", () => {
     const root = realpathSync.native(data);
     assert.deepEqual(
       pass.errors.map(({ path }) => path),
-      [join(root, "vault") + sep],
+      [join(root, "shared") + sep],
     );
     const { errors } = await readSnapshot(snapshotsDir, pass.name);
     assert.deepEqual(

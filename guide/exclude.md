@@ -81,9 +81,9 @@ to every directory in the set.
 - A pattern ending in `/` matches only what s3cab knows to be a folder. An entry it
   can't inspect (a link it can't read, or anything whose type it can't check) is
   matched like a file, so only a pattern without the `/` matches it.
-- A OneDrive Personal Vault is such an entry while locked, and a folder link once
-  unlocked. Leaving it out in both states takes a pattern for each, such as the
-  two lines `Personal Vault` and `Personal Vault/`.
+- An unlocked OneDrive Personal Vault is such an entry: a link s3cab can't read.
+  While locked it isn't there at all. So `Personal Vault` leaves it out, spelled
+  as the folder is named on your machine, since Windows translates the name.
 
 **Case, and other rules**
 
