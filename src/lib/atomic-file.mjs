@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { copyFile, rename, rm } from "node:fs/promises";
+import { copyFile, open, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { IntegrityError } from "./error.mjs";
@@ -42,17 +41,35 @@ import { IntegrityError } from "./error.mjs";
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
   const hasher = hash ? createHash("sha256") : undefined;
   await land(destPath, async (tmpPath) => {
-    // Tee every chunk to disk unchanged, hashing en route only when verifying.
-    await pipeline(
-      source,
-      async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
-        for await (const chunk of chunks) {
-          hasher?.update(chunk);
-          yield chunk;
-        }
-      },
-      createWriteStream(tmpPath),
-    );
+    // Opened before any byte flows, not `createWriteStream(tmpPath)`: that opens
+    // lazily, so `pipeline` can reject before the temp exists, and the open
+    // creates it after `land` has cleaned up.
+    const fd = await open(tmpPath, "w").catch((error) => {
+      // Nothing else will read `source`, and an S3 body left open keeps its
+      // connection.
+      source.destroy();
+      throw error;
+    });
+    try {
+      // Tee every chunk to disk unchanged, hashing en route only when verifying.
+      await pipeline(
+        source,
+        async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
+          for await (const chunk of chunks) {
+            hasher?.update(chunk);
+            yield chunk;
+          }
+        },
+        fd.createWriteStream(),
+      );
+    } catch (error) {
+      // Once `pipeline` rejects, the stream lets go of the file in its own time,
+      // and `land` can't remove the temp until it has. A failed close is
+      // dropped here: the error that stopped the download is the one to report.
+      await fd.close().catch(() => {});
+      throw error;
+    }
+    await fd.close();
     if (hasher) {
       const got = hasher.digest("hex");
       if (got !== hash) {
@@ -81,7 +98,8 @@ export const copyFileAtomic = (from, destPath) =>
  * Run `write` against a temp sibling of `destPath`, then rename the temp into
  * place; on any failure remove the temp and rethrow.
  * @param {string} destPath
- * @param {(tmpPath: string) => Promise<void>} write
+ * @param {(tmpPath: string) => Promise<void>} write - Must not settle until it
+ *   has finished with `tmpPath`, or the cleanup can run before the temp exists
  */
 async function land(destPath, write) {
   // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than

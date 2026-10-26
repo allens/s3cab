@@ -132,12 +132,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   (`src/lib/restore.mjs`) refuses to restore both at once, so the user finds out only when
   restoring, and then restores them one path filter at a time.
   Whether `setup` refuses or warns is a command-shape call for the `cli-design` skill.
-- **Under WSL on a Windows drive, a failed download can leave its temp file behind.**
-  `src/lib/atomic-file.test.mjs`'s "leaves nothing behind when the source stream fails" finds
-  a `.s3cab-tmp` file left in about one run in six on `/mnt/d` (DrvFs), on `main` too; CI's
-  native ext4 never shows it. `land`'s cleanup is `rm(tmpPath, { force: true })` with every
-  error swallowed, so a failed delete leaves no trace. Unconfirmed: that DrvFs refuses or
-  defers the delete while the write stream `pipeline` destroyed is still closing.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
