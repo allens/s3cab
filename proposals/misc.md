@@ -4,13 +4,24 @@ Ideas that don't fit a theme yet and aren't enough on their own to earn an epic 
 cluster here grows, split it out into its own `proposals/<topic>.md` (Distribution looks like the
 seed of a future "platform / release" epic).
 
-- **Selective bulk restore via a path list on stdin** (`s3cab restore --set <set> -`, the
-  `rsync --files-from` pattern; clig.dev's `-` convention). Restoring *many specific files*
-  conveniently is an open pain: today's positional filters don't scale past a handful. A
-  path-per-line list on stdin composes with the tools that produce such lists —
-  `s3cab tree photos | grep 2024 | s3cab restore --set photos -`, or a future compare/`verify`
-  output — and a `--files-from <file>` twin would cover the non-pipe case. Would also want
-  clig's guard: if stdin is an interactive terminal, don't hang waiting — show help instead.
+- **`extract`: copy one file or folder out of a snapshot, by its own name, into a folder you
+  choose.** `restore` puts things back where they were, or at their full path under `--output`
+  ([ADR-0109](../docs/adr/0109-restore-output-keeps-the-full-path.md)), so the everyday "give
+  me last month's `report.pdf` to look at" lands deep. Shape agreed in discussion (2026-10-26):
+  - `s3cab extract --set <set> [--snapshot <name>] <path> [--output <folder>] [--name <name>]`
+  - one `<path>` per run, as backed up; more items, more runs;
+  - `--output` is the folder to put it in (default: the current folder), meaning what it
+    means for `restore`: where, never what it's called;
+  - the item keeps its own last name, a drive root its letter, unless `--name` gives one. A name
+    with a separator is refused; inside a folder, everything keeps its own name;
+  - an existing `<output>/<name>` is refused before the snapshot is read, unlike `restore`'s
+    skip-and-list (there, existing files are the gap-filling job; here, skipping would hand the
+    user the old file as if it were the extracted one). The message offers `--name`, then
+    another `--output`, then `--overwrite` last: with the current folder as default, the clash
+    is usually the live file itself;
+  - existing files otherwise follow `restore`'s rules, and `--overwrite` replaces.
+
+  Not renaming *for* the user ("Photos 2"): s3cab never invents a name.
 - **Distribution**: winget / scoop / Homebrew manifests once released; a real Windows
   code-signing cert eventually (same class of trust problem as the macOS notarization gap).
 - **Use nodejs test runner tags** https://nodejs.org/docs/latest/api/test.html#test-tags
