@@ -1587,6 +1587,34 @@ describe("renderRestore", () => {
     );
   });
 
+  it("says where an extract went, and offers extract, not restore, as the fix", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/out/Photos/a.jpg"],
+        blocked: ["/out/Photos/2024/b.jpg"],
+        to: "/out/Photos",
+      }),
+    );
+    assert.match(
+      text,
+      /^Extracted 1 file from 'photos' \(snapshot 2026-07-04T1000\) to \/out\/Photos\.\n/,
+    );
+    assert.match(
+      text,
+      /\n {2}s3cab extract --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("names no place for an extract that wrote nothing", () => {
+    const text = renderRestore(
+      restoreResult({ blocked: ["/out/Photos/a.jpg"], to: "/out/Photos" }),
+    );
+    assert.match(
+      text,
+      /^Extracted 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+  });
+
   it("reports an empty selection plainly instead of blank output", () => {
     const text = renderRestore(restoreResult({}));
     assert.equal(

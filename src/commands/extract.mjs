@@ -1,15 +1,19 @@
 import { lstatSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError, requireArg } from "../lib/error.mjs";
 import { foldsCase } from "../lib/path-match.mjs";
 import {
   chooseSnapshot,
   extractTo,
+  hasFaults,
   itemName,
+  placeUnder,
   restoreTargets,
   selectTargets,
+  statOrNothing,
 } from "../lib/restore.mjs";
+import { shellCommand } from "../lib/style.mjs";
 
 /** @import { RestoreResult } from "../lib/restore.mjs" */
 
@@ -39,6 +43,12 @@ export async function extract(paths = [], options = {}) {
       "extract copies one file or folder per run: run it once for each.",
     );
   }
+  // A snapshot holds only absolute paths, and `itemName` reads a name off one.
+  if (!foldsCase(item) && !item.startsWith("/")) {
+    throw new ParseArgsError(
+      `'${item}' isn't a full path: name the file or folder as it was backed up, from its root.`,
+    );
+  }
   const outDir = resolve(options.output ?? ".");
   const name = options.name ?? itemName(item);
   if (name === undefined) {
@@ -46,29 +56,19 @@ export async function extract(paths = [], options = {}) {
       `'${item}' is a root, with no name of its own: give the copy one with --name.`,
     );
   }
-  // One folder level, so the copy lands in `outDir` and nowhere else. A `\` is
-  // a separator only where the folder is a Windows one.
-  if (
-    name === "" ||
-    name === "." ||
-    name === ".." ||
-    name.includes("/") ||
-    (foldsCase(outDir) && name.includes("\\"))
-  ) {
+  // One folder level, so the copy lands in `outDir` and nowhere else.
+  const to =
+    name === "" || name === "." || name === ".." || name.includes("/")
+      ? undefined
+      : placeUnder(outDir, [name]);
+  if (to === undefined) {
     throw new ParseArgsError(
       `'${name}' can't name the copy: a name is one file or folder name, not a path. ` +
         `Give it one with --name.`,
     );
   }
-  const to = join(outDir, name);
-  if (!options.overwrite && lstatSync(to, { throwIfNoEntry: false })) {
-    throw new Error(
-      `Extracting '${item}' would replace '${to}', which is already there.\n\n` +
-        `Run it again with one of:\n` +
-        `  --name <name>       to give the copy another name\n` +
-        `  --output <folder>   to put it in another folder\n` +
-        `  --overwrite         to replace what's there`,
-    );
+  if (!options.overwrite && statOrNothing(to, lstatSync)) {
+    throw alreadyThereError(options.set, item, to);
   }
 
   const set = loadSet(options.set);
@@ -85,5 +85,27 @@ export async function extract(paths = [], options = {}) {
     outDir,
     overwrite: options.overwrite,
   });
+  if (hasFaults(result)) {
+    process.exitCode = 1;
+  }
   return { ...result, to };
+}
+
+/**
+ * The refusal for a copy whose place is taken, with the three ways past it.
+ * @param {string} set
+ * @param {string} item
+ * @param {string} to
+ */
+function alreadyThereError(set, item, to) {
+  return new Error(
+    `Extracting '${item}' would replace '${to}', which is already there.\n\n` +
+      `Give the copy another name, put it in another folder, or write over the files there:\n` +
+      ["--name <name>", "--output <folder>", "--overwrite"]
+        .map(
+          (flag) =>
+            `  ${shellCommand(`s3cab extract --set ${set} <path> ${flag}`)}`,
+        )
+        .join("\n"),
+  );
 }

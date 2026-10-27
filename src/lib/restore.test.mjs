@@ -132,11 +132,6 @@ describe("selectEntries", () => {
   });
 });
 
-// `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
-// path in the snapshot lands at its full path under `<output>`, its root turned
-// into a folder (ADR-0109). Destinations are built with the local separator under
-// `resolve(output)`, so expected values use the same `join`/`resolve` to stay
-// portable across OSes.
 describe("itemName", () => {
   it("is the last name, whatever the separators", () => {
     assert.equal(itemName("/home/me/Photos/"), "Photos");
@@ -179,6 +174,11 @@ describe("extractTo", () => {
   });
 });
 
+// `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
+// path in the snapshot lands at its full path under `<output>`, its root turned
+// into a folder (ADR-0109). Destinations are built with the local separator under
+// `resolve(output)`, so expected values use the same `join`/`resolve` to stay
+// portable across OSes.
 describe("reroot", () => {
   const out = resolve("out");
   const map = reroot("out");

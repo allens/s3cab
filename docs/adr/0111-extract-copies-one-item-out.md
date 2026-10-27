@@ -20,7 +20,8 @@ s3cab extract --set <set> [--snapshot <name>] <path> [--output <folder>] [--name
 ```
 
 - **One `<path>` per run**, a file or a folder, as backed up and matched as `restore` matches
-  it. Several items take several runs; a second path is a usage error.
+  it. Several items take several runs; a second path, or one that isn't a full path, is a
+  usage error.
 - **`--output` is the folder to put it in**, the current folder by default. It means what it
   means for `restore`: where, never what it's called.
 - **The item keeps its own last name**, a drive root its letter, unless `--name` gives one.
@@ -31,7 +32,9 @@ s3cab extract --set <set> [--snapshot <name>] <path> [--output <folder>] [--name
   the user the old file as if it were the extracted one. With the current folder as the
   default, the clash is usually the live file itself. The message offers `--name`, then another
   `--output`, then `--overwrite` last.
-- **Everything else is `restore`'s**: `--overwrite` replaces what is there, a file it can't
+- **Everything else is `restore`'s**: `--overwrite` writes over each file the backup holds,
+  so a folder already there keeps any others (not cleared first: `extract` deletes nothing), a
+  file it can't
   produce is reported while the rest carry on, the report and the exit codes are the same, and
   any snapshot extracts on any machine, as `restore --output` does.
 

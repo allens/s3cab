@@ -9,8 +9,9 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 // absolute here. Both are text, so everything around them is faked at the lib
 // seam (docs/design/testing.md) — down to `lstatSync`, which is what keeps a
 // four-figure plan free of four-figure disk writes: every destination is
-// already there, so every step is a `skip` and the loop does nothing but count. Argument validation lives in
-// restore.test.mjs, the downloads and their failures in restore.downloads.test.mjs.
+// already there, so every step is a `skip` and the loop does nothing but
+// count. Argument validation lives in restore.test.mjs, the downloads and their
+// failures in restore.downloads.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
 // import of the command.
 

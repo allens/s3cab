@@ -175,7 +175,7 @@ const namesOf = (unified) =>
  * @param {string[]} names
  * @returns {string | undefined}
  */
-const placeUnder = (base, names) =>
+export const placeUnder = (base, names) =>
   foldsCase(base) && names.some((name) => name.includes("\\"))
     ? undefined
     : join(base, ...names);
@@ -626,24 +626,6 @@ export async function restoreTargets({
     }
   }
 
-  // Unexplained absence, corrupt content, a name collision, a refused name, a
-  // blocked path or a clamped time → exit 1, the same way `verify` reports
-  // findings: set process.exitCode rather than throw, so the run's report —
-  // including every file that *was* restored — still prints. Deliberately-deleted
-  // skips alone leave exit 0 (ADR-0064): the record proves the gap is intended, and a
-  // scripted restore should not alarm on a decision its owner already made.
-  if (
-    missing.length ||
-    corrupt.length ||
-    collided.length ||
-    refused.length ||
-    blocked.length ||
-    clamped.length ||
-    invalid.length
-  ) {
-    process.exitCode = 1;
-  }
-
   return {
     set: set.name,
     bucket: set.bucket,
@@ -661,6 +643,35 @@ export async function restoreTargets({
     deleted,
   };
 }
+
+/**
+ * Whether a restore exits 1: an unexplained absence, corrupt content, a name
+ * collision, a refused name, a blocked path, a clamped time or an invalid row.
+ * The command sets `process.exitCode` rather than throw, the way `verify`
+ * reports findings, so the run's report — every file that *was* restored
+ * included — still prints. Deliberately-deleted skips alone leave exit 0
+ * (ADR-0064): the record proves the gap is intended, and a scripted restore
+ * should not alarm on a decision its owner already made.
+ * @param {RestoreResult} result
+ */
+export const hasFaults = ({
+  missing,
+  corrupt,
+  collided,
+  refused,
+  blocked,
+  clamped,
+  invalid,
+}) =>
+  Boolean(
+    missing.length ||
+    corrupt.length ||
+    collided.length ||
+    refused.length ||
+    blocked.length ||
+    clamped.length ||
+    invalid.length,
+  );
 
 /**
  * Whether Node's `lstat` on Windows reads `when` back as it is: its seconds
@@ -792,7 +803,7 @@ function linkedFolder(dest, outDir, known) {
  * @param {string} path
  * @param {typeof statSync} [stat] - `lstatSync` for the entry itself
  */
-function statOrNothing(path, stat = statSync) {
+export function statOrNothing(path, stat = statSync) {
   try {
     return stat(path, { throwIfNoEntry: false });
   } catch {

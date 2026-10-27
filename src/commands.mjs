@@ -517,7 +517,7 @@ export const commands = {
       overwrite: {
         type: "boolean",
         description:
-          "Replace what's already there under that name (default: refuse, before anything is read)",
+          "Write over the files already there under that name, leaving any others (default: refuse, before anything is read)",
       },
     },
     exec: (options, paths = []) => extract(paths, options),

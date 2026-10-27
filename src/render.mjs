@@ -1360,9 +1360,15 @@ export function renderRestore(
   ) {
     const from = `${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot})`;
     sections.push(
-      to === undefined ? `Restored ${from}.` : `Extracted ${from} to ${to}.`,
+      to === undefined
+        ? `Restored ${from}.`
+        : `Extracted ${from}${restored.length ? ` to ${to}` : ""}.`,
     );
   }
+  // The faults' fixes rerun the command that made this run: restore's full-path
+  // layout is just what an extract was avoiding.
+  const command = to === undefined ? "restore" : "extract";
+  const elsewhere = `s3cab ${command} --set ${set} <path> --output <directory>`;
   if (coarseTimes) {
     // Not a fault, so no list and no exit 1: FAT and exFAT round every time
     // they're given, and the files are otherwise whole.
@@ -1413,7 +1419,7 @@ export function renderRestore(
         ...collided.map((path) => `  ${path}`),
         "",
         "Keep both versions by restoring a colliding path into its own directory:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1435,7 +1441,7 @@ export function renderRestore(
         ...refused.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Restore them onto a disk that allows the names:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1454,7 +1460,7 @@ export function renderRestore(
         ...blocked.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Move what's in the way and restore again, or restore them into an empty directory:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1472,7 +1478,7 @@ export function renderRestore(
         ),
         "",
         "Restore them onto a disk that can hold the time:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1494,7 +1500,7 @@ export function renderRestore(
         `An earlier snapshot may hold a good row for ${invalid.length === 1 ? "it" : "them"}. ` +
           `List the snapshots, then restore from one:`,
         `  ${shellCommand(`s3cab list ${set} --remote`, color)}`,
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --snapshot <name>`, color)}`,
+        `  ${shellCommand(`s3cab ${command} --set ${set} <path> --snapshot <name>`, color)}`,
       ].join("\n"),
     );
   }

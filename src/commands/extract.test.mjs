@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
@@ -138,6 +139,10 @@ describe("extract won't hand back what was already there", () => {
         const output = error.message.indexOf("--output");
         const overwrite = error.message.indexOf("--overwrite");
         assert.ok(name < output && output < overwrite, error.message);
+        assert.match(
+          error.message,
+          /\n {2}s3cab extract --set s <path> --name/,
+        );
         return true;
       },
     );
@@ -154,7 +159,7 @@ describe("extract won't hand back what was already there", () => {
     );
   });
 
-  it("--overwrite replaces it", async () => {
+  it("--overwrite writes over a file already there", async () => {
     writeFileSync(join(out, "a.jpg"), "the live file");
 
     const result = await extract(["/home/me/Photos/a.jpg"], {
@@ -165,6 +170,41 @@ describe("extract won't hand back what was already there", () => {
 
     assert.deepEqual(result.restored, [join(out, "a.jpg")]);
     assert.equal(readFileSync(join(out, "a.jpg"), "utf8"), "aaa");
+  });
+
+  it("--overwrite into a folder already there writes the backup's files and leaves the rest", async () => {
+    mkdirSync(join(out, "Photos"));
+    writeFileSync(join(out, "Photos", "a.jpg"), "the live file");
+    writeFileSync(join(out, "Photos", "new.jpg"), "not in the backup");
+
+    await extract(["/home/me/Photos"], {
+      set: "s",
+      output: out,
+      overwrite: true,
+    });
+
+    assert.equal(readFileSync(join(out, "Photos", "a.jpg"), "utf8"), "aaa");
+    assert.equal(
+      readFileSync(join(out, "Photos", "new.jpg"), "utf8"),
+      "not in the backup",
+    );
+  });
+
+  it("exits 1 when what's there is in the way", async () => {
+    writeFileSync(join(out, "Photos"), "a file where the folder goes");
+    const savedExitCode = process.exitCode;
+    try {
+      const result = await extract(["/home/me/Photos"], {
+        set: "s",
+        output: out,
+        overwrite: true,
+      });
+
+      assert.equal(result.blocked.length, 2);
+      assert.equal(process.exitCode, 1);
+    } finally {
+      process.exitCode = savedExitCode;
+    }
   });
 });
 
@@ -180,6 +220,17 @@ describe("extract's arguments", () => {
     await assert.rejects(extract([" "], { set: "s" }), {
       code: "ERR_PARSE_ARGS",
     });
+  });
+
+  it("needs a full path, as backed up", async () => {
+    for (const item of ["Photos", "x", "home/me/Photos"]) {
+      await assert.rejects(
+        extract([item], { set: "s", output: out }),
+        { code: "ERR_PARSE_ARGS", message: /isn't a full path/ },
+        item,
+      );
+    }
+    assert.equal(snapshotReads, 0);
   });
 
   it("needs --name for a root, which has no name of its own", async () => {
@@ -198,6 +249,19 @@ describe("extract's arguments", () => {
       );
     }
   });
+
+  it(
+    "refuses a \\ in --name where the folder is a Windows one",
+    {
+      skip: platform !== "win32" && "the output folder must be a Windows path",
+    },
+    async () => {
+      await assert.rejects(
+        extract(["/home/me/Photos"], { set: "s", output: out, name: "a\\b" }),
+        { code: "ERR_PARSE_ARGS", message: /not a path/ },
+      );
+    },
+  );
 
   it("says when the snapshot holds nothing at that path", async () => {
     await assert.rejects(

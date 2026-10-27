@@ -180,7 +180,8 @@ Extracted 1 file from 'photos' (snapshot 2026-05-01T0800) to C:\Users\me\report.
   That is the way to put two `Photos` folders side by side.
 - **It never replaces something by mistake.** If the name is already taken there, `extract`
   stops before reading the backup, and says how to go on: another name, another folder, or
-  `--overwrite` to replace what's there. Usually what's there is the file you're working on,
+  `--overwrite` to write over it. Into a folder already there, that writes over the files the
+  backup holds and leaves any others. Usually what's there is the file you're working on,
   which is why it doesn't just skip it, as `restore` would: you would be handed your own file
   back as if it were the old copy.
 

@@ -9,6 +9,7 @@ import { foldsCase } from "../lib/path-match.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import {
   chooseSnapshot,
+  hasFaults,
   reroot,
   restoreTargets,
   selectTargets,
@@ -84,27 +85,19 @@ export async function restore(paths = [], options = {}) {
   // Where each snapshot path is written. `--output` re-roots under the chosen
   // dir (and so accepts any path, cross-OS included); otherwise files go back to
   // their original absolute location.
-  if (options.output) {
-    return restoreTargets({
-      set,
-      name,
-      snapshot,
-      selected,
-      destFor: reroot(options.output),
-      outDir: resolve(options.output),
-      overwrite: options.overwrite,
-    });
-  }
-  // Every target must be absolute on *this* platform before we touch the disk.
-  // A snapshot captured on another OS (Windows paths on POSIX, say) or a
-  // hand-edited one would otherwise write files relative to the cwd with
-  // surprising names like `C:\Users\…` — refuse up front rather than scatter
-  // them, and point at `--output` for the cross-OS case. On Windows that means
-  // a Windows-shaped path: `isAbsolute` takes a POSIX `/home/…` too, on the
-  // current drive, with any `\` in its names read as a separator.
-  const notAbsolute = selected.targets.filter((path) =>
-    platform === "win32" ? !foldsCase(path) : !isAbsolute(path),
-  );
+  const outDir = options.output ? resolve(options.output) : undefined;
+  // Without it, every target must be absolute on *this* platform before we
+  // touch the disk. A snapshot captured on another OS (Windows paths on POSIX,
+  // say) or a hand-edited one would otherwise write files relative to the cwd
+  // with surprising names like `C:\Users\…` — refuse up front rather than
+  // scatter them, and point at `--output` for the cross-OS case. On Windows that
+  // means a Windows-shaped path: `isAbsolute` takes a POSIX `/home/…` too, on
+  // the current drive, with any `\` in its names read as a separator.
+  const notAbsolute = outDir
+    ? []
+    : selected.targets.filter((path) =>
+        platform === "win32" ? !foldsCase(path) : !isAbsolute(path),
+      );
   if (notAbsolute.length) {
     throw new Error(
       `Snapshot '${name}' has ${countOf(notAbsolute.length, "path")} that ` +
@@ -114,14 +107,19 @@ export async function restore(paths = [], options = {}) {
         `to re-root under a directory you choose.`,
     );
   }
-  return restoreTargets({
+  const result = await restoreTargets({
     set,
     name,
     snapshot,
     selected,
-    destFor: (path) => path,
+    destFor: outDir ? reroot(outDir) : (path) => path,
+    outDir,
     overwrite: options.overwrite,
   });
+  if (hasFaults(result)) {
+    process.exitCode = 1;
+  }
+  return result;
 }
 
 /**
