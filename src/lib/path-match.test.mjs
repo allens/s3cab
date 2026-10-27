@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { foldsCase, preparePath } from "./path-match.mjs";
+import { foldsCase, preparePath, unmatchedFolders } from "./path-match.mjs";
 
 // The path-spelling question, tested on literal paths of every shape from one
 // run — a Windows path must be read as Windows on Linux and a POSIX one as
@@ -58,5 +58,59 @@ describe("preparePath", () => {
       base: "we\\ird",
       foldCase: false,
     });
+  });
+});
+
+describe("unmatchedFolders", () => {
+  const paths = [
+    "/home/me/Photos/2024/a.jpg",
+    "C:\\Users\\me\\report.pdf",
+    "//nas/photos/b.jpg",
+  ];
+
+  it("names the folders no path lies under, in the order given", () => {
+    assert.deepEqual(
+      unmatchedFolders(
+        [
+          "/home/me/Phots",
+          "/home/me/Photos",
+          "C:\\Users\\you",
+          "/home/me/Photos/a",
+        ],
+        paths,
+      ),
+      ["/home/me/Phots", "C:\\Users\\you", "/home/me/Photos/a"],
+    );
+  });
+
+  it("counts a folder above another that matched, and a path itself", () => {
+    assert.deepEqual(
+      unmatchedFolders(
+        ["/home", "/home/me/Photos/", "/home/me/Photos/2024/a.jpg", "/"],
+        paths,
+      ),
+      [],
+    );
+  });
+
+  it("matches a Windows folder in any case and separator, a POSIX one exactly", () => {
+    assert.deepEqual(
+      unmatchedFolders(["c:/users/ME", "\\\\NAS\\Photos", "/home/ME"], paths),
+      ["/home/ME"],
+    );
+  });
+
+  it("names a place once, as first spelled, however often it's given", () => {
+    assert.deepEqual(
+      unmatchedFolders(
+        ["C:\\Nope", "/home/stale", "c:/nope/", "/home/stale"],
+        paths,
+      ),
+      ["C:\\Nope", "/home/stale"],
+    );
+  });
+
+  it("never lets a share answer for a POSIX folder", () => {
+    assert.deepEqual(unmatchedFolders(["/"], ["//nas/photos/b.jpg"]), ["/"]);
   });
 });

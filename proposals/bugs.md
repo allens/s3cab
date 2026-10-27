@@ -126,11 +126,7 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   correctly, and ext4 stops at 2446. The wrapped Windows value can't be told from a real date in range,
   so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
   holding the false time, and restore sets it. Restore's read-back of each time skips these
-  on Windows (`readableOnWindows`, `src/commands/restore.mjs`) until Node reads them right.
-- **`restore` says nothing about a named path that matches nothing, while another matches.**
-  A list with one mistyped line (`C:\Users\me\Phots`) restores the rest and exits 0. It errors
-  only when no path matches, and then names every one, which for a long `--from-file` list is
-  one enormous line.
+  on Windows (`readableOnWindows`, `src/lib/restore.mjs`) until Node reads them right.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

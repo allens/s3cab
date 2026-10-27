@@ -450,6 +450,36 @@ describe("restore names what it restores (ADR-0110)", () => {
     );
   });
 
+  it("restores what a list names, and reports and exits 1 for a line that names nothing", async () => {
+    process.exitCode = undefined;
+
+    const result = await restore(["/data/first.txt", "/data/frist.txt"], {
+      set: "photos",
+      output,
+    });
+
+    assert.deepEqual(result.restored, [dest("first.txt")]);
+    assert.deepEqual(result.unmatched, ["/data/frist.txt"]);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("refuses when nothing named matches, one path a line, pointing at find", async () => {
+    await assert.rejects(
+      restore(["/data/frist.txt", "/data/lats.txt", "/data/frist.txt/"], {
+        set: "photos",
+        output,
+      }),
+      {
+        message:
+          "No files in snapshot '2026-07-19T1200' matched:\n" +
+          "  /data/frist.txt\n  /data/lats.txt\n\n" +
+          "Find how the backup spells a file, and which snapshots hold it:\n" +
+          "  s3cab find <pattern> --set photos",
+      },
+    );
+    assert.deepEqual(fetched, []);
+  });
+
   it("refuses a list that names nothing, rather than restore everything", async () => {
     await assert.rejects(
       restore([], {
@@ -1227,6 +1257,7 @@ describe("restore with a snapshot row the reader refused (ADR-0101)", () => {
     const result = await restore(["/data/torn.txt"], { set: "photos", output });
 
     assert.deepEqual(result.invalid, [{ path: "/data/torn.txt", reason }]);
+    assert.deepEqual(result.unmatched, []);
     assert.deepEqual(fetched, []);
   });
 });

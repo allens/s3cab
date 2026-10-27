@@ -21,6 +21,7 @@ import {
   pathMatcher,
   preparePath,
   rootLength,
+  unmatchedFolders,
 } from "./path-match.mjs";
 import { createProgress } from "./progress.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "./remote.mjs";
@@ -49,6 +50,7 @@ import { shellCommand } from "./style.mjs";
  * @property {number} coarseTimes - How many files were written with a time this filesystem rounded, by less than two seconds
  * @property {{ path: string, reason: string }[]} invalid - Paths not restored because the snapshot's row for them isn't valid (ADR-0101), each with why
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
+ * @property {string[]} unmatched - Paths asked for that name nothing in the snapshot
  * @property {string} [to] - Where `extract` put the item
  */
 
@@ -282,26 +284,43 @@ export async function chooseSnapshot(set, wanted) {
 }
 
 /**
- * The paths of snapshot `name` that `filters` select (see `selectEntries`), and
- * the rows the reader refused among them (ADR-0101): restored nowhere,
- * reported, exit 1. Filters that select nothing at all are an error naming them.
- * @param {Snapshot} snapshot
- * @param {string} name
- * @param {string[]} filters - Empty for `--all`
- * @returns {{ targets: string[], invalid: { path: string, reason: string }[] }}
+ * What a restore was asked for, against what the snapshot holds.
+ * @typedef {Object} Selection
+ * @property {string[]} targets - The snapshot's paths to restore
+ * @property {{ path: string, reason: string }[]} invalid - Rows among them the reader refused (ADR-0101)
+ * @property {string[]} unmatched - Filters that named nothing in the snapshot
  */
-export function selectTargets({ entries, refused }, name, filters) {
+
+/**
+ * The paths of snapshot `name` that `filters` select (see `selectEntries`), the
+ * rows the reader refused among them (ADR-0101), and the filters that select
+ * nothing: each of the last two restored nowhere, reported, exit 1. When every
+ * filter selects nothing there is no run, so that is an error naming them.
+ * @param {Snapshot} snapshot
+ * @param {BackupSet} set
+ * @param {string} name - The snapshot's name
+ * @param {string[]} filters - Empty for `--all`
+ * @returns {Selection}
+ */
+export function selectTargets({ entries, refused }, set, name, filters) {
   const targets = selectEntries(entries.keys(), filters);
   const invalid = selectEntries(refused.keys(), filters).map((path) => ({
     path,
     reason: /** @type {string} */ (refused.get(path)),
   }));
+  const unmatched = unmatchedFolders(
+    filters,
+    targets.concat(invalid.map(({ path }) => path)),
+  );
   if (filters.length && targets.length === 0 && invalid.length === 0) {
     throw new Error(
-      `No files in snapshot '${name}' matched: ${filters.join(", ")}`,
+      `No files in snapshot '${name}' matched:\n` +
+        unmatched.map((filter) => `  ${filter}\n`).join("") +
+        `\nFind how the backup spells a file, and which snapshots hold it:\n` +
+        `  ${shellCommand(`s3cab find <pattern> --set ${set.name}`)}`,
     );
   }
-  return { targets, invalid };
+  return { targets, invalid, unmatched };
 }
 
 /**
@@ -357,7 +376,7 @@ export function selectTargets({ entries, refused }, name, filters) {
  * @param {BackupSet} args.set
  * @param {string} args.name - The snapshot's name
  * @param {Snapshot} args.snapshot
- * @param {{ targets: string[], invalid: { path: string, reason: string }[] }} args.selected - From `selectTargets`
+ * @param {Selection} args.selected - From `selectTargets`
  * @param {(path: string) => string | undefined} args.destFor - Where each target goes
  * @param {string} [args.outDir] - The folder `destFor` places everything under, if any: a link inside it is in the way, never followed
  * @param {boolean} [args.overwrite] - Replace existing files instead of skipping them
@@ -367,7 +386,7 @@ export async function restoreTargets({
   set,
   name,
   snapshot,
-  selected: { targets, invalid },
+  selected: { targets, invalid, unmatched },
   destFor,
   outDir,
   overwrite,
@@ -642,12 +661,16 @@ export async function restoreTargets({
     coarseTimes,
     invalid,
     deleted,
+    unmatched,
   };
 }
 
 /**
  * Whether a restore exits 1: an unexplained absence, corrupt content, a name
- * collision, a refused name, a blocked path, a clamped time or an invalid row.
+ * collision, a refused name, a blocked path, a clamped time, an invalid row or
+ * a path asked for that the snapshot doesn't hold — each something asked for
+ * and not had whole, even where the list was stale rather than the backup
+ * damaged (ADR-0110).
  * The command sets `process.exitCode` rather than throw, the way `verify`
  * reports findings, so the run's report — every file that *was* restored
  * included — still prints. Deliberately-deleted skips alone leave exit 0
@@ -663,6 +686,7 @@ export const hasFaults = ({
   blocked,
   clamped,
   invalid,
+  unmatched,
 }) =>
   Boolean(
     missing.length ||
@@ -671,7 +695,8 @@ export const hasFaults = ({
     refused.length ||
     blocked.length ||
     clamped.length ||
-    invalid.length,
+    invalid.length ||
+    unmatched.length,
   );
 
 /**

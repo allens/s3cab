@@ -1310,7 +1310,8 @@ export function renderUpload(result, { color = false } = {}) {
  * each entry is a file the user asked for and didn't get whole, so name them all
  * and say what to do about it (`--overwrite` for the skipped, a separate
  * `--output` for the collided, the refused, the blocked and the clamped, an
- * earlier `--snapshot` for the invalid rows, `upload --force` of a surviving
+ * earlier `--snapshot` for the invalid rows, `find` for the paths that matched
+ * nothing, `upload --force` of a surviving
  * copy for the corrupt, `verify` for the missing — ADR-0030's constructive fix).
  * Times a disk merely rounded are one count, not a list. The deliberately deleted need no
  * fix: the deletion record explains them. The missing block comes last so it is
@@ -1338,6 +1339,7 @@ export function renderRestore(
     coarseTimes,
     invalid,
     deleted,
+    unmatched,
     to,
   },
   { color = false } = {},
@@ -1501,6 +1503,24 @@ export function renderRestore(
           `List the snapshots, then pick one:`,
         `  ${shellCommand(`s3cab list ${set} --remote`, color)}`,
         `  ${shellCommand(`s3cab ${command} --set ${set} <path> --snapshot <name>`, color)}`,
+      ].join("\n"),
+    );
+  }
+  if (unmatched.length) {
+    // The list, not the backup: a mistyped path, or one this snapshot predates.
+    // `find` answers both, with how the backup spells it and which snapshots
+    // hold it.
+    const heading =
+      `Could not restore ${countOf(unmatched.length, "path")} — the snapshot ` +
+      `holds nothing at ${unmatched.length === 1 ? "it" : "them"} or under ` +
+      `${unmatched.length === 1 ? "it" : "them"}:`;
+    sections.push(
+      [
+        heading,
+        ...unmatched.map((path) => `  ${withVisibleControls(path)}`),
+        "",
+        "Find how the backup spells a file, and which snapshots hold it:",
+        `  ${shellCommand(`s3cab find <pattern> --set ${set}`, color)}`,
       ].join("\n"),
     );
   }
