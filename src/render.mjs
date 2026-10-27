@@ -53,7 +53,7 @@ import {
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
-/** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { RestoreResult } from "./lib/restore.mjs" */
 /** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { DeleteResult } from "./commands/delete.mjs" */
@@ -1316,7 +1316,8 @@ export function renderUpload(result, { color = false } = {}) {
  * fix: the deletion record explains them. The missing block comes last so it is
  * what remains on screen after a long run, and its exit code is set by the
  * command. An empty selection that did nothing at all says so plainly rather
- * than emitting blank output.
+ * than emitting blank output. An `extract`'s count line says where the item
+ * went, since it lands under a name the user may have just chosen.
  * @param {RestoreResult} result
  * @param {RenderContext} [context]
  * @returns {string}
@@ -1337,6 +1338,7 @@ export function renderRestore(
     coarseTimes,
     invalid,
     deleted,
+    to,
   },
   { color = false } = {},
 ) {
@@ -1356,10 +1358,17 @@ export function renderRestore(
     invalid.length ||
     deleted.length
   ) {
+    const from = `${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot})`;
     sections.push(
-      `Restored ${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot}).`,
+      to === undefined
+        ? `Restored ${from}.`
+        : `Extracted ${from}${restored.length ? ` to ${to}` : ""}.`,
     );
   }
+  // The faults' fixes rerun the command that made this run: restore's full-path
+  // layout is just what an extract was avoiding.
+  const command = to === undefined ? "restore" : "extract";
+  const elsewhere = `s3cab ${command} --set ${set} <path> --output <directory>`;
   if (coarseTimes) {
     // Not a fault, so no list and no exit 1: FAT and exFAT round every time
     // they're given, and the files are otherwise whole.
@@ -1409,8 +1418,8 @@ export function renderRestore(
         heading,
         ...collided.map((path) => `  ${path}`),
         "",
-        "Keep both versions by restoring a colliding path into its own directory:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        "Keep both versions by putting a colliding path in its own directory:",
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1431,8 +1440,8 @@ export function renderRestore(
         heading,
         ...refused.map((path) => `  ${withVisibleControls(path)}`),
         "",
-        "Restore them onto a disk that allows the names:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        "Put them on a disk that allows the names:",
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1450,8 +1459,8 @@ export function renderRestore(
         heading,
         ...blocked.map((path) => `  ${withVisibleControls(path)}`),
         "",
-        "Move what's in the way and restore again, or restore them into an empty directory:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        "Move what's in the way and run it again, or put them in an empty directory:",
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1468,8 +1477,8 @@ export function renderRestore(
           ({ path, kept }) => `  ${withVisibleControls(path)}  (kept ${kept})`,
         ),
         "",
-        "Restore them onto a disk that can hold the time:",
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+        "Put them on a disk that can hold the time:",
+        `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
   }
@@ -1489,9 +1498,9 @@ export function renderRestore(
         ),
         "",
         `An earlier snapshot may hold a good row for ${invalid.length === 1 ? "it" : "them"}. ` +
-          `List the snapshots, then restore from one:`,
+          `List the snapshots, then pick one:`,
         `  ${shellCommand(`s3cab list ${set} --remote`, color)}`,
-        `  ${shellCommand(`s3cab restore --set ${set} <path> --snapshot <name>`, color)}`,
+        `  ${shellCommand(`s3cab ${command} --set ${set} <path> --snapshot <name>`, color)}`,
       ].join("\n"),
     );
   }

@@ -31,7 +31,7 @@ import { bold, red } from "./lib/style.mjs";
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
-/** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { RestoreResult } from "./lib/restore.mjs" */
 /** @import { FindResult } from "./lib/find.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so
@@ -1587,6 +1587,34 @@ describe("renderRestore", () => {
     );
   });
 
+  it("says where an extract went, and offers extract, not restore, as the fix", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/out/Photos/a.jpg"],
+        blocked: ["/out/Photos/2024/b.jpg"],
+        to: "/out/Photos",
+      }),
+    );
+    assert.match(
+      text,
+      /^Extracted 1 file from 'photos' \(snapshot 2026-07-04T1000\) to \/out\/Photos\.\n/,
+    );
+    assert.match(
+      text,
+      /\n {2}s3cab extract --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("names no place for an extract that wrote nothing", () => {
+    const text = renderRestore(
+      restoreResult({ blocked: ["/out/Photos/a.jpg"], to: "/out/Photos" }),
+    );
+    assert.match(
+      text,
+      /^Extracted 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+  });
+
   it("reports an empty selection plainly instead of blank output", () => {
     const text = renderRestore(restoreResult({}));
     assert.equal(
@@ -1790,7 +1818,7 @@ describe("renderRestore", () => {
       text.includes(
         "\nCould not restore 1 file — the snapshot's row for it isn't valid:\n" +
           "  /home/me/b\\x09c.jpg  (its hash isn't 64 lowercase hex digits)\n\n" +
-          "An earlier snapshot may hold a good row for it. List the snapshots, then restore from one:\n" +
+          "An earlier snapshot may hold a good row for it. List the snapshots, then pick one:\n" +
           "  s3cab list photos --remote\n" +
           "  s3cab restore --set photos <path> --snapshot <name>",
       ),

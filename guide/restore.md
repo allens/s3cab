@@ -158,7 +158,35 @@ Reach for it when:
   scattering files named `C:\Users\…` into your working directory, and points you here, as
   does a plain restore of a Linux or macOS snapshot on Windows.
 - **you want to inspect before replacing** — recover an old version alongside the current
-  one and diff them, instead of `--overwrite`.
+  one and diff them, instead of `--overwrite`. For one file or folder, `extract` (below) puts
+  it right beside you instead of at its full path.
+
+## Copying one item out
+
+`s3cab extract` copies one file or folder out of a backup into a folder, under its own name,
+rather than at its full path the way `restore --output` does. It's the command for "let me
+look at last month's copy":
+
+```console
+> s3cab extract --set photos C:\Users\me\Documents\report.pdf --snapshot 2026-05-01T0800
+Extracted 1 file from 'photos' (snapshot 2026-05-01T0800) to C:\Users\me\report.pdf.
+```
+
+- **One path per run**, a file or a folder, matched just as `restore` matches it. For several
+  items, run it once for each.
+- **It goes in the current folder**, or the one `--output` names. A folder keeps everything
+  inside it under its own names.
+- **It keeps its own name**, a drive root its letter, unless `--name` gives it another one.
+  That is the way to put two `Photos` folders side by side.
+- **It never replaces something by mistake.** If the name is already taken there, `extract`
+  stops before reading the backup, and says how to go on: another name, another folder, or
+  `--overwrite` to write over it. Into a folder already there, that writes over the files the
+  backup holds and leaves any others. Usually what's there is the file you're working on,
+  which is why it doesn't just skip it, as `restore` would: you would be handed your own file
+  back as if it were the old copy.
+
+Everything else is as for `restore`: the integrity check, the modification times, the report,
+and the exit status. A backup made on another operating system extracts the same way.
 
 ## Restoring onto a fresh machine
 

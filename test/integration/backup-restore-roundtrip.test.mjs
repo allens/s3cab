@@ -9,12 +9,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
 import { deleteObject, putText } from "../../src/lib/s3.mjs";
 import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
 import { backup } from "../../src/commands/backup.mjs";
+import { extract } from "../../src/commands/extract.mjs";
 import { restore } from "../../src/commands/restore.mjs";
 import { setup } from "../../src/commands/setup.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
@@ -120,6 +121,24 @@ describe("backup → restore round trip (real bucket)", () => {
         );
         assert.ok(wantHashes.has(sha256(dest)), `content of ${dest}`);
       }
+
+      // extract copies the one folder out under its own name, nothing above it.
+      const beachPath = [...entries.keys()].find((p) =>
+        p.endsWith("beach.jpg"),
+      );
+      assert.ok(beachPath, "the snapshot recorded beach.jpg");
+      const extracted = join(dir.path, "extracted");
+      mkdirSync(extracted);
+      const r5 = await extract([dirname(beachPath)], {
+        set: setName,
+        output: extracted,
+      });
+      assert.equal(r5.to, join(resolve(extracted), "Photos"));
+      assert.equal(r5.restored.length, entries.size);
+      assert.equal(
+        sha256(join(r5.to, "2024", "ski.jpg")),
+        entries.get(join(dirname(beachPath), "2024", "ski.jpg"))?.hash,
+      );
     } finally {
       for (const hash of hashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);

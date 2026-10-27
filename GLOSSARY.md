@@ -211,6 +211,11 @@ specifically change *during* the run).
 The porcelain verb for downloading files from a remote snapshot back to disk.
 _Avoid_: pull, download (the plumbing verb), recover.
 
+**Extract**:
+Copying one file or folder out of a remote snapshot into a folder, under its own last name or
+one given, rather than back where it was or at its full path (ADR-0111).
+_Avoid_: export, copy out, checkout (git's word).
+
 **Reattach** (the command):
 Attaching a backup set that already exists in the cloud to *this machine*, **read-only**, or
 refreshing one already attached (`s3cab reattach <set> [--bucket <b>]`, ADR-0053, ADR-0108).
