@@ -86,6 +86,17 @@ It's off by default because it costs a lot in the wrong place:
   disk.** Both give every file a new change time, so that backup reads everything once. The
   backups after it are fast again.
 
+## Dates Windows reads wrong
+
+On Windows, a file whose modification time is **before 1970, or from 06:28:16 UTC on
+7 February 2106 on**, is backed up with the wrong date. Node, which s3cab runs on, reads such a
+time as a different one inside that range: a file dated 31 December 1969 is recorded as
+7 February 2106, and one dated 2200 as 2064. The wrong date looks like a real one, so nothing
+warns you, and a restore puts it on the file. The file's contents are backed up and restored
+correctly; only its date is wrong. Linux and macOS read these times correctly. The fix waits
+on [libuv](https://github.com/libuv/libuv/issues/3864), the library Node reads file times
+through.
+
 ## Stopping part way
 
 A first backup of a large set can take hours, mostly spent reading files. You don't have to

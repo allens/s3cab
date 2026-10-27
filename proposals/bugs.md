@@ -116,17 +116,23 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**Open:**
+<sub>The **Windows date-range entry** is resolved 2026-10-27 the same way, by changing the
+promise, because the fix lies two layers below s3cab. On Windows `statSync` reads a modification
+time before 1970, or from 2106-02-07T06:28:16Z on, as another date inside that range —
+`1969-12-31T23:59:59.0005Z` as `2106-02-07T06:28:15.001Z` (`mtimeNs` `4294967295000500000n`, so
+`{ bigint: true }` doesn't help), 2200-12-31 as 2064-11-22 — while NTFS holds the true time
+(measured under node 26.10.0; Linux reads both correctly). libuv's `uv_stat_t` keeps seconds in
+`uv_timespec_t`'s `long tv_sec`, 32 bits on Windows, and `uv__filetime_to_timespec` narrows the
+FILETIME's 64-bit count into it; Node's `FillStatsArray` then casts it to `unsigned long` on
+`_WIN32` ([nodejs/node#43714](https://github.com/nodejs/node/pull/43714)), trading every date
+before 1970 for 2038 to 2106. What comes out is the seconds modulo 2³², a valid date in range, so
+s3cab can't detect it, and no builtin reads the true time. Widening `tv_sec` breaks libuv's 1.x
+ABI: [libuv#3864](https://github.com/libuv/libuv/issues/3864) is fixed on master for an
+unreleased v2, after which Node must also drop its cast. Until both ship,
+[guide/backup.md](../guide/backup.md) says such a date is backed up wrong, and restore's
+read-back skips these times on Windows (`readableOnWindows`, `src/lib/restore.mjs`).</sub>
 
-- **On Windows, an mtime outside 1970–2106 is recorded as the wrong date.** `statSync` wraps the
-  seconds as an unsigned 32-bit value: set through .NET's `SetLastWriteTimeUtc`,
-  `1969-12-31T23:59:59.0005Z` reads back as `2106-02-07T06:28:15.001Z` (`mtimeNs`
-  `4294967295000500000n`, so `{ bigint: true }` doesn't help), 2200-12-31 as 2064-11-22, and
-  9999-12-31 as 2106-01-28. Measured on NTFS under node 26.10.0. Linux reads 1969 and 2200
-  correctly, and ext4 stops at 2446. The wrapped Windows value can't be told from a real date in range,
-  so the fix may not be possible within builtins. Likely libuv. `fileProps` writes a valid row
-  holding the false time, and restore sets it. Restore's read-back of each time skips these
-  on Windows (`readableOnWindows`, `src/lib/restore.mjs`) until Node reads them right.
+**Open:** none.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
