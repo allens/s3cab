@@ -3,6 +3,7 @@ import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
 import { deleteHashes } from "./commands/delete.mjs";
+import { extract } from "./commands/extract.mjs";
 import { find } from "./commands/find.mjs";
 import { forget } from "./commands/forget.mjs";
 import { hashes } from "./commands/hashes.mjs";
@@ -478,6 +479,48 @@ export const commands = {
       },
     },
     exec: (options, paths = []) => restore(paths, options),
+    render: renderRestore,
+  },
+  extract: {
+    summary: "Copy one file or folder out of a backup, by its own name",
+    guide: "restore",
+    examples: [
+      "s3cab extract --set photos C:\\Users\\me\\Documents\\report.pdf",
+      "s3cab extract --set photos C:\\Users\\me\\Photos --snapshot 2026-05-01T0800 --name Photos-May",
+    ],
+    args: {
+      path: {
+        required: true,
+        description: "The file or folder to extract, as backed up",
+      },
+    },
+    options: {
+      set: {
+        type: "string",
+        short: "S",
+        description: "The backup set to extract from (required)",
+      },
+      snapshot: {
+        type: "string",
+        short: "s",
+        description: "Which snapshot to extract from (default: the latest)",
+      },
+      output: {
+        type: "string",
+        short: "o",
+        description: "The folder to put it in (default: the current folder)",
+      },
+      name: {
+        type: "string",
+        description: "Give the copy this name instead of its own",
+      },
+      overwrite: {
+        type: "boolean",
+        description:
+          "Replace what's already there under that name (default: refuse, before anything is read)",
+      },
+    },
+    exec: (options, paths = []) => extract(paths, options),
     render: renderRestore,
   },
   verify: {

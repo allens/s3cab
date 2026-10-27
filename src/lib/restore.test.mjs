@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { foldsCase } from "./path-match.mjs";
-import { planRestore, reroot, selectEntries } from "./restore.mjs";
+import {
+  extractTo,
+  itemName,
+  planRestore,
+  reroot,
+  selectEntries,
+} from "./restore.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -131,6 +137,48 @@ describe("selectEntries", () => {
 // into a folder (ADR-0109). Destinations are built with the local separator under
 // `resolve(output)`, so expected values use the same `join`/`resolve` to stay
 // portable across OSes.
+describe("itemName", () => {
+  it("is the last name, whatever the separators", () => {
+    assert.equal(itemName("/home/me/Photos/"), "Photos");
+    assert.equal(itemName("C:\\Users\\me\\report.pdf"), "report.pdf");
+    assert.equal(itemName("\\\\nas\\photos"), "photos");
+  });
+
+  it("is a drive root's letter, upper case", () => {
+    assert.equal(itemName("d:\\"), "D");
+  });
+
+  it("is nothing for /", () => {
+    assert.equal(itemName("/"), undefined);
+  });
+});
+
+describe("extractTo", () => {
+  const to = resolve("out", "Photos");
+
+  it("lands the item as `to` and its contents below it, by their own names", () => {
+    const map = extractTo("C:\\Users\\me\\Photos", to);
+    assert.equal(map("C:\\Users\\me\\Photos"), to);
+    assert.equal(
+      map("C:\\Users\\me\\Photos\\2024\\a.jpg"),
+      join(to, "2024", "a.jpg"),
+    );
+  });
+
+  it("counts the item in names, so its spelling on the command line doesn't matter", () => {
+    const map = extractTo("c:/users/ME/photos/", to);
+    assert.equal(map("C:\\Users\\me\\Photos\\a.jpg"), join(to, "a.jpg"));
+  });
+
+  it("places a POSIX name holding `\\` only under a non-Windows output", () => {
+    const map = extractTo("/home/u", to);
+    assert.equal(
+      map("/home/u/back\\slash.txt"),
+      foldsCase(to) ? undefined : join(to, "back\\slash.txt"),
+    );
+  });
+});
+
 describe("reroot", () => {
   const out = resolve("out");
   const map = reroot("out");

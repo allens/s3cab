@@ -31,7 +31,7 @@ import { bold, red } from "./lib/style.mjs";
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
-/** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { RestoreResult } from "./lib/restore.mjs" */
 /** @import { FindResult } from "./lib/find.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so

@@ -53,7 +53,7 @@ import {
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
-/** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { RestoreResult } from "./lib/restore.mjs" */
 /** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { DeleteResult } from "./commands/delete.mjs" */
@@ -1316,7 +1316,8 @@ export function renderUpload(result, { color = false } = {}) {
  * fix: the deletion record explains them. The missing block comes last so it is
  * what remains on screen after a long run, and its exit code is set by the
  * command. An empty selection that did nothing at all says so plainly rather
- * than emitting blank output.
+ * than emitting blank output. An `extract`'s count line says where the item
+ * went, since it lands under a name the user may have just chosen.
  * @param {RestoreResult} result
  * @param {RenderContext} [context]
  * @returns {string}
@@ -1337,6 +1338,7 @@ export function renderRestore(
     coarseTimes,
     invalid,
     deleted,
+    to,
   },
   { color = false } = {},
 ) {
@@ -1356,8 +1358,9 @@ export function renderRestore(
     invalid.length ||
     deleted.length
   ) {
+    const from = `${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot})`;
     sections.push(
-      `Restored ${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot}).`,
+      to === undefined ? `Restored ${from}.` : `Extracted ${from} to ${to}.`,
     );
   }
   if (coarseTimes) {

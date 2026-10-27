@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { platform } from "node:process";
 import { describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
-import { COARSEST_DISK_MS } from "../lib/restore.mjs";
 
 // Offline tests for the two counts `restore` puts in front of a user: the
 // progress line's running tally, and the refusal when a snapshot's paths aren't
 // absolute here. Both are text, so everything around them is faked at the lib
-// seam (docs/design/testing.md) — including the restore *planner*, whose own
-// behaviour is unit-tested in lib/restore.test.mjs. Faking it is what keeps a
-// four-figure plan free of four-figure disk writes: every step is a `skip`, so
-// the loop does nothing but count. Argument validation lives in
+// seam (docs/design/testing.md) — down to `lstatSync`, which is what keeps a
+// four-figure plan free of four-figure disk writes: every destination is
+// already there, so every step is a `skip` and the loop does nothing but count. Argument validation lives in
 // restore.test.mjs, the downloads and their failures in restore.downloads.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
 // import of the command.
@@ -35,14 +34,18 @@ mock.module("../lib/remote.mjs", {
     readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
   },
 });
-mock.module("../lib/restore.mjs", {
+// Every destination reads as a file already there, so the plan is pure skips:
+// the loop counts them and touches nothing. All else passes through, bar the
+// non-configurable `constants` (see walk.unknown-dirent.test.mjs).
+mock.module("node:fs", {
   exports: {
-    COARSEST_DISK_MS,
-    selectEntries: (/** @type {Iterable<string>} */ keys) => [...keys],
-    reroot: () => (/** @type {string} */ path) => path,
-    // A plan of pure skips: the command's loop counts them and touches nothing.
-    planRestore: (/** @type {Map<string, unknown>} */ entries) =>
-      [...entries.keys()].map((dest) => ({ action: "skip", dest })),
+    ...Object.fromEntries(
+      Object.entries(fs).filter(([name]) => name !== "constants"),
+    ),
+    lstatSync: () => ({
+      isDirectory: () => false,
+      isSymbolicLink: () => false,
+    }),
   },
 });
 mock.module("../lib/progress.mjs", {
