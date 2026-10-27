@@ -68,7 +68,7 @@ export async function extract(paths = [], options = {}) {
     );
   }
   if (!options.overwrite && statOrNothing(to, lstatSync)) {
-    throw alreadyThereError(options.set, item, to);
+    throw alreadyThereError(item, to, options);
   }
 
   const set = loadSet(options.set);
@@ -93,18 +93,28 @@ export async function extract(paths = [], options = {}) {
 
 /**
  * The refusal for a copy whose place is taken, with the three ways past it.
- * @param {string} set
+ * Each keeps the rest of the user's line: an `--overwrite` without their
+ * `--output` and `--snapshot` would write the latest copy over the cwd's.
  * @param {string} item
  * @param {string} to
+ * @param {{ set?: string, snapshot?: string, output?: string, name?: string }} options
  */
-function alreadyThereError(set, item, to) {
+function alreadyThereError(item, to, { set, snapshot, output, name }) {
+  const quote = (/** @type {string} */ value) => `"${value}"`;
+  const asked = snapshot ? [`--snapshot ${snapshot}`] : [];
+  const into = output ? [`--output ${quote(output)}`] : [];
+  const as = name ? [`--name ${quote(name)}`] : [];
   return new Error(
     `Extracting '${item}' would replace '${to}', which is already there.\n\n` +
       `Give the copy another name, put it in another folder, or write over the files there:\n` +
-      ["--name <name>", "--output <folder>", "--overwrite"]
+      [
+        [...asked, ...into, "--name <name>"],
+        [...asked, ...as, "--output <folder>"],
+        [...asked, ...into, ...as, "--overwrite"],
+      ]
         .map(
-          (flag) =>
-            `  ${shellCommand(`s3cab extract --set ${set} <path> ${flag}`)}`,
+          (flags) =>
+            `  ${shellCommand(["s3cab extract --set", set, quote(item), ...flags].join(" "))}`,
         )
         .join("\n"),
   );

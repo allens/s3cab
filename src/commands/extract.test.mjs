@@ -129,19 +129,28 @@ describe("extract won't hand back what was already there", () => {
     writeFileSync(join(out, "a.jpg"), "the live file");
 
     await assert.rejects(
-      extract(["/home/me/Photos/a.jpg"], { set: "s", output: out }),
+      extract(["/home/me/Photos/a.jpg"], {
+        set: "s",
+        snapshot: "2026-07-19T1200",
+        output: out,
+      }),
       (/** @type {Error} */ error) => {
         assert.match(
           error.message,
           /would replace '.*a\.jpg', which is already there/,
         );
-        const name = error.message.indexOf("--name");
-        const output = error.message.indexOf("--output");
-        const overwrite = error.message.indexOf("--overwrite");
-        assert.ok(name < output && output < overwrite, error.message);
-        assert.match(
+        // Each keeps the rest of the line, so a pasted --overwrite can't land
+        // the latest copy in the cwd instead.
+        const run = `s3cab extract --set s "/home/me/Photos/a.jpg" --snapshot 2026-07-19T1200`;
+        assert.ok(
+          error.message.endsWith(
+            [
+              `  ${run} --output "${out}" --name <name>`,
+              `  ${run} --output <folder>`,
+              `  ${run} --output "${out}" --overwrite`,
+            ].join("\n"),
+          ),
           error.message,
-          /\n {2}s3cab extract --set s <path> --name/,
         );
         return true;
       },
@@ -193,6 +202,7 @@ describe("extract won't hand back what was already there", () => {
   it("exits 1 when what's there is in the way", async () => {
     writeFileSync(join(out, "Photos"), "a file where the folder goes");
     const savedExitCode = process.exitCode;
+    process.exitCode = undefined;
     try {
       const result = await extract(["/home/me/Photos"], {
         set: "s",

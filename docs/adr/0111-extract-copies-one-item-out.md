@@ -31,12 +31,11 @@ s3cab extract --set <set> [--snapshot <name>] <path> [--output <folder>] [--name
   skip-and-list. There, existing files are the gaps a restore fills; here, skipping would hand
   the user the old file as if it were the extracted one. With the current folder as the
   default, the clash is usually the live file itself. The message offers `--name`, then another
-  `--output`, then `--overwrite` last.
-- **Everything else is `restore`'s**: `--overwrite` writes over each file the backup holds,
-  so a folder already there keeps any others (not cleared first: `extract` deletes nothing), a
-  file it can't
-  produce is reported while the rest carry on, the report and the exit codes are the same, and
-  any snapshot extracts on any machine, as `restore --output` does.
+  `--output`, then `--overwrite` last, each as a command that keeps the rest of the user's line.
+- **Everything else is `restore`'s**: `--overwrite` writes over each file the backup holds, so
+  a folder already there keeps any others (not cleared first: `extract` deletes nothing); a
+  file it can't produce is reported while the rest carry on; the report and the exit codes are
+  the same; and any snapshot extracts on any machine, as `restore --output` does.
 
 **s3cab never invents a name.** Renaming on a clash (`Photos 2`) was rejected, as in 0109: the
 numbers say nothing about which copy is which.

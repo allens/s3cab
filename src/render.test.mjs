@@ -1818,7 +1818,7 @@ describe("renderRestore", () => {
       text.includes(
         "\nCould not restore 1 file — the snapshot's row for it isn't valid:\n" +
           "  /home/me/b\\x09c.jpg  (its hash isn't 64 lowercase hex digits)\n\n" +
-          "An earlier snapshot may hold a good row for it. List the snapshots, then restore from one:\n" +
+          "An earlier snapshot may hold a good row for it. List the snapshots, then pick one:\n" +
           "  s3cab list photos --remote\n" +
           "  s3cab restore --set photos <path> --snapshot <name>",
       ),

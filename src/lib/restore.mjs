@@ -345,7 +345,8 @@ export function selectTargets({ entries, refused }, name, filters) {
  * by less than two seconds (FAT, exFAT), is counted, `coarseTimes`, and exits 0.
  * Nothing else about one file degrades: any other failure (network,
  * credentials, a full disk) still aborts, since it is wrong about the *run*, not
- * about one file.
+ * about one file. Exit 1 is the caller's to set, from `hasFaults`: this only
+ * reports.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The

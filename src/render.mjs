@@ -1418,7 +1418,7 @@ export function renderRestore(
         heading,
         ...collided.map((path) => `  ${path}`),
         "",
-        "Keep both versions by restoring a colliding path into its own directory:",
+        "Keep both versions by putting a colliding path in its own directory:",
         `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
@@ -1440,7 +1440,7 @@ export function renderRestore(
         heading,
         ...refused.map((path) => `  ${withVisibleControls(path)}`),
         "",
-        "Restore them onto a disk that allows the names:",
+        "Put them on a disk that allows the names:",
         `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
@@ -1459,7 +1459,7 @@ export function renderRestore(
         heading,
         ...blocked.map((path) => `  ${withVisibleControls(path)}`),
         "",
-        "Move what's in the way and restore again, or restore them into an empty directory:",
+        "Move what's in the way and run it again, or put them in an empty directory:",
         `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
@@ -1477,7 +1477,7 @@ export function renderRestore(
           ({ path, kept }) => `  ${withVisibleControls(path)}  (kept ${kept})`,
         ),
         "",
-        "Restore them onto a disk that can hold the time:",
+        "Put them on a disk that can hold the time:",
         `  ${shellCommand(elsewhere, color)}`,
       ].join("\n"),
     );
@@ -1498,7 +1498,7 @@ export function renderRestore(
         ),
         "",
         `An earlier snapshot may hold a good row for ${invalid.length === 1 ? "it" : "them"}. ` +
-          `List the snapshots, then restore from one:`,
+          `List the snapshots, then pick one:`,
         `  ${shellCommand(`s3cab list ${set} --remote`, color)}`,
         `  ${shellCommand(`s3cab ${command} --set ${set} <path> --snapshot <name>`, color)}`,
       ].join("\n"),
