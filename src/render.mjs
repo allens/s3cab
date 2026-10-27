@@ -1520,7 +1520,7 @@ export function renderRestore(
         ...unmatched.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Find how the backup spells a file, and which snapshots hold it:",
-        `  ${shellCommand(`s3cab find <name> --set ${set}`, color)}`,
+        `  ${shellCommand(`s3cab find <pattern> --set ${set}`, color)}`,
       ].join("\n"),
     );
   }

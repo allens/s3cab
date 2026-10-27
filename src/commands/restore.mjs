@@ -80,7 +80,7 @@ export async function restore(paths = [], options = {}) {
   }
 
   const { name, snapshot } = await chooseSnapshot(set, options.snapshot);
-  const selected = selectTargets(snapshot, name, filters);
+  const selected = selectTargets(snapshot, set, name, filters);
 
   // Where each snapshot path is written. `--output` re-roots under the chosen
   // dir (and so accepts any path, cross-OS included); otherwise files go back to

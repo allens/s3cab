@@ -180,7 +180,7 @@ const up = (hay, end) => (end === 0 ? -1 : hay.lastIndexOf(posix.sep, end - 1));
  * folders once, so a long `--from-file` list costs no more than a short one.
  * @param {string[]} folders
  * @param {Iterable<string>} paths
- * @returns {string[]} In `folders`' order
+ * @returns {string[]} In `folders`' order, each place once, as first spelled
  */
 export function unmatchedFolders(folders, paths) {
   const kindOf = (/** @type {string} */ p) =>
@@ -199,7 +199,10 @@ export function unmatchedFolders(folders, paths) {
       under.delete(hay.slice(0, end));
     }
   }
-  return folders.filter((folder) => left[kindOf(folder)].has(pathKey(folder)));
+  // `delete`, not `has`: a place named twice, in any spelling, is listed once.
+  return folders.filter((folder) =>
+    left[kindOf(folder)].delete(pathKey(folder)),
+  );
 }
 
 /**

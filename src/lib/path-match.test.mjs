@@ -100,6 +100,16 @@ describe("unmatchedFolders", () => {
     );
   });
 
+  it("names a place once, as first spelled, however often it's given", () => {
+    assert.deepEqual(
+      unmatchedFolders(
+        ["C:\\Nope", "/home/stale", "c:/nope/", "/home/stale"],
+        paths,
+      ),
+      ["C:\\Nope", "/home/stale"],
+    );
+  });
+
   it("never lets a share answer for a POSIX folder", () => {
     assert.deepEqual(unmatchedFolders(["/"], ["//nas/photos/b.jpg"]), ["/"]);
   });

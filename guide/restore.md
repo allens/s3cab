@@ -73,6 +73,9 @@ If nothing matches, restore stops rather than silently doing nothing:
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
 No files in snapshot '2026-06-12T0915' matched:
   C:\Users\me\Photos\nope.jpg
+
+Find how the backup spells a file, and which snapshots hold it:
+  s3cab find <pattern> --set photos
 ```
 
 If some paths match and others don't, it restores what matches, lists the rest in its report,

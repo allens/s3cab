@@ -297,26 +297,29 @@ export async function chooseSnapshot(set, wanted) {
  * nothing: each of the last two restored nowhere, reported, exit 1. When every
  * filter selects nothing there is no run, so that is an error naming them.
  * @param {Snapshot} snapshot
- * @param {string} name
+ * @param {BackupSet} set
+ * @param {string} name - The snapshot's name
  * @param {string[]} filters - Empty for `--all`
  * @returns {Selection}
  */
-export function selectTargets({ entries, refused }, name, filters) {
+export function selectTargets({ entries, refused }, set, name, filters) {
   const targets = selectEntries(entries.keys(), filters);
   const invalid = selectEntries(refused.keys(), filters).map((path) => ({
     path,
     reason: /** @type {string} */ (refused.get(path)),
   }));
-  if (filters.length && targets.length === 0 && invalid.length === 0) {
-    throw new Error(
-      `No files in snapshot '${name}' matched:\n` +
-        filters.map((filter) => `  ${filter}`).join("\n"),
-    );
-  }
   const unmatched = unmatchedFolders(
     filters,
     targets.concat(invalid.map(({ path }) => path)),
   );
+  if (filters.length && targets.length === 0 && invalid.length === 0) {
+    throw new Error(
+      `No files in snapshot '${name}' matched:\n` +
+        unmatched.map((filter) => `  ${filter}\n`).join("") +
+        `\nFind how the backup spells a file, and which snapshots hold it:\n` +
+        `  ${shellCommand(`s3cab find <pattern> --set ${set.name}`)}`,
+    );
+  }
   return { targets, invalid, unmatched };
 }
 

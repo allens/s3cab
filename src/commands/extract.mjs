@@ -80,7 +80,7 @@ export async function extract(paths = [], options = {}) {
     set,
     name: snapshotName,
     snapshot,
-    selected: selectTargets(snapshot, snapshotName, [item]),
+    selected: selectTargets(snapshot, set, snapshotName, [item]),
     destFor: extractTo(item, to),
     outDir,
     overwrite: options.overwrite,
