@@ -1542,6 +1542,7 @@ const restoreResult = (over) => ({
   coarseTimes: 0,
   invalid: [],
   deleted: [],
+  unmatched: [],
   ...over,
 });
 
@@ -1613,6 +1614,20 @@ describe("renderRestore", () => {
       text,
       /^Extracted 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
     );
+  });
+
+  it("lists each path the snapshot holds nothing for, pointing at find", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/Photos/a.jpg"],
+        unmatched: ["/home/me/Phots"],
+      }),
+    );
+    assert.match(
+      text,
+      /\nCould not restore 1 path — the snapshot holds nothing at it or under it:\n {2}\/home\/me\/Phots\n\n/,
+    );
+    assert.match(text, /\n {2}s3cab find <name> --set photos$/);
   });
 
   it("reports an empty selection plainly instead of blank output", () => {

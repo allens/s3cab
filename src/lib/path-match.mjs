@@ -157,14 +157,49 @@ export function pathMatcher(folders) {
     const { path, foldCase } = preparePath(p);
     const hay = foldCase ? path.toLowerCase() : path;
     const under = foldCase ? keys.windows : keys.posix;
-    for (let end = hay.length; end !== -1;) {
+    for (let end = hay.length; end !== -1; end = up(hay, end)) {
       if (under.has(hay.slice(0, end))) {
         return true;
       }
-      end = end === 0 ? -1 : hay.lastIndexOf(posix.sep, end - 1);
     }
     return false;
   };
+}
+
+/**
+ * The end of the next folder up in a normalized path: before the `/` nearest
+ * `end`, `0` for POSIX's root, `-1` past it.
+ * @param {string} hay
+ * @param {number} end
+ */
+const up = (hay, end) => (end === 0 ? -1 : hay.lastIndexOf(posix.sep, end - 1));
+
+/**
+ * The `folders` that no path in `paths` lies under, as `pathMatcher` matches
+ * them: `restore`'s path filters that named nothing. Each path walks up its own
+ * folders once, so a long `--from-file` list costs no more than a short one.
+ * @param {string[]} folders
+ * @param {Iterable<string>} paths
+ * @returns {string[]} In `folders`' order
+ */
+export function unmatchedFolders(folders, paths) {
+  const kindOf = (/** @type {string} */ p) =>
+    foldsCase(p) ? "windows" : "posix";
+  const left = { windows: new Set(), posix: new Set() };
+  for (const folder of folders) {
+    left[kindOf(folder)].add(pathKey(folder));
+  }
+  for (const p of paths) {
+    if (left.windows.size + left.posix.size === 0) {
+      break;
+    }
+    const hay = normalize(p);
+    const under = left[kindOf(p)];
+    for (let end = hay.length; end !== -1; end = up(hay, end)) {
+      under.delete(hay.slice(0, end));
+    }
+  }
+  return folders.filter((folder) => left[kindOf(folder)].has(pathKey(folder)));
 }
 
 /**

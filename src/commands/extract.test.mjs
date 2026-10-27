@@ -276,7 +276,7 @@ describe("extract's arguments", () => {
   it("says when the snapshot holds nothing at that path", async () => {
     await assert.rejects(
       extract(["/home/me/Phots"], { set: "s", output: out }),
-      /No files in snapshot '2026-07-19T1200' matched: \/home\/me\/Phots/,
+      /No files in snapshot '2026-07-19T1200' matched:\n {2}\/home\/me\/Phots$/,
     );
   });
 });

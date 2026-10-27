@@ -43,6 +43,12 @@ by [0109](0109-restore-output-keeps-the-full-path.md)'s one rule.
 
 - `--all` with a path or a list is a usage error: everything and these paths ask for different
   things.
+- A path that names nothing in the snapshot, beside others that do, is reported and the run
+  exits 1, after restoring the rest. It is something asked for and not had, like a missing or
+  corrupt file, and a script must see it. Refusing the run up front was rejected, since one stale
+  line would stop a whole recovery, and so was reporting with exit 0, which a script can't see.
+  The price is that `dirs.txt` against an older snapshot exits 1 for each folder added since; that
+  report is true. When every path names nothing there is no run, so that is an error.
 
 **`--all`, not `--full`.** clig.dev lists `-a/--all` as a conventional flag, so it is the name a
 user guesses, and `find`'s `--all` already means "don't narrow it down". "Full restore" is

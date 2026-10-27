@@ -71,8 +71,13 @@ If nothing matches, restore stops rather than silently doing nothing:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
-No files in snapshot '2026-06-12T0915' matched: C:\Users\me\Photos\nope.jpg
+No files in snapshot '2026-06-12T0915' matched:
+  C:\Users\me\Photos\nope.jpg
 ```
+
+If some paths match and others don't, it restores what matches, lists the rest in its report,
+and exits 1. That includes a folder the snapshot is older than, which is what a set's own
+folder list names when it's restored against an earlier snapshot.
 
 ## Choosing which version
 
