@@ -103,6 +103,7 @@ ADR as a live constraint.
 - [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets
 - [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0108](0108-set-ownership.md) — Set ownership is part of the format: `snapshots/<set>.info` holds `OWNER`, `CLAIMED` and `CREATED`, read as `KEY=value` lines (not dotenv); a claim is a conditional PUT while `snapshots/<set>/` is empty; publishing a snapshot checks the writer's stored `OWNER`+`CLAIMED` pair just before the upload; taking a set over is explicit; reading needs no `.info`. In s3cab, `reattach` attaches read-only or refreshes, `takeover` makes this machine the holder, the pair is kept in `~/.s3cab/sets/<set>/claim`, and `backup`, `upload --snapshot` and `forget` refuse on a set this machine doesn't hold *(accepted & implemented; partly supersedes 0013, 0024, 0052, 0053 and 0098)*
+- [0112](0112-bucket-locks.md) — Uploads and deletes never overlap, on any machine: each writes a `locks/upload-` or `locks/delete-` key named by its UTC start in basic ISO (no-overwrite PUT, `KEY=value` contents) *before* looking at the bucket, then lists `locks/` and refuses on the other kind (deletes also on an earlier delete). Locks never expire; a backup clears its own set's dead ones, anything else takes `unlock`. Deletes refuse at once or `--wait`; cleanup tops its plan up from new snapshots. Replaces the 7-day grace window *(proposed)*
 
 ### Snapshot / backup / restore engine
 
