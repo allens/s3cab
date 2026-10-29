@@ -1,6 +1,6 @@
 import { readlinkSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import { countOf, elapsedSince, localMoment } from "./format.mjs";
+import { basicForm, countOf, elapsedSince, localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import { infoFields } from "./set-marker.mjs";
 import { shellCommand } from "./style.mjs";
@@ -62,8 +62,7 @@ const lockUri = (bucket, id) => `s3://${bucket}/${LOCKS_PREFIX}${id}`;
  */
 function freshLockId(kind) {
   const { instant } = localMoment("seconds");
-  const basic = instant.replaceAll("-", "").replaceAll(":", "");
-  return { id: `${kind}-${basic}`, started: instant };
+  return { id: `${kind}-${basicForm(instant)}`, started: instant };
 }
 
 /**

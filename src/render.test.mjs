@@ -479,7 +479,7 @@ describe("renderList", () => {
 
     assert.equal(
       text,
-      "photos:\n  20260612T0915\n  20260611T0915\n" + "docs:\n  20260512T0946",
+      "photos:\n  20260612T0915\n  20260611T0915\ndocs:\n  20260512T0946",
     );
   });
 
