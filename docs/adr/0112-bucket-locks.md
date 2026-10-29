@@ -43,8 +43,9 @@ deletes: two cleanups, or a cleanup and a `delete`, can safely cross, as
   ```
   `COMMAND` is what is running. `SET` is there when the run is for one set, which every upload is
   except `upload --bucket`. `BY` is `user@machine`, as in `@SNAPSHOT BY`, `OS` the operating
-  system whose process table holds the pid, and `PID` the process: together they say whose
-  process holds the lock, the one thing a rule reads (below). `STARTED`
+  system whose process table holds the pid, `PIDNS` (Linux only, such as `pid:[4026531836]`)
+  which of the machine's process tables, and `PID` the process: together they say whose process
+  holds the lock, the one thing a rule reads (below). `STARTED`
   is the key's instant in the extended form, the 24-character form `.info` uses. The rest is for
   people and messages.
 - **A lock never expires.** Its age says nothing about whether its run is alive: a first backup
@@ -68,17 +69,19 @@ again.
 ### A leftover lock
 
 A lock a hard stop left must clear itself, but only a run that knows the lock is dead may remove
-it. The lock's `BY`, `OS` and `PID` say whose process holds it, and whether a process on this
-machine is alive is the OS's to answer (`kill(pid, 0)`: `ESRCH` is gone; `EPERM` is alive,
-another user's). So:
+it. The lock's `BY`, `OS`, `PIDNS` and `PID` say whose process holds it, and whether a process
+on this machine is alive is the OS's to answer (`kill(pid, 0)`: `ESRCH` is gone; `EPERM` is
+alive, another user's). So:
 
-- **Every upload and delete, when it lists `locks/`, removes any lock whose `BY` is its own
-  `user@machine`, whose `OS` is its own, and whose process is gone**, and says so.
+- **Every upload and delete, when it lists `locks/`, removes any lock whose `BY`, `OS` and
+  `PIDNS` are its own and whose process is gone**, and says so. Off Linux both sides have no
+  `PIDNS`, which is a match.
 - **Another machine's lock is always taken as alive.** Nothing here can tell, so it is `unlock`'s.
-- **`OS` is there for WSL**, which reports the Windows hostname and often the Windows username,
-  with a process table of its own. Without it, a cleanup in WSL would find a running Windows
-  backup's pid missing and remove its lock. A lock whose `OS` differs, or is absent, is never
-  judged.
+- **`OS` and `PIDNS` are there because one hostname can cover several process tables.** WSL
+  reports the Windows hostname and often the Windows username; each WSL distro, and each
+  container, has a pid namespace of its own under the same name. Without them, a cleanup in one
+  would find a running backup's pid missing in another and remove its lock. A lock whose `OS` or
+  `PIDNS` differs, or whose `OS` is absent, is never judged.
 - **A reused pid reads as alive**, so a dead lock stays until `unlock`: the error is a refusal,
   never a live lock removed.
 - **Two machines with one `user@machine`** — a cloned machine ([0108](0108-set-ownership.md)'s
@@ -87,7 +90,8 @@ another user's). So:
   identity every record keeps, and the collision needs the same name on two machines sharing one
   bucket.
 - **A lock a run couldn't remove** (it couldn't reach the bucket) is reported with the `unlock`
-  command, and the run still succeeds: the next upload or delete from this machine removes it.
+  command, and the run still succeeds. The next upload or delete from the same process table
+  removes it once its process is gone, unless the pid has been reused.
 - **`--resume` keeps its one meaning**, the work file ([0092](0092-recover-the-interrupted-work-file.md));
   no run carries a flag for the lock.
 
@@ -129,7 +133,9 @@ typed bucket name. Then:
      the topped-up set.
 6. **Remove the lock**, on any failure the run survives too: a half-done cleanup leaves only
    orphans, and a half-done `delete` is explained by its record, so rerunning finishes either.
-   A hard stop or Ctrl+C leaves it, for the next run from this machine, or `unlock`.
+   A failed delete first waits for every delete request it already sent to settle, since one
+   still in flight could remove an object a backup has just skipped. A hard stop or Ctrl+C
+   leaves the lock, for the next run from this machine, or `unlock`.
 
 **Both sides write first and look second.** An upload and a delete that start together each see
 the other's lock, so at worst both refuse. If either looked first, both could see nothing and
@@ -166,7 +172,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
 - **Provider and permissions:** a listing shows a key written a moment before (AWS S3 has
   guaranteed it since December 2020), and every identity that uploads or deletes can put, delete
   and list under `locks/`. A run that can't remove its lock reports it; the next run from its
-  machine, or `unlock`, removes it.
+  process table, or `unlock`, removes it.
 - **Left to each tool:** `--wait`, the messages, `unlock`.
 - **Like `.info`, these are rules for tools that follow the spec,** not enforcement: anyone holding
   the bucket's write keys can ignore them.
@@ -194,7 +200,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
   one.
 - **Removing the lock on Ctrl+C.** The work's requests may still be in flight when the handler
   runs, so a run on another machine could start under them: a backup that skips an object a
-  last DeleteObjects batch then removes. The next run from this machine removes the lock anyway.
+  delete still in flight then removes. The next run from this machine removes the lock anyway.
 - **Keeping a delete's lock after a failure it survives.** It stops every backup on every machine
   until someone notices, and there is nothing to inspect first.
 - **A delete lock for the whole run.** Planning only reads, and the top-up makes its result final.

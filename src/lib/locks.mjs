@@ -1,3 +1,4 @@
+import { readlinkSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { countOf, elapsedSince, localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
@@ -14,9 +15,10 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // each see the other's lock and at worst both refuse.
 //
 // A lock never expires — its age says nothing about whether its run is alive.
-// What does say so is the process: the body names the machine, its OS and the
-// pid, and a run removes any lock from its own machine and OS whose process is
-// gone. Every other leftover (another machine's) is `unlock`'s, a person's word.
+// What does say so is the process: the body names the machine, the process
+// table and the pid, and a run removes any lock from its own machine and
+// process table whose process is gone. Every other leftover is `unlock`'s, a
+// person's word.
 //
 // The two guards here, `holdUploadLock` and `holdDeleteLock`, are taken inside
 // the lib operations that decide what to skip or delete (upload.mjs,
@@ -32,8 +34,8 @@ const LOCKS_PREFIX = "locks/";
  * One lock as the bucket holds it: its id (the key without `locks/`) and the
  * `KEY=value` lines inside, read as `.info` is. The lines are for people and
  * messages — no rule matches on them, and a lock whose body is missing a line
- * is still a lock — except `BY`, `OS` and `PID` together, which say whose
- * process holds it.
+ * is still a lock — except `BY`, `OS`, `PIDNS` and `PID` together, which say
+ * whose process holds it.
  * @typedef {Object} Lock
  * @property {string} id - `<kind>-<instant>`, e.g. `upload-20261027T140205.123Z`
  * @property {LockKind} kind
@@ -41,6 +43,7 @@ const LOCKS_PREFIX = "locks/";
  * @property {string} [set] - The set it runs for (`SET`); absent for `upload --bucket` and every delete
  * @property {string} by - `user@machine` (`BY`)
  * @property {string} [os] - The OS whose process table `pid` is in (`OS`, `process.platform`); absent in a hand-made lock
+ * @property {string} [pidns] - On Linux, which of the machine's process tables (`PIDNS`, {@link pidNamespace}); absent elsewhere
  * @property {number} [pid] - The process holding it (`PID`); absent in a hand-made lock
  * @property {string} started - The key's instant in the extended form (`STARTED`)
  */
@@ -64,15 +67,26 @@ function freshLockId(kind) {
 }
 
 /**
- * @param {Omit<Lock, "id" | "kind">} lock
+ * This process's pid namespace on Linux, the target of `/proc/self/ns/pid`
+ * (`pid:[4026531836]`); `undefined` elsewhere. Each WSL distro and each
+ * container has a process table of its own under the one hostname, and this
+ * is what tells them apart.
+ * @returns {string | undefined}
+ */
+const pidNamespace = () =>
+  process.platform === "linux" ? readlinkSync("/proc/self/ns/pid") : undefined;
+
+/**
+ * @param {Omit<Lock, "id" | "kind" | "os" | "pid"> & { os: string, pid: number }} lock
  * @returns {string}
  */
-const formatLock = ({ command, set, by, os, pid, started }) =>
+const formatLock = ({ command, set, by, os, pidns, pid, started }) =>
   `COMMAND=${command}\n` +
   (set === undefined ? "" : `SET=${set}\n`) +
   `BY=${by}\n` +
-  (os === undefined ? "" : `OS=${os}\n`) +
-  (pid === undefined ? "" : `PID=${pid}\n`) +
+  `OS=${os}\n` +
+  (pidns === undefined ? "" : `PIDNS=${pidns}\n`) +
+  `PID=${pid}\n` +
   `STARTED=${started}\n`;
 
 /**
@@ -102,6 +116,7 @@ function parseLock(id, kind, text) {
     set: fields.SET,
     by: fields.BY ?? "",
     os: fields.OS,
+    pidns: fields.PIDNS,
     pid: fields.PID && Number.isInteger(pid) ? pid : undefined,
     started: fields.STARTED ?? "",
   };
@@ -120,17 +135,18 @@ function parseLock(id, kind, text) {
 export async function writeLock(bucket, { kind, command, set }) {
   const by = userAtMachine();
   const os = process.platform;
+  const pidns = pidNamespace();
   const pid = process.pid;
   for (;;) {
     const { id, started } = freshLockId(kind);
-    const body = formatLock({ command, set, by, os, pid, started });
+    const body = formatLock({ command, set, by, os, pidns, pid, started });
     const wrote = await putText(lockUri(bucket, id), body, { noClobber: true });
     if (wrote) {
-      return { id, kind, command, set, by, os, pid, started };
+      return { id, kind, command, set, by, os, pidns, pid, started };
     }
     const existing = await getText(lockUri(bucket, id));
     if (existing === body) {
-      return { id, kind, command, set, by, os, pid, started };
+      return { id, kind, command, set, by, os, pidns, pid, started };
     }
     await sleep(1);
   }
@@ -285,23 +301,26 @@ function processAlive(pid) {
 
 /**
  * The locks whose runs are alive: every lock in the bucket, minus the ones
- * from this machine and OS whose process is gone, which are removed on the
- * way, each said so. Another machine's lock is always taken as alive —
- * `user@machine` is the identity, so two machines with one name and user would
- * judge each other's locks (ADR-0112's accepted gap). The OS is part of the
- * match because WSL reports Windows' hostname and often its username, with a
- * process table of its own. A reused pid reads as alive, which errs toward
- * keeping a lock, never removing a live one.
+ * from this machine and process table whose process is gone, which are
+ * removed on the way, each said so. Another machine's lock is always taken as
+ * alive — `user@machine` is the identity, so two machines with one name and
+ * user would judge each other's locks (ADR-0112's accepted gap). The OS and
+ * pid namespace are part of the match because WSL, each of its distros and
+ * each container report the host's name, often its user, with a process table
+ * of their own. A reused pid reads as alive, which errs toward keeping a lock,
+ * never removing a live one.
  * @param {string} bucket
  * @returns {Promise<Lock[]>}
  */
 async function liveLocks(bucket) {
   const here = userAtMachine();
+  const pidns = pidNamespace();
   const locks = await listLocks(bucket);
   /** @type {Lock[]} */
   const live = [];
   for (const lock of locks) {
-    const mine = lock.by === here && lock.os === process.platform;
+    const mine =
+      lock.by === here && lock.os === process.platform && lock.pidns === pidns;
     if (mine && lock.pid !== undefined && !processAlive(lock.pid)) {
       await removeLock(bucket, lock.id);
       console.warn(
@@ -353,7 +372,7 @@ const lockLeft = (bucket, lock, cause) =>
   `(${reason(cause)}). Until it goes, every ` +
   `${lock.kind === "upload" ? "cleanup and delete" : "backup and upload"} ` +
   `of the bucket is refused. The next backup, upload, cleanup or delete ` +
-  `from this computer should remove it, once it can tell this run has ` +
+  `on this same system should remove it, once it can tell this run has ` +
   `stopped; to remove it yourself:\n` +
   `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`;
 

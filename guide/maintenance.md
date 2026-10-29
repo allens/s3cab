@@ -334,17 +334,20 @@ Backups don't block each other, and neither do a `cleanup` and a `delete`. A `ba
 meets a running `cleanup` refuses the same way, with no `--wait`: a scheduled backup fails
 loudly and the next schedule tries again.
 
-A lock is removed when its command finishes, and a failed run takes its lock with it. A stop
-that cuts the run short leaves one: a crash, a machine that lost power, a process killed
-outright, or Ctrl+C, which can't be sure the run's last requests have finished. And a lock never expires on its own, because its age says
+A lock is removed when its command finishes, and a failed run takes its lock with it. So does
+a backup stopped with Ctrl+C while it reads and uploads files: it saves its progress and ends
+cleanly. Any other stop that cuts a run short leaves its lock: a crash, a machine that lost
+power, a process killed outright, or Ctrl+C at any other moment, which can't be sure the
+run's last requests have finished. And a lock never expires on its own, because its age says
 nothing about whether the run is alive — a first backup of a large set runs for hours. What
-does say so is the process: a lock names its computer and its process, so a leftover is
-cleared by whoever can tell the run is dead:
+does say so is the process: a lock names its computer, its system and its process, so a
+leftover is cleared by whoever can tell the run is dead:
 
-- **A leftover from this computer** is removed by the next `backup`, `upload`, `cleanup` or
-  `delete` run here, which can see its process is gone. It says so as it does.
-- **A leftover from another computer** — one that is gone, or one nothing will run on for a
-  while — is `unlock`'s. It shows every lock and asks:
+- **A leftover from this system** is removed by the next `backup`, `upload`, `cleanup` or
+  `delete` run on it, which can see its process is gone. It says so as it does. Windows and
+  WSL on one computer are two systems, and so are two WSL distributions or two containers.
+- **A leftover from any other system** — another computer, one that is gone, or one nothing
+  will run on for a while — is `unlock`'s. It shows every lock and asks:
 
   ```console
   > s3cab unlock --bucket my-backups

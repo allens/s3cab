@@ -212,14 +212,21 @@ kind's lock is there.
 - A lock is a key `locks/<kind>-<instant>`: the kind, `upload` or `delete`, then the instant
   the run started, UTC to the millisecond in ISO 8601's basic form —
   `locks/upload-20261027T140205.123Z`. The key without `locks/` is the lock's **id**.
-- Its content is `KEY=value` lines, read as [`.info`](#who-holds-a-set) is: `COMMAND`, what is
-  running; `SET`, the set it is for, when it is for one; `BY`, `user@machine`; `OS`, a name for
-  the operating system whose process table holds the pid (s3cab writes Node's
-  `process.platform`, such as `win32` or `linux`); `PID`, the process; `STARTED`, the instant
-  again in the 24-character form `.info` uses. `BY`, `OS` and `PID` together say whose process
-  holds the lock; the rest is for people and messages.
-- `OS` is compared for equality only, never parsed. It is there because WSL reports the Windows
-  machine's name, and often its user, with a process table of its own.
+- Its content is `KEY=value` lines, read as [`.info`](#who-holds-a-set) is:
+  - `COMMAND`, what is running.
+  - `SET`, the set it is for, when it is for one.
+  - `BY`, `user@machine`.
+  - `OS`, a name for the operating system whose process table holds the pid. s3cab writes
+    Node's `process.platform`, such as `win32` or `linux`.
+  - `PIDNS`, on Linux only, the target of `/proc/self/ns/pid`, such as `pid:[4026531836]`: which
+    of the machine's process tables holds the pid.
+  - `PID`, the process.
+  - `STARTED`, the instant again in the 24-character form `.info` uses.
+- `BY`, `OS`, `PIDNS` and `PID` together say whose process holds the lock. The rest is for
+  people and messages.
+- `OS` and `PIDNS` are compared for equality only, never parsed. They are there because one
+  machine name can cover several process tables: WSL reports the Windows machine's name, and
+  often its user, and each WSL distro and each container has a process table of its own.
 - Two uploads may run together, and so may two deletes: an upload refuses only on a `delete-`
   lock, a delete only on an `upload-` lock.
 - **Write first, look second.** A run writes its own lock *before* it lists `locks/`, and
@@ -232,10 +239,11 @@ kind's lock is there.
 - Remove the lock when the run ends, success or failure, but not while the run's requests may
   still be in flight. A hard stop — a crash, a lost machine, a killed process — leaves one.
 - A lock never expires. Its age says nothing about whether its run is alive: a first backup
-  runs for hours. What does is its process: a run with the lock's own `BY` and `OS` may remove
-  a lock whose process (its `PID`) is gone. A lock with a different or absent `OS` is never
-  judged. Any other leftover is removed by a person who knows the run is dead; in s3cab,
-  `unlock`.
+  runs for hours. What does is its process.
+- A run whose `BY`, `OS` and `PIDNS` are the lock's own may remove the lock once its process
+  (its `PID`) is gone. A `PIDNS` absent on both sides matches.
+- A lock whose `OS` or `PIDNS` differs, or whose `OS` is absent, is never judged.
+- Any other leftover is removed by a person who knows the run is dead; in s3cab, `unlock`.
 - Like `.info`, these are rules for tools that follow the spec, not enforcement: anyone
   holding the bucket's write keys can ignore them.
 
@@ -1348,10 +1356,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   `objects/`, reading an earlier snapshot, or sending a conditional PUT — then list `locks/`.
   On any `delete-` lock, remove your own and refuse. Write first, look second: two runs that
   start together must each see the other.
-- A lock with your own `BY` and `OS` whose process is gone is a dead run's: remove it. Any
-  other lock is alive until a person says otherwise.
-- Remove the lock when the upload ends, success or failure. Report one you couldn't remove,
-  with its id, so a person can.
+- A lock with your own `BY`, `OS` and `PIDNS` whose process is gone is a dead run's: remove
+  it. Any other lock is alive until a person says otherwise.
+- Remove the lock when the upload ends, success or failure, once no request is in flight.
+  Report one you couldn't remove, with its id, so a person can.
 - Upload every object a snapshot names, the empty file's `e3b0c442…b855` included, before
   the snapshot itself: [objects first, snapshot last](#the-invariant-objects-first-snapshot-last).
 - Store each object at `objects/<hash>`, holding exactly the bytes that hash to its key.

@@ -130,8 +130,9 @@ export async function* listStoredObjects(bucket) {
 export const REQUESTS_IN_FLIGHT = 50;
 
 /**
- * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. The first
- * call to fail rejects, and no more are started.
+ * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. A call
+ * that fails stops any more being started, and once those already started have
+ * settled, rejects with a failure's error.
  * @param {string[]} hashes
  * @param {(hash: string) => Promise<void>} request
  * @returns {Promise<void>}
@@ -148,13 +149,20 @@ async function eachInFlight(hashes, request) {
   // and starts none while `highWaterMark` of them (99 at 50) wait behind one
   // stalled request, and despite its docs the signal it gives the mapper isn't
   // aborted when another call fails (measured on Node 26).
-  await Promise.all(
+  const workers = await Promise.allSettled(
     Array.from({ length: REQUESTS_IN_FLIGHT }, async () => {
       for (const hash of queue) {
         await request(hash);
       }
     }),
   );
+  // allSettled, not all: a caller removes its delete lock when this rejects,
+  // and a DELETE still in flight then can remove an object a backup on another
+  // machine has just skipped as stored (ADR-0112).
+  const failed = workers.find((worker) => worker.status === "rejected");
+  if (failed) {
+    throw failed.reason;
+  }
 }
 
 /**
@@ -164,8 +172,8 @@ async function eachInFlight(hashes, request) {
  * and where the deletion record's size column comes from) and `forget`'s
  * preview. One HEAD per hash is the honest cost of an exact answer about named
  * objects; a whole-store LIST ({@link listStoredObjects}) wins only when the
- * question is about *every* object. The first HEAD to fail rejects the call, and
- * no more are started.
+ * question is about *every* object. A HEAD that fails rejects the call, once
+ * those already sent have settled, and no more are started.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
  * @returns {Promise<Map<string, number | undefined>>}
@@ -187,8 +195,8 @@ export async function storedObjectSizes(bucket, hashes) {
  * this module's key layout, so callers never spell the key. On a versioned
  * bucket this is a soft delete (a delete marker), the ransomware-safety model
  * (ADR-0033) — permanent reclamation needs a lifecycle rule, which `cleanup`'s
- * docs recommend. The first delete to fail rejects the call, and no more are
- * started.
+ * docs recommend. A delete that fails rejects the call, once those already sent
+ * have settled, and no more are started.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
  * @returns {Promise<void>}

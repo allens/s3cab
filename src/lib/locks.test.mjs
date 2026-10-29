@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
@@ -124,21 +125,29 @@ const {
 /** Pids `process.kill(pid, 0)` reports gone. @type {Set<number>} */
 let deadPids = new Set();
 
+/** This process's pid namespace, as a lock written here carries it: Linux only. */
+const HERE_PIDNS =
+  process.platform === "linux" ? readlinkSync("/proc/self/ns/pid") : undefined;
+const PIDNS_LINE = HERE_PIDNS === undefined ? "" : `PIDNS=${HERE_PIDNS}\n`;
+
 /** A lock another run holds, planted straight into the bucket. */
 const plant = (
   /** @type {string} */ id,
   /** @type {string} */ command,
   /** @type {string | undefined} */ set = undefined,
-  /** @type {{ by?: string, os?: string, pid?: number }} */ {
+  /** @type {{ by?: string, os?: string, pidns?: string, pid?: number }} */ {
     by,
     os,
+    pidns,
     pid,
   } = {},
 ) =>
   store.set(
     `locks/${id}`,
     `COMMAND=${command}\n${set ? `SET=${set}\n` : ""}BY=${by ?? "other@LAPTOP"}\n` +
-      `OS=${os ?? process.platform}\nPID=${pid ?? 4242}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
+      `OS=${os ?? process.platform}\n` +
+      (pidns === undefined ? PIDNS_LINE : `PIDNS=${pidns}\n`) +
+      `PID=${pid ?? 4242}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
   );
 
 const lockKeys = () => [...store.keys()].filter((k) => k.startsWith("locks/"));
@@ -194,7 +203,7 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
     assert.equal(
       store.get(`locks/${lock.id}`),
-      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nOS=${process.platform}\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
+      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nOS=${process.platform}\n${PIDNS_LINE}PID=${process.pid}\nSTARTED=${lock.started}\n`,
     );
     assert.equal(lock.os, process.platform);
     assert.equal(lock.pid, process.pid);
@@ -276,6 +285,7 @@ describe("listLocks, removeLock, describeLock", () => {
       set: "photos",
       by: "other@LAPTOP",
       os: process.platform,
+      pidns: HERE_PIDNS,
       pid: 4242,
       started: "2026-10-27T14:02:05.123Z",
     });
@@ -443,7 +453,7 @@ describe("holdUploadLock", () => {
     assert.match(
       warnings.at(-1) ?? "",
       new RegExp(
-        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. Until it goes, every cleanup and delete of the bucket is refused\\. The next backup, upload, cleanup or delete from this computer should remove it, once it can tell this run has stopped; to remove it yourself:\\n {2}s3cab unlock --bucket b ${id}`,
+        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. Until it goes, every cleanup and delete of the bucket is refused\\. The next backup, upload, cleanup or delete on this same system should remove it, once it can tell this run has stopped; to remove it yourself:\\n {2}s3cab unlock --bucket b ${id}`,
       ),
     );
   });
@@ -531,6 +541,29 @@ describe("holdUploadLock", () => {
       );
     });
 
+    it("from another pid namespace is kept: a second WSL distro or a container, same name and OS", async () => {
+      plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+        by: "allen@DESKTOP",
+        pidns: "pid:[1]",
+        pid: 31337,
+      });
+      deadPids.add(31337);
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+      assert.ok(
+        kill.mock.calls.every(({ arguments: [pid] }) => pid !== 31337),
+        "the OS was never asked about it",
+      );
+    });
+
     it("with no OS is kept: a lock that can't say whose process table it means is never judged", async () => {
       store.set(
         "locks/delete-20261027T140100.000Z",
@@ -552,7 +585,7 @@ describe("holdUploadLock", () => {
     it("with no pid is kept: a hand-made lock is a person's to remove", async () => {
       store.set(
         "locks/delete-20261027T140100.000Z",
-        `COMMAND=cleanup\nBY=allen@DESKTOP\nOS=${process.platform}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
+        `COMMAND=cleanup\nBY=allen@DESKTOP\nOS=${process.platform}\n${PIDNS_LINE}STARTED=2026-10-27T14:02:05.123Z\n`,
       );
 
       await assert.rejects(

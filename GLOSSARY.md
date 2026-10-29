@@ -66,10 +66,10 @@ A `locks/<kind>-<instant>` key in the repository, `KEY=value` lines inside, that
 upload or delete holds for exactly as long as it runs: written *before* the run looks at
 anything that decides what to skip or delete, then `locks/` is listed and the other kind
 turns it away. Uploads don't exclude each other, nor do deletes. It never expires — age says
-nothing about liveness — so only a hard stop or Ctrl+C leaves one; it names its machine, OS
-and process (`BY`, `OS`, `PID`), so the next run from that machine and OS removes a leftover
-whose process is gone, and
-`unlock` (a person) removes any other ([ADR-0112](docs/adr/0112-bucket-locks.md), format spec).
+nothing about liveness — so only a hard stop, or a Ctrl+C outside a backup's read-and-upload
+pass, leaves one; it names its machine, process table and process (`BY`, `OS`, `PIDNS`,
+`PID`), so the next run on that machine and process table removes a leftover whose process is
+gone, and `unlock` (a person) removes any other ([ADR-0112](docs/adr/0112-bucket-locks.md), format spec).
 _Avoid_: lease, mutex, stale lock (age means nothing), grace window (what it replaced).
 
 **Upload lock**:

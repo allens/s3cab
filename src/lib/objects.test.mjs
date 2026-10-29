@@ -266,4 +266,26 @@ describe("deleteStoredObjects", () => {
     }
     assert.equal(started, 50, "only the DELETEs already in flight");
   });
+
+  it("rejects only once every DELETE already sent has settled — the delete lock goes on the rejection", async () => {
+    let inFlight = 0;
+    remove = async (uri) => {
+      inFlight++;
+      if (uri.endsWith("/h0")) {
+        inFlight--;
+        throw new Error("DELETE failed");
+      }
+      for (let i = 0; i < 5; i++) {
+        await tick();
+      }
+      inFlight--;
+    };
+
+    await assert.rejects(
+      deleteStoredObjects("my-bucket", hashes(200)),
+      /DELETE failed/,
+    );
+
+    assert.equal(inFlight, 0, "no DELETE outlives the call");
+  });
 });
