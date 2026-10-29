@@ -237,17 +237,13 @@ the safe direction, since the check is a decision aid and the record still names
 ## Why `forget` and `cleanup` do not merge
 
 The check costs what `cleanup`'s scan costs, which invites folding them into one command.
-Rejected, for three reasons:
+Rejected, for two reasons:
 
-1. **The grace window means a merged command often could not reclaim anything.** The 7-day
-   window is measured from each object's `lastModified`, not from when it was orphaned. Delete
-   a year-old snapshot and its objects are sweepable; delete yesterday's and its objects are
-   grace-protected, so a merged command would validate, delete, sweep, and reclaim nothing —
-   with the space arriving a week later via a `cleanup` you still have to remember.
-2. **It would drag `cleanup`'s concurrency hazard into a common command.** `cleanup` must not
-   run while a backup is running ([proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md));
-   `forget` has no such hazard — it touches one snapshot object and never `objects/`.
-3. **The operands differ.** `forget` is set-scoped; `cleanup` is bucket-scoped, deliberately
+1. **It would drag `cleanup`'s lock into a common command.** `cleanup` takes a delete lock and
+   refuses while any backup or upload runs ([ADR-0112](../adr/0112-bucket-locks.md)); `forget`
+   needs none — it touches one snapshot object and never `objects/` — so a merged command
+   would turn a plain forget away whenever a backup was running anywhere.
+2. **The operands differ.** `forget` is set-scoped; `cleanup` is bucket-scoped, deliberately
    symmetric with `verify` ([ADR-0042](../adr/0042-verify-bucket-operand.md)).
 
 And the saving is smaller than it looks. A housekeeping session today is: forget (scan),
@@ -256,12 +252,12 @@ run collapses that to two**; merging would take it from two to one. The bulk ope
 most of the prize for almost none of the cost.
 
 What is kept from the merge instinct is a **precise handoff**. `forget` already points at
-`cleanup`; with the check in hand it *could* also say how much is reclaimable now and how
-much is grace-held, instead of a vague "objects may still be stored". **Not built** — that
-split needs each object's `lastModified`, which means a second whole-bucket enumeration
-(`objects/`, the LIST `cleanup` does), doubling the cost of the check to refine a number the
-user is not acting on at this moment. The preview says what would become unrestorable; `cleanup` says
-what is reclaimable *today*. Revisit if the two-command handoff proves confusing in use.
+`cleanup`; with the check in hand it *could* also say how much is reclaimable, instead of a
+vague "objects may still be stored". **Not built** — that figure needs each object's size,
+which means a second whole-bucket enumeration (`objects/`, the LIST `cleanup` does), doubling
+the cost of the check to refine a number the user is not acting on at this moment. The preview
+says what would become unrestorable; `cleanup` says what is reclaimable. Revisit if the
+two-command handoff proves confusing in use.
 
 If the two-scans-per-session ever genuinely hurts, the smallest fix is a chain flag on
 `forget` that runs the sweep in the same process reusing the scan — additive, and by then

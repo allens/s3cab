@@ -85,7 +85,6 @@ export function nextZone() {
  * @property {string} [hold] - S3CAB_XHOLD spec
  * @property {string} [holdGate] - File whose appearance releases the hold
  * @property {string} [holdReached] - File the child writes when the hold starts
- * @property {string} [graceMs] - S3CAB_XGRACE_MS (labeled time compression)
  * @property {string} [log] - S3CAB_XLOG trace file
  * @property {string} [tag] - Trace tag
  * @property {string} [input] - stdin text (for prompt-driven commands)
@@ -106,7 +105,6 @@ function childEnv(options) {
     S3CAB_XHOLD: undefined,
     S3CAB_XHOLD_GATE: undefined,
     S3CAB_XHOLD_REACHED: undefined,
-    S3CAB_XGRACE_MS: undefined,
     S3CAB_XLOG: undefined,
     S3CAB_XTAG: undefined,
     S3CAB_HOME: options.home,
@@ -117,7 +115,6 @@ function childEnv(options) {
     ...(options.holdReached
       ? { S3CAB_XHOLD_REACHED: options.holdReached }
       : {}),
-    ...(options.graceMs ? { S3CAB_XGRACE_MS: options.graceMs } : {}),
     ...(options.log ? { S3CAB_XLOG: options.log } : {}),
     ...(options.tag ? { S3CAB_XTAG: options.tag } : {}),
   };
@@ -251,6 +248,42 @@ export async function bucketViolations() {
   const model = new RepoModel(bucket, inspector);
   return checkStore(model);
 }
+
+/** The `locks/` keys in the bucket (ADR-0112), sorted. */
+export async function lockKeys() {
+  return (await inspector.listAll(bucket))
+    .map(({ key }) => key)
+    .filter((key) => key.startsWith("locks/"));
+}
+
+/**
+ * Remove every lock in the bucket through `unlock --force`, as a person does
+ * after a killed run: a lock never expires, and a killed child's would turn
+ * the next cleanup (an upload lock) or backup (a delete lock) away.
+ * @param {string} home - A child's S3CAB_HOME to run `unlock` from
+ * @returns {Promise<string[]>} the ids removed
+ */
+export async function unlockAll(home) {
+  const ids = (await lockKeys()).map((key) => key.slice("locks/".length));
+  if (ids.length === 0) {
+    return ids;
+  }
+  const run = s3cab(["unlock", "--bucket", bucket, "--force", ...ids], {
+    home,
+  });
+  if (run.status !== 0) {
+    throw new Error(`unlock failed:\n${run.stderr}`);
+  }
+  const left = await lockKeys();
+  if (left.length > 0) {
+    throw new Error(`unlock left ${left.join(", ")}`);
+  }
+  return ids;
+}
+
+/** A set's local upload lock (ADR-0112). @param {string} home @param {string} set */
+export const uploadLockPath = (home, set) =>
+  join(home, "sets", set, ".upload.lock");
 
 /**
  * Restore a set (latest snapshot) into a fresh output dir on a fresh

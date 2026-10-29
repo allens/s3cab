@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -7,6 +7,7 @@ import {
   bucketViolations,
   claimSet,
   inspector,
+  lockKeys,
   makeTree,
   nextZone,
   release,
@@ -14,6 +15,8 @@ import {
   s3cab,
   s3cabAsync,
   seedSet,
+  unlockAll,
+  uploadLockPath,
   waitForFile,
   wipeBucket,
 } from "./harness.mjs";
@@ -28,10 +31,11 @@ import { captureTree } from "../model/harness/model.mjs";
 // request (writing a "reached" marker, then polling for a gate file), so the
 // interleaving under test is forced, not hoped for.
 //
-// Each case names its verdict up front: a scenario that is *safe* names the
-// mechanism that makes it safe; a scenario that *breaks* is a pin of the
-// residual hole (proposals/concurrency-and-locking.md §1) — those assertions
-// flip when a fix lands, exactly like test/model/model.findings.test.mjs.
+// Each case names its verdict up front and the mechanism that makes it safe.
+// For an upload against a cleanup or delete, that mechanism is the locks in
+// the bucket (ADR-0112): a run writes its lock before anything that decides
+// what to skip or delete, then lists `locks/`, so of two runs that would
+// cross, at least one sees the other and refuses.
 
 const SCRATCH = resolve("test", ".tmp-concurrency");
 
@@ -81,6 +85,33 @@ async function holdAt(args, { scratch, id, ...child }) {
   return { ...running, gate };
 }
 
+/**
+ * Crash orphans: a backup of `home`'s set killed between its last object and
+ * the manifest leaves every object uploaded, no snapshot — and its upload
+ * lock, which a kill never removes and which would turn every cleanup away.
+ * The lock is cleared the way a person clears a lock whose run they know is
+ * dead (`unlock`), and the set's `.upload.lock` is deleted by hand — a person
+ * would run `--resume`, but that is a backup, and the cases want the orphans
+ * without one. The orphans stay.
+ * @param {string} home
+ * @param {string} set
+ * @returns {Promise<number>} how many objects the killed run left
+ */
+async function crashOrphans(home, set) {
+  const killed = s3cab(["backup", set], {
+    home,
+    tz: nextZone(),
+    kill: "1:PUT:^/snapshots/",
+  });
+  assert.notEqual(killed.status, 0);
+  const stale = await lockKeys();
+  assert.equal(stale.length, 1, `the killed run's lock (${stale.join(", ")})`);
+  assert.match(stale[0] ?? "", /^locks\/upload-/);
+  assert.equal((await unlockAll(home)).length, 1);
+  rmSync(uploadLockPath(home, set));
+  return (await objectKeys()).length;
+}
+
 describe("concurrency: backup vs backup", () => {
   it("different sets, shared content: the object-PUT race is safe (content addressing + benign 412)", async () => {
     const scratch = freshScratch("bb-shared-content");
@@ -100,7 +131,8 @@ describe("concurrency: backup vs backup", () => {
 
     // A lists the (empty) store and parks before its first object PUT — its
     // upload plan is now stale. B then backs up the same content to its own
-    // set, storing every object A still intends to upload.
+    // set, storing every object A still intends to upload. Uploads never
+    // exclude each other: B's lock is beside A's.
     const a = await holdAt(["backup", "seta"], {
       scratch,
       id: "a",
@@ -120,6 +152,7 @@ describe("concurrency: backup vs backup", () => {
     const aDone = await a.done;
     assert.equal(aDone.status, 0, aDone.stderr);
 
+    assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     for (const set of ["seta", "setb"]) {
       const { violations } = restoreAndCompare({
@@ -193,14 +226,16 @@ describe("concurrency: backup vs backup", () => {
     );
 
     // B's differing object was already uploaded before the hold — an
-    // unreferenced object inside the grace window, which is legal store shape.
+    // unreferenced object, which is legal store shape (cleanup's to reclaim).
+    // The loser removed its lock on the way out, like the winner.
+    assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
   });
 });
 
 describe("concurrency: cleanup vs in-flight backup", () => {
-  it("real grace window: crash orphans a fresh backup reuses are protected (safe arm)", async () => {
-    const scratch = freshScratch("bc-real-grace");
+  it("cleanup beside a held backup is refused by the upload lock, so the orphans the backup reuses survive", async () => {
+    const scratch = freshScratch("bc-refused");
     await wipeBucket();
     const homeA = join(scratch, "homeA");
     const homeB = join(scratch, "homeB");
@@ -213,19 +248,12 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     seedSet(homeB, "s", [data]);
     await claimSet(homeA, "s");
 
-    // Machine A crashes between its last object and the manifest: four
-    // orphans, no snapshot.
-    const killed = s3cab(["backup", "s"], {
-      home: homeA,
-      tz: nextZone(),
-      kill: "1:PUT:^/snapshots/",
-    });
-    assert.notEqual(killed.status, 0);
-    assert.equal((await objectKeys()).length, 4);
+    // Machine A crashes: four orphans, no snapshot.
+    assert.equal(await crashOrphans(homeA, "s"), 4);
 
     // Machine B takes the set over, backs up the same content, skips the
     // stored orphans, and parks before its manifest PUT — the §1 window, wide
-    // open.
+    // open, with B's upload lock standing in it.
     await claimSet(homeB, "s");
     const b = await holdAt(["backup", "s"], {
       scratch,
@@ -235,21 +263,112 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       hold: "1:PUT:^/snapshots/",
     });
 
-    // cleanup with the REAL seven-day grace runs right through the window.
+    // cleanup writes its delete lock, looks, sees B's upload lock, removes
+    // its own and refuses: nothing deleted, nothing left behind, and the
+    // refusal names the run it met.
     const cleanup = s3cab(["cleanup", bucket, "--force"], { home: homeA });
-    assert.equal(cleanup.status, 0, cleanup.stderr);
+    assert.notEqual(
+      cleanup.status,
+      0,
+      "cleanup must refuse beside a running backup",
+    );
+    assert.match(
+      cleanup.stderr,
+      /Can't clean up right now — a backup or upload is running on bucket/,
+    );
+    assert.match(cleanup.stderr, /backup of set 's'/);
+    assert.match(cleanup.stderr, /--wait/);
+    assert.equal((await objectKeys()).length, 4, "nothing was deleted");
+    const standing = await lockKeys();
+    assert.equal(standing.length, 1, `only B's lock (${standing.join(", ")})`);
+    assert.match(standing[0] ?? "", /^locks\/upload-/);
+
+    release(b.gate);
+    const bDone = await b.done;
+    assert.equal(bDone.status, 0, bDone.stderr);
+    assert.deepEqual(await lockKeys(), [], "B removed its lock");
+    assert.deepEqual(await bucketViolations(), []);
+    const { violations } = restoreAndCompare({
+      set: "s",
+      scratch,
+      expected: captureTree([data]),
+      dirs: [data],
+    });
+    assert.deepEqual(violations, []);
+
+    // Nothing running: cleanup goes ahead, and finds every object referenced.
+    const again = s3cab(["cleanup", bucket, "--force"], { home: homeA });
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal((await objectKeys()).length, 4);
+    assert.deepEqual(await lockKeys(), []);
+  });
+
+  it("cleanup --wait holds no lock while it waits, goes once the backup is done, and sweeps only what is still unreferenced", async () => {
+    const scratch = freshScratch("bc-wait");
+    await wipeBucket();
+    const homeA = join(scratch, "homeA");
+    const homeB = join(scratch, "homeB");
+    const data = join(scratch, "data");
+    makeTree(data, { ...TREE, "z.txt": "only the crashed run had this" });
+    for (const home of [homeA, homeB]) {
+      mkdirSync(home, { recursive: true });
+    }
+    seedSet(homeA, "s", [data]);
+    seedSet(homeB, "s", [data]);
+    await claimSet(homeA, "s");
+
+    // Five orphans; z.txt then goes away, so B references four of them and
+    // the fifth is a true orphan for cleanup to find.
+    assert.equal(await crashOrphans(homeA, "s"), 5);
+    rmSync(join(data, "z.txt"));
+
+    await claimSet(homeB, "s");
+    const b = await holdAt(["backup", "s"], {
+      scratch,
+      id: "b",
+      home: homeB,
+      tz: nextZone(),
+      hold: "1:PUT:^/snapshots/",
+    });
+
+    // --wait: the first look finds B's lock; the run removes its own, says
+    // what it is waiting for, and sleeps. The hold parks it after a real
+    // WAIT_MS, before it writes its lock again for the second look — the
+    // moment that shows the sleep was lock-free.
+    const cleanup = await holdAt(["cleanup", bucket, "--force", "--wait"], {
+      scratch,
+      id: "cleanup",
+      home: homeA,
+      hold: "2:PUT:^/locks/delete-",
+      log: join(scratch, "trace-cleanup.log"),
+      tag: "CLEANUP",
+    });
     assert.equal(
       (await objectKeys()).length,
-      4,
-      "grace must protect the minutes-old orphans",
+      5,
+      "nothing deleted while waiting",
+    );
+    const standing = await lockKeys();
+    assert.deepEqual(
+      standing.filter((key) => key.startsWith("locks/delete-")),
+      [],
+      `no delete lock is held while waiting (${standing.join(", ")})`,
     );
 
     release(b.gate);
     const bDone = await b.done;
     assert.equal(bDone.status, 0, bDone.stderr);
+    release(cleanup.gate);
+    const cleanupDone = await cleanup.done;
+    assert.equal(cleanupDone.status, 0, cleanupDone.stderr);
+    assert.match(
+      cleanupDone.stderr,
+      /Waiting for 1 running upload to finish before cleaning up:\n {2}backup of set 's'/,
+    );
 
-    // Safe, and the mechanism is GRACE_MS: an unreferenced object is only
-    // swept once it is 7 days old, which no in-flight backup window spans.
+    // B's four are referenced by its snapshot; the fifth went.
+    assert.equal((await objectKeys()).length, 4, "only the true orphan swept");
+    assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
       set: "s",
@@ -260,77 +379,123 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.deepEqual(violations, []);
   });
 
-  it("PIN §1 residual hole: aged orphans a held backup reuses are swept, publishing dangling refs", async () => {
-    const scratch = freshScratch("bc-residual-hole");
+  it("backup beside a held cleanup is refused by the delete lock, leaving no lock of its own", async () => {
+    const scratch = freshScratch("cb-refused");
     await wipeBucket();
-    const homeA = join(scratch, "homeA");
-    const homeB = join(scratch, "homeB");
+    const home = join(scratch, "home");
     const data = join(scratch, "data");
     makeTree(data, TREE);
-    for (const home of [homeA, homeB]) {
-      mkdirSync(home, { recursive: true });
-    }
-    seedSet(homeA, "s", [data]);
-    seedSet(homeB, "s", [data]);
-    await claimSet(homeA, "s");
+    mkdirSync(home, { recursive: true });
+    seedSet(home, "s", [data]);
+    await claimSet(home, "s");
+    assert.equal(await crashOrphans(home, "s"), 4);
 
-    // Crash orphans again — but this time aged past a compressed grace
-    // (labeled time compression: S3CAB_XGRACE_MS rewrites GRACE_MS in the
-    // cleanup child only; the interleaving is the production one).
-    const killed = s3cab(["backup", "s"], {
-      home: homeA,
-      tz: nextZone(),
-      kill: "1:PUT:^/snapshots/",
-    });
-    assert.notEqual(killed.status, 0);
-    await new Promise((r) => setTimeout(r, 6_000));
-
-    await claimSet(homeB, "s");
-    const b = await holdAt(["backup", "s"], {
+    // cleanup wrote its lock, looked, topped up, and parks before its first
+    // DELETE: the window where a backup that reused the orphans would
+    // publish references to objects about to go.
+    const cleanup = await holdAt(["cleanup", bucket, "--force"], {
       scratch,
-      id: "b",
-      home: homeB,
-      tz: nextZone(),
-      hold: "1:PUT:^/snapshots/",
-      log: join(scratch, "trace-b.log"),
-      tag: "B",
+      id: "cleanup",
+      home,
+      hold: "1:DELETE:^/objects/",
     });
 
-    const cleanup = s3cab(["cleanup", bucket, "--force"], {
-      home: homeA,
-      graceMs: "4000",
-    });
-    assert.equal(cleanup.status, 0, cleanup.stderr);
-    assert.equal((await objectKeys()).length, 0, "the aged orphans were swept");
-
-    // B publishes a manifest whose every reference was just deleted — and
-    // exits 0, telling the user the backup succeeded.
-    release(b.gate);
-    const bDone = await b.done;
-    assert.equal(
-      bDone.status,
-      0,
-      "PIN: the doomed backup reports success (flips when a fix lands)",
+    // The backup writes its upload lock, looks, sees the delete lock, takes
+    // its lock back — bucket and local — and refuses before deciding anything.
+    const refused = s3cab(["backup", "s"], { home, tz: nextZone() });
+    assert.notEqual(refused.status, 0, "backup must refuse beside a cleanup");
+    assert.match(
+      refused.stderr,
+      /Can't back up right now — a cleanup or delete is running on bucket/,
     );
-
-    const violations = await bucketViolations();
+    assert.match(refused.stderr, /\n {2}cleanup by \S+, started /);
     assert.ok(
-      violations.some((v) => /dangl|missing/i.test(v)),
-      `PIN: the published manifest dangles (got: ${violations.join("; ") || "none"})`,
+      !existsSync(uploadLockPath(home, "s")),
+      "the refused backup took its local lock back",
     );
-    const { violations: restoreViolations } = restoreAndCompare({
+    const standing = await lockKeys();
+    assert.equal(
+      standing.length,
+      1,
+      `only the cleanup's lock (${standing.join(", ")})`,
+    );
+    assert.match(standing[0] ?? "", /^locks\/delete-/);
+    assert.deepEqual(await manifestKeys(), [], "nothing was published");
+
+    release(cleanup.gate);
+    const cleanupDone = await cleanup.done;
+    assert.equal(cleanupDone.status, 0, cleanupDone.stderr);
+    assert.deepEqual(await objectKeys(), [], "the orphans were swept");
+    assert.deepEqual(await lockKeys(), []);
+
+    // The backup then uploads everything afresh: the orphans it would have
+    // reused are gone, which costs time, never data.
+    const backup = s3cab(["backup", "s"], { home, tz: nextZone() });
+    assert.equal(backup.status, 0, backup.stderr);
+    assert.equal((await objectKeys()).length, 4);
+    assert.deepEqual(await lockKeys(), []);
+    assert.deepEqual(await bucketViolations(), []);
+    const { violations } = restoreAndCompare({
       set: "s",
       scratch,
       expected: captureTree([data]),
       dirs: [data],
     });
-    assert.ok(
-      restoreViolations.length > 0,
-      "PIN: the snapshot is unrestorable — data loss presented as success",
-    );
+    assert.deepEqual(violations, []);
   });
 
-  it("PIN §1 sharpening: forget+cleanup under a held incremental backup strands its baseline-trusted refs", async () => {
+  it("write first, look second: a backup and a cleanup that both wrote before either looked both see the other and refuse", async () => {
+    const scratch = freshScratch("wf-both-written");
+    await wipeBucket();
+    const home = join(scratch, "home");
+    const data = join(scratch, "data");
+    makeTree(data, TREE);
+    mkdirSync(home, { recursive: true });
+    seedSet(home, "s", [data]);
+    await claimSet(home, "s");
+    const first = s3cab(["backup", "s"], { home, tz: nextZone() });
+    assert.equal(first.status, 0, first.stderr);
+
+    // Each parks between its lock's PUT and its LIST of locks/: both locks
+    // stand before either looks. The rule that matters most — write first,
+    // look second — means neither can miss the other; the price is that
+    // both refuse, which the ADR accepts over either going ahead.
+    const backup = await holdAt(["backup", "s"], {
+      scratch,
+      id: "backup",
+      home,
+      tz: nextZone(),
+      hold: "1:GET:prefix=locks",
+    });
+    const cleanup = await holdAt(["cleanup", bucket, "--force"], {
+      scratch,
+      id: "cleanup",
+      home,
+      hold: "1:GET:prefix=locks",
+    });
+    const standing = await lockKeys();
+    assert.equal(standing.length, 2, standing.join(", "));
+
+    release(backup.gate);
+    release(cleanup.gate);
+    const [backupDone, cleanupDone] = await Promise.all([
+      backup.done,
+      cleanup.done,
+    ]);
+    assert.notEqual(backupDone.status, 0, "the backup saw the delete lock");
+    assert.match(backupDone.stderr, /a cleanup or delete is running/);
+    assert.notEqual(cleanupDone.status, 0, "the cleanup saw the upload lock");
+    assert.match(cleanupDone.stderr, /a backup or upload is running/);
+
+    // Both took their locks back; nothing changed in the store.
+    assert.deepEqual(await lockKeys(), []);
+    assert.ok(!existsSync(uploadLockPath(home, "s")));
+    assert.equal((await manifestKeys()).length, 1);
+    assert.equal((await objectKeys()).length, 4);
+    assert.deepEqual(await bucketViolations(), []);
+  });
+
+  it("forget + cleanup under a held incremental backup: forget goes ahead, cleanup is refused, the baseline-trusted refs survive", async () => {
     const scratch = freshScratch("bfc-baseline-trust");
     await wipeBucket();
     const home = join(scratch, "home");
@@ -340,8 +505,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
 
-    // Backup 1 establishes the baseline; age its objects past the compressed
-    // grace the cleanup below will run with.
+    // Backup 1 establishes the baseline.
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
     const m1 = (await manifestKeys())[0]?.slice(
@@ -349,7 +513,6 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       -".tsv.gz".length,
     );
     assert.ok(m1);
-    await new Promise((r) => setTimeout(r, 12_000));
 
     // Backup 2 (one new file): the baseline trust check HEADs the manifest —
     // it exists — so the four old objects are skipped, then it parks before
@@ -365,37 +528,31 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       tag: "B2",
     });
 
-    // Inside the window: forget the baseline, then sweep. The old objects are
-    // now unreferenced and aged out; backup 2's fresh f.txt object is inside
-    // grace and survives.
+    // Inside the window: forget the baseline (no lock — it deletes manifests,
+    // never objects), then try to sweep. The old objects are unreferenced
+    // now, and only backup 2's upload lock stands between them and cleanup.
     const forget = s3cab(
       ["forget", "--set", "s", /** @type {string} */ (m1), "--force"],
       { home },
     );
     assert.equal(forget.status, 0, forget.stderr);
-    const cleanup = s3cab(["cleanup", bucket, "--force"], {
-      home,
-      graceMs: "8000",
-    });
-    assert.equal(cleanup.status, 0, cleanup.stderr);
-    assert.equal(
-      (await objectKeys()).length,
-      1,
-      "the four baseline objects swept; the fresh one kept",
-    );
+    const cleanup = s3cab(["cleanup", bucket, "--force"], { home });
+    assert.notEqual(cleanup.status, 0, "cleanup must refuse");
+    assert.match(cleanup.stderr, /a backup or upload is running/);
+    assert.equal((await objectKeys()).length, 5, "nothing swept");
 
     release(b2.gate);
     const b2Done = await b2.done;
-    assert.equal(
-      b2Done.status,
-      0,
-      "PIN: the doomed incremental reports success (flips when a fix lands)",
-    );
-    const violations = await bucketViolations();
-    assert.ok(
-      violations.some((v) => /dangl|missing/i.test(v)),
-      `PIN: baseline-trusted refs dangle (got: ${violations.join("; ") || "none"})`,
-    );
+    assert.equal(b2Done.status, 0, b2Done.stderr);
+    assert.deepEqual(await lockKeys(), []);
+    assert.deepEqual(await bucketViolations(), []);
+    const { violations } = restoreAndCompare({
+      set: "s",
+      scratch,
+      expected: captureTree([data]),
+      dirs: [data],
+    });
+    assert.deepEqual(violations, []);
   });
 });
 
@@ -437,7 +594,7 @@ describe("concurrency: forget and cleanup", () => {
 
     // Safe, and the mechanism is forget's scope: it deletes only
     // snapshots/<set>/ keys, so every object the new manifest re-references
-    // is still stored (reclaiming is exclusively cleanup's, behind grace).
+    // is still stored (reclaiming is exclusively cleanup's, behind the lock).
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
       set: "s",
@@ -465,7 +622,6 @@ describe("concurrency: forget and cleanup", () => {
       -".tsv.gz".length,
     );
     assert.ok(m1);
-    await new Promise((r) => setTimeout(r, 6_000));
 
     // cleanup reads the snapshot listing + manifests, then parks before its
     // objects LIST. Everything it will sweep is decided by what it already
@@ -474,7 +630,6 @@ describe("concurrency: forget and cleanup", () => {
       scratch,
       id: "cleanup",
       home,
-      graceMs: "4000",
       hold: "1:GET:prefix=objects",
       log: join(scratch, "trace-cleanup.log"),
       tag: "CLEANUP",
@@ -491,16 +646,17 @@ describe("concurrency: forget and cleanup", () => {
     // Safe, and the mechanism is the ordering guard: snapshots read strictly
     // before the objects LIST means a concurrent forget makes cleanup
     // *conservative* (keeps now-unreferenced objects), never destructive.
-    // The next cleanup run, after grace, sweeps them — correctly.
+    // The next cleanup run sweeps them — correctly.
     assert.equal(
       (await objectKeys()).length,
       4,
-      "the aged objects survive this cleanup run",
+      "the objects survive this cleanup run",
     );
+    assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
   });
 
-  it("cleanup vs cleanup is safe: independent plans, idempotent deletes", async () => {
+  it("cleanup vs cleanup is safe: independent plans, idempotent deletes, locks that ignore each other", async () => {
     const scratch = freshScratch("cc-idempotent");
     await wipeBucket();
     const home = join(scratch, "home");
@@ -509,31 +665,24 @@ describe("concurrency: forget and cleanup", () => {
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
-
-    const killed = s3cab(["backup", "s"], {
-      home,
-      tz: nextZone(),
-      kill: "1:PUT:^/snapshots/",
-    });
-    assert.notEqual(killed.status, 0);
-    await new Promise((r) => setTimeout(r, 6_000));
+    assert.equal(await crashOrphans(home, "s"), 4);
 
     // Both park before their first orphan DELETE with identical plans, then
-    // race the same delete list.
+    // race the same delete list. Each wrote its delete lock and saw the
+    // other's, which deletes ignore (ADR-0090 makes crossing safe).
     const one = await holdAt(["cleanup", bucket, "--force"], {
       scratch,
       id: "one",
       home,
-      graceMs: "4000",
       hold: "1:DELETE:^/objects/",
     });
     const two = await holdAt(["cleanup", bucket, "--force"], {
       scratch,
       id: "two",
       home,
-      graceMs: "4000",
       hold: "1:DELETE:^/objects/",
     });
+    assert.equal((await lockKeys()).length, 2, "both delete locks stand");
     release(one.gate);
     release(two.gate);
     const [oneDone, twoDone] = await Promise.all([one.done, two.done]);
@@ -544,6 +693,7 @@ describe("concurrency: forget and cleanup", () => {
     // already-deleted key answers 204, so overlapping sweeps of the same
     // plan cannot fail each other or leave anything behind.
     assert.deepEqual(await objectKeys(), []);
+    assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
   });
 

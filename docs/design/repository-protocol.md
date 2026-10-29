@@ -94,6 +94,13 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
 First, `assertHeld` reads `snapshots/<set>.info` and refuses unless its OWNER and CLAIMED match
 `claim`. **[atomic]** read.
 
+Then the upload lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdUploadLock` in
+[locks.mjs](../../src/lib/locks.mjs)), around everything below: `open(".upload.lock", "wx")`
+**[atomic]**; no-clobber PUT of `locks/upload-<instant>` **[atomic]**, the id written to the
+local file first; LIST `locks/` **[atomic]** — a `delete-` lock means remove the own lock and
+refuse. Write first, look second. The lock is removed on every exit, success or failure, after
+step 7 and before step 8; only a hard stop leaves it, with the local file, for `--resume`.
+
 1. `readBaseline` — pick the latest **local** snapshot. Local read.
 2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — compare the baseline's remote
    snapshot against the local file, **byte for byte**
@@ -131,6 +138,9 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 
 ### `upload`
 
+Every form holds the upload lock around the whole operation, as `backup` does; `--bucket` has
+no set and so no local file, which is why its hard stop is `unlock`'s to clear.
+
 - `--snapshot` — objects first, manifest last; same holder check, commit point and atomicity.
 - `--dir` — objects only, no manifest.
 - `--file` — `fileChange` guard, then one conditional PUT **[atomic]**. `--force` is the only path
@@ -154,24 +164,32 @@ First, `assertHeld`, as `backup` does.
 2. LIST `objects/`.
 3. Read deletion records **last**. (1–3 are one call, `scanBucket` in
    [bucket-scan.mjs](../../src/lib/bucket-scan.mjs); `verify` reads through the same one.)
-4. Plan: orphan = stored − referenced, minus anything younger than `GRACE_MS`
-   (7 days, [cleanup.mjs](../../src/lib/cleanup.mjs)); an object with no `LastModified` is treated
-   as brand new and therefore protected.
+4. Plan: orphan = stored − referenced ([cleanup.mjs](../../src/lib/cleanup.mjs)).
 5. Interlocks: an unreadable snapshot, or one with a refused row, aborts **both** modes; missing
    objects and an invalid deletion record refuse the acting path.
-6. Prompt, then DELETE each orphan. **[multi-step]**, and the scan→prompt→delete window is the
-   race surface.
-7. Compact the deletion record (acting runs only, and only past every interlock): union every
-   record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
-   **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
-   deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
+6. Prompt. Everything so far ran with no lock, so a preview costs a running backup nothing.
+7. The delete lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdDeleteLock` in
+   [locks.mjs](../../src/lib/locks.mjs)): no-clobber PUT of `locks/delete-<instant>`
+   **[atomic]**, then LIST `locks/` **[atomic]**. An `upload-` lock means remove the own lock
+   and refuse, naming each; with `--wait`, remove it, sleep `WAIT_MS`, and write it again.
+   Write first, look second.
+8. Top up: LIST `snapshots/` again and read every key the scan's listing lacked; their objects
+   leave the orphan plan and join the reference set, and step 5's checks apply to them. No
+   snapshot can land from here on, so the plan is final.
+9. DELETE each orphan. **[multi-step]** across orphans; each **[atomic]**.
+10. Compact the deletion record (acting runs only, and only past every interlock): union every
+    record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
+    **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
+    deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
+11. Remove the lock, on every exit; a hard stop leaves it for `unlock`.
 
-**The ordering in 1–3 is itself a guard**, not incidental: reading snapshots before the object
-LIST means a concurrently-uploaded object appears unreferenced but *young*, where grace protects
-it; reading deletion records last means a record written during the scan can only ever add
-explanation, never remove it. That is why the three reads are one function rather than three
-calls a command makes in sequence: a caller cannot get the object listing without the
-snapshots having been read first, and `bucket-scan.test.mjs` asserts the order at the S3 seam.
+**The ordering in 1–3 still matters**: reading snapshots before the object LIST means an object
+a running backup uploads during the scan appears unreferenced, which step 8 resolves if its
+snapshot has landed by then and step 7 refuses on if it hasn't; reading deletion records last
+means a record written during the scan can only ever add explanation, never remove it. That is
+why the three reads are one function rather than three calls a command makes in sequence: a
+caller cannot get the object listing without the snapshots having been read first, and
+`bucket-scan.test.mjs` asserts the order at the S3 seam.
 
 ### `delete` ([ADR-0089](../adr/0089-hash-operand-delete.md))
 
@@ -180,10 +198,13 @@ snapshots having been read first, and `bucket-scan.test.mjs` asserts the order a
 2. Preflight: one HeadObject per hash. **[multi-step]** across hashes; a missing object is
    reported and skipped, and the ContentLength fills the record's size column.
 3. The strongest confirmation in the tool (type the bucket name).
-4. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
+4. The delete lock, as `cleanup`'s step 7: written, then `locks/` listed; an upload lock
+   refuses or, with `--wait`, waits.
+5. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
    lowest free index, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
    a crash between them leaves an *over-complete* record (objects recorded as deleted that
    still exist, which reads as simply present) rather than unexplained absences.
+6. Remove the lock, on every exit.
 
 ### `verify`
 
@@ -253,8 +274,10 @@ a description of the protocol rather than a running defect list:
   `setup`'s LIST of `snapshots/<set>/` and its claim, and a `claim` copied with the rest of a
   home — the three gaps [guide/format.md](../../guide/format.md#who-holds-a-set) states
   ([ADR-0108](../adr/0108-set-ownership.md)).
-- The `cleanup`-vs-backup and `delete`-vs-backup races —
-  [proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md) §1 and §3.
+- The `cleanup`-vs-backup and `delete`-vs-backup races — **closed 2026-10-29** by
+  [ADR-0112](../adr/0112-bucket-locks.md)'s locks. What stays is `delete`'s cross-set case,
+  [0089](../adr/0089-hash-operand-delete.md)'s accepted consequence
+  ([proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md)).
 - The conditional-write backstop off-AWS — [s3-provider-compatibility.md](s3-provider-compatibility.md),
   Finding 3 item 5.
 - Bucket versioning is recommended by every guide and **checked by no code path** —

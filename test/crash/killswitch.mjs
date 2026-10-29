@@ -1,7 +1,6 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import { registerHooks } from "node:module";
 
 /** @import { IncomingMessage } from "node:http" */
 
@@ -28,13 +27,6 @@ import { registerHooks } from "node:module";
 // starts with "s3.") so credential traffic (SSO/STS) never counts toward a
 // kill/hold index. The trace records every request either way, host included,
 // so the restriction is auditable.
-//
-// One deliberate deviation from production, opt-in and labeled: with
-// `S3CAB_XGRACE_MS` set, `cleanup`'s 7-day grace window constant is rewritten
-// at module load to the given number of milliseconds (time compression — the
-// scenario that needs it is "an object *past grace*", which a test cannot
-// wait 7 days for). Nothing else about the command changes, and the rewrite
-// throws loudly if the source no longer matches.
 
 const LOG = process.env.S3CAB_XLOG;
 const TAG = process.env.S3CAB_XTAG ?? String(process.pid);
@@ -174,31 +166,3 @@ function wrapRequest(original) {
 
 https.request = wrapRequest(https.request);
 http.request = wrapRequest(http.request);
-
-// Opt-in time compression for cleanup's grace window (see header).
-const graceMs = process.env.S3CAB_XGRACE_MS;
-if (graceMs) {
-  const PRODUCTION_LINE = "export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;";
-  registerHooks({
-    load(url, context, nextLoad) {
-      const result = nextLoad(url, context);
-      if (url.endsWith("src/lib/cleanup.mjs")) {
-        const source = String(result.source);
-        if (!source.includes(PRODUCTION_LINE)) {
-          throw new Error(
-            "killswitch: GRACE_MS line not found in cleanup.mjs — the source moved; fix the rewrite",
-          );
-        }
-        trace(`GRACE_MS compressed to ${Number(graceMs)}ms`);
-        return {
-          ...result,
-          source: source.replace(
-            PRODUCTION_LINE,
-            `export const GRACE_MS = ${Number(graceMs)};`,
-          ),
-        };
-      }
-      return result;
-    },
-  });
-}

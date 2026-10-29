@@ -33,6 +33,7 @@ import { enumeration } from "../helpers/enumeration.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 import { holdSet } from "../helpers/hold-set.mjs";
 import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
+import { setStub } from "../helpers/set-stub.mjs";
 
 // The remote engine's S3 round-trips against a real test bucket (S3 test strategy,
 // docs/design/testing.md). The gate/harness lives in the shared integration
@@ -102,7 +103,10 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
     try {
       const claimPath = join(dir.path, "claim");
       await holdSet(bucket, set, claimPath);
-      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
+      await uploadSnapshot(
+        setStub({ name: set, bucket, snapshotsDir: snapshotDir, claimPath }),
+        { name },
+      );
 
       const pulled = await downloadRemoteSnapshots(bucket, set, destDir);
       assert.equal(pulled, 1);
@@ -159,7 +163,10 @@ describe("referencedObjects (real bucket)", () => {
     try {
       const claimPath = join(dir.path, "claim");
       await holdSet(bucket, set, claimPath);
-      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
+      await uploadSnapshot(
+        setStub({ name: set, bucket, snapshotsDir: snapshotDir, claimPath }),
+        { name },
+      );
       await putText(`s3://${bucket}/${badKey}`, "not a gzip stream");
 
       // Bucket-wide, grouped by set: pick out the set this test wrote (the shared
@@ -295,7 +302,10 @@ describe("deleteRemoteSnapshot (real bucket)", () => {
     try {
       const claimPath = join(dir.path, "claim");
       await holdSet(bucket, set, claimPath);
-      await uploadSnapshot({ bucket, set, snapshotDir, name, claimPath });
+      await uploadSnapshot(
+        setStub({ name: set, bucket, snapshotsDir: snapshotDir, claimPath }),
+        { name },
+      );
       assert.deepEqual(await listRemoteSnapshots(bucket, set), [name]);
 
       await deleteRemoteSnapshot(bucket, set, name);

@@ -225,9 +225,20 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * @returns {Promise<Map<string, ReferencedResult>>} referenced enumeration per set name
  */
 export async function referencedObjects(bucket) {
-  // Group every snapshot key under `snapshots/` by its set — the path segment
-  // after the prefix (`snapshots/<set>/<name>.tsv.gz`). The set name is a canonical
-  // `[a-z0-9-]+` segment (ADR-0024), so this split is unambiguous.
+  const filesBySet = await listSnapshotFiles(bucket);
+  return readReferencedObjects(bucket, filesBySet);
+}
+
+/**
+ * One LIST of `snapshots/`, grouped by set — the path segment after the
+ * prefix (`snapshots/<set>/<name>.tsv.gz`), a canonical `[a-z0-9-]+` segment
+ * (ADR-0024), so the split is unambiguous. Every key is kept, valid snapshot
+ * name or not: the listing is what a later one is compared against
+ * (`readNewSnapshots`), and a filter applied to both sides changes nothing.
+ * @param {string} bucket - The repository's S3 bucket
+ * @returns {Promise<Map<string, string[]>>} set name → the files under its folder
+ */
+export async function listSnapshotFiles(bucket) {
   /** @type {Map<string, string[]>} */
   const filesBySet = new Map();
   for await (const { Key } of listObjects(
@@ -248,7 +259,17 @@ export async function referencedObjects(bucket) {
     } // a `snapshots/<set>/` folder marker
     filesBySet.getOrInsertComputed(set, () => []).push(file);
   }
+  return filesBySet;
+}
 
+/**
+ * Read the snapshots a `listSnapshotFiles` listing names, set by set — the
+ * enumeration `referencedObjects` documents, from a listing already in hand.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {Map<string, string[]>} filesBySet - The listing (`listSnapshotFiles`)
+ * @returns {Promise<Map<string, ReferencedResult>>} referenced enumeration per set name
+ */
+export async function readReferencedObjects(bucket, filesBySet) {
   /** @type {Map<string, ReferencedResult>} */
   const bySet = new Map();
   for (const [set, files] of filesBySet) {
@@ -262,6 +283,32 @@ export async function referencedObjects(bucket) {
 }
 
 /**
+ * The snapshots that appeared since an earlier listing — a delete's top-up
+ * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)): a backup that finished
+ * between a cleanup's scan and its delete lock published a snapshot the scan
+ * never read, whose objects would otherwise be deleted as orphans. LISTs
+ * `snapshots/` again and reads only the keys `known` lacks, grouped by set
+ * like `referencedObjects`. A key that vanished since is not here: it was
+ * forgotten, and its references with it.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {Map<string, string[]>} known - The earlier listing (`listSnapshotFiles`)
+ * @returns {Promise<Map<string, ReferencedResult>>} the new snapshots' references, per set name
+ */
+export async function readNewSnapshots(bucket, known) {
+  const current = await listSnapshotFiles(bucket);
+  /** @type {Map<string, string[]>} */
+  const added = new Map();
+  for (const [set, files] of current) {
+    const seen = new Set(known.get(set) ?? []);
+    const fresh = files.filter((file) => !seen.has(file));
+    if (fresh.length > 0) {
+      added.set(set, fresh);
+    }
+  }
+  return readReferencedObjects(bucket, added);
+}
+
+/**
  * Accumulate one set's referenced objects from its snapshot `names` — the
  * per-set inner loop of {@link referencedObjects}. Three ways a snapshot read can
  * fail, handled distinctly: a snapshot that vanished between the bucket LIST and
@@ -270,7 +317,7 @@ export async function referencedObjects(bucket) {
  * shared bucket mustn't abort the scan; a damaged snapshot
  * (`isCorruptSnapshotError`) becomes an `unreadable` finding and the loop
  * continues; any other error (network/auth) is rethrown (aborts). Module-private:
- * only `referencedObjects` calls it.
+ * only `readReferencedObjects` calls it.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string[]} names - The set's snapshot names, newest first

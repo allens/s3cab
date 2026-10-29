@@ -73,6 +73,24 @@ mock.module("../lib/sets.mjs", {
     validateBucketName: () => {},
   },
 });
+/** @type {{ bucket: string, command: string, wait?: boolean }[]} the delete lock's calls */
+let lockCalls = [];
+mock.module("../lib/locks.mjs", {
+  exports: {
+    holdDeleteLock: async (
+      /** @type {{ bucket: string, command: string, wait?: boolean }} */ args,
+      /** @type {() => Promise<unknown>} */ work,
+    ) => {
+      lockCalls.push(args);
+      effects.push("lock");
+      try {
+        return await work();
+      } finally {
+        effects.push("unlock");
+      }
+    },
+  },
+});
 mock.module("../lib/prompt.mjs", {
   exports: {
     promptLine: async () => {
@@ -161,6 +179,7 @@ beforeEach(() => {
   ]);
   heads = 0;
   effects = [];
+  lockCalls = [];
   formatted = undefined;
   promptAnswer = undefined;
   promptCalls = 0;
@@ -262,11 +281,17 @@ describe("delete command", () => {
     assert.equal(result.deletedBytes, 1204 + 892);
     assert.equal(result.record, "s3://b/objects.deleted-1.tsv");
     // Record-first is the crash-safety invariant: a run that dies mid-delete
-    // must leave every missing object explained.
+    // must leave every missing object explained. Both under the delete lock
+    // (ADR-0112), taken only once the run has decided and confirmed.
     assert.deepEqual(effects, [
+      "lock",
       "record",
       `delete:${HASH_A}`,
       `delete:${HASH_B}`,
+      "unlock",
+    ]);
+    assert.deepEqual(lockCalls, [
+      { bucket: "b", command: "delete", wait: false },
     ]);
     // The rows carry what the record needs: the preflight's ContentLength, one
     // shared instant, and who ran it.
@@ -295,11 +320,16 @@ describe("delete command", () => {
     });
     assert.equal(result.deleted, true);
     assert.deepEqual(result.missing, [HASH_C]);
-    assert.deepEqual(effects, ["record", `delete:${HASH_A}`]);
+    assert.deepEqual(effects, ["lock", "record", `delete:${HASH_A}`, "unlock"]);
     assert.ok(
       warnings.some((w) => w.includes("Skipping") && w.includes(HASH_C)),
       "the skipped hash is named on stderr",
     );
+  });
+
+  it("--wait reaches the lock", async () => {
+    await deleteHashes([HASH_A], { bucket: "b", force: true, wait: true });
+    assert.equal(lockCalls[0]?.wait, true);
   });
 
   it("deletes nothing — and writes no record — when no named hash is stored", async () => {
@@ -334,7 +364,7 @@ describe("delete command", () => {
     promptAnswer = "b";
     const confirmed = await deleteHashes([HASH_A], { bucket: "b" });
     assert.equal(confirmed.deleted, true);
-    assert.deepEqual(effects, ["record", `delete:${HASH_A}`]);
+    assert.deepEqual(effects, ["lock", "record", `delete:${HASH_A}`, "unlock"]);
   });
 
   it("--force on a TTY skips the prompt but not the record", async () => {
@@ -342,7 +372,7 @@ describe("delete command", () => {
     const result = await deleteHashes([HASH_A], { bucket: "b", force: true });
     assert.equal(result.deleted, true);
     assert.equal(promptCalls, 0);
-    assert.deepEqual(effects, ["record", `delete:${HASH_A}`]);
+    assert.deepEqual(effects, ["lock", "record", `delete:${HASH_A}`, "unlock"]);
   });
 
   it("a hash named twice is one object — one HEAD, one delete", async () => {
@@ -352,7 +382,7 @@ describe("delete command", () => {
     });
     assert.equal(result.deletedObjects, 1);
     assert.equal(heads, 1);
-    assert.deepEqual(effects, ["record", `delete:${HASH_A}`]);
+    assert.deepEqual(effects, ["lock", "record", `delete:${HASH_A}`, "unlock"]);
   });
 
   it("--from-file reads find's real output and deletes exactly its hashes", async () => {
@@ -368,9 +398,11 @@ describe("delete command", () => {
     });
     assert.equal(result.deleted, true);
     assert.deepEqual(effects, [
+      "lock",
       "record",
       `delete:${HASH_A}`,
       `delete:${HASH_B}`,
+      "unlock",
     ]);
   });
 
@@ -408,9 +440,11 @@ describe("delete command", () => {
       "from-file": file,
     });
     assert.deepEqual(effects, [
+      "lock",
       "record",
       `delete:${HASH_A}`,
       `delete:${HASH_B}`,
+      "unlock",
     ]);
     assert.equal(result.deletedObjects, 2);
   });
@@ -427,9 +461,11 @@ describe("delete command", () => {
     assert.equal(result.deletedObjects, 2);
     assert.equal(heads, 2);
     assert.deepEqual(effects, [
+      "lock",
       "record",
       `delete:${HASH_A}`,
       `delete:${HASH_B}`,
+      "unlock",
     ]);
   });
 

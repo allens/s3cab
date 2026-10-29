@@ -1,12 +1,15 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
-import { planCleanup } from "../lib/cleanup.mjs";
-import { compactDeletionRecords } from "../lib/deletion-record.mjs";
+import {
+  invalidRowSnapshots,
+  invalidRowsError,
+  planCleanup,
+  reclaim,
+  unreadableSnapshotsError,
+} from "../lib/cleanup.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue } from "../lib/format.mjs";
-import { deleteStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
-import { unreadableMessage } from "../lib/referenced.mjs";
-import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
+import { isInteractive, shellCommand } from "../lib/style.mjs";
 
 /**
  * Reclaim storage held by orphaned objects — `objects/<hash>` entries no snapshot
@@ -30,19 +33,21 @@ import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
  * fail with instructions, never block on a prompt) — the tool-wide
  * destructive-command pattern
  * ([ADR-0064](../../docs/adr/0064-path-scoped-delete-deletion-record.md)) `delete`
- * also follows, here with the gentler y/N tier: cleanup removes only orphans past
- * the grace window, never content a live snapshot references. Three damage
- * interlocks (docs/design/backup.md): an **unreadable snapshot, or one with a
- * refused row, aborts both modes** (its references are unknown, so the orphan
- * numbers would be lies — triage with `verify` first; ADR-0101), and **missing
+ * also follows, here with the gentler y/N tier: cleanup removes only orphans,
+ * never content a live snapshot references. Three damage interlocks
+ * (docs/design/backup.md): an **unreadable snapshot, or one with a refused
+ * row, aborts both modes** (its references are unknown, so the orphan numbers
+ * would be lies — triage with `verify` first; ADR-0101), and **missing
  * objects make the act path refuse** (the repository is already losing data;
- * don't compound it), as does a **damaged deletion record** (compacting it would
- * lose rows, ADR-0101). The **7-day grace window** protects objects too young to
- * be sure aren't an in-flight backup's.
+ * don't compound it), as does a **damaged deletion record** (compacting it
+ * would lose rows, ADR-0101).
  *
- * Reclaiming warns that cleanup must not run while a backup is (a documented,
- * accepted race — see the design). It reclaims only orphans (`stored −
- * referenced` across every set), so a valid snapshot's objects are never touched.
+ * The scan and the plan run with no lock, so the preview costs a running
+ * backup nothing; the deletes are `reclaim`'s (lib/cleanup.mjs), under the
+ * delete lock ([ADR-0112](../../docs/adr/0112-bucket-locks.md)): it refuses
+ * while a backup or upload is running (`--wait` waits instead), and once the
+ * lock is held it reads any snapshot a backup published since the scan, so
+ * that backup's objects come off the orphan list before anything is deleted.
  *
  * An acting run (never a dry run or a declined one) also **compacts the
  * deletion record** ([ADR-0090](../../docs/adr/0090-deletion-record-format-compaction.md)):
@@ -57,22 +62,22 @@ import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
  * @property {string} bucket - The repository bucket cleaned up
  * @property {number} storedObjects - Objects present in the store
  * @property {number} referencedObjects - Distinct objects any snapshot references
- * @property {number} orphanObjects - Deletable orphans (unreferenced, past grace)
+ * @property {number} orphanObjects - Deletable orphans (unreferenced)
  * @property {number} reclaimableBytes - Bytes those orphans hold
- * @property {number} withinGrace - Orphan-looking objects too new to touch (7-day grace)
  * @property {number} missingObjects - Referenced objects absent from the store (an integrity fault)
  * @property {number} deleted - How many were actually removed (0 on a dry run or a declined confirmation)
  * @property {number} compactedRecordFiles - Deletion-record files merged away (0 = the record was already compact, or the run didn't act)
  * @property {number} trimmedRecordRows - Deletion-record rows dropped because no snapshot references their hash
  *
  * @param {string} [bucket] - The repository's S3 bucket to clean up (required)
- * @param {{ "dry-run"?: boolean, force?: boolean }} [options] - acts by default; `-n`/`--dry-run` previews, `-f`/`--force` skips the prompt (and is required non-interactively)
+ * @param {{ "dry-run"?: boolean, force?: boolean, wait?: boolean }} [options] - acts by default; `-n`/`--dry-run` previews, `-f`/`--force` skips the prompt (and is required non-interactively), `--wait` waits for running uploads
  * @returns {Promise<CleanupResult>}
  */
 export async function cleanup(bucket, options = {}) {
   requireArg(bucket, "bucket");
   const dryRun = Boolean(options["dry-run"]);
   const force = Boolean(options.force);
+  const wait = Boolean(options.wait);
 
   // The non-interactive gate, up front — before the expensive scan, so a
   // misconfigured cron job fails in milliseconds with the fix, not minutes in.
@@ -91,60 +96,29 @@ export async function cleanup(bucket, options = {}) {
 
   // Snapshots, then the objects LIST, then the deletion record — the scan owns
   // that order (lib/bucket-scan.mjs), so a backup finishing mid-run only adds
-  // unreferenced objects (protected by the grace window), never makes a
-  // referenced object look missing. The record is what keeps a referenced hash
-  // a `delete` explained (ADR-0064) out of interlock #2 — without it, the first
-  // `delete` would make the act path refuse forever.
-  const { referencedBySet, stored, deleted, invalidRecords } =
+  // unreferenced objects (which the top-up under the lock re-checks), never
+  // makes a referenced object look missing. The record is what keeps a
+  // referenced hash a `delete` explained (ADR-0064) out of interlock #2 —
+  // without it, the first `delete` would make the act path refuse forever.
+  const { snapshotFiles, referencedBySet, stored, deleted, invalidRecords } =
     await scanBucket(bucket);
 
-  // The whole diff — orphans (with the grace window), the delete-list, and the
-  // missing/damaged/unreadable tallies — is one pure computation over the two
-  // enumerations (planCleanup, cleanup.mjs; the read-only twin of verifySet).
-  // Everything below is the command's job: turn the plan's data into aborts,
-  // warnings, a prompt, and the deletes.
+  // The whole diff — orphans, the delete-list, and the missing/damaged/
+  // unreadable tallies — is one pure computation over the two enumerations
+  // (planCleanup, cleanup.mjs; the read-only twin of verifySet). Everything
+  // below is the command's job: turn the plan's data into aborts, warnings, a
+  // prompt, and the deletes.
   const plan = planCleanup(referencedBySet, stored, { deleted });
   const { orphanHashes, missing, damaged, reclaimableBytes } = plan;
 
-  // Interlock #1 (both modes): an unreadable snapshot makes the orphan set a lie
-  // (its references are unknown), so abort before reporting numbers that would be
-  // wrong. Triage with verify first.
+  // Interlock #1 (both modes) and its twin: the same two checks `reclaim`
+  // repeats for the snapshots its top-up reads.
   if (plan.unreadable.length > 0) {
-    throw new Error(
-      unreadableMessage({
-        names: plan.unreadable,
-        bucket,
-        lead: "Can't clean up safely",
-        consequence:
-          "objects nothing else references would look unused and be deleted",
-        color: styleEnabled(process.stderr),
-      }),
-    );
+    throw unreadableSnapshotsError(bucket, plan.unreadable);
   }
-
-  // Interlock #1's twin (both modes): a refused row references nothing
-  // (ADR-0101), so content only it names would count as an orphan. Each
-  // snapshot is named once; verify gives the paths and why.
-  const invalid = [
-    ...new Set(
-      [...referencedBySet].flatMap(([set, { invalid }]) =>
-        invalid.map(({ snapshot }) => `${set}/${snapshot}`),
-      ),
-    ),
-  ];
+  const invalid = invalidRowSnapshots(referencedBySet);
   if (invalid.length > 0) {
-    const one = invalid.length === 1;
-    throw new Error(
-      [
-        `Can't clean up safely — ${one ? "this snapshot has rows" : "these snapshots have rows"} ` +
-          `that aren't valid, so content only those rows name would look unused ` +
-          `and be deleted:`,
-        ...invalid.map((name) => `  ${name}`),
-        ``,
-        `Check ${one ? "it" : "them"} with:`,
-        `  ${shellCommand(`s3cab verify ${bucket}`, styleEnabled(process.stderr))}`,
-      ].join("\n"),
-    );
+    throw invalidRowsError(bucket, invalid);
   }
 
   if (damaged > 0) {
@@ -161,42 +135,15 @@ export async function cleanup(bucket, options = {}) {
     referencedObjects: plan.referencedObjects,
     orphanObjects: orphanHashes.length,
     reclaimableBytes,
-    withinGrace: plan.withinGrace,
     missingObjects: missing,
     deleted: 0,
     compactedRecordFiles: 0,
     trimmedRecordRows: 0,
   };
 
-  // The record compaction (ADR-0090), for every acting path — reclaiming or
-  // not, stale record rows accumulate (a deleted hash whose last referencing
-  // snapshot was since forgotten) and cleanup is their one collector. Safe to
-  // trim against `referencedHashes` because interlock #1 already held: every
-  // snapshot read, so the union is complete. Runs only after interlock #2 —
-  // a repository losing data is not the moment for housekeeping either.
-  const compactRecords = async () => {
-    const compaction = await compactDeletionRecords(
-      bucket,
-      plan.referencedHashes,
-    );
-    if (compaction.files > 0) {
-      console.warn(
-        compaction.rows > 0
-          ? `Compacted the deletion record` +
-              (compaction.trimmed > 0
-                ? ` — dropped ${countOf(compaction.trimmed, "row")} no snapshot references`
-                : ``) +
-              `.`
-          : `Removed the deletion record — no snapshot references anything it explained.`,
-      );
-    }
-    report.compactedRecordFiles = compaction.files;
-    report.trimmedRecordRows = compaction.trimmed;
-  };
-
-  // The counts report (stored/orphaned/reclaimable + the grace/missing tallies)
-  // is the command's *result* — it renders to stdout via renderCleanup (ADR-0043),
-  // so it isn't restated here. stderr carries only next-step guidance.
+  // The counts report (stored/orphaned/reclaimable + the missing tally) is the
+  // command's *result* — it renders to stdout via renderCleanup (ADR-0043), so
+  // it isn't restated here. stderr carries only next-step guidance.
   if (dryRun) {
     console.warn(
       orphanHashes.length > 0
@@ -247,15 +194,11 @@ export async function cleanup(bucket, options = {}) {
     );
   }
 
-  if (orphanHashes.length === 0) {
-    await compactRecords();
-    console.warn("Nothing to reclaim.");
-    return report;
-  }
-
   // Confirm on a TTY unless --force; a non-interactive run reached here only via
   // --force (the up-front gate refuses otherwise), so this is the y/N for a human.
-  if (!force && isInteractive(process.stdin)) {
+  // Nothing to reclaim needs no asking: the run still acts, since the record
+  // compaction is housekeeping (above), and that is done under the lock too.
+  if (orphanHashes.length > 0 && !force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
       `Delete ${countOf(orphanHashes.length, "orphaned object")} ` +
         `(${formatByteValue(reclaimableBytes)}) from bucket '${bucket}'? ` +
@@ -267,15 +210,40 @@ export async function cleanup(bucket, options = {}) {
     }
   }
 
-  // Single pass: delete from the set already in memory (no second enumeration).
-  await deleteStoredObjects(bucket, orphanHashes);
+  const { deleted: removed, compaction } = await reclaim(
+    bucket,
+    { plan, snapshotFiles, stored },
+    { wait },
+  );
 
-  await compactRecords();
+  if (compaction.files > 0) {
+    console.warn(
+      compaction.rows > 0
+        ? `Compacted the deletion record` +
+            (compaction.trimmed > 0
+              ? ` — dropped ${countOf(compaction.trimmed, "row")} no snapshot references`
+              : ``) +
+            `.`
+        : `Removed the deletion record — no snapshot references anything it explained.`,
+    );
+  }
+  report.compactedRecordFiles = compaction.files;
+  report.trimmedRecordRows = compaction.trimmed;
 
-  // What was reclaimed is the result (→ renderCleanup on stdout); stderr keeps the
-  // one race the counts can't convey (docs/design/backup.md).
-  console.warn("Don't run cleanup while a backup is running.");
+  // The top-up's doing, said once: the scan's count was shown before the
+  // prompt, so a smaller number deleted needs explaining.
+  const kept = orphanHashes.length - removed;
+  if (kept > 0) {
+    console.warn(
+      `Kept ${countOf(kept, "object")} the scan had counted as orphaned: a ` +
+        `backup that finished meanwhile references ${kept === 1 ? "it" : "them"}.`,
+    );
+  }
+  if (removed === 0) {
+    console.warn("Nothing to reclaim.");
+  }
 
-  report.deleted = orphanHashes.length;
+  // What was reclaimed is the result (→ renderCleanup on stdout).
+  report.deleted = removed;
   return report;
 }

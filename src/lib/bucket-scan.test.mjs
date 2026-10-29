@@ -17,8 +17,8 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 /** Every LIST prefix asked for, in the order the requests began. */
 /** @type {string[]} */
 let listed = [];
-/** What each prefix's LIST yields — keys only; sizes and ages where set. */
-/** @type {Record<string, { Key: string, Size?: number, LastModified?: Date }[]>} */
+/** What each prefix's LIST yields — keys only; sizes where set. */
+/** @type {Record<string, { Key: string, Size?: number }[]>} */
 let keysByPrefix = {};
 /** The deletion record's body, when a test stores one. */
 /** @type {Record<string, string>} */
@@ -70,7 +70,7 @@ describe("scanBucket", () => {
     // empty phase returning early.
     keysByPrefix = {
       "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.gz" }],
-      "objects/": [{ Key: "objects/aaa", Size: 10, LastModified: new Date(0) }],
+      "objects/": [{ Key: "objects/aaa", Size: 10 }],
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
     textByUri["s3://b/objects.deleted-1.tsv"] =
@@ -82,10 +82,12 @@ describe("scanBucket", () => {
 
     assert.deepEqual(listed, ["snapshots/", "objects/", "objects.deleted-"]);
     assert.deepEqual([...scan.referencedBySet.keys()], ["photos"]);
+    // The listing the top-up will diff against: every key, by set.
     assert.deepEqual(
-      scan.stored,
-      new Map([["aaa", { size: 10, lastModified: new Date(0) }]]),
+      scan.snapshotFiles,
+      new Map([["photos", ["2026-06-12T0915.tsv.gz"]]]),
     );
+    assert.deepEqual(scan.stored, new Map([["aaa", { size: 10 }]]));
     assert.deepEqual(
       scan.deleted,
       new Map([["b".repeat(64), { deletedOn: "2026-08-22T11:04:55.120Z" }]]),
@@ -146,6 +148,7 @@ describe("scanBucket", () => {
     reset();
     const scan = await scanBucket("b");
     assert.deepEqual(scan, {
+      snapshotFiles: new Map(),
       referencedBySet: new Map(),
       stored: new Map(),
       deleted: new Map(),

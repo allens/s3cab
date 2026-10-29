@@ -2,10 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { ContentMismatchError } from "../../../src/lib/error.mjs";
-import { clockHolder } from "./clock.mjs";
 
 /** @import { _Object } from "@aws-sdk/client-s3" */
-/** @import { VirtualClock } from "./clock.mjs" */
 
 // The Tier 1 in-memory storage backend, faking the s3.mjs seam (the seam
 // ADR-0019 designates for deterministic error injection). It models only the
@@ -16,11 +14,6 @@ import { clockHolder } from "./clock.mjs";
 // needing those declare the capability and skip here (they run against real
 // AWS in Tier 2) — an optimistic fake that claims what it fakes poorly is how
 // a suite passes against broken code.
-//
-// Time: objects are stamped with the *virtual* clock at PUT, and LIST reports
-// LastModified as `real now − virtual age`, so cleanup's real-clock grace
-// window measures exactly the virtual age the sequence arranged — no Date.now
-// mocking anywhere.
 
 /**
  * What the fake truthfully models. The full vocabulary, and which backend
@@ -29,7 +22,6 @@ import { clockHolder } from "./clock.mjs";
  */
 export const FAKE_CAPABILITIES = new Set([
   "conditional-put",
-  "list-last-modified",
   "strong-consistency",
   "virtual-clock",
   "fault-injection",
@@ -54,7 +46,7 @@ export const FAKE_CAPABILITIES = new Set([
  * @typedef {{ plan: (op: string, uri: string) => Fault | undefined }} FaultSource
  */
 
-/** @typedef {{ bytes: Buffer, virtualMs: number }} StoredObject */
+/** @typedef {{ bytes: Buffer }} StoredObject */
 
 /** A transport-shaped error (errno matched by s3.mjs's isNetworkError). */
 const networkError = () =>
@@ -93,11 +85,9 @@ export function parseUri(uri) {
  * sequence; `backendHolder.current` routes the mocked s3.mjs here.
  */
 export class FakeS3 {
-  /** @param {VirtualClock} [clock] - Defaults to the shared holder's clock */
-  constructor(clock) {
+  constructor() {
     /** @type {Map<string, Map<string, StoredObject>>} bucket → key → object */
     this.buckets = new Map();
-    this.clock = clock;
     /** @type {FaultSource | null} */
     this.faults = null;
     /**
@@ -110,11 +100,6 @@ export class FakeS3 {
     this.onPutFileRead = null;
     /** @type {{ op: string, uri: string }[]} every storage op, in order */
     this.log = [];
-  }
-
-  /** @returns {number} the sequence's virtual now (ms) */
-  #now() {
-    return (this.clock ?? clockHolder.current).now();
   }
 
   /**
@@ -168,21 +153,13 @@ export class FakeS3 {
    */
   async *listObjects(uri) {
     const { bucket, key: prefix } = parseUri(uri);
-    const realNow = Date.now();
-    const virtualNow = this.#now();
     const entries = this.#apply("LIST", uri, () =>
       [...this.#bucket(bucket)]
         .filter(([key]) => key.startsWith(prefix))
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     );
-    for (const [key, { bytes, virtualMs }] of entries) {
-      yield {
-        Key: key,
-        Size: bytes.length,
-        // Virtual age translated onto the real clock, so real-clock consumers
-        // (cleanup's grace window) measure exactly the virtual age.
-        LastModified: new Date(realNow - (virtualNow - virtualMs)),
-      };
+    for (const [key, { bytes }] of entries) {
+      yield { Key: key, Size: bytes.length };
     }
   }
 
@@ -242,7 +219,7 @@ export class FakeS3 {
       if (noClobber && map.has(key)) {
         return false;
       }
-      map.set(key, { bytes, virtualMs: this.#now() });
+      map.set(key, { bytes });
       return true;
     });
   }
@@ -260,10 +237,7 @@ export class FakeS3 {
       if (noClobber && map.has(key)) {
         return false;
       }
-      map.set(key, {
-        bytes: Buffer.from(content, "utf8"),
-        virtualMs: this.#now(),
-      });
+      map.set(key, { bytes: Buffer.from(content, "utf8") });
       return true;
     });
   }
@@ -322,19 +296,13 @@ export class FakeS3 {
 
   /**
    * Every key in a bucket (no pagination — the fake holds it all).
-   * `virtualMs` (when it was PUT, virtual clock) is a fake-only extra the
-   * cleanup-effectiveness oracle uses; the real backend's inspector omits it.
    * @param {string} bucket
-   * @returns {Promise<{ key: string, size: number, virtualMs?: number }[]>} sorted by key
+   * @returns {Promise<{ key: string, size: number }[]>} sorted by key
    */
   async listAll(bucket) {
     return [...this.#bucket(bucket)]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, { bytes, virtualMs }]) => ({
-        key,
-        size: bytes.length,
-        virtualMs,
-      }));
+      .map(([key, { bytes }]) => ({ key, size: bytes.length }));
   }
 
   /**
@@ -357,7 +325,6 @@ export class FakeS3 {
   async putBytes(bucket, key, bytes) {
     this.#bucket(bucket).set(key, {
       bytes: Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes, "utf8"),
-      virtualMs: this.#now(),
     });
   }
 
@@ -368,20 +335,6 @@ export class FakeS3 {
    */
   async deleteKey(bucket, key) {
     this.#bucket(bucket).delete(key);
-  }
-
-  /**
-   * Backdate one stored object's virtual upload time (e.g. to push a seeded
-   * orphan past cleanup's grace window without advancing the whole clock).
-   * @param {string} bucket
-   * @param {string} key
-   * @param {number} virtualMs
-   */
-  backdate(bucket, key, virtualMs) {
-    const object = this.#bucket(bucket).get(key);
-    if (object) {
-      object.virtualMs = virtualMs;
-    }
   }
 }
 

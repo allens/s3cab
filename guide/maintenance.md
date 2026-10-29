@@ -258,14 +258,12 @@ them:
 ```console
 > s3cab cleanup my-backups
 Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
-Don't run cleanup while a backup is running.
 my-backups: deleted 312 orphaned objects, reclaimed 1.4GB.
 ```
 
 **It asks before it acts.** At a terminal the question itself carries the count and the
 space it holds, so there is nothing to scroll back for — a plain `y/N`, because everything
-it removes is content nothing references any more. Afterwards it names the one race the
-counts can't show you (the grace window, below), and its own report lands last. To look
+it removes is content nothing references any more. Its own report lands last. To look
 without touching anything, `-n` (`--dry-run`) reports and stops:
 
 ```console
@@ -296,21 +294,86 @@ the way out when it did.
 `cleanup` removes file content (it and `delete` are the only two commands that do), so it's
 hedged:
 
-- **Recent objects are never touched.** Any object younger than **7 days** is left alone, even
-  if nothing references it. A backup uploads content *before* the snapshot that references it,
-  so a young unreferenced object may belong to a backup that's running right now. The window
-  is fixed — there's no flag to shorten it, because that's a foot-gun that buys nothing.
+- **It never runs beside a backup.** A backup stores content *before* the snapshot that
+  references it, so mid-backup that content looks exactly like an orphan. Every backup and
+  upload, from any machine, holds a lock in the bucket while it runs, and `cleanup` refuses to
+  start while one is there — naming the run, its set and its machine. `--wait` makes it wait
+  instead, looking again every half minute until the last one has finished. The locks are
+  explained [below](#locks-backups-and-clean-ups-take-turns).
+- **A backup that finishes while it plans is safe too.** Once `cleanup` holds its lock, it
+  reads any snapshot that landed since it counted, and takes that snapshot's objects off the
+  list before deleting anything. It tells you when that kept something.
 - **An unreadable snapshot stops the run** — both modes, even the dry run. If a snapshot won't
   read, its references are unknown, so everything it alone referenced would *look* orphaned.
   Rather than report numbers that are lies, `cleanup` stops and sends you to `verify`.
 - **Missing objects make reclaiming refuse.** If verify-style faults are already present, the
   repository is losing data and this is not the moment to reclaim. A `--dry-run` still reports.
   (Content removed by `delete` doesn't count — its absence is recorded and deliberate.)
-- **Don't run cleanup while a backup is running.** The grace window covers the ordinary race,
-  but this is the one rule it can't enforce for you.
 
 Everything it deletes is an orphan — content some live snapshot needs is never a candidate, so
 `cleanup` cannot break a restorable backup.
+
+## Locks: backups and clean-ups take turns
+
+A backup or upload and a `cleanup` or `delete` never run at the same time, on any of the
+machines sharing a bucket. Each holds a small file under `locks/` in the bucket for as long
+as it runs, and refuses to start while the other kind's lock is there:
+
+```console
+> s3cab cleanup my-backups
+Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
+  backup of set 'photos' by me@LAPTOP, started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
+
+Try again once it has finished, or let this run wait for it:
+  s3cab cleanup my-backups --wait
+If it was stopped without finishing and left its lock behind, remove the lock with:
+  s3cab unlock --bucket my-backups
+```
+
+Backups don't block each other, and neither do a `cleanup` and a `delete`. A `backup` that
+meets a running `cleanup` refuses the same way, with no `--wait`: a scheduled backup fails
+loudly and the next schedule tries again.
+
+A lock is removed when its command finishes, however it finishes — a failed run takes its
+lock with it. Only a hard stop leaves one: a crash, a machine that lost power, a process
+killed outright. And a lock never expires on its own, because its age says nothing about
+whether the run is alive — a first backup of a large set runs for hours. So a leftover is
+cleared by someone who knows the run is dead:
+
+- **A backup's or upload's own leftover** is cleared by the next `backup` or `upload` of that
+  set on the same computer: it refuses first, exactly as a leftover work file makes it refuse,
+  and `--resume` is your word that nothing is running
+  ([stopping part way](backup.md#stopping-part-way)).
+- **Everything else** — a stopped `cleanup` or `delete`, a stopped `upload --bucket`, a backup
+  from a machine that is gone — is `unlock`'s. It shows every lock and asks:
+
+  ```console
+  > s3cab unlock --bucket my-backups
+  2 locks in bucket 'my-backups':
+    backup of set 'photos' by me@LAPTOP, started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
+    cleanup by me@DESKTOP, started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
+
+  A lock whose command is still running keeps a cleanup or delete from removing what that backup needs — or a backup from storing what that cleanup is removing. Remove one only when you know its command has stopped.
+  Remove these 2 locks? [y/N] y
+  ```
+
+  Name ids to remove only those; `--dry-run` just lists. A script names the ids and passes
+  `--force` — never `--force` alone, so nothing removes a lock nobody looked at.
+
+Two more things worth knowing, both for people sharing a bucket:
+
+- **Seed, then back up, with no clean-up in between.** Objects put in with
+  `s3cab upload --dir` are referenced by nothing until the first backup of that set lands, so a
+  `cleanup` run meanwhile deletes them, and the backup uploads them again. Time lost, never
+  data.
+- **Upgrade every machine before the first clean-up.** s3cab versions before 0.2 take no lock,
+  and this version no longer keeps young objects as a safety margin: a clean-up from a new
+  version can delete what an old version is uploading right now.
+
+To get a clean-up in on a bucket where backups keep starting, an admin can deny `s3:PutObject`
+on `<bucket>/locks/upload-*` to the identities that back up: new backups refuse, running ones
+finish, the clean-up runs, and the deny comes off. That needs a provider whose policies can
+deny, as AWS's can; elsewhere `--wait` is the only way in.
 
 ## Versioning: why any of this is safe
 

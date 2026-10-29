@@ -5,13 +5,12 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
 - **Bucket versioning is load-bearing everywhere and verified nowhere.** The whole soft-delete
   and ransomware-recovery story rests on it —
   [ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md), [guide/maintenance.md](../guide/maintenance.md)
-  ("Versioning: why any of this is safe"), and the reassurance in
-  [concurrency-and-locking.md](concurrency-and-locking.md) §1 that the backup/cleanup race is
-  survivable because the delete is soft. `s3cab aws` turns versioning on when it provisions a
+  ("Versioning: why any of this is safe"), and the reassurance that a mistaken `forget`,
+  `delete` or `cleanup` is survivable because the delete is soft. `s3cab aws` turns versioning on when it provisions a
   bucket, but **no code path ever asks whether it is on**: there is no `GetBucketVersioning`
   anywhere in [src/lib/s3.mjs](../src/lib/s3.mjs). On a hand-made or provider bucket where it was
-  never enabled, every `forget` / `delete` / `cleanup` is a hard delete and every accepted race
-  above converts from recoverable to permanent — with no warning at any point, because the
+  never enabled, every `forget` / `delete` / `cleanup` is a hard delete and every mistake
+  converts from recoverable to permanent — with no warning at any point, because the
   degradation is invisible until the day someone needs to undo something. Not a loss path on its
   own; an amplifier under all of them. Cheapest shape is probably a one-call check where the
   repository is already being inspected (`verify`, or a `provider --check`-style probe —

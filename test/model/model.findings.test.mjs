@@ -40,7 +40,6 @@ import {
 // versioned bucket and belongs to Tier 2 (see CAPABILITIES.md, "versioning").
 
 const BUCKET = "model-bucket";
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -337,7 +336,7 @@ describe("prior-audit findings, encoded", () => {
     );
   });
 
-  it("cleanup sweeps an old object a running backup just skipped (concurrency-and-locking §1 residual hole — current behaviour)", async () => {
+  it("cleanup mid-backup is refused by the backup's upload lock, so the object the backup skipped survives (concurrency-and-locking §1, closed by ADR-0112)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -346,68 +345,72 @@ describe("prior-audit findings, encoded", () => {
     writeFileSync(join(data, "f.txt"), content);
 
     // The object is already stored — a crash orphan: uploaded, never
-    // referenced, and old enough that the grace window no longer protects it.
+    // referenced. No grace window protects it: only the lock does.
     const fake = backendHolder.current;
     await fake.putBytes(BUCKET, `objects/${sha256(content)}`, content);
-    clockHolder.current.advance(8 * DAY_MS);
 
     // Interleave: the backup's store LIST sees the object and skips
     // uploading it; cleanup runs in the gap between that skip and the
-    // manifest PUT and deletes it as an orphan.
+    // manifest PUT, where it used to delete the object as an orphan.
+    /** @type {unknown} */
+    let cleanupOutcome;
     const realPutFile = fake.putFile.bind(fake);
     fake.putFile = async (path, uri, options) => {
       if (uri.includes("/snapshots/")) {
-        await cleanup(BUCKET, { force: true });
+        cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
+          (error) => error,
+        );
       }
       return realPutFile(path, uri, options);
     };
     process.exitCode = 0;
     const result = await backup("race");
 
-    // The backup claims clean success…
     assert.deepEqual(result.errors, []);
     assert.equal(process.exitCode, 0);
+    assert.match(
+      /** @type {Error} */ (cleanupOutcome).message,
+      /a backup or upload is running on bucket 'model-bucket'/,
+    );
 
-    // …and its published snapshot references a deleted object. This is the
-    // documented residual hole (docs/design/backup.md accepts it as "don't
-    // run cleanup during a backup"); the test pins it as real, deterministic,
-    // and unexplained by any deletion record. If a lock or a pre-delete
-    // re-check ever closes it, flip to `deepEqual([])`.
+    // The published snapshot references a stored object, and the refused
+    // cleanup left no lock of its own; the backup removed its lock at the end.
     const model = new RepoModel(BUCKET, backendHolder.current);
-    const violations = await checkStore(model);
-    assert.ok(
-      violations.some((v) => v.startsWith("dangling reference: race/")),
-      `expected dangling references, got: ${violations.join("\n")}`,
+    assert.deepEqual(await checkStore(model), []);
+    const keys = (await fake.listAll(BUCKET)).map(({ key }) => key);
+    assert.deepEqual(
+      keys.filter((key) => key.startsWith("locks/")),
+      [],
+      "no lock survives either run",
     );
     process.exitCode = 0;
     await verify(BUCKET);
-    assert.equal(
-      process.exitCode,
-      1,
-      "verify reports the loss, after the fact",
-    );
+    assert.equal(process.exitCode, 0);
   });
 
-  it("forget + cleanup mid-backup delete the baseline's objects before the manifest lands (concurrency-and-locking §1 — current behaviour)", async () => {
+  it("forget + cleanup mid-backup: forget goes ahead, cleanup is refused, so the baseline's objects the backup trusts survive (concurrency-and-locking §1, closed by ADR-0112)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
     const data = await makeSet(root, "interleave", "data");
     writeFileSync(join(data, "f.txt"), "vouched for by the baseline");
     await backup("interleave");
-    clockHolder.current.advance(8 * DAY_MS);
+    clockHolder.current.advance(MINUTE_MS);
 
     // The second backup passes its baseline identity check and is skipping
-    // every object the baseline vouches for. Mid-run, the baseline is forgotten and
-    // cleanup follows: those objects — old, now unreferenced — go before the
-    // new manifest lands. (The 2026-07-19 baseline-trust fix re-checks at the
-    // *start* of a backup; it cannot help the one already in flight.)
+    // every object the baseline vouches for. Mid-run, the baseline is
+    // forgotten (forget takes no lock: it deletes manifests, never objects)
+    // and cleanup follows — and meets the backup's upload lock.
     const fake = backendHolder.current;
+    /** @type {unknown} */
+    let cleanupOutcome;
     const realPutFile = fake.putFile.bind(fake);
     fake.putFile = async (path, uri, options) => {
       if (uri.includes("/snapshots/")) {
         await forget(["2026-01-05T0000"], { set: "interleave", force: true });
-        await cleanup(BUCKET, { force: true });
+        cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
+          (error) => error,
+        );
       }
       return realPutFile(path, uri, options);
     };
@@ -417,16 +420,19 @@ describe("prior-audit findings, encoded", () => {
     assert.deepEqual(result.errors, []);
     assert.equal(result.uploaded, 0, "every object was baseline-skipped");
     assert.equal(process.exitCode, 0);
-
-    // The new snapshot references objects forget+cleanup just removed.
-    const model = new RepoModel(BUCKET, backendHolder.current);
-    const violations = await checkStore(model);
-    assert.ok(
-      violations.some((v) => v.startsWith("dangling reference: interleave/")),
-      `expected dangling references, got: ${violations.join("\n")}`,
+    assert.match(
+      /** @type {Error} */ (cleanupOutcome).message,
+      /a backup or upload is running/,
     );
+
+    // The new snapshot's references are all still stored, and a cleanup now
+    // — nothing running — goes ahead and finds nothing to reclaim.
+    const model = new RepoModel(BUCKET, backendHolder.current);
+    assert.deepEqual(await checkStore(model), []);
+    await cleanup(BUCKET, { force: true });
+    assert.deepEqual(await checkStore(model), []);
     process.exitCode = 0;
     await verify(BUCKET);
-    assert.equal(process.exitCode, 1);
+    assert.equal(process.exitCode, 0);
   });
 });

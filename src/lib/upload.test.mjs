@@ -116,6 +116,22 @@ mock.module("./set-marker.mjs", {
     },
   },
 });
+/** @type {Record<string, unknown>[]} what the upload lock was asked to hold */
+let lockCalls = [];
+// The lock is locks.mjs's, unit-tested there; here it is a passthrough that
+// records what each operation asked it to hold.
+mock.module("./locks.mjs", {
+  exports: {
+    holdUploadLock: async (
+      /** @type {Record<string, unknown>} */ args,
+      /** @type {() => Promise<unknown>} */ work,
+    ) => {
+      lockCalls.push(args);
+      callOrder.push("lock");
+      return work();
+    },
+  },
+});
 /** @type {Set<string>} paths rewritten the instant hashing finishes. */
 let driftAfterHash = new Set();
 /**
@@ -183,8 +199,35 @@ beforeEach(() => {
   driftAfterHash = new Set();
   rewrittenAfterHash = [];
   callOrder = [];
+  lockCalls = [];
   failHash.clear();
 });
+
+/**
+ * The set `uploadSnapshot` runs for, from a fixture's flat args: the set's
+ * part (name, bucket, folders, claim, lock files beside the snapshots) and
+ * the call's part (which snapshot, since which).
+ * @param {{ bucket: string, set: string, snapshotDir: string, claimPath: string, name: string, since?: string }} args
+ */
+const uploadSnapshotOf = ({
+  bucket,
+  set,
+  snapshotDir,
+  claimPath,
+  name,
+  since,
+}) =>
+  uploadSnapshot(
+    {
+      name: set,
+      bucket,
+      snapshotsDir: snapshotDir,
+      claimPath,
+      uploadLockPath: join(snapshotDir, ".upload.lock"),
+      uploadUnlockPath: join(snapshotDir, ".upload.unlock"),
+    },
+    { name, since },
+  );
 
 /**
  * Assert the drift actually landed, before judging what the guard made of it.
@@ -613,7 +656,7 @@ describe("uploadSnapshot baseline trust", () => {
     await using dir = await mkTmpDir();
     const { args, baselineUri } = await oneFileFixture(dir.path);
 
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     // The one GET, of the baseline's remote snapshot, for the byte comparison.
     assert.deepEqual(gotUris, [baselineUri]);
@@ -645,7 +688,7 @@ describe("uploadSnapshot baseline trust", () => {
     const { file, hash, args } = await oneFileFixture(dir.path);
     deletionRecords.set(hash, { deletedOn: "2026-07-19T14:22:41.000Z" });
 
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     assert.equal(recordReads, 1); // the record was consulted, not guessed at
     assert.deepEqual(listedPrefixes, []);
@@ -672,7 +715,7 @@ describe("uploadSnapshot baseline trust", () => {
     ];
     const warn = t.mock.method(console, "warn", () => {});
 
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     assert.deepEqual(listedPrefixes, ["s3://trust-bucket/objects/"]);
     assert.deepEqual(putFiles[0], {
@@ -691,7 +734,7 @@ describe("uploadSnapshot baseline trust", () => {
     const { file, hash, args, baselineUri } = await oneFileFixture(dir.path);
 
     remoteFiles.delete(baselineUri); // forgotten remotely (or never uploaded)
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     // No record read on this path: the LIST reflects the store as it is, so a
     // deleted object is simply absent and re-plans without the record's help.
@@ -720,7 +763,7 @@ describe("uploadSnapshot baseline trust", () => {
 
     remoteFiles.delete(baselineUri);
     storeHashes = [hash]; // the object survived (still referenced elsewhere)
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     assert.deepEqual(
       putFiles.map(({ uri }) => uri),
@@ -740,7 +783,7 @@ describe("uploadSnapshot baseline trust", () => {
     const { file, hash, args, baselineUri } = await oneFileFixture(dir.path);
 
     remoteFiles.set(baselineUri, Buffer.from("machine B's snapshot bytes"));
-    const result = await uploadSnapshot(args);
+    const result = await uploadSnapshotOf(args);
 
     // Distrusted: the store was LISTed and the object went up, objects first,
     // snapshot last — exactly the absent-baseline fallback.
@@ -953,7 +996,7 @@ describe("uploadSnapshot drift guard", () => {
     writeFileSync(file, "different, longer bytes");
 
     await assert.rejects(
-      () => uploadSnapshot(args),
+      () => uploadSnapshotOf(args),
       /while the backup was running/,
     );
     assert.deepEqual(putFiles, []);
@@ -966,7 +1009,7 @@ describe("uploadSnapshot drift guard", () => {
     rmSync(file);
 
     await assert.rejects(
-      () => uploadSnapshot(args),
+      () => uploadSnapshotOf(args),
       /while the backup was running/,
     );
     assert.deepEqual(putFiles, []);
@@ -980,7 +1023,7 @@ describe("uploadSnapshot drift guard", () => {
     const { args } = await planOneFile(dir.path);
     putError = new Error("connection reset");
 
-    await assert.rejects(() => uploadSnapshot(args), /connection reset/);
+    await assert.rejects(() => uploadSnapshotOf(args), /connection reset/);
     assert.equal(
       putFiles.length,
       1,
@@ -1022,18 +1065,21 @@ describe("uploadDir (seed a folder's objects)", () => {
 
     const excludePath = join(dirPath, "exclude.txt");
     writeFileSync(excludePath, "*.tmp\n");
-    return { root, excludePath };
+    const set = {
+      name: "seed",
+      bucket: "seed-bucket",
+      excludePath,
+      uploadLockPath: join(dirPath, ".upload.lock"),
+      uploadUnlockPath: join(dirPath, ".upload.unlock"),
+    };
+    return { root, set };
   };
 
   it("walks (honouring excludes), dedups by content, and PUTs each object once", async () => {
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
 
-    const result = await uploadDir({
-      bucket: "seed-bucket",
-      dir: root,
-      excludePath,
-    });
+    const result = await uploadDir(set, { dir: root });
 
     // Three distinct objects: "hello" (a.txt/b.txt share it), "world", "deep".
     // scratch.tmp is excluded, so its bytes never reach a PUT.
@@ -1047,14 +1093,10 @@ describe("uploadDir (seed a folder's objects)", () => {
 
   it("counts an already-stored object as a candidate but not an upload", async () => {
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
     storedUris.add(`s3://seed-bucket/objects/${sha("world")}`); // already present
 
-    const result = await uploadDir({
-      bucket: "seed-bucket",
-      dir: root,
-      excludePath,
-    });
+    const result = await uploadDir(set, { dir: root });
 
     // Still considered (a conditional PUT is attempted), but not transferred.
     assert.equal(result.candidates, 3);
@@ -1070,14 +1112,10 @@ describe("uploadDir (seed a folder's objects)", () => {
     // touched. `upload --dir` hashes then re-reads to PUT exactly as `backup`
     // does, so it needs the same confirmation, which it never had.
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
     driftAfterHash.add(join(root, "c.txt")); // "world" changes post-hash
 
-    const result = await uploadDir({
-      bucket: "seed-bucket",
-      dir: root,
-      excludePath,
-    });
+    const result = await uploadDir(set, { dir: root });
 
     assertRewritten(join(root, "c.txt"));
     assert.ok(
@@ -1095,14 +1133,10 @@ describe("uploadDir (seed a folder's objects)", () => {
     // report. The bytes that *are* confirmed are worth having, and the next
     // backup picks the skipped file up properly. So: report it, exit 0.
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
     driftAfterHash.add(join(root, "c.txt"));
 
-    const result = await uploadDir({
-      bucket: "seed-bucket",
-      dir: root,
-      excludePath,
-    });
+    const result = await uploadDir(set, { dir: root });
 
     assertRewritten(join(root, "c.txt"));
     const expected = ["hello", "deep"]
@@ -1114,7 +1148,7 @@ describe("uploadDir (seed a folder's objects)", () => {
 
   it("skips a file whose hash fails, by its reason, and seeds the rest", async () => {
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
     const eacces = Object.assign(new Error("denied"), { code: "EACCES" });
     failHash.set(join(root, "a.txt"), new ChangedWhileReadError("grew"));
     failHash.set(
@@ -1123,11 +1157,7 @@ describe("uploadDir (seed a folder's objects)", () => {
     );
     failHash.set(join(root, "sub", "d.txt"), eacces);
 
-    const result = await uploadDir({
-      bucket: "seed-bucket",
-      dir: root,
-      excludePath,
-    });
+    const result = await uploadDir(set, { dir: root });
 
     assert.deepEqual(
       putFiles.map(({ uri }) => uri),
@@ -1145,11 +1175,11 @@ describe("uploadDir (seed a folder's objects)", () => {
     // A dead link is not a per-file skip: nothing more can be sent, so the run
     // fails as it always did rather than reporting a pile of skips.
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
     putError = new Error("connection reset");
 
     await assert.rejects(
-      () => uploadDir({ bucket: "seed-bucket", dir: root, excludePath }),
+      () => uploadDir(set, { dir: root }),
       /connection reset/,
     );
   });
@@ -1160,9 +1190,9 @@ describe("uploadDir (seed a folder's objects)", () => {
     // walk still has files left to read. Hashing every file first would work and
     // waste the whole subtree's read before a single byte went out.
     await using dir = await mkTmpDir();
-    const { root, excludePath } = seedFixture(dir.path);
+    const { root, set } = seedFixture(dir.path);
 
-    await uploadDir({ bucket: "seed-bucket", dir: root, excludePath });
+    await uploadDir(set, { dir: root });
 
     // callOrder interleaves both mocks, so eager hashing would read
     // hash,hash,hash,hash,put,put,put — the first PUT last, not second.

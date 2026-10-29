@@ -150,9 +150,10 @@ re-validates every candidate hash against the live file's size and mtime before 
   [0067](0067-park-hashes-on-interrupt.md)) are untouched: the uploader rides *inside*
   `withSnapshotFile`, so Ctrl+C during a backup parks its hashes exactly as during a snapshot,
   and the objects already uploaded are left as harmless orphans.
-- **The 7-day grace window** still covers uploaded-but-not-yet-referenced objects against a
-  concurrent `cleanup` — and it now covers a *longer* stretch of each run, since objects start
-  landing at the beginning of the pass rather than the end.
+- **A concurrent `cleanup`** is kept off the run's uploaded-but-not-yet-referenced objects by
+  the upload lock ([0112](0112-bucket-locks.md)), which the fused pass takes before its store
+  LIST. (Until 0112 the 7-day grace window did this job, and covered a *longer* stretch of each
+  run once objects started landing at the beginning of the pass rather than the end.)
 - **Change detection** ([0045](0045-change-detection-local-baseline-list-fallback.md)) is
   unchanged in substance: the previous **local** snapshot is the baseline, trusted only once a
   HEAD confirms it still exists remotely, minus what the deletion record says was deleted
@@ -177,13 +178,11 @@ re-validates every candidate hash against the live file's size and mtime before 
   exactly one seam later, *if* small-file latency is ever measured to matter.
 - **`status` keeps `planUpload`** (now pure: target + stored → plan), so its read-only estimate
   still applies the same "is this content stored?" rule the fused transform applies row by row.
-- **The `cleanup`-versus-running-`backup` race widens a little.** The store LIST now happens
-  *before* the hash pass rather than after it, so the gap between "the store told us this object
-  exists" and "the manifest is published" grows by roughly the hashing time. That is the residual
-  race already documented in docs/design/backup.md (a concurrently-running `cleanup` deleting an
-  old orphan a backup was relying on via the conditional-PUT skip); the 7-day grace window still
-  doesn't cover it, and the mitigation is unchanged and already printed by `cleanup` — don't run
-  it while a backup is running.
+- **The `cleanup`-versus-running-`backup` race widened a little, and is now closed.** The store
+  LIST happens *before* the hash pass rather than after it, so the gap between "the store told
+  us this object exists" and "the manifest is published" grew by roughly the hashing time — the
+  residual race a grace window could never cover. [0112](0112-bucket-locks.md) closes it: the
+  upload lock is written before that LIST, so no cleanup can delete beneath the pass.
 - **A backup blocked by the snapshot lock now discovers it slightly later.** The store question is
   settled before `generateSnapshot`, which is what acquires the lock
   ([0048](0048-snapshot-lock-atomic-temp-file.md)) — so a second concurrent backup pays the

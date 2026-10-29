@@ -23,7 +23,8 @@ const LEGAL_KEY = new RegExp(
     "|snapshots/[^/]+/[^/]+\\.tsv\\.gz" +
     "|snapshots/[a-z0-9-]+\\.info" +
     "|\\.s3cab/sets/[^/]+/(dirs\\.txt|exclude\\.txt)" +
-    "|objects\\.deleted-[1-9][0-9]*\\.tsv)$",
+    "|objects\\.deleted-[1-9][0-9]*\\.tsv" +
+    "|locks/(upload|delete)-[0-9]{8}T[0-9]{6}\\.[0-9]{3}Z)$",
 );
 
 /**

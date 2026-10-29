@@ -66,6 +66,6 @@ aside, and the reader's checklist spells them out.
 ## Consequences
 
 - format.md's checklists sit together under "Writing your own tool", each followed by its
-  hints; deleting gets one because the grace window and the record-before-delete ordering are
+  hints; deleting gets one because the delete lock and the record-before-delete ordering are
   rules too, though no clean room plays that part.
 - `compare-snapshot.mjs`'s mismatch-or-note split draws the valid/canonical line.

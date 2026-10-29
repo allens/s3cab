@@ -51,8 +51,11 @@ bucket, whatever else goes wrong.
 Three subtypes exist:
 
 - **`integration`** — for this guide's suite. Unversioned, everything expires after
-  1 day. Shareable: the tests assert only on their own per-run objects, so concurrent
-  runs coexist in one bucket.
+  1 day. Shareable: the tests assert only on their own per-run objects, so runs from
+  several machines coexist in one bucket. Within a run the files go one at a time
+  (`--test-concurrency=1` in the npm script), because a delete's lock turns every upload
+  away ([ADR-0112](adr/0112-bucket-locks.md)); two runs on one bucket at the same moment
+  can still collide that way, which is why CI serializes its integration jobs.
 - **`conformance`** — for the model-based conformance suite
   (`npm run test:conformance`, [test/model/conformance/](../test/model/conformance/);
   capability contract in [test/model/CAPABILITIES.md](../test/model/CAPABILITIES.md)).

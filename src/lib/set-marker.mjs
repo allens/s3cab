@@ -72,14 +72,15 @@ const formatInfo = ({ owner, claimed, created }) =>
   `OWNER=${owner}\nCLAIMED=${claimed}\nCREATED=${created}\n`;
 
 /**
- * Read `.info` text by the spec's rule (guide/format.md): split on LF, strip one
- * trailing CR, split each line at its first `=`, skip a line with no `=` and
- * unknown keys. Not `parseEnv`: `#` starts a comment there, which would cut
- * short a user name holding one.
+ * Read `KEY=value` text by the spec's `.info` rule (guide/format.md): split on
+ * LF, strip one trailing CR, split each line at its first `=`, skip a line
+ * with no `=`. Not `parseEnv`: `#` starts a comment there, which would cut
+ * short a user name holding one. A lock's body (locks.mjs) is read the same
+ * way, which is why the line rule is exported apart from the marker's keys.
  * @param {string} text
- * @returns {SetInfo}
+ * @returns {Record<string, string>}
  */
-export function parseInfo(text) {
+export function infoFields(text) {
   /** @type {Record<string, string>} */
   const fields = {};
   for (const raw of text.split("\n")) {
@@ -89,6 +90,16 @@ export function parseInfo(text) {
       fields[line.slice(0, cut)] = line.slice(cut + 1);
     }
   }
+  return fields;
+}
+
+/**
+ * A set's marker from its text: the three keys, unknown ones skipped.
+ * @param {string} text
+ * @returns {SetInfo}
+ */
+export function parseInfo(text) {
+  const fields = infoFields(text);
   return {
     owner: fields.OWNER ?? "",
     claimed: fields.CLAIMED ?? "",

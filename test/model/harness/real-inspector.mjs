@@ -33,7 +33,6 @@ import {
 export const REAL_CAPABILITIES = new Set([
   "conditional-put",
   "strong-consistency",
-  "list-last-modified",
   "inspection",
   "versioning",
   "multipart",
@@ -45,8 +44,7 @@ const client = new S3Client({});
 
 /**
  * The harness's inspection interface over real S3 (the same surface the
- * Tier 1 fake exposes, minus the fake-only extras — no `virtualMs`, no
- * fault plan).
+ * Tier 1 fake exposes, minus the fake-only fault plan).
  */
 export class RealS3 {
   get capabilities() {

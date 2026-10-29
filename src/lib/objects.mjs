@@ -94,22 +94,21 @@ export async function getObject(bucket, hash, destPath) {
 }
 
 /**
- * Yield every stored object as `{ hash, size, lastModified }` — the bare SHA-256
- * of each key under `objects/` (prefix stripped) with its LIST `Size` and
- * `LastModified`. The one enumeration of the object store, from which the
- * hash-only listing (`listObjectHashes`) and the whole-bucket scan
- * (`scanBucket`, bucket-scan.mjs — `verify`'s size cross-check and `cleanup`'s
- * orphan sweep) draw: a LIST already returns each key with its size *and* age,
- * so `verify` gets sizes and `cleanup` gets the grace-window age for free, with
- * no per-object HEAD (docs/design/backup.md). `lastModified` is absent
- * only if S3 omits it (it never does for a real object); `cleanup` treats absent
- * as too-new-to-delete.
+ * Yield every stored object as `{ hash, size }` — the bare SHA-256 of each key
+ * under `objects/` (prefix stripped) with its LIST `Size`. The one enumeration
+ * of the object store, from which the hash-only listing (`listObjectHashes`)
+ * and the whole-bucket scan (`scanBucket`, bucket-scan.mjs — `verify`'s size
+ * cross-check and `cleanup`'s orphan sweep) draw: a LIST already returns each
+ * key with its size, so `verify` gets sizes with no per-object HEAD
+ * (docs/design/backup.md). Not the LIST's `LastModified`: an object's age
+ * decides nothing — what keeps an in-flight backup's objects safe from
+ * `cleanup` is the locks (ADR-0112), not a grace window.
  * @param {string} bucket - The repository's S3 bucket
- * @yields {{ hash: string, size: number, lastModified?: Date }} A stored object's hash, size, and age
- * @returns {AsyncGenerator<{ hash: string, size: number, lastModified?: Date }>}
+ * @yields {{ hash: string, size: number }} A stored object's hash and size
+ * @returns {AsyncGenerator<{ hash: string, size: number }>}
  */
 export async function* listStoredObjects(bucket) {
-  for await (const { Key, Size, LastModified } of listObjects(
+  for await (const { Key, Size } of listObjects(
     `s3://${bucket}/${OBJECTS_PREFIX}`,
   )) {
     // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
@@ -117,7 +116,7 @@ export async function* listStoredObjects(bucket) {
     // phantom stored object.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
     if (hash) {
-      yield { hash, size: Size ?? 0, lastModified: LastModified };
+      yield { hash, size: Size ?? 0 };
     }
   }
 }

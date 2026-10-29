@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { DAY_MS, MINUTE_MS, VirtualClock, clockHolder } from "./clock.mjs";
+import { MINUTE_MS, VirtualClock, clockHolder } from "./clock.mjs";
 import { FakeS3, backendHolder } from "./fake-s3.mjs";
 import { StepFaults } from "./faults.mjs";
 import {
@@ -33,10 +33,14 @@ import { contentBytes } from "./sequence.mjs";
 // command that returns success must have actually succeeded (a restore that
 // claims success must have written correct bytes), and the store must satisfy
 // the shape invariants after every step, faulted or not.
+//
+// Locks (ADR-0112) are judged from the `locks/` keys before and after a step.
+// A faulted step may leave its lock (the DELETE that failed), and that lock
+// then legitimately turns away later steps: a backup meeting a delete lock,
+// or a cleanup meeting an upload lock, must refuse — which looks like a
+// throw, and is expected. An unfaulted step never adds a lock.
 
 const BUCKET = "model-bucket";
-/** The format spec's grace window, plus a minute of margin off the boundary. */
-const GRACE_MS = 7 * DAY_MS + MINUTE_MS;
 
 /**
  * @typedef {{
@@ -161,21 +165,36 @@ export async function runSequence(steps, root) {
 
       // ── Pre-op bookkeeping the judgement needs ─────────────────────────
       const fault = "fault" in step ? step.fault : undefined;
-      /** @type {string[]} */
-      let agedOrphans = [];
       /** @type {Awaited<ReturnType<RepoModel["expectedVerifyFindings"]>> | null} */
       let expectedVerify = null;
       if (step.kind === "verify") {
         expectedVerify = await model.expectedVerifyFindings();
       }
-      if (step.kind === "cleanup") {
-        agedOrphans = await computeAgedOrphans(model, fake, clock.now());
-      }
-      // A backup or forget from a machine that has the set but doesn't hold it
-      // must be refused, and that refusal is the expected outcome.
-      const refused =
+      const keysBefore = (await fake.listAll(BUCKET)).map(({ key }) => key);
+      const locksBefore = keysBefore.filter((key) => key.startsWith("locks/"));
+      const objectsBefore = keysBefore.filter((key) =>
+        key.startsWith("objects/"),
+      );
+      // A refusal that is the expected outcome: a backup or forget from a
+      // machine that has the set but doesn't hold it, a backup while a delete
+      // lock stands, a cleanup while an upload lock stands.
+      /** @type {string | null} */
+      let refused = null;
+      if (
         (step.kind === "backup" || step.kind === "forget") &&
-        holders.get(step.set) !== step.machine;
+        holders.get(step.set) !== step.machine
+      ) {
+        refused = `machine ${step.machine} doesn't hold ${step.set}`;
+      }
+      const blockingLock =
+        step.kind === "backup"
+          ? locksBefore.find((key) => key.startsWith("locks/delete-"))
+          : step.kind === "cleanup"
+            ? locksBefore.find((key) => key.startsWith("locks/upload-"))
+            : undefined;
+      if (blockingLock) {
+        refused = `${blockingLock} stands`;
+      }
 
       // ── Execute ────────────────────────────────────────────────────────
       const logStart = fake.log.length;
@@ -358,9 +377,7 @@ export async function runSequence(steps, root) {
       }
 
       if (refused && !threw) {
-        violations.push(
-          `${step.kind} went ahead on machine ${step.machine}, which doesn't hold ${step.set}`,
-        );
+        violations.push(`${step.kind} went ahead although ${refused}`);
       }
       if (
         !refused &&
@@ -403,12 +420,35 @@ export async function runSequence(steps, root) {
         }
       }
 
+      const keysAfter = (await fake.listAll(BUCKET)).map(({ key }) => key);
+      if (!fault) {
+        for (const key of keysAfter) {
+          if (key.startsWith("locks/") && !locksBefore.includes(key)) {
+            violations.push(`${step.kind} left its lock ${key}`);
+          }
+        }
+      }
+      if (step.kind === "cleanup" && refused) {
+        for (const key of objectsBefore) {
+          if (!keysAfter.includes(key)) {
+            violations.push(`a refused cleanup deleted ${key}`);
+          }
+        }
+      }
       if (step.kind === "cleanup" && !fault && !threw) {
-        const listing = await fake.listAll(BUCKET);
-        const after = new Set(listing.map(({ key }) => key));
-        for (const key of agedOrphans) {
-          if (after.has(key)) {
-            violations.push(`cleanup left aged orphan ${key}`);
+        // No grace window: every unreferenced object is cleanup's to sweep.
+        const referenced = new Set();
+        for (const manifest of await model.parsedManifests()) {
+          for (const { hash } of manifest.rows) {
+            referenced.add(hash);
+          }
+        }
+        for (const key of keysAfter) {
+          if (
+            key.startsWith("objects/") &&
+            !referenced.has(key.slice("objects/".length))
+          ) {
+            violations.push(`cleanup left orphan ${key}`);
           }
         }
       }
@@ -466,35 +506,4 @@ export async function runSequence(steps, root) {
     }
     process.exitCode = savedExitCode;
   }
-}
-
-/**
- * The `objects/` keys cleanup must sweep: unreferenced by any stored manifest
- * and past the grace window at cleanup time.
- * @param {RepoModel} model
- * @param {FakeS3} fake
- * @param {number} virtualNow
- * @returns {Promise<string[]>}
- */
-async function computeAgedOrphans(model, fake, virtualNow) {
-  /** @type {Set<string>} */
-  const referenced = new Set();
-  for (const manifest of await model.parsedManifests()) {
-    for (const { hash } of manifest.rows) {
-      referenced.add(hash);
-    }
-  }
-  /** @type {string[]} */
-  const aged = [];
-  for (const { key, virtualMs } of await fake.listAll(model.bucket)) {
-    if (
-      key.startsWith("objects/") &&
-      !referenced.has(key.slice("objects/".length)) &&
-      virtualMs !== undefined &&
-      virtualNow - virtualMs > GRACE_MS
-    ) {
-      aged.push(key);
-    }
-  }
-  return aged;
 }

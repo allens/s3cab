@@ -107,10 +107,10 @@ finish it in one sitting:
   starting over. Stop and restart as often as you want — each run gets further.
   (`s3cab snapshot` works the same way.)
 - **If the run was killed outright** — the machine lost power, or the process was ended
-  without a chance to tidy up — it leaves its work file behind, and the next run stops and
-  says so. From the outside, that file looks exactly like a backup still running, so s3cab
-  won't guess. Once you're sure nothing is running, run the same command again with
-  `--resume` to carry on from the hashes the dead run had already worked out:
+  without a chance to tidy up — it leaves its lock behind, and the next run stops and says
+  so. From the outside, that lock looks exactly like a backup still running, so s3cab won't
+  guess. Once you're sure nothing is running, run the same command again with `--resume`: it
+  clears the dead run's lock and carries on from the hashes it had already worked out:
 
   ```
   s3cab backup <set> --resume
@@ -119,10 +119,9 @@ finish it in one sitting:
   The message also prints the command to delete the work file instead, if you'd rather read
   everything again from scratch.
 
-Two work files can appear in the set's `snapshots/` directory while s3cab is working. Both
-start with a dot, neither is ever uploaded, and both are safe to delete when nothing is
-running. Neither ends with a snapshot's closing `.` line, so neither can pass for a finished
-snapshot.
+A few files can appear in the set's `snapshots/` directory while s3cab is working. All start
+with a dot, none is ever uploaded, and all are safe to delete when nothing is running. None
+ends with a snapshot's closing `.` line, so none can pass for a finished snapshot.
 
 - `.snapshot.tsv.gz` — the snapshot being written right now, which becomes the finished
   snapshot when the run completes. One left behind is the work file of a run that was
@@ -131,3 +130,9 @@ snapshot.
   the next run to reuse. Every hash in it is checked against the file's current size and
   modification time before it is trusted, and the file is deleted as soon as a snapshot
   completes.
+- `.upload.lock` — there while a backup or upload of the set runs, holding the id of the
+  lock it has in the bucket, which keeps clean-ups off its objects
+  ([looking after a backup](maintenance.md#locks-backups-and-clean-ups-take-turns)). One
+  left behind is why the next run asks for `--resume`, which removes that lock from the
+  bucket. `.upload.unlock` is the same file after a run that finished but couldn't reach the
+  bucket to remove its lock: the next backup or upload of the set removes it then.

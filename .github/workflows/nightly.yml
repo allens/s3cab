@@ -103,13 +103,9 @@ jobs:
   # conformance — the tier wipes test-s3cab-ci-crash between cases, so this
   # job is its only tenant and gets its own concurrency group. Same OIDC
   # role; the CI policy's test-s3cab-ci-* wildcard already covers the bucket.
-  # Timing note: two scenarios compress cleanup's grace window to seconds, so
-  # a slow runner can turn a real margin into a red run — treat a red here as
-  # a margin to widen in the test constants, not as a protocol regression,
-  # unless the failure output says otherwise. The two PIN tests assert the
-  # *current wrong* behaviour of the §1 races (proposals/concurrency-and-
-  # locking.md); when a fix lands they flip red here until the fixing PR
-  # inverts them — that alarm is the point.
+  # Timing note: the `cleanup --wait` scenario sleeps out one real wait
+  # between looks (WAIT_MS in src/lib/locks.mjs), so the tier takes that
+  # long at least.
   crash:
     name: crash/concurrency (real S3)
     runs-on: ubuntu-latest

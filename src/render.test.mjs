@@ -2224,7 +2224,6 @@ describe("renderCleanup", () => {
     referencedObjects: 980,
     orphanObjects: 44,
     reclaimableBytes: 2_300_000,
-    withinGrace: 0,
     missingObjects: 0,
     deleted: 0,
     compactedRecordFiles: 0,
@@ -2240,11 +2239,8 @@ describe("renderCleanup", () => {
     );
   });
 
-  it("appends the grace and missing tallies only when non-zero", () => {
-    const text = renderCleanup(
-      cleanupResult({ withinGrace: 12, missingObjects: 3 }),
-    );
-    assert.match(text, /, 12 too new to touch \(7-day grace\)/);
+  it("appends the missing tally only when non-zero", () => {
+    const text = renderCleanup(cleanupResult({ missingObjects: 3 }));
     assert.match(text, /, 3 missing \(referenced but absent\)$/);
   });
 

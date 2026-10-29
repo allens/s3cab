@@ -17,8 +17,8 @@ an effect to land).
 
 ## 1. Lifecycle expiry vs. the versioning backstop (~quarterly, and before 1.0)
 
-The concurrency analysis leans on "versioning backstops a bad delete"
-(docs/design/backup.md, proposals/concurrency-and-locking.md). A backup
+The maintenance story leans on "versioning backstops a bad delete"
+(docs/design/backup.md, guide/maintenance.md). A backup
 bucket's recommended lifecycle expires *noncurrent* versions — so the
 backstop has a fuse, and nothing in s3cab measures it. This procedure
 observes the fuse burning end-to-end:

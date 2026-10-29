@@ -128,14 +128,6 @@ describe("listStoredObjects", () => {
     );
     assert.deepEqual(out, [{ hash: "aaa", size: 0 }]);
   });
-
-  it("passes through LastModified as lastModified (for cleanup's grace window)", async () => {
-    const when = new Date("2026-01-02T03:04:05Z");
-    listedObjects = [{ Key: "objects/aaa", Size: 5, LastModified: when }];
-    assert.deepEqual(await Array.fromAsync(listStoredObjects("my-bucket")), [
-      { hash: "aaa", size: 5, lastModified: when },
-    ]);
-  });
 });
 
 describe("getObject", () => {

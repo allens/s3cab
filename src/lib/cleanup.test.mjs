@@ -1,65 +1,37 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
-import { GRACE_MS, planCleanup } from "./cleanup.mjs";
+import { planCleanup, topUp } from "./cleanup.mjs";
 
-// Pure unit tests for cleanup's diff core — the orphan set-difference, the grace
-// window, and the missing/damaged/unreadable tallies — with no S3 and no injected
-// clock (the S3 reads are integration-tested via test/integration/remote.test.mjs; the
-// command shell's aborts/prompt/deletes are covered in commands/cleanup.test.mjs).
-// See docs/design/backup.md.
+// Pure unit tests for cleanup's diff core — the orphan set-difference, the
+// missing/damaged/unreadable tallies, and the top-up that takes a just-landed
+// snapshot's objects back off the orphan list — with no S3 (the S3 reads are
+// integration-tested via test/integration/remote.test.mjs; the command shell's
+// aborts/prompt/deletes are covered in commands/cleanup.test.mjs, the lock in
+// locks.test.mjs). See docs/design/backup.md.
 
-const NOW = 1_700_000_000_000; // fixed clock so the grace window is deterministic
-const DAY = 24 * 60 * 60 * 1000;
-const daysAgo = (/** @type {number} */ d) => new Date(NOW - d * DAY);
-
-/** @param {[string, number, Date?][]} rows - [hash, size, lastModified?] */
-const store = (rows) =>
-  new Map(
-    rows.map(([hash, size, lastModified]) => [hash, { size, lastModified }]),
-  );
+/** @param {[string, number][]} rows - [hash, size] */
+const store = (rows) => new Map(rows.map(([hash, size]) => [hash, { size }]));
 
 describe("planCleanup", () => {
-  it("returns orphans past the grace window and protects those within it", () => {
+  it("returns every unreferenced object as an orphan, with the bytes they hold", () => {
     const referenced = enumeration({
       photos: { s1: { "/k": ["kept", 10] } },
     });
     const stored = store([
-      ["kept", 10, daysAgo(30)], // referenced — never an orphan
-      ["old-orphan", 100, daysAgo(8)], // unreferenced, past grace
-      ["new-orphan", 999, daysAgo(1)], // unreferenced, within grace
+      ["kept", 10], // referenced — never an orphan
+      ["orphan-1", 100],
+      ["orphan-2", 999],
     ]);
 
-    const plan = planCleanup(referenced, stored, { now: NOW });
+    const plan = planCleanup(referenced, stored);
 
-    assert.deepEqual(plan.orphanHashes, ["old-orphan"]);
-    assert.equal(plan.reclaimableBytes, 100);
-    assert.equal(plan.withinGrace, 1);
+    assert.deepEqual(plan.orphanHashes, ["orphan-1", "orphan-2"]);
+    assert.equal(plan.reclaimableBytes, 1099);
     assert.equal(plan.storedObjects, 3);
     assert.equal(plan.referencedObjects, 1);
     assert.equal(plan.missing, 0);
     assert.equal(plan.damaged, 0);
-  });
-
-  it("treats the grace window as a strict floor measured from now", () => {
-    const stored = store([
-      ["exactly-grace", 1, new Date(NOW - GRACE_MS)], // ageMs === GRACE_MS → not < → orphan
-      ["just-inside", 1, new Date(NOW - GRACE_MS + 1)], // ageMs < GRACE_MS → protected
-    ]);
-
-    const plan = planCleanup(enumeration({}), stored, { now: NOW });
-
-    assert.deepEqual(plan.orphanHashes, ["exactly-grace"]);
-    assert.equal(plan.withinGrace, 1);
-  });
-
-  it("protects an object with no lastModified (treated as brand new)", () => {
-    const stored = store([["ageless", 5, undefined]]);
-
-    const plan = planCleanup(enumeration({}), stored, { now: NOW });
-
-    assert.deepEqual(plan.orphanHashes, []);
-    assert.equal(plan.withinGrace, 1);
   });
 
   it("counts a missing hash referenced by several sets once", () => {
@@ -69,7 +41,7 @@ describe("planCleanup", () => {
       docs: { s1: { "/d": ["shared-missing", 1] } },
     });
 
-    const plan = planCleanup(referenced, store([]), { now: NOW });
+    const plan = planCleanup(referenced, store([]));
 
     assert.equal(plan.missing, 1);
     assert.equal(plan.referencedObjects, 1);
@@ -83,7 +55,6 @@ describe("planCleanup", () => {
     });
 
     const plan = planCleanup(referenced, store([]), {
-      now: NOW,
       deleted: new Set(["gone"]),
     });
 
@@ -94,9 +65,9 @@ describe("planCleanup", () => {
     const referenced = enumeration({
       photos: { s1: { "/k": ["kept", 1] } },
     });
-    const stored = store([["kept", 999, daysAgo(30)]]); // recorded 1, stored 999
+    const stored = store([["kept", 999]]); // recorded 1, stored 999
 
-    const plan = planCleanup(referenced, stored, { now: NOW });
+    const plan = planCleanup(referenced, stored);
 
     assert.equal(plan.damaged, 1);
     assert.equal(plan.missing, 0);
@@ -108,9 +79,9 @@ describe("planCleanup", () => {
     const referenced = enumeration({
       photos: { s1: { "/a": ["h", 1], "/b": ["h", 2] } },
     });
-    const stored = store([["h", 1, daysAgo(30)]]);
+    const stored = store([["h", 1]]);
 
-    const plan = planCleanup(referenced, stored, { now: NOW });
+    const plan = planCleanup(referenced, stored);
 
     assert.equal(plan.damaged, 1);
     assert.equal(plan.missing, 0);
@@ -123,9 +94,9 @@ describe("planCleanup", () => {
       a: { s1: { "/a": ["h", 10] } },
       b: { s1: { "/b": ["h", 999] } },
     });
-    const stored = store([["h", 10, daysAgo(30)]]); // stored matches only /a
+    const stored = store([["h", 10]]); // stored matches only /a
 
-    const plan = planCleanup(referenced, stored, { now: NOW });
+    const plan = planCleanup(referenced, stored);
 
     assert.equal(plan.damaged, 1);
     assert.equal(plan.missing, 0);
@@ -136,21 +107,62 @@ describe("planCleanup", () => {
       { photos: { s1: { "/k": ["kept", 1] } } },
       { photos: [{ snapshot: "bad", reason: "boom" }] },
     );
-    const stored = store([["orphan", 1, daysAgo(9)]]);
+    const stored = store([["orphan", 1]]);
 
-    const plan = planCleanup(referenced, stored, { now: NOW });
+    const plan = planCleanup(referenced, stored);
 
     assert.deepEqual(plan.unreadable, ["photos/bad"]);
     // The plan still computes — it never throws; interlock policy is the command's.
     assert.deepEqual(plan.orphanHashes, ["orphan"]);
   });
+});
 
-  it("defaults now to the wall clock when omitted", () => {
-    // A very old orphan is past grace under any real clock — proves the default fires.
-    const stored = store([["ancient", 1, new Date(0)]]);
+// The top-up (ADR-0112): a backup that finished between the scan and the
+// delete lock published a snapshot the plan never saw. Its objects were
+// orphans to the plan; once read, they are referenced, and the keep-set the
+// deletion record is trimmed against grows by the same hashes.
+describe("topUp", () => {
+  const stored = store([
+    ["kept", 10],
+    ["landed", 100], // a just-finished backup's object
+    ["orphan", 7],
+  ]);
+  const plan = planCleanup(
+    enumeration({ photos: { s1: { "/k": ["kept", 10] } } }),
+    stored,
+  );
 
-    const plan = planCleanup(enumeration({}), stored);
+  it("takes a newly referenced object off the orphan list and into the keep-set", () => {
+    assert.deepEqual(plan.orphanHashes, ["landed", "orphan"]);
 
-    assert.deepEqual(plan.orphanHashes, ["ancient"]);
+    const topped = topUp(
+      plan,
+      stored,
+      enumeration({ photos: { s2: { "/new": ["landed", 100] } } }),
+    );
+
+    assert.deepEqual(topped.orphanHashes, ["orphan"]);
+    assert.equal(topped.reclaimableBytes, 7);
+    assert.deepEqual(topped.referencedHashes, new Set(["kept", "landed"]));
+    assert.equal(topped.referencedObjects, 2);
+  });
+
+  it("changes nothing when no snapshot landed", () => {
+    const topped = topUp(plan, stored, new Map());
+
+    assert.deepEqual(topped.orphanHashes, plan.orphanHashes);
+    assert.equal(topped.reclaimableBytes, plan.reclaimableBytes);
+    assert.deepEqual(topped.referencedHashes, plan.referencedHashes);
+  });
+
+  it("leaves the plan it was given untouched", () => {
+    topUp(
+      plan,
+      stored,
+      enumeration({ photos: { s2: { "/new": ["landed", 100] } } }),
+    );
+
+    assert.deepEqual(plan.orphanHashes, ["landed", "orphan"]);
+    assert.deepEqual(plan.referencedHashes, new Set(["kept"]));
   });
 });

@@ -1,11 +1,8 @@
 import { readFile } from "node:fs/promises";
-import {
-  formatDeletionRecord,
-  writeDeletionRecord,
-} from "../lib/deletion-record.mjs";
+import { deleteContent } from "../lib/delete.mjs";
 import { isENOENT, requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue, localMoment } from "../lib/format.mjs";
-import { deleteStoredObjects, storedObjectSizes } from "../lib/objects.mjs";
+import { storedObjectSizes } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
@@ -99,9 +96,10 @@ function collectHashes(operands, fileText) {
  * prompt.** On a TTY the confirmation is the strongest in the tool (type the
  * bucket name — ADR-0064's tier, unchanged: the operand got safer, the
  * consequence did not); non-interactive runs refuse without `--force`.
- * **Record-first ordering:** the record is written (conditional PUT at the
- * next free index — never an overwrite) *before* any object is deleted, so a
- * crash mid-run can never leave missing objects the record cannot explain.
+ *
+ * The removal itself — the record, then the objects, under the delete lock —
+ * is `deleteContent` (lib/delete.mjs, ADR-0112). It refuses while a backup or
+ * upload is running; `--wait` lets it wait for them instead.
  *
  * @typedef {Object} DeleteResult
  * @property {string} bucket - The repository bucket
@@ -112,7 +110,7 @@ function collectHashes(operands, fileText) {
  * @property {boolean} deleted - False on a dry run, a declined confirmation, or nothing to delete
  *
  * @param {string[]} [hashes] - Content hashes of the objects to delete — the bulk operand
- * @param {{ bucket?: string, "from-file"?: string, "dry-run"?: boolean, force?: boolean }} [options]
+ * @param {{ bucket?: string, "from-file"?: string, "dry-run"?: boolean, force?: boolean, wait?: boolean }} [options]
  * @returns {Promise<DeleteResult>}
  */
 export async function deleteHashes(hashes = [], options = {}) {
@@ -123,6 +121,7 @@ export async function deleteHashes(hashes = [], options = {}) {
   requireArg(hashes.length > 0 || fromFile, "hash");
   const dryRun = Boolean(options["dry-run"]);
   const force = Boolean(options.force);
+  const wait = Boolean(options.wait);
 
   /** @type {string | undefined} */
   let fileText;
@@ -256,23 +255,15 @@ export async function deleteHashes(hashes = [], options = {}) {
     }
   }
 
-  // Record first, then the deletes (never the other way around): a crash
-  // between the two leaves an over-complete record — objects recorded deleted
-  // that still exist, which verify reads as simply present — never missing
-  // objects with no explanation. One clock read and one identity for the run,
-  // so every row agrees by construction. The record is named by index, not by
-  // a moment, so only the instant is wanted — the precision names nothing.
+  // One clock read and one identity for the run, so every row agrees by
+  // construction. The record is named by index, not by a moment, so only the
+  // instant is wanted — the precision names nothing.
   const { instant } = localMoment("seconds");
   const by = userAtMachine();
-  const recordUri = await writeDeletionRecord(
+  const recordUri = await deleteContent(
     bucket,
-    formatDeletionRecord(
-      found.map(({ hash, size }) => ({ hash, size, instant, by })),
-    ),
-  );
-  await deleteStoredObjects(
-    bucket,
-    found.map(({ hash }) => hash),
+    found.map(({ hash, size }) => ({ hash, size, instant, by })),
+    { wait },
   );
 
   // No headline: `renderDelete` states the count and that snapshots stand, on

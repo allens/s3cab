@@ -10,26 +10,40 @@ import {
 } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
+import { holdUploadLock } from "./locks.mjs";
 import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
 import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
 import { assertHeld } from "./set-marker.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
+import { generateSnapshot, readBaseline } from "./snapshot.mjs";
 import { shellCommand } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
  * @import { Props, RowTransform, SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs"
  * @import { Transfer } from "./s3.mjs"
+ * @import { BackupSet } from "./sets.mjs"
+ * @import { SnapshotBaseline, SnapshotPass } from "./snapshot.mjs"
  */
 
 // The upload verb module: what counts as already stored (`storedHashes`), the
-// streaming PUT transform over it (`uploadObjects`), and the compositions on top —
-// `uploadSnapshot` (re-read an existing snapshot) and `uploadSnapshotFile` (the
-// manifest, last). remote.mjs stays the remote snapshot-*store* module and keeps
-// sole ownership of the `snapshots/` prefix (imported here, so the layout is
-// still spelled in exactly one place); objects.mjs owns `objects/`.
+// streaming PUT transform over it (`uploadObjects`), and the four operations
+// on top — `uploadSet` (the fused hash-and-upload pass behind `backup`),
+// `uploadSnapshot` (re-read an existing snapshot), `uploadDir` (seed from a
+// folder) and `uploadFile` (one object) — each ending, where a snapshot is
+// involved, in `uploadSnapshotFile` (the manifest, last). remote.mjs stays the
+// remote snapshot-*store* module and keeps sole ownership of the `snapshots/`
+// prefix (imported here, so the layout is still spelled in exactly one
+// place); objects.mjs owns `objects/`.
+//
+// Every one of the four runs under the upload lock (`holdUploadLock`,
+// locks.mjs; [ADR-0112](../../docs/adr/0112-bucket-locks.md)), taken here and
+// not by the commands: the lock is what makes an "already stored?" answer —
+// a trusted baseline, a store LIST, a conditional PUT's 412 — safe to act on,
+// and nothing can upload without passing through one of these, so no command
+// has to know.
 //
 // `uploadObjects` is deliberately **source-agnostic** (ADR-0069): it consumes a
 // stream of `[path, Props]` rows, wherever they come from — a snapshot file being
@@ -494,6 +508,149 @@ const fileChangeFrom = (error) =>
       : { reason: "unreadable", cause: error };
 
 /**
+ * What `uploadSet` leaves a `backup` to report: the baseline it read, the pass
+ * it ran, and the sending's own figures (ADR-0078).
+ * @typedef {Object} SetUpload
+ * @property {SnapshotBaseline} baseline - The set's previous snapshot, as `readBaseline` read it
+ * @property {SnapshotPass} pass - The snapshot the fused pass wrote and published
+ * @property {number} candidates - Objects the run attempted (see `UploadOutcome`)
+ * @property {number} uploaded - Those actually transferred
+ * @property {number} uploadedBytes - Bytes those transfers moved
+ * @property {number} sendingMs - Milliseconds spent inside the PUTs
+ */
+
+/**
+ * Back a set up: snapshot and upload in **one fused pass** (ADR-0069) — each
+ * file's object is PUT the moment its bytes have been hashed, and the same
+ * row goes straight on into the snapshot TSV. There is no
+ * write-the-whole-snapshot-then-read-it-back-to-upload round trip, and no
+ * minutes-long window in which an edited file drifts out from under the hash
+ * recorded for it. The operation behind `backup`, which adds only the
+ * reporting around it.
+ *
+ * The composition, under the upload lock from the first step to the last:
+ * 1. **`readBaseline`** — the set's previous local snapshot: the hash lookup
+ *    that spares unchanged files a re-read, and the upload baseline below.
+ * 2. **`storedHashes`** — what needs no upload, decided *before* any hashing so
+ *    a credentials or network problem surfaces in seconds rather than after a
+ *    long pass. The single-owner model makes the previous **local** snapshot
+ *    the authoritative baseline (ADR-0045), trusted only once `storedHashes`
+ *    has confirmed the remote copy is byte-identical to it (ADR-0084); a first
+ *    backup LISTs the store instead.
+ * 3. **`generateSnapshot` with the object uploader spliced in** — the fused
+ *    pass. The uploader is a pipe, not a callback: it consumes rows and yields
+ *    them on unchanged, so a backup writes byte-for-byte the snapshot a plain
+ *    `snapshot` would have written.
+ * 4. **`uploadSnapshotFile`** — the manifest, *last*, once the pipeline has
+ *    drained: the objects-first/snapshot-last invariant, kept absolute.
+ *
+ * **Nothing that goes wrong up there costs the hash pass.** The uploader never
+ * throws mid-stream, so the local snapshot always lands complete: a failed
+ * transfer is resumed with `upload <set> --snapshot <name>`, and even a file
+ * that drifted only costs a fresh `backup`, which reads that snapshot as its
+ * hash lookup and so re-reads nothing that didn't change.
+ *
+ * `resume` serves both leftovers a killed run leaves — the work file
+ * (ADR-0092) and the set's `.upload.lock` (ADR-0112) — with the one word.
+ * @param {BackupSet} set - The resolved set
+ * @param {object} [options]
+ * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
+ * @param {boolean} [options.resume] - Adopt what an interrupted run left behind
+ * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot
+ * @returns {Promise<SetUpload>}
+ */
+export function uploadSet(set, { rehash, resume, debug } = {}) {
+  return holdUploadLock(
+    { bucket: set.bucket, command: "backup", set, resume },
+    async () => {
+      const baseline = await readBaseline(set, { rehash, resume });
+      const { name: since, previous } = baseline;
+      const stored = await storedHashes({
+        bucket: set.bucket,
+        set: set.name,
+        snapshotDir: set.snapshotsDir,
+        since,
+        baseline: previous,
+      });
+
+      const uploader = uploadObjects({
+        bucket: set.bucket,
+        stored,
+        ownProgress: true,
+      });
+      const pass = await generateSnapshot(set, {
+        baseline,
+        through: uploader.through,
+        // Both halves of the fused pass report into one progress line:
+        // `through` does the sending, `transfer` is how that sending is going.
+        transfer: uploader.transfer,
+        debug,
+      });
+
+      // The snapshot file has landed locally whatever happened above — that
+      // is what makes the retry cheap — so an upload failure surfaces only
+      // now, and no manifest is ever published for objects that didn't all
+      // make it.
+      //
+      // Which retry to name depends on the kind of failure (ADR-0069): a file
+      // that changed under us can never be reconciled with the snapshot that
+      // recorded it, so it asks for a fresh backup; anything else is a
+      // transfer that can simply be resumed. The transport failure is checked
+      // **first** — it is the terminal one, and it must not be spoken for by
+      // a drift met on an earlier row.
+      const { name } = pass;
+      const {
+        candidates,
+        uploaded,
+        uploadedBytes,
+        sendingMs,
+        drifted,
+        failure,
+      } = uploader.result();
+      if (failure) {
+        throw uploadFailedError(failure, set.name, name);
+      }
+      if (drifted.length > 0) {
+        throw fileChangedError(drifted, set.name);
+      }
+
+      await uploadSnapshotFile({
+        bucket: set.bucket,
+        set: set.name,
+        snapshotDir: set.snapshotsDir,
+        name,
+        claimPath: set.claimPath,
+      });
+
+      return { baseline, pass, candidates, uploaded, uploadedBytes, sendingMs };
+    },
+  );
+}
+
+/**
+ * The "the bytes didn't all make it" error a backup ends with when an upload
+ * failed mid-pass. Its whole job is to say that the *hashing* wasn't wasted —
+ * the snapshot is on disk, so the retry transfers what's left instead of
+ * re-reading the set (ADR-0069). A named factory (heavy, actionable message —
+ * error.mjs taxonomy), worded per ADR-0030: the user's goal first, the cause in
+ * a parenthetical, the fix as a copy-pasteable command.
+ * @param {Error} cause - The upload failure that stopped the transfers
+ * @param {string} set - The set being backed up
+ * @param {string} name - The snapshot that was written locally
+ * @returns {Error}
+ */
+const uploadFailedError = (cause, set, name) =>
+  new Error(
+    `Couldn't finish backing up — sending your files to the cloud stopped ` +
+      `part-way (${cause.message}).\n\n` +
+      `The snapshot of what's on this computer is saved, so nothing has to be ` +
+      `read or hashed again. Once the problem is sorted, carry on from where it ` +
+      `stopped:\n` +
+      `  ${shellCommand(`s3cab upload ${set} --snapshot ${name}`)}`,
+    { cause },
+  );
+
+/**
  * Upload the snapshot manifest itself — the **last** step of any backup, which
  * is what makes a snapshot's mere presence proof its objects exist
  * (docs/design/backup.md). No-clobber, and a name that already exists remotely
@@ -589,26 +746,20 @@ const nameTakenError = (set, name, uri) =>
  *
  * What's already stored is `storedHashes`' decision (a trust-checked baseline,
  * else a LIST); the PUT loop, the dedup and the drift guard are `uploadObjects`'.
+ * The target is read before the lock is taken, so a missing `--snapshot` fails
+ * fast with nothing to undo.
+ * @param {Pick<BackupSet, "name" | "bucket" | "snapshotsDir" | "claimPath" | "uploadLockPath" | "uploadUnlockPath">} set - The resolved set
  * @param {object} args
- * @param {string} args.bucket - The repository's S3 bucket
- * @param {string} args.set - The set's name (its whole identity, ADR-0024)
- * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead
- * @param {string} args.claimPath - The set's `claim` file (see `uploadSnapshotFile`)
+ * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
  * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}
  *   `candidates` = objects considered for upload; `uploaded` = those actually
  *   transferred (the rest were no-ops the conditional PUT found already present).
  */
-export async function uploadSnapshot({
-  bucket,
-  set,
-  snapshotDir,
-  name,
-  since,
-  claimPath,
-}) {
+export async function uploadSnapshot(set, { name, since, resume }) {
+  const { bucket, snapshotsDir: snapshotDir } = set;
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
   /** @type {SnapshotEntries | undefined} */
@@ -617,31 +768,43 @@ export async function uploadSnapshot({
     const { entries } = await readSnapshot(snapshotDir, since);
     baseline = entries;
   }
-  const stored = await storedHashes({
-    bucket,
-    set,
-    snapshotDir,
-    since,
-    baseline,
-  });
 
-  // A snapshot's entries iterate as exactly the `[path, Props]` rows the transform
-  // consumes — the "one consumer, two sources" seam.
-  const uploader = uploadObjects({ bucket, stored });
-  await uploader.run(target);
-  const { candidates, uploaded, drifted, failure } = uploader.result();
-  // Transport failure first: it is the terminal one, and a drift on an earlier
-  // row must not speak for a dead link met on a later one.
-  if (failure) {
-    throw failure;
-  }
-  if (drifted.length > 0) {
-    throw fileChangedError(drifted, set);
-  }
+  return holdUploadLock(
+    { bucket, command: "upload", set, resume },
+    async () => {
+      const stored = await storedHashes({
+        bucket,
+        set: set.name,
+        snapshotDir,
+        since,
+        baseline,
+      });
 
-  await uploadSnapshotFile({ bucket, set, snapshotDir, name, claimPath });
+      // A snapshot's entries iterate as exactly the `[path, Props]` rows the
+      // transform consumes — the "one consumer, two sources" seam.
+      const uploader = uploadObjects({ bucket, stored });
+      await uploader.run(target);
+      const { candidates, uploaded, drifted, failure } = uploader.result();
+      // Transport failure first: it is the terminal one, and a drift on an
+      // earlier row must not speak for a dead link met on a later one.
+      if (failure) {
+        throw failure;
+      }
+      if (drifted.length > 0) {
+        throw fileChangedError(drifted, set.name);
+      }
 
-  return { name, candidates, uploaded };
+      await uploadSnapshotFile({
+        bucket,
+        set: set.name,
+        snapshotDir,
+        name,
+        claimPath: set.claimPath,
+      });
+
+      return { name, candidates, uploaded };
+    },
+  );
 }
 
 /**
@@ -677,43 +840,99 @@ export async function uploadSnapshot({
  * that *were* confirmed are worth having either way. The skips are returned for the
  * caller to report (never swallowed — they are files the user asked for and didn't
  * get); a transport failure still throws, because nothing more can be sent.
+ * @param {Pick<BackupSet, "name" | "bucket" | "excludePath" | "uploadLockPath" | "uploadUnlockPath">} set - The resolved set, for its bucket and `exclude.txt`
  * @param {object} args
- * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.dir - The subtree to seed from (already validated as a directory)
- * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
+ * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
  * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
  *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
  *   (the rest were already stored); `skipped` = files that failed their hash or
  *   the guard.
  */
-export async function uploadDir({ bucket, dir, excludePath }) {
-  const { files } = walkDirs([dir], readExcludePatterns(excludePath));
-  /** @type {Drift[]} files that failed their hash */
-  const unhashed = [];
+export function uploadDir(set, { dir, resume }) {
+  const { bucket } = set;
+  return holdUploadLock(
+    { bucket, command: "upload", set, resume },
+    async () => {
+      const { files } = walkDirs([dir], readExcludePatterns(set.excludePath));
+      /** @type {Drift[]} files that failed their hash */
+      const unhashed = [];
 
-  /** One row at a time, so hashing and sending interleave per file. */
-  async function* rows() {
-    for (const path of files) {
-      let props;
-      try {
-        props = await fileProps(path);
-      } catch (error) {
-        unhashed.push({ path, ...fileChangeFrom(error) });
-        continue;
+      /** One row at a time, so hashing and sending interleave per file. */
+      async function* rows() {
+        for (const path of files) {
+          let props;
+          try {
+            props = await fileProps(path);
+          } catch (error) {
+            unhashed.push({ path, ...fileChangeFrom(error) });
+            continue;
+          }
+          yield /** @type {SnapshotRow} */ ([path, props]);
+        }
       }
-      yield /** @type {SnapshotRow} */ ([path, props]);
-    }
-  }
 
-  // An empty `stored`: the conditional PUT is this path's already-stored check, so
-  // there is deliberately no baseline and no store LIST to build one from.
-  const uploader = uploadObjects({ bucket, stored: new Set() });
-  await uploader.run(rows());
-  const { candidates, uploaded, drifted, failure } = uploader.result();
-  if (failure) {
-    throw failure;
-  }
-  return { candidates, uploaded, skipped: [...unhashed, ...drifted] };
+      // An empty `stored`: the conditional PUT is this path's already-stored
+      // check, so there is deliberately no baseline and no store LIST to build
+      // one from.
+      const uploader = uploadObjects({ bucket, stored: new Set() });
+      await uploader.run(rows());
+      const { candidates, uploaded, drifted, failure } = uploader.result();
+      if (failure) {
+        throw failure;
+      }
+      return { candidates, uploaded, skipped: [...unhashed, ...drifted] };
+    },
+  );
+}
+
+/**
+ * Store one already-hashed file as one object — `upload --file`, the fourth
+ * source of a PUT, kept apart from the transform on purpose: `--force` means
+ * "overwrite deliberately", which the transform has no concept of, and its
+ * dedup/skip-list machinery is dead weight for one file. What *is* shared is
+ * the guard (ADR-0069): hashing then re-reading to send means the file can
+ * change in between, and the store trusts the hash on write — so its new
+ * bytes would be filed under the old content's hash and corrupt that object
+ * for every path that dedups to it. One file rather than thousands doesn't
+ * change that. The hash was taken before the lock (it can take as long as
+ * the file is big, and decides nothing); the guard, the PUT and its 412 run
+ * under it.
+ *
+ * A file that fails the guard is returned as a {@link FileChange}, not
+ * thrown: the message names the exact re-run, which the caller holds.
+ * @param {object} args
+ * @param {string} args.bucket - The repository's S3 bucket
+ * @param {Pick<BackupSet, "name" | "uploadLockPath" | "uploadUnlockPath">} [args.set] - The set the upload is for; absent for `upload --bucket`, which keeps no local lock
+ * @param {string} args.path - The file to store
+ * @param {Props} args.props - Its hash, size and mtime, as just taken
+ * @param {boolean} [args.force] - Overwrite an object already stored under the hash
+ * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
+ * @returns {Promise<{ uploaded: boolean, change?: FileChange }>} `uploaded` =
+ *   transferred (false: already stored, or `change` says why nothing was)
+ */
+export function uploadFile({ bucket, set, path, props, force, resume }) {
+  return holdUploadLock(
+    { bucket, command: "upload", set, resume },
+    async () => {
+      const change = await fileChange(path, props);
+      if (change) {
+        return { uploaded: false, change };
+      }
+      try {
+        const uploaded = await putObject(bucket, props.hash, path, { force });
+        return { uploaded };
+      } catch (error) {
+        if (error instanceof ContentMismatchError) {
+          return {
+            uploaded: false,
+            change: { reason: "changed", cause: error },
+          };
+        }
+        throw error;
+      }
+    },
+  );
 }
 
 /**

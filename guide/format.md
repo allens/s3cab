@@ -88,6 +88,7 @@ s3://my-backup-bucket/
   snapshots/<set>/<name>.tsv.gz     # each backup set's snapshot files
   snapshots/<set>.info              # which machine holds the set
   objects.deleted-<n>.tsv           # deliberate-deletion records (only if `delete` has run)
+  locks/<kind>-<instant>            # one per running upload or delete (only while one runs)
   .<name>/                          # a client's own folder (s3cab's is .s3cab/)
 ```
 
@@ -114,6 +115,8 @@ s3://my-backup-bucket/
 - **`objects.deleted-<n>.tsv`** — the format's only root-level keys — are its
   [deletion records](#the-deletion-record): small plain-text files marking content as
   *deliberately* removed. A repository where `delete` has never run simply has none.
+- **`locks/`** holds one small file per upload or delete that is running right now, so the
+  two kinds never overlap: [locks](#locks). A reader ignores the folder.
 - **A top-level folder named `.<name>`** belongs to the client called `<name>`, which keeps
   its own files there: s3cab's is `.s3cab/`, described in its
   [README](../README.md#cloud-repositories). Nothing a restore needs lives in one. A reader
@@ -129,12 +132,9 @@ is complete and restorable. A crash mid-backup leaves only *orphan* objects (upl
 referenced by no snapshot), which are harmless: they cost only storage and the retried
 backup reuses them.
 
-Two rules follow for **any** tool that deletes from a repository:
-
-- **never delete an object younger than a generous grace window** (s3cab's rule: 7 days) —
-  under objects-first, an in-flight backup's fresh uploads are indistinguishable from
-  orphans;
-- **don't clean up while a backup is running.**
+One rule follows for **any** tool that deletes from a repository: while a backup is running,
+what it has uploaded, or found already stored and skipped, looks exactly like an orphan, so
+uploads and deletes take turns — [locks](#locks).
 
 ### Snapshots are immutable
 
@@ -196,6 +196,45 @@ Three gaps are known, and left open:
 
 This is a rule for tools that follow this spec, not a lock: anyone holding the bucket's
 write keys can ignore it.
+
+### Locks
+
+If your tool only reads a repository, skip this section: reading takes no lock, and a reader
+ignores every key under `locks/`.
+
+An **upload** (a backup, or any tool storing objects) and a **delete** (a clean-up, or any
+tool removing objects) never run at the same time. Under objects first, snapshot last, what
+an upload has stored, or found already stored and skipped, is referenced by nothing until its
+snapshot lands, so a delete running beside it would take that content for an orphan. Each
+kind of run holds a lock in the bucket while it runs, and refuses to start while the other
+kind's lock is there.
+
+- A lock is a key `locks/<kind>-<instant>`: the kind, `upload` or `delete`, then the instant
+  the run started, UTC to the millisecond in ISO 8601's basic form —
+  `locks/upload-20261027T140205.123Z`. The key without `locks/` is the lock's **id**.
+- Its content is `KEY=value` lines, read as [`.info`](#who-holds-a-set) is: `COMMAND`, what is
+  running; `SET`, the set it is for, when it is for one; `BY`, `user@machine`; `STARTED`, the
+  instant again in the 24-character form `.info` uses. They are for people and messages. No
+  rule matches on them.
+- Two uploads may run together, and so may two deletes: an upload refuses only on a `delete-`
+  lock, a delete only on an `upload-` lock.
+- **Write first, look second.** A run writes its own lock *before* it lists `locks/`, and
+  before anything that decides what to skip or delete. Two runs that start together then each
+  see the other's lock, so at worst both refuse. A run that looked first could see nothing
+  while the other's lock was on its way, and both would carry on.
+- Write a lock with a no-overwrite PUT (`If-None-Match: *`). On a 412, read the key back: your
+  own bytes mean your own write, retried after a lost response, and the lock is yours. Anything
+  else means another run took that instant, so take a fresh one and write again.
+- Remove the lock when the run ends, however it ends. Only a hard stop — a crash, a lost
+  machine, a killed process — leaves one.
+- A lock never expires. Its age says nothing about whether its run is alive: a first backup
+  runs for hours. Only a person who knows the run is dead removes a leftover; in s3cab,
+  `unlock`.
+- Like `.info`, these are rules for tools that follow the spec, not enforcement: anyone
+  holding the bucket's write keys can ignore them.
+
+How s3cab clears a lock its own run left behind, and how it waits for a running backup instead
+of refusing, is its own business: [looking after a backup](maintenance.md#locks-backups-and-clean-ups-take-turns).
 
 ### The deletion record
 
@@ -928,8 +967,8 @@ above explain every item. The hints after each are what tends to go wrong in pra
 
 For a restorer, or anything else that reads the files.
 
-- Ignore every key under a `.`-prefixed top-level folder, and every `snapshots/<set>.info`:
-  nothing a restore needs is in either.
+- Ignore every key under a `.`-prefixed top-level folder, every key under `locks/`, and every
+  `snapshots/<set>.info`: nothing a restore needs is in any of them, and reading takes no lock.
 - Read every snapshot and deletion record by the [five reading rules](#reading-the-text-five-rules-that-hold-everywhere):
   strict UTF-8, split on LF alone, no escaping, the leading fields trimmed, and the last
   taken verbatim after the fourth tab.
@@ -1299,6 +1338,12 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 
 ### Uploading
 
+- Write an [upload lock](#locks) before anything that decides what to skip — before listing
+  `objects/`, reading an earlier snapshot, or sending a conditional PUT — then list `locks/`.
+  On any `delete-` lock, remove your own and refuse. Write first, look second: two runs that
+  start together must each see the other.
+- Remove the lock when the upload ends, success or failure. Report one you couldn't remove,
+  with its id, so a person can.
 - Upload every object a snapshot names, the empty file's `e3b0c442…b855` included, before
   the snapshot itself: [objects first, snapshot last](#the-invariant-objects-first-snapshot-last).
 - Store each object at `objects/<hash>`, holding exactly the bytes that hash to its key.
@@ -1412,7 +1457,13 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Give it the heading row, one `@S3CAB SPEC`, `@CLIENT NAME` and `@CLIENT VERSION` each, a
   `#deleted` row per object (hash, size, the UTC instant, and `user@machine`), and the `.`
   last.
-- Never delete an object younger than a generous grace window (s3cab's is 7 days), and don't
-  clean up while a backup is running.
+- Write a [delete lock](#locks) before deleting anything, then list `locks/`. On any `upload-`
+  lock, remove your own and refuse, or wait and write it again later. Write first, look second:
+  two runs that start together must each see the other.
+- Once the lock is held, read every snapshot that landed since the plan was made, by key, and
+  take its objects off the plan. A snapshot is named for its start and can land hours later,
+  so compare keys, never names or times.
+- Remove the lock when the run ends, however it ends. Report one you couldn't remove, with its
+  id, so a person can.
 - To compact records, write the merged record before deleting the files it absorbs, and drop
   only rows whose hash no snapshot references.

@@ -504,7 +504,7 @@ const inProgressError = (tmpPath) => {
   return new Error(
     `A snapshot of this set is already in progress — or a previous one was ` +
       `interrupted and left its work file behind.\n\n` +
-      `If no snapshot or backup of this set is running now, run the same ` +
+      `If no snapshot, backup or upload of this set is running now, run the same ` +
       `command again with --resume to carry on from the file hashes it had ` +
       `already worked out.\n\n` +
       `Or start the pass over, reading those files again:\n` +
