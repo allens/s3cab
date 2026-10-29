@@ -83,8 +83,10 @@ alive, another user's). So:
   would find a running backup's pid missing in another and remove its lock. A lock whose `OS` or
   `PIDNS` differs, or whose `OS` is absent, is never judged.
 - **A reused pid reads as alive**, so a dead lock stays until `unlock`: the error is a refusal,
-  never a live lock removed. So does a lock from before a container or WSL restart, whose
-  namespace may come back under a new `PIDNS`.
+  never a live lock removed. So does a lock from before a container or WSL restart: its namespace
+  comes back under a new `PIDNS`, never judged — or, measured with `unshare --pid`, under the
+  **same** inode, where the lock's pid 1 is the new run itself and reads alive. Either way a
+  container running s3cab as pid 1 clears its predecessor's lock only with `unlock`.
 - **`unlock` shows each lock's `OS` and `PIDNS`**, so a person can tell a live Windows lock from
   a dead WSL one under the same `user@machine` before removing it.
 - **Two machines with one `user@machine`** — a cloned machine ([0108](0108-set-ownership.md)'s
