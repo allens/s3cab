@@ -134,7 +134,7 @@ const PIDNS_LINE = HERE_PIDNS === undefined ? "" : `PIDNS=${HERE_PIDNS}\n`;
 const HERE_SYSTEM = [process.platform, HERE_PIDNS]
   .filter(Boolean)
   .join(", ")
-  .replace(/[[\]]/g, "\\$&");
+  .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** A lock another run holds, planted straight into the bucket. */
 const plant = (
