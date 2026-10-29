@@ -4,46 +4,16 @@ import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { assertHeld, pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
-import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
-import { shellCommand } from "../lib/style.mjs";
-import {
-  fileChangedError,
-  storedHashes,
-  uploadObjects,
-  uploadSnapshotFile,
-} from "../lib/upload.mjs";
+import { uploadSet } from "../lib/upload.mjs";
 
 /** @import { CompareError, CompareResult } from "../lib/compare.mjs" */
 
 /**
- * Back up a set to the cloud (docs/design/backup.md) — snapshot and upload in
- * **one fused pass** (ADR-0069): each file's object is PUT the moment its bytes
- * have been hashed, and the same row goes straight on into the snapshot TSV.
- * There is no write-the-whole-snapshot-then-read-it-back-to-upload round trip,
- * and no minutes-long window in which an edited file drifts out from under the
- * hash recorded for it.
- *
- * The composition, all of it over shared `lib` parts:
- * 1. **`readBaseline`** — the set's previous local snapshot: the hash lookup
- *    that spares unchanged files a re-read, and the upload baseline below.
- * 2. **`storedHashes`** — what needs no upload, decided *before* any hashing so
- *    a credentials or network problem surfaces in seconds rather than after a
- *    long pass. The single-owner model makes the previous **local** snapshot the
- *    authoritative baseline (ADR-0045), trusted only once `storedHashes` has
- *    confirmed the remote copy is byte-identical to it (ADR-0084); a first
- *    backup LISTs the store instead.
- * 3. **`generateSnapshot` with the object uploader spliced in** — the fused
- *    pass. The uploader is a pipe, not a callback: it consumes rows and yields
- *    them on unchanged, so a backup writes byte-for-byte the snapshot a plain
- *    `snapshot` would have written.
- * 4. **`uploadSnapshotFile`** — the manifest, *last*, once the pipeline has
- *    drained: the objects-first/snapshot-last invariant, kept absolute.
- *
- * **Nothing that goes wrong up there costs the hash pass.** The uploader never
- * throws mid-stream, so the local snapshot always lands complete: a failed
- * transfer is resumed with `upload <set> --snapshot <name>`, and even a file that
- * drifted only costs a fresh `backup`, which reads that snapshot as its hash
- * lookup and so re-reads nothing that didn't change.
+ * Back up a set to the cloud (docs/design/backup.md): the fused
+ * snapshot-and-upload pass is `uploadSet` (lib/upload.mjs, ADR-0069), run
+ * under the upload lock it takes for itself (ADR-0112). What is left here is
+ * the porcelain around it — the holder check up front, the config re-sync
+ * after, the comparison, and the report.
  *
  * **What a finished run reports** ([ADR-0078](../../docs/adr/0078-backup-run-report.md)):
  * in *files*, not objects — content-addressed dedup means a moved file changes
@@ -94,59 +64,14 @@ export async function backup(setName, options = {}) {
   const set = loadSet(setName);
   await assertHeld(set.bucket, set.name, set.claimPath);
 
-  const baseline = await readBaseline(set, {
-    rehash: options.rehash,
-    resume: options.resume,
-  });
+  const { baseline, pass, candidates, uploaded, uploadedBytes, sendingMs } =
+    await uploadSet(set, {
+      rehash: options.rehash,
+      resume: options.resume,
+      debug: options.debug,
+    });
   const { name: since, previous, previousErrors } = baseline;
-  const stored = await storedHashes({
-    bucket: set.bucket,
-    set: set.name,
-    snapshotDir: set.snapshotsDir,
-    since,
-    baseline: previous,
-  });
-
-  const uploader = uploadObjects({
-    bucket: set.bucket,
-    stored,
-    ownProgress: true,
-  });
-  const pass = await generateSnapshot(set, {
-    baseline,
-    through: uploader.through,
-    // Both halves of the fused pass report into one progress line: `through`
-    // does the sending, `transfer` is how that sending is going.
-    transfer: uploader.transfer,
-    debug: options.debug,
-  });
-
-  // The snapshot file has landed locally whatever happened above — that is what
-  // makes the retry cheap — so an upload failure surfaces only now, and no
-  // manifest is ever published for objects that didn't all make it.
-  //
-  // Which retry to name depends on the kind of failure (ADR-0069): a file that
-  // changed under us can never be reconciled with the snapshot that recorded it,
-  // so it asks for a fresh backup; anything else is a transfer that can simply be
-  // resumed. The transport failure is checked **first** — it is the terminal one,
-  // and it must not be spoken for by a drift met on an earlier row.
   const { name } = pass;
-  const { candidates, uploaded, uploadedBytes, sendingMs, drifted, failure } =
-    uploader.result();
-  if (failure) {
-    throw uploadFailedError(failure, set.name, name);
-  }
-  if (drifted.length > 0) {
-    throw fileChangedError(drifted, set.name);
-  }
-
-  await uploadSnapshotFile({
-    bucket: set.bucket,
-    set: set.name,
-    snapshotDir: set.snapshotsDir,
-    name,
-    claimPath: set.claimPath,
-  });
 
   // Re-sync the set's published config (ADR-0052): the objects + snapshot are
   // already up, so this is best-effort metadata — a hiccup here leaves the copy
@@ -252,26 +177,3 @@ function excludePattern(roots, path) {
   const rel = relative(root, path);
   return path.endsWith(sep) ? rel + sep : rel;
 }
-
-/**
- * The "the bytes didn't all make it" error a backup ends with when an upload
- * failed mid-pass. Its whole job is to say that the *hashing* wasn't wasted —
- * the snapshot is on disk, so the retry transfers what's left instead of
- * re-reading the set (ADR-0069). A named factory (heavy, actionable message —
- * error.mjs taxonomy), worded per ADR-0030: the user's goal first, the cause in
- * a parenthetical, the fix as a copy-pasteable command.
- * @param {Error} cause - The upload failure that stopped the transfers
- * @param {string} set - The set being backed up
- * @param {string} name - The snapshot that was written locally
- * @returns {Error}
- */
-const uploadFailedError = (cause, set, name) =>
-  new Error(
-    `Couldn't finish backing up — sending your files to the cloud stopped ` +
-      `part-way (${cause.message}).\n\n` +
-      `The snapshot of what's on this computer is saved, so nothing has to be ` +
-      `read or hashed again. Once the problem is sorted, carry on from where it ` +
-      `stopped:\n` +
-      `  ${shellCommand(`s3cab upload ${set} --snapshot ${name}`)}`,
-    { cause },
-  );

@@ -181,6 +181,12 @@ The generated policy grants exactly:
   `s3:AbortMultipartUpload` on its objects. The last lets a large upload that
   failed partway clear the parts it already sent.
 
+The `locks/` keys that keep backups and clean-ups apart
+([looking after a backup](maintenance.md#locks-backups-and-clean-ups-take-turns)) are
+ordinary objects, so that grant covers them. A policy you write by hand must let every
+identity that backs up, uploads, cleans up or deletes put, list and delete under `locks/`;
+an identity that only verifies or restores needs nothing there.
+
 `DeleteObject` is a **soft** delete: on a versioned bucket it writes a delete
 marker and the bytes survive as a noncurrent version (reclaimed by the lifecycle
 after the window). The key deliberately has **no** `DeleteObjectVersion`, so it

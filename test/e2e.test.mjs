@@ -216,6 +216,17 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Missing required argument: -S, --set/);
   });
 
+  it("unlock without --bucket is a usage error, before any S3 touch", async () => {
+    // Every lock lives in a bucket, and no set names one here (ADR-0112).
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(home, "unlock");
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /Missing required argument: -b, --bucket/);
+  });
+
   it("forget without a snapshot operand is a usage error, before any S3 touch", async () => {
     // Both argument checks run before the set is resolved, so this fails fast
     // even with no set on disk.

@@ -1,104 +1,17 @@
 # Concurrency & locking
 
 Epic: the places where two s3cab runs — or one crashed run and its successor — can step on
-each other. **To revisit before release** (user call, 2026-07-18): the backup/cleanup race
-below sits uncomfortably as a documented "don't do that", and a lock file may well be the
-answer for both items here.
+each other.
 
-Both items were previously scattered — the race was documented only in
-[docs/design/backup.md](../docs/design/backup.md) as an accepted caveat, the temp-file half in
-`engine-robustness.md` — but they are one subject: s3cab has no locking anywhere, and the two
-symptoms differ only in whether the contended resource is remote or local.
+**The cross-machine half is settled.** Items 1 (`cleanup` deleting an object a running
+`backup` relies on) and 3 (`delete` as a third destructive actor) are closed by
+[ADR-0112](../docs/adr/0112-bucket-locks.md): uploads and deletes hold locks in the bucket and
+never overlap, the grace window is gone, and the tests that pinned both races now assert the
+refusal. The item numbers below are kept as other documents cite them. What ADR-0112 leaves of
+item 3 is under its old number.
 
-## 1. `cleanup` can delete an object a running `backup` is relying on
-
-**The race.** Under objects-first/snapshot-last, a backup uploads objects and only then
-publishes the snapshot referencing them. A concurrent `cleanup` marks from published snapshots
-only, so anything uploaded-but-not-yet-referenced looks exactly like an orphan.
-
-**What already protects it.** The fixed 7-day **grace window**
-([src/lib/cleanup.mjs](../src/lib/cleanup.mjs), `GRACE_MS`) — no object younger than a week is
-ever swept, so a normal in-flight backup is safe without a lock. There is deliberately no
-`--grace` knob.
-
-**The residual hole the grace window does _not_ cover.** An **old** object (past grace —
-typically a crash orphan from weeks back) that a running backup *skips uploading* because the
-conditional PUT shows it already present, deleted by cleanup in the gap between that skip and
-the snapshot upload. The published snapshot then references an object that is gone.
-
-**Not single-user.** One repository is one bucket holding multiple sets from any number of
-users and machines ([ADR-0013](../docs/adr/0013-one-repository-one-bucket.md)), so this is a
-cross-machine race, not just a two-terminals-on-one-laptop one — and scheduled backups make it
-likelier. A single user running commands one at a time essentially cannot hit it.
-
-**Current stance** (docs/design/backup.md): locking was judged over-engineering for this
-audience; instead "don't run cleanup while a backup is running", said in cleanup's output. The
-design doc says explicitly: *do not "optimize away" the grace window or this warning.* Versioning
-backstops it anyway — the delete is soft and recoverable, and `verify` reports the result as
-`missing`. **Revisiting that stance is the point of this epic**; if it changes, amend
-docs/design/backup.md.
-
-**Two sharpenings from the 2026-08-12 durability audit** (see
-[bugs.md](bugs.md) for its provenance; the residual hole above was confirmed exactly as written,
-by a cold read):
-
-- **The stale-plan window is human-minutes, not milliseconds.** The interactive confirmation sits
-  *between* the scan and the deletes, so the plan is already as old as the user's decision time
-  by the time it executes. Any reasoning that treats this race as a narrow instant is measuring
-  the wrong interval — the same is true of `delete` in §3, which has the slower prompt of the two.
-- **`forget` + `cleanup` interleaves into the same hole from the other side.** A running backup
-  has already passed its baseline HEAD and is skipping the objects that baseline vouches for. If
-  the baseline is *forgotten* mid-run and `cleanup` follows, those objects — old, now unreferenced
-  — are deletable before the new manifest lands. The 2026-07-19 baseline-trust fix closes this for
-  the *next* backup (it re-HEADs and falls back to a LIST); it cannot help the one already in
-  flight, whose check has passed.
-
-Both interleaves are now **pinned by deterministic tests** (2026-08-14, model-based suite):
-*"cleanup sweeps an old object a running backup just skipped"* and *"forget + cleanup mid-backup
-delete the baseline's objects before the manifest lands"* in
-[test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs) — each reproduces the
-race in-process (the interleaving command runs from inside the backup's manifest PUT), asserts the
-dangling reference, and confirms `verify` reports it. Hypothesis → confirmed; whatever locking
-decision this epic reaches inherits them as regression tests.
-
-**Confirmed multi-process against real S3** (2026-08-14, crash tier): both interleaves reproduce
-with genuinely separate processes — the real CLI, separate `S3CAB_HOME`s, one real bucket, the
-in-flight backup parked immediately before its manifest PUT while a real `cleanup --force` (and,
-for the second interleave, `forget --force` first) runs to completion from another process. In
-both, the released backup **publishes its manifest and exits 0**; the store then holds dangling
-references and the snapshot is unrestorable. The two `PIN` tests in
-[test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs) are the deterministic
-repros (grace compressed to seconds via the labeled `S3CAB_XGRACE_MS` test instrument — the
-interleaving itself is the production one). The same suite confirms the **safe** arms with the
-mechanism named live:
-
-- *backup ∥ cleanup at real grace*: minutes-old crash orphans a second backup reuses survive the
-  sweep — `GRACE_MS` is the protection, exactly as documented above.
-- *backup ∥ backup, shared content across sets*: a backup whose upload plan went stale mid-run
-  lands every object PUT on an existing key; the no-clobber conditional PUT's 412 is treated as
-  "already stored" and both sets restore byte-identically.
-- *backup ∥ backup, same set + same snapshot name*: the no-clobber manifest PUT leaves exactly
-  one winner; the loser fails loudly, its objects stored but unrecorded, and re-runs. **This is a
-  supported configuration, not a misuse** — two live machines on one set is discouraged-but-
-  tolerated and explicitly never locked out
-  ([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md), reaffirmed by
-  [ADR-0053](../docs/adr/0053-reattach-command.md); the naming *claim* is the settled hard gate,
-  first-person-wins at `setup`). So the loser's error message is the whole product surface for
-  this, and it was wrong until 2026-08-18 — "already backed up" was true of the name and false of
-  the data. Fixed there; **not** a candidate for a lock.
-- *backup ∥ forget alone*: safe because `forget` deletes only `snapshots/<set>/` keys — every
-  object the in-flight manifest references is still stored.
-- *cleanup ∥ forget*: safe because cleanup reads snapshots strictly **before** its objects LIST,
-  so a mid-run forget makes it conservative (keeps now-unreferenced objects for the next run),
-  never destructive.
-- *cleanup ∥ cleanup* and *forget ∥ forget*: safe because S3 `DeleteObject` is idempotent —
-  overlapping sweeps of the same plan can't fail each other. (Two forgets of one snapshot both
-  report success and both file an audit record; cosmetic.)
-- *setup ∥ setup claiming one name*: two conditional claim PUTs released simultaneously produce
-  exactly one 200 and one 412; the loser's error names the owner and offers `reattach`.
-
-**Versioning backstops all of this only if versioning is on, and no code path checks** — see the
-entry in [engine-robustness.md](engine-robustness.md).
+**Versioning backstops a mistaken delete only if versioning is on, and no code path checks** —
+see the entry in [engine-robustness.md](engine-robustness.md).
 
 ## 2. Stale temp-file recovery (the local half)
 
@@ -151,17 +64,14 @@ not for sweeping this stale lock, which it leaves untouched. That verdict above 
 > clearing is now `--resume`, which keeps the dead run's hashes rather than binning them. The
 > lock itself is as unsolved as ever — the user is still the liveness check.)_
 
-**Confirmed live under real SIGKILL, and measured narrower than it reads** (2026-08-14, crash
-tier — [test/crash/crash.test.mjs](../test/crash/crash.test.mjs)): the residue exists only for a
-kill **inside the fused pipeline** (before/between object PUTs, mid-multipart). A kill in the
-window *between the last object PUT and the manifest PUT* — the widest torn-transition gap —
-leaves **no** lock, because the work file has already been renamed into place; the rerun recovers
-unaided (baseline HEAD misses the never-published manifest, falls back to a LIST, reuses the
-orphaned objects). When the lock *is* left, the rerun refuses with `inProgressError`'s message
-("A snapshot of this set is already in progress — or a previous one was interrupted…"), which
-names the exact file and the delete command — observed verbatim, and recovery after the delete
-was clean in every case. What the hard kill costs beyond the hand-delete is the interrupted hash
-pass.
+**Confirmed live under real SIGKILL** (2026-08-14, crash tier —
+[test/crash/crash.test.mjs](../test/crash/crash.test.mjs)): the work-file residue exists only
+for a kill **inside the fused pipeline** (before/between object PUTs, mid-multipart); a kill in
+the window *between the last object PUT and the manifest PUT* leaves no work file, because it
+has already been renamed into place. Since [ADR-0112](../docs/adr/0112-bucket-locks.md) a kill
+anywhere before the manifest lands also leaves the run's lock in the bucket, which the next
+backup from the same machine removes by itself (its process is gone); `--resume` answers the
+work file as before. What the hard kill costs is still the interrupted hash pass.
 
 ### A hard-killed work file turned out to be readable (2026-09-13)
 
@@ -229,43 +139,18 @@ option above is still what would make recovery *automatic* rather than user-invo
 cannot collide with a live run can be swept and reused with no liveness question left to answer.
 That remains the live starting point for item 2; this was the manual half, and it pays off now.
 
-## 3. `delete` is a third destructive actor (added by the deletion rework)
+## 3. `delete`'s cross-set case (what ADR-0112 leaves)
 
-Since [ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md), `delete` also removes
-objects bucket-wide — so the "two commands that must not race a backup" framing above is now
-three, and `delete`'s profile is the *least* protected of them:
-
-- **The 7-day grace window does not help it at all.** Grace protects `cleanup` because cleanup
-  only ever targets *unreferenced* objects. `delete` deliberately removes content live
-  snapshots still reference, chosen by path — object age is irrelevant to its plan.
-- **It carries no "don't run this while a backup is running" line**, where `cleanup` does
-  ([src/commands/cleanup.mjs](../src/commands/cleanup.mjs), the `console.warn` after a
-  reclaim). Whether that omission is a gap or is genuinely covered by the record is a question
-  for whoever picks this up — adding the line is the cheap interim either way.
-- **ADR-0064 judged its race safe-degrading**, and that reasoning still stands: a backup that
-  skipped uploading an object (conditional PUT saw it present) and publishes its snapshot just
-  after a `delete` removes that object yields a snapshot referencing deleted content — but the
-  deletion record *explains* the gap, so `verify` reports it as expected-missing and `restore`
-  skips it with a date. Degraded, never silently corrupt.
-- _My analysis, not a decision:_ the sharper variant is the **cross-set** one — `delete`'s scan
-  sees hash H referenced only inside its scope and marks it deletable, while a concurrent
-  backup of a set *outside* that scope publishes a snapshot referencing H. That set never
-  consented to the deletion, and its brand-new snapshot lands already record-explained-missing.
-  Still not corruption, but it is where "the record makes it fine" reads thinnest, and it is
-  what a lock (or re-checking the reference set immediately before deleting) would actually
-  close.
-- **Independently reached by the 2026-08-12 durability audit** (provenance in [bugs.md](bugs.md)),
-  which found this cross-set variant cold — without reading this file — and rated it the most
-  serious of the three destructive-actor races. Two things it adds to the bullet above:
-  - **Nobody involved gets a signal.** Because the deletion record explains H, the affected set's
-    `verify` reports expected-missing and exits **0**, and its `restore` skips the file and exits
-    **0**. The set that never consented has no mechanism by which it could find out — where the
-    `cleanup` race in §1 at least surfaces as `missing`. That is the concrete sense in which "the
-    record makes it fine" is thinnest: the record is not merely inadequate here, it is actively
-    supplying the explanation that suppresses the alarm.
-  - **`delete`'s window is the widest of the three**, because its confirmation is the
-    type-the-bucket-name prompt — the slowest deliberate pause in the tool sits between its scan
-    and its deletes.
+The delete lock closes the race with a *running* backup: a backup that skipped an object
+because the bucket held it can no longer have that object deleted beneath it. What stays is the
+**cross-set** case from the 2026-08-12 durability audit (provenance in [bugs.md](bugs.md)),
+which [ADR-0089](../docs/adr/0089-hash-operand-delete.md) accepts: `find` sees hash H referenced
+only where the user is looking, a backup of *another* set lands a snapshot referencing H
+between that `find` and the delete lock, and the delete removes H. The record explains the
+absence, so that set's `verify` reports expected-missing and exits 0 and its `restore` skips the
+file and exits 0 — nobody involved gets a signal. Not corruption; the one place "the record
+makes it fine" reads thinnest. A re-check of the reference set under the lock, immediately
+before deleting, is what would close it.
 
 ## 4. Write the work file **uncompressed**, compress at finalize (revived 2026-07-29)
 
@@ -325,27 +210,17 @@ work file at the lock name, still hand-deleted. What changes is what that leftov
 combined with the unique-temp-name-per-run option above, a dead run's hashes become something the
 successor can sweep up and reuse instead of bin.
 
-## State of play (2026-07-29; amended 2026-09-18)
+## State of play (2026-10-29)
 
-> **One piece is built.** [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) makes a
-> hard-killed work file recoverable with `--resume` — §2's *"Recovering it, rather than deleting
-> it"*. It does not resolve item 2, which is still the stale lock itself; it makes what that lock is
-> sitting on worth keeping, and it retires §4's robustness argument (point 2). Everything below
-> stands otherwise.
+Two pieces are built. [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) makes a
+hard-killed work file recoverable with `--resume` (§2's *"Recovering it, rather than deleting
+it"*), and [ADR-0112](../docs/adr/0112-bucket-locks.md) settles the cross-machine half with
+locks in the bucket that never expire. A run removes its own machine's locks whose process is
+gone; a lock from any other machine waits for `unlock`, so the user is the liveness check only
+there. The local half still has the user as its only check, through `--resume`.
 
-Nothing else here is built. Three things changed around it without resolving it: the deletion rework
-(ADR-0063/0064) **added a third customer** (§3), [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
-**shrank item 2** to the hard-kill case while sharpening how to think about it, and the fused
-pipeline (ADR-0069) revived the **uncompressed work file** as a way to make what a dead run leaves
-behind worth having (§4). Ripe to pick
-up: self-contained, blocks nothing, and it is the standing pre-release item (user call,
-2026-07-18). Take the one-mechanism-or-two decision below *after* re-reading ADR-0048 and
-ADR-0067, which between them already fix half the design space.
-
-## If a lock is the answer, it has to answer both
-
-_My framing, not a decision taken._ Item 2's lock is **local** (a file beside the snapshot, PID
-liveness works). Item 1's is **remote and cross-machine** — a lock object in the bucket, with
-no PID to check liveness against, needing a lease/expiry so a crashed machine cannot wedge
-everyone else's cleanup forever. They are not the same mechanism, and item 1 is much the harder
-of the two. Worth deciding whether to solve them together or accept two designs.
+What is left is local: item 2's stale lock itself, where the **unique-temp-name-per-run** option
+would make recovery automatic rather than user-invoked, and §4's uncompressed work file as a way
+to make what a dead run leaves behind worth having. Both are self-contained and block nothing.
+Re-read ADR-0048 and ADR-0067 before designing either; between them they fix half the design
+space.

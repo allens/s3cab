@@ -94,22 +94,21 @@ export async function getObject(bucket, hash, destPath) {
 }
 
 /**
- * Yield every stored object as `{ hash, size, lastModified }` — the bare SHA-256
- * of each key under `objects/` (prefix stripped) with its LIST `Size` and
- * `LastModified`. The one enumeration of the object store, from which the
- * hash-only listing (`listObjectHashes`) and the whole-bucket scan
- * (`scanBucket`, bucket-scan.mjs — `verify`'s size cross-check and `cleanup`'s
- * orphan sweep) draw: a LIST already returns each key with its size *and* age,
- * so `verify` gets sizes and `cleanup` gets the grace-window age for free, with
- * no per-object HEAD (docs/design/backup.md). `lastModified` is absent
- * only if S3 omits it (it never does for a real object); `cleanup` treats absent
- * as too-new-to-delete.
+ * Yield every stored object as `{ hash, size }` — the bare SHA-256 of each key
+ * under `objects/` (prefix stripped) with its LIST `Size`. The one enumeration
+ * of the object store, from which the hash-only listing (`listObjectHashes`)
+ * and the whole-bucket scan (`scanBucket`, bucket-scan.mjs — `verify`'s size
+ * cross-check and `cleanup`'s orphan sweep) draw: a LIST already returns each
+ * key with its size, so `verify` gets sizes with no per-object HEAD
+ * (docs/design/backup.md). Not the LIST's `LastModified`: an object's age
+ * decides nothing — what keeps an in-flight backup's objects safe from
+ * `cleanup` is the locks (ADR-0112), not a grace window.
  * @param {string} bucket - The repository's S3 bucket
- * @yields {{ hash: string, size: number, lastModified?: Date }} A stored object's hash, size, and age
- * @returns {AsyncGenerator<{ hash: string, size: number, lastModified?: Date }>}
+ * @yields {{ hash: string, size: number }} A stored object's hash and size
+ * @returns {AsyncGenerator<{ hash: string, size: number }>}
  */
 export async function* listStoredObjects(bucket) {
-  for await (const { Key, Size, LastModified } of listObjects(
+  for await (const { Key, Size } of listObjects(
     `s3://${bucket}/${OBJECTS_PREFIX}`,
   )) {
     // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
@@ -117,7 +116,7 @@ export async function* listStoredObjects(bucket) {
     // phantom stored object.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
     if (hash) {
-      yield { hash, size: Size ?? 0, lastModified: LastModified };
+      yield { hash, size: Size ?? 0 };
     }
   }
 }
@@ -131,8 +130,9 @@ export async function* listStoredObjects(bucket) {
 export const REQUESTS_IN_FLIGHT = 50;
 
 /**
- * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. The first
- * call to fail rejects, and no more are started.
+ * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. A call
+ * that fails stops any more being started, and once those already started have
+ * settled, rejects with the first failure's error.
  * @param {string[]} hashes
  * @param {(hash: string) => Promise<void>} request
  * @returns {Promise<void>}
@@ -149,13 +149,30 @@ async function eachInFlight(hashes, request) {
   // and starts none while `highWaterMark` of them (99 at 50) wait behind one
   // stalled request, and despite its docs the signal it gives the mapper isn't
   // aborted when another call fails (measured on Node 26).
+  let failed = false;
+  /** @type {unknown} */
+  let failure;
+  // Every worker settles before this rejects, not just the first to fail: a
+  // caller removes its delete lock on the rejection, and a DELETE still in
+  // flight then can remove an object a backup on another machine has just
+  // skipped as stored (ADR-0112).
   await Promise.all(
     Array.from({ length: REQUESTS_IN_FLIGHT }, async () => {
-      for (const hash of queue) {
-        await request(hash);
+      try {
+        for (const hash of queue) {
+          await request(hash);
+        }
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
       }
     }),
   );
+  if (failed) {
+    throw failure;
+  }
 }
 
 /**
@@ -165,8 +182,8 @@ async function eachInFlight(hashes, request) {
  * and where the deletion record's size column comes from) and `forget`'s
  * preview. One HEAD per hash is the honest cost of an exact answer about named
  * objects; a whole-store LIST ({@link listStoredObjects}) wins only when the
- * question is about *every* object. The first HEAD to fail rejects the call, and
- * no more are started.
+ * question is about *every* object. A HEAD that fails rejects the call, once
+ * those already sent have settled, and no more are started.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
  * @returns {Promise<Map<string, number | undefined>>}
@@ -188,8 +205,8 @@ export async function storedObjectSizes(bucket, hashes) {
  * this module's key layout, so callers never spell the key. On a versioned
  * bucket this is a soft delete (a delete marker), the ransomware-safety model
  * (ADR-0033) — permanent reclamation needs a lifecycle rule, which `cleanup`'s
- * docs recommend. The first delete to fail rejects the call, and no more are
- * started.
+ * docs recommend. A delete that fails rejects the call, once those already sent
+ * have settled, and no more are started.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
  * @returns {Promise<void>}

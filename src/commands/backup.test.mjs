@@ -4,41 +4,34 @@ import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-/** @import { SnapshotRow } from "../lib/snapshot-file.mjs" */
-/** @import { Drift } from "../lib/upload.mjs" */
-
-// Offline tests for `backup`'s orchestration (ADR-0069): read the previous
-// snapshot, decide what's already stored *before* hashing anything, run one
-// fused pass with the object uploader spliced into the snapshot write, publish
-// the manifest last, then best-effort re-publish the set's config to the remote
-// marker (ADR-0052). The set resolver, the snapshot engine, the upload lib and
-// `pushSetConfig` are faked at the module seam — what's under test is the wiring
-// and its order. Mocks first, then a dynamic import (objects.test.mjs rule).
+// Offline tests for `backup`'s porcelain: the holder check up front, the fused
+// pass handed to `uploadSet` (lib/upload.mjs, where its order and failures are
+// tested in upload.set.test.mjs), the best-effort config re-publish to the
+// remote marker (ADR-0052), the comparison over the snapshot just written, and
+// the report. The set resolver, the upload lib and `set-marker` are faked at
+// the module seam — what's under test is the wiring and its order. Mocks
+// first, then a dynamic import (objects.test.mjs rule).
 
 /** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string, dirs: string[] }} */
 let fakeSet;
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
-/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookup?: object }} */
+/** @type {{ name?: string, previous?: Map<string, object>, previousErrors: Map<string, string>, lookup?: object }} */
 let baseline;
-/** @type {Record<string, unknown>[]} the options each `readBaseline` call got */
-let baselineCalls = [];
-/** @type {Record<string, unknown>[]} the args each `storedHashes` call got */
-let storedCalls = [];
-/** @type {Record<string, unknown>[]} the args each `generateSnapshot` call got */
-let generateCalls = [];
-/** @type {Record<string, unknown>[]} the args each manifest upload got */
-let manifestCalls = [];
-/** @type {{ candidates: number, uploaded: number, uploadedBytes: number, sendingMs: number, drifted: Drift[], failure?: Error }} */
-let outcome;
-/** @type {Record<string, unknown>} what `generateSnapshot` reports about the pass */
+/** @type {Record<string, unknown>[]} the options each `uploadSet` call got */
+let uploadCalls = [];
+/** @type {object[]} the set each `uploadSet` call got */
+let uploadSets = [];
+/** @type {Record<string, unknown>} what `uploadSet` reports about the pass */
 let pass;
+/** @type {{ candidates: number, uploaded: number, uploadedBytes: number, sendingMs: number }} */
+let sending;
+/** @type {Error | undefined} what `uploadSet` fails with, if it does */
+let uploadFails;
 /** @type {Record<string, unknown>[]} the args each `compareSnapshots` call got */
 let compareCalls = [];
 /** @type {object | null} what the mocked compare returns */
 let comparison;
-/** @type {{ drifted: Drift[], set: string }[]} calls into the drift-error factory */
-let driftErrorCalls = [];
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
 let pushFails;
 /** @type {[string, string, object][]} */
@@ -69,26 +62,6 @@ mock.module("../lib/set-marker.mjs", {
     },
   },
 });
-mock.module("../lib/snapshot.mjs", {
-  exports: {
-    readBaseline: async (
-      /** @type {object} */ _set,
-      /** @type {Record<string, unknown>} */ options,
-    ) => {
-      calls.push("readBaseline");
-      baselineCalls.push(options);
-      return baseline;
-    },
-    generateSnapshot: async (
-      /** @type {object} */ _set,
-      /** @type {Record<string, unknown>} */ options,
-    ) => {
-      calls.push("generateSnapshot");
-      generateCalls.push(options);
-      return pass;
-    },
-  },
-});
 mock.module("../lib/compare.mjs", {
   exports: {
     compareSnapshots: async (
@@ -104,31 +77,17 @@ mock.module("../lib/compare.mjs", {
 });
 mock.module("../lib/upload.mjs", {
   exports: {
-    storedHashes: async (/** @type {Record<string, unknown>} */ args) => {
-      calls.push("storedHashes");
-      storedCalls.push(args);
-      return new Set(["already-stored"]);
-    },
-    uploadObjects: () => {
-      calls.push("uploadObjects");
-      return {
-        /** @param {AsyncIterable<SnapshotRow>} rows */
-        through: (rows) => rows,
-        result: () => outcome,
-      };
-    },
-    uploadSnapshotFile: async (/** @type {Record<string, unknown>} */ args) => {
-      calls.push("uploadSnapshotFile");
-      manifestCalls.push(args);
-    },
-    // The real factory's wording is unit-tested at its own seam; here what matters
-    // is that `backup` delegates to it, handing over the whole drift list.
-    fileChangedError: (
-      /** @type {Drift[]} */ drifted,
-      /** @type {string} */ set,
+    uploadSet: async (
+      /** @type {object} */ set,
+      /** @type {Record<string, unknown>} */ options,
     ) => {
-      driftErrorCalls.push({ drifted, set });
-      return new Error(`drift in '${set}'`);
+      calls.push("uploadSet");
+      uploadSets.push(set);
+      uploadCalls.push(options);
+      if (uploadFails) {
+        throw uploadFails;
+      }
+      return { baseline, pass, ...sending };
     },
   },
 });
@@ -161,11 +120,9 @@ beforeEach(() => {
     previousErrors: new Map(),
     lookup: { entries: new Map() },
   };
-  baselineCalls = [];
-  storedCalls = [];
-  generateCalls = [];
-  manifestCalls = [];
-  compareCalls = [];
+  uploadCalls = [];
+  uploadSets = [];
+  uploadFails = undefined;
   pass = {
     name: "2026-01-02T0900",
     path: "snaps/2026-01-02T0900.tsv.gz",
@@ -179,15 +136,14 @@ beforeEach(() => {
     ],
     elapsedMs: 9_000,
   };
-  outcome = {
+  sending = {
     candidates: 3,
     uploaded: 2,
     uploadedBytes: 1_500_000,
     sendingMs: 2_000,
-    drifted: [],
   };
+  compareCalls = [];
   comparison = { since: "2026-01-01T0900", until: "2026-01-02T0900" };
-  driftErrorCalls = [];
   pushCalls = [];
   pushFails = undefined;
 });
@@ -201,46 +157,27 @@ afterEach(() => {
   process.exitCode = savedExitCode; // never leak a set exit code to the runner
 });
 
-describe("backup (the fused pass)", () => {
-  it("settles what's stored before hashing, generates with the uploader spliced in, publishes the manifest last", async () => {
+describe("backup", () => {
+  it("checks the holder, runs the fused pass, re-syncs the config, then compares", async () => {
     const result = await backup("photos");
 
-    // The order is the invariant: nothing is hashed before the store question is
-    // settled, and the manifest goes up only once the pipeline has drained.
     assert.deepEqual(calls, [
       // Before the pass, so a set this machine doesn't hold is refused in
       // seconds; `uploadSnapshotFile` checks again just before publishing.
       "assertHeld",
-      "readBaseline",
-      "storedHashes",
-      "uploadObjects",
-      "generateSnapshot",
-      "uploadSnapshotFile",
+      "uploadSet",
       "pushSetConfig",
       // Last, over the snapshot that has just landed — the run's report is a
       // *reading* of the finished snapshot, never a tally kept alongside it
       // (ADR-0078 §8).
       "compareSnapshots",
     ]);
-    // The uploader rides *inside* the snapshot write — that is the fusion.
-    assert.ok(
-      generateCalls[0]?.through,
-      "expected the upload transform to be passed",
-    );
-    assert.deepEqual(baselineCalls, [{ rehash: undefined, resume: undefined }]);
-    // The whole of `readBaseline`'s result, forwarded rather than picked apart:
-    // `generateSnapshot` derives `lookup`/`sizes`/`previousInstant` from it itself.
-    assert.equal(generateCalls[0]?.baseline, baseline);
-    assert.deepEqual(manifestCalls, [
-      {
-        bucket: "b",
-        set: "photos",
-        snapshotDir: "snaps",
-        name: "2026-01-02T0900",
-        claimPath: "photos/claim",
-      },
-    ]);
     assert.deepEqual(heldCalls, [["b", "photos", "photos/claim"]]);
+    // The resolved set itself goes to the lib, which takes the lock for it.
+    assert.equal(uploadSets[0], fakeSet);
+    assert.deepEqual(uploadCalls, [
+      { rehash: undefined, resume: undefined, debug: undefined },
+    ]);
     assert.deepEqual(result, {
       set: "photos",
       bucket: "b",
@@ -272,6 +209,22 @@ describe("backup (the fused pass)", () => {
     await assert.rejects(backup("photos"), /not held/);
 
     assert.deepEqual(calls, ["assertHeld"]);
+  });
+
+  it("passes --rehash, --resume and --debug through to the pass", async () => {
+    await backup("photos", { rehash: true, resume: true, debug: true });
+
+    assert.deepEqual(uploadCalls, [
+      { rehash: true, resume: true, debug: true },
+    ]);
+  });
+
+  it("a failed pass is the run's failure — no config re-sync, no comparison", async () => {
+    uploadFails = new Error("connection reset");
+
+    await assert.rejects(backup("photos"), /connection reset/);
+
+    assert.deepEqual(calls, ["assertHeld", "uploadSet"]);
   });
 
   it("suggests excluding only the files that failed last time too", async () => {
@@ -326,12 +279,6 @@ describe("backup (the fused pass)", () => {
     assert.deepEqual(result.excludeSuggestions, ["a.pst"]);
   });
 
-  it("passes --rehash through, so the pass reuses no stored hash", async () => {
-    await backup("photos", { rehash: true });
-
-    assert.deepEqual(baselineCalls, [{ rehash: true, resume: undefined }]);
-  });
-
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {
     // The fixture pass carries two errors (`#error` rows). The snapshot still
     // publishes — everything it lists is stored — but a scheduled backup runs
@@ -360,7 +307,7 @@ describe("backup (the fused pass)", () => {
     assert.deepEqual(result.errors, pass.errors);
   });
 
-  it("diffs against the baseline it already parsed, never a second read of it", async () => {
+  it("diffs against the baseline the pass already parsed, never a second read of it", async () => {
     const result = await backup("photos");
 
     assert.deepEqual(compareCalls, [
@@ -395,88 +342,6 @@ describe("backup (the fused pass)", () => {
     assert.ok(!calls.includes("compareSnapshots"));
     assert.equal(result.comparison, null);
     assert.deepEqual(result.errors, pass.errors);
-  });
-
-  it("hands the previous local snapshot to storedHashes as the baseline", async () => {
-    await backup("photos");
-
-    assert.deepEqual(storedCalls, [
-      {
-        bucket: "b",
-        set: "photos",
-        snapshotDir: "snaps",
-        since: "2026-01-01T0900",
-        baseline: baseline.previous,
-      },
-    ]);
-  });
-
-  it("passes no baseline on a first backup (storedHashes then LISTs the store)", async () => {
-    baseline = { previousErrors: new Map() }; // no previous snapshot
-
-    await backup("photos");
-
-    assert.equal(storedCalls[0]?.since, undefined);
-    assert.equal(storedCalls[0]?.baseline, undefined);
-  });
-
-  it("reports an upload failure without publishing the manifest, pointing at the cheap retry", async () => {
-    // The local snapshot landed (generateSnapshot returned), so the fix is to
-    // re-send the objects — not to re-hash the whole set.
-    const failure = new Error("connection reset");
-    outcome = { ...outcome, uploaded: 1, failure };
-
-    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
-      assert.match(error.message, /connection reset/);
-      assert.match(
-        error.message,
-        /s3cab upload photos --snapshot 2026-01-02T0900/,
-      );
-      assert.equal(error.cause, failure);
-      return true;
-    });
-
-    assert.deepEqual(manifestCalls, [], "no manifest for a partial upload");
-    assert.ok(!calls.includes("pushSetConfig"));
-  });
-
-  it("raises the drift error, not the resume advice — a drifted file needs a fresh backup", async () => {
-    // A drifted row can never be reconciled with the file as it now stands, so
-    // wrapping it in the "carry on where it stopped" advice would send the user
-    // at a retry that must fail. `backup` hands the whole list to the factory.
-    /** @type {Drift[]} */
-    const drifted = [{ path: "photo.raw", reason: "changed" }];
-    outcome = { ...outcome, drifted };
-
-    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
-      assert.equal(error.message, "drift in 'photos'");
-      return true;
-    });
-
-    assert.deepEqual(driftErrorCalls, [{ drifted, set: "photos" }]);
-    assert.deepEqual(manifestCalls, []);
-  });
-
-  it("blames the dropped link, not an earlier drift, when both happened", async () => {
-    // The masking defect the two-field outcome exists to fix: one first-wins slot
-    // let a drift on an early row speak for a dead network met on a later one, so
-    // the user was sent at a fresh backup when the actual problem was the link.
-    const failure = new Error("connection reset");
-    outcome = {
-      ...outcome,
-      uploaded: 1,
-      drifted: [{ path: "photo.raw", reason: "changed" }],
-      failure,
-    };
-
-    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
-      assert.match(error.message, /connection reset/);
-      assert.match(error.message, /--snapshot 2026-01-02T0900/);
-      return true;
-    });
-
-    assert.deepEqual(driftErrorCalls, [], "the drift error is not raised");
-    assert.deepEqual(manifestCalls, []);
   });
 });
 

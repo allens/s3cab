@@ -40,27 +40,14 @@ No eventual-consistency window, no stale LIST.
 - The model's reconcile step (observe the store after every op) is only sound
   under this capability; a backend without it cannot run the sequence tier.
 
-### `list-last-modified`
-
-LIST reports a `LastModified` per object that measures real elapsed time since
-the object landed — the input to `cleanup`'s 7-day grace window.
-
-- Fake: **yes**, with a twist: objects are stamped with the *virtual* clock at
-  PUT and LIST reports `real now − virtual age`, so grace-window behaviour is
-  testable without waiting seven days.
-- Real S3: **yes**, but the clock is the real one — age-dependent tests
-  (grace-window expiry) cannot run in one sitting there; that is Tier 3's
-  written procedure, not a skipped assertion.
-
 ### `virtual-clock`
 
-Object ages and every instant an artifact records — snapshot names, `@SNAPSHOT START`
-and `FINISH` instants, a set marker's CREATED, audit stamps — can be steered by
-the harness clock (`clockHolder`), because they are all read through the one
-module the seam mocks (`format.mjs`); `model.clock.test.mjs` pins that. **Fake-only
-by construction** — it exists so Tier 1 can cross the grace window in
-microseconds. Any test that advances time past minutes requires this capability;
-on a real backend it must skip (or live in Tier 3).
+Every instant an artifact records — snapshot names, `@SNAPSHOT START` and
+`FINISH` instants, a set marker's CREATED, audit stamps, lock ids — can be
+steered by the harness clock (`clockHolder`), because they are all read through
+the one module the seam mocks (`format.mjs`); `model.clock.test.mjs` pins that.
+**Fake-only by construction.** Any test that advances time past minutes
+requires this capability; on a real backend it must skip (or live in Tier 3).
 
 ### `fault-injection`
 
@@ -84,8 +71,7 @@ path that cannot occur; testing the relay itself needs real throttling
 The harness can enumerate keys and read raw bytes out-of-band (`listAll`,
 `getBytes`, `putBytes`, `deleteKey`) to check store invariants and craft
 hostile store states. The fake implements it in-memory; the Tier 2 backend
-implements the same surface over the SDK (without `virtualMs`, which is a
-fake-only extra riding on `virtual-clock`).
+implements the same surface over the SDK.
 
 ### `versioning`
 
@@ -136,7 +122,6 @@ never declared; it exists in the vocabulary because Tier 3's procedure
 | ------------------- | ----------- | --------------- |
 | `conditional-put`   | ✔           | ✔               |
 | `strong-consistency`| ✔           | ✔               |
-| `list-last-modified`| ✔           | ✔               |
 | `virtual-clock`     | ✔           | —               |
 | `fault-injection`   | ✔           | —               |
 | `inspection`        | ✔           | ✔               |

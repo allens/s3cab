@@ -4,7 +4,6 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { DAY_MS } from "./harness/clock.mjs";
 import { FakeS3, parseUri } from "./harness/fake-s3.mjs";
 import { runSequence } from "./harness/runner.mjs";
 import { generateSequence } from "./harness/sequence.mjs";
@@ -257,17 +256,16 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           }
         };
       // Handcrafted rather than seed-scanned: the bug only fires once a
-      // snapshot's objects age past the 7-day grace window *and* a cleanup
-      // follows, a conjunction rare enough under the generator's step mix that
-      // scanning for it would blow the per-commit budget. The noise steps are
-      // there for the shrinker to remove.
+      // cleanup follows a backup, with the hidden snapshot's objects unreferenced by
+      // any other, a conjunction rare enough under the generator's step mix
+      // that scanning for it would blow the per-commit budget. The noise steps
+      // are there for the shrinker to remove.
       const steps = /** @type {Step[]} */ ([
         { kind: "create-set", machine: 0, set: "col", seedFiles: [3, 5] },
         { kind: "verify" },
         { kind: "backup", machine: 0, set: "col" },
         { kind: "mutate", set: "col", file: "f2.txt", content: 6 },
         { kind: "restore", machine: 0, set: "col", index: 0 },
-        { kind: "advance", ms: 8 * DAY_MS },
         { kind: "snapshot", machine: 0, set: "col" },
         { kind: "verify" },
         { kind: "cleanup" },

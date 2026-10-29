@@ -14,10 +14,14 @@ import { useTempHome } from "./temp-home.mjs";
 // `S3CAB_TEST_BUCKET_INTEGRATION` (+ ambient AWS credentials).
 //
 // Every suite scopes what it asserts to a unique set name or a specific object hash,
-// because the test files run in parallel against this one bucket. Keep it that way —
-// an assertion over the whole bucket (every object, every set, "the listing is empty")
-// would see another file's sets mid-run, which is why test/crash and
-// test/model/conformance, which do assert whole-bucket state, get their own buckets.
+// because this one bucket is shared: with other machines' runs, and with what a
+// crashed earlier run left behind. Keep it that way — an assertion over the whole
+// bucket (every object, every set, "the listing is empty") would see another run's
+// sets, which is why test/crash and test/model/conformance, which do assert
+// whole-bucket state, get their own buckets. The files run one at a time
+// (`--test-concurrency=1` in the npm script): a delete holds a lock that turns every
+// upload away, and uploads never wait (ADR-0112), so delete.test.mjs beside a
+// parallel upload.test.mjs fails the upload by design.
 //
 // These suites only run when integration is explicitly opted into
 // (`npm run test:integration` / `test:all`); a plain `npm test` never globs this

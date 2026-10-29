@@ -47,10 +47,11 @@ Five tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutti
   concurrency cases run backup/cleanup/forget/setup from separate processes with separate
   `S3CAB_HOME`s against one bucket. Gated on `S3CAB_TEST_BUCKET_CRASH` (`test-s3cab-<owner>-crash` —
   cases wipe the bucket), `npm run test:crash` only, **never** in `test:all`. Assertions go
-  through the model tier's independent inspector/parser, never `src/lib/s3.mjs`. The two `PIN`
-  tests in [crash/concurrency.test.mjs](crash/concurrency.test.mjs) assert *current wrong*
-  behaviour (the [concurrency epic](../proposals/concurrency-and-locking.md) §1 races) and flip
-  loudly when a fix lands, like `model.findings`.
+  through the model tier's independent inspector/parser, never `src/lib/s3.mjs`. The lock cases
+  in [crash/concurrency.test.mjs](crash/concurrency.test.mjs) park a real backup and a real
+  cleanup between their lock's PUT and their look at `locks/`
+  ([ADR-0112](../docs/adr/0112-bucket-locks.md)); the `--wait` case sleeps out one real
+  `WAIT_MS`.
 
 A second test file for one module qualifies with a **dotted aspect**
 (`setup.remote-first.test.mjs`), not a hyphen — a hyphen reads as a sibling command.
@@ -77,9 +78,11 @@ empty tests. The **shallow** `test/*.test.mjs` catches e2e ([e2e.test.mjs](e2e.t
 `model/conformance/` — so a plain `npm test` is unit + e2e + model — hermetic, no bucket.
 (Node's positional globs can't negate, which is exactly why the tiers are split by directory
 rather than by suffix — [ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md).)
-`test:integration` runs just the integration folder; `test:model` just the model tier;
-`test:all` runs everything a bucket-equipped dev can share (conformance and crash stay
-separate — their bucket wipes brook no co-tenants).
+`test:integration` runs just the integration folder, one file at a time (a delete's lock
+turns a parallel file's upload away — [helpers/integration.mjs](helpers/integration.mjs));
+`test:model` just the model tier; `test:all` is `npm test` then `test:integration`,
+everything a bucket-equipped dev can share (conformance and crash stay separate — their
+bucket wipes brook no co-tenants).
 
 ### VS Code file nesting
 

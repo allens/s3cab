@@ -85,5 +85,5 @@ and the restore fixtures only: the backup clean room has no exclude patterns and
   paths, not components. The only thing it would catch is a restorer that builds `<name>.tmp`
   temp files, which fails loudly with `ENAMETOOLONG`.
 - **Commitments about ordering and behaviour:** objects uploaded first and the snapshot last; a
-  same-minute second snapshot refused; a record written before its delete; the grace window.
+  same-minute second snapshot refused; a record written before its delete; the locks.
   None of these shows in a finished bucket, so no fixture can catch a violation.

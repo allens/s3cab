@@ -13,6 +13,7 @@ import { uploadSnapshot } from "../../src/lib/upload.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 import { holdSet } from "../helpers/hold-set.mjs";
 import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
+import { setStub } from "../helpers/set-stub.mjs";
 
 // The upload executor's S3 round-trip against a real test bucket (S3 test
 // strategy, docs/design/testing.md). The gate/harness lives in the shared
@@ -77,16 +78,16 @@ describe("uploadSnapshot (real bucket)", () => {
     const allHashes = [...new Set([...firstHashes, ...secondHashes])];
 
     const claimPath = join(dir.path, "claim");
+    const stub = setStub({
+      name: set,
+      bucket,
+      snapshotsDir: snapshotDir,
+      claimPath,
+    });
     try {
       await holdSet(bucket, set, claimPath);
       // First backup: no --since → LIST the (empty) store, upload both objects.
-      const firstResult = await uploadSnapshot({
-        bucket,
-        set,
-        snapshotDir,
-        claimPath,
-        name: first,
-      });
+      const firstResult = await uploadSnapshot(stub, { name: first });
       assert.equal(firstResult.candidates, firstHashes.length);
       assert.equal(firstResult.uploaded, firstHashes.length);
 
@@ -104,11 +105,7 @@ describe("uploadSnapshot (real bucket)", () => {
 
       // Second backup with --since first: only c.txt is new (a.txt is in the
       // baseline snapshot), so exactly one object is a candidate and uploaded.
-      const secondResult = await uploadSnapshot({
-        bucket,
-        set,
-        snapshotDir,
-        claimPath,
+      const secondResult = await uploadSnapshot(stub, {
         name: second,
         since: first,
       });
@@ -119,13 +116,7 @@ describe("uploadSnapshot (real bucket)", () => {
       // the store — and, because the remote manifest is byte-identical to the
       // local file, the 412 reads as its own earlier success and the publish
       // succeeds quietly (ADR-0084).
-      const reRun = await uploadSnapshot({
-        bucket,
-        set,
-        snapshotDir,
-        claimPath,
-        name: first,
-      });
+      const reRun = await uploadSnapshot(stub, { name: first });
       assert.equal(reRun.uploaded, 0);
       assert.deepEqual(await listRemoteSnapshots(bucket, set), [second, first]);
 
@@ -136,8 +127,7 @@ describe("uploadSnapshot (real bucket)", () => {
       rmSync(join(snapshotDir, `${first}.tsv.gz`));
       await writeSnapshot(snapshotDir, first, [fileA, fileB, fileC]);
       await assert.rejects(
-        () =>
-          uploadSnapshot({ bucket, set, snapshotDir, name: first, claimPath }),
+        () => uploadSnapshot(stub, { name: first }),
         /the name was already taken when we wrote it/,
       );
     } finally {
@@ -184,16 +174,16 @@ describe("uploadSnapshot (real bucket)", () => {
     const hash = props.hash;
 
     const claimPath = join(dir.path, "claim");
+    const stub = setStub({
+      name: set,
+      bucket,
+      snapshotsDir: snapshotDir,
+      claimPath,
+    });
     try {
       await holdSet(bucket, set, claimPath);
       // Backup one: the object and the snapshot go up.
-      const firstResult = await uploadSnapshot({
-        bucket,
-        set,
-        snapshotDir,
-        claimPath,
-        name: first,
-      });
+      const firstResult = await uploadSnapshot(stub, { name: first });
       assert.equal(firstResult.uploaded, 1);
 
       // Forget the remote snapshot, then "cleanup" its now-orphan object —
@@ -206,11 +196,7 @@ describe("uploadSnapshot (real bucket)", () => {
       // Backup two, unchanged file, --since the forgotten baseline: the
       // baseline must be distrusted and the object re-uploaded — never a
       // published snapshot referencing a missing object.
-      const secondResult = await uploadSnapshot({
-        bucket,
-        set,
-        snapshotDir,
-        claimPath,
+      const secondResult = await uploadSnapshot(stub, {
         name: second,
         since: first,
       });
@@ -268,10 +254,16 @@ describe("uploadSnapshot (real bucket)", () => {
     writeFileSync(drifting, `changed, and now a longer body ${set}`);
 
     const claimPath = join(dir.path, "claim");
+    const stub = setStub({
+      name: set,
+      bucket,
+      snapshotsDir: snapshotDir,
+      claimPath,
+    });
     try {
       await holdSet(bucket, set, claimPath);
       await assert.rejects(
-        () => uploadSnapshot({ bucket, set, snapshotDir, name, claimPath }),
+        () => uploadSnapshot(stub, { name }),
         /while the backup was running/,
       );
 

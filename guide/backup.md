@@ -117,7 +117,10 @@ finish it in one sitting:
   ```
 
   The message also prints the command to delete the work file instead, if you'd rather read
-  everything again from scratch.
+  everything again from scratch. The lock the dead run held in the bucket usually needs
+  nothing from you: the next run on the same system — Windows, or the same WSL distribution —
+  can see the process is gone and removes it
+  ([looking after a backup](maintenance.md#locks-backups-and-clean-ups-take-turns)).
 
 Two work files can appear in the set's `snapshots/` directory while s3cab is working. Both
 start with a dot, neither is ever uploaded, and both are safe to delete when nothing is

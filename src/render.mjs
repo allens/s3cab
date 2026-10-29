@@ -57,6 +57,7 @@ import {
 /** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { DeleteResult } from "./commands/delete.mjs" */
+/** @import { UnlockResult } from "./commands/unlock.mjs" */
 /** @import { FindResult } from "./lib/find.mjs" */
 /**
  * @import {
@@ -1632,8 +1633,7 @@ export function renderDelete({
  * *result* (moved here from stderr, where only next-step guidance now remains). A
  * run that reclaimed reports what it removed; every other run (dry run,
  * declined, or nothing to do) reports the inventory — stored total, orphans and
- * the space they hold, plus the grace-protected and (integrity-fault) missing
- * tallies when non-zero.
+ * the space they hold, plus the (integrity-fault) missing tally when non-zero.
  * @param {CleanupResult} result
  * @returns {string}
  */
@@ -1643,7 +1643,6 @@ export function renderCleanup(result) {
     storedObjects,
     orphanObjects,
     reclaimableBytes,
-    withinGrace,
     missingObjects,
     deleted,
   } = result;
@@ -1656,13 +1655,25 @@ export function renderCleanup(result) {
   let line =
     `${bucket}: ${countOf(storedObjects, "object")} stored, ` +
     `${formatCount(orphanObjects)} orphaned (${formatByteValue(reclaimableBytes)} reclaimable)`;
-  if (withinGrace) {
-    line += `, ${formatCount(withinGrace)} too new to touch (7-day grace)`;
-  }
   if (missingObjects) {
     line += `, ${formatCount(missingObjects)} missing (referenced but absent)`;
   }
   return line;
+}
+
+/**
+ * Confirm an `unlock` (ADR-0043) — what was removed. The listing itself went
+ * to stdout inside the command, before the decision, and the dry-run, cancel
+ * and empty-bucket notices to stderr, so a run that removed nothing has
+ * nothing left to say.
+ * @param {UnlockResult} result
+ * @returns {string}
+ */
+export function renderUnlock({ bucket, locks, removed }) {
+  if (!removed) {
+    return "";
+  }
+  return `${bucket}: removed ${countOf(locks.length, "lock")}.`;
 }
 
 /** @param {{ size: number }[]} entries */

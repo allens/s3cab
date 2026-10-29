@@ -80,6 +80,27 @@ empty file's hash is refused outright — it backs every zero-byte file.
 On a terminal you confirm by typing the bucket name; scripts must pass
 --force (the prompt is never required).`;
 
+export const unlockDetails = `While a backup or upload runs, it holds a lock in the bucket's locks/
+folder, and so does a cleanup or delete; each refuses to start while the
+other kind's lock is there. A lock is removed when its command finishes,
+even when it fails, and when a backup is stopped with Ctrl+C while it reads
+and uploads files. A crash, a lost machine, a killed process, or Ctrl+C at
+any other moment leaves one behind, and a lock never expires on its own:
+its age says nothing about whether its command is still running.
+
+A lock names its computer, its system and its process, so the next backup,
+upload, cleanup or delete on the same system removes a leftover whose
+process is gone. Windows and WSL on one computer are two systems, and so
+are two WSL distributions or two containers, and a WSL distribution or
+container counts as a new system after it restarts. A leftover from any
+other system is yours to remove here.
+
+Removing a lock whose command IS still running lets a cleanup or delete
+remove what that backup needs, silently. So this command shows every
+lock — what is running, for which set, from which machine and system,
+since when — and asks before removing exactly those. Scripts must name the ids and
+pass --force.`;
+
 export const awsDetails = `It only PRINTS the steps — it never touches your account and needs no
 credentials to run, so you can read the whole plan first. It emits two
 CloudFormation templates: one for the bucket (versioning ON as your safety

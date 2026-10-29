@@ -9,10 +9,12 @@ import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 // validation, and that each mode routes to the right plumbing with the right
 // arguments (set-scoped vs raw --bucket for a single file; the snapshot uploader
 // for --snapshot; the folder seeder for --dir). The lib seams — set resolution,
-// hashing, the object PUT, and the snapshot/dir uploaders — are faked so the test
-// exercises `upload`'s own dispatch and validation, not S3. `--dir`'s existence
-// check is real fs, so its tests point at a genuine directory (`tmpdir()`). Mocks
-// first, then a dynamic import (objects.test.mjs ordering rule).
+// hashing, and the three uploaders — are faked so the test exercises `upload`'s
+// own dispatch and validation, not S3 (the guard, the PUT and the lock are the
+// lib's, tested in lib/upload.test.mjs and lib/locks.test.mjs). `--dir`'s
+// existence check is real fs, so its tests point at a genuine directory
+// (`tmpdir()`). Mocks first, then a dynamic import (objects.test.mjs ordering
+// rule).
 
 /** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string }} */
 const fakeSet = {
@@ -26,23 +28,18 @@ const fakeSet = {
 let loadSetCalls = [];
 /** @type {string[]} */
 let propCalls = [];
-/** @type {[string, string, string, { force?: boolean }][]} */
-let putObjectCalls = [];
 /** @type {Record<string, unknown>[]} */
+let uploadFileCalls = [];
+/** @type {[object, Record<string, unknown>][]} the set and args each snapshot upload got */
 let uploadSnapshotCalls = [];
-/** @type {Record<string, unknown>[]} */
+/** @type {[object, Record<string, unknown>][]} the set and args each folder seed got */
 let uploadDirCalls = [];
 /** @type {Drift[]} what the faked seeder reports skipping */
 let dirSkipped = [];
-/** @type {[string, object][]} */
-let fileChangeCalls = [];
-/** @type {FileChange | undefined} what the faked guard reports */
-let fileChangeResult;
-let putResult = true;
+/** @type {{ uploaded: boolean, change?: FileChange }} what the faked single-file upload reports */
+let fileResult = { uploaded: true };
 /** @type {Error | undefined} what the faked hashing throws */
 let propError;
-/** @type {Error | undefined} what the faked object PUT throws */
-let putError;
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -66,36 +63,27 @@ mock.module("./prop.mjs", {
 mock.module("../lib/objects.mjs", {
   exports: {
     objectKey: (/** @type {string} */ hash) => `objects/${hash}`,
-    putObject: async (
-      /** @type {string} */ bucket,
-      /** @type {string} */ hash,
-      /** @type {string} */ path,
-      /** @type {object} */ options,
-    ) => {
-      putObjectCalls.push([bucket, hash, path, options]);
-      if (putError) {
-        throw putError;
-      }
-      return putResult;
-    },
   },
 });
 mock.module("../lib/upload.mjs", {
   exports: {
-    uploadSnapshot: async (/** @type {Record<string, unknown>} */ args) => {
-      uploadSnapshotCalls.push(args);
+    uploadFile: async (/** @type {Record<string, unknown>} */ args) => {
+      uploadFileCalls.push(args);
+      return fileResult;
+    },
+    uploadSnapshot: async (
+      /** @type {object} */ set,
+      /** @type {Record<string, unknown>} */ args,
+    ) => {
+      uploadSnapshotCalls.push([set, args]);
       return { name: args.name, candidates: 5, uploaded: 2 };
     },
-    uploadDir: async (/** @type {Record<string, unknown>} */ args) => {
-      uploadDirCalls.push(args);
-      return { candidates: 40, uploaded: 12, skipped: dirSkipped };
-    },
-    fileChange: async (
-      /** @type {string} */ path,
-      /** @type {object} */ recorded,
+    uploadDir: async (
+      /** @type {object} */ set,
+      /** @type {Record<string, unknown>} */ args,
     ) => {
-      fileChangeCalls.push([path, recorded]);
-      return fileChangeResult;
+      uploadDirCalls.push([set, args]);
+      return { candidates: 40, uploaded: 12, skipped: dirSkipped };
     },
   },
 });
@@ -105,15 +93,12 @@ const { upload } = await import("./upload.mjs");
 beforeEach(() => {
   loadSetCalls = [];
   propCalls = [];
-  putObjectCalls = [];
+  uploadFileCalls = [];
   uploadSnapshotCalls = [];
   uploadDirCalls = [];
   dirSkipped = [];
-  fileChangeCalls = [];
-  fileChangeResult = undefined;
-  putResult = true;
+  fileResult = { uploaded: true };
   propError = undefined;
-  putError = undefined;
 });
 
 describe("upload validation", () => {
@@ -138,7 +123,7 @@ describe("upload validation", () => {
       /Pass one of --file, --snapshot, or --dir/,
     );
     // The conflict is caught before either mode runs.
-    assert.deepEqual(putObjectCalls, []);
+    assert.deepEqual(uploadFileCalls, []);
     assert.deepEqual(uploadSnapshotCalls, []);
   });
 
@@ -147,7 +132,7 @@ describe("upload validation", () => {
       upload("photos", { file: "f", dir: tmpdir() }),
       /Pass one of --file, --snapshot, or --dir/,
     );
-    assert.deepEqual(putObjectCalls, []);
+    assert.deepEqual(uploadFileCalls, []);
     assert.deepEqual(uploadDirCalls, []);
   });
 
@@ -177,8 +162,8 @@ describe("upload validation", () => {
       upload("photos", {}),
       /Specify what to upload: --file <path>, --snapshot <name>, or --dir <path>/,
     );
-    // A usage error thrown before any work — no set resolution, no PUT.
-    assert.deepEqual(putObjectCalls, []);
+    // A usage error thrown before any work — no set resolution, no upload.
+    assert.deepEqual(uploadFileCalls, []);
     assert.deepEqual(uploadSnapshotCalls, []);
   });
 
@@ -192,7 +177,7 @@ describe("upload validation", () => {
 });
 
 describe("upload --file (single object)", () => {
-  it("set-scoped: hashes, PUTs into the set's bucket, forwards --force", async () => {
+  it("set-scoped: hashes, hands the set and its bucket to the uploader, forwards --force", async () => {
     const result = await upload("photos", {
       file: "/tmp/big.iso",
       force: true,
@@ -200,8 +185,14 @@ describe("upload --file (single object)", () => {
 
     assert.deepEqual(loadSetCalls, ["photos"]);
     assert.deepEqual(propCalls, ["/tmp/big.iso"]);
-    assert.deepEqual(putObjectCalls, [
-      ["set-bucket", "abc123", "/tmp/big.iso", { force: true }],
+    assert.deepEqual(uploadFileCalls, [
+      {
+        bucket: "set-bucket",
+        set: fakeSet, // the lock names the set
+        path: "/tmp/big.iso",
+        props: { hash: "abc123", size: 42 },
+        force: true,
+      },
     ]);
     assert.deepEqual(result, {
       mode: "file",
@@ -212,40 +203,34 @@ describe("upload --file (single object)", () => {
     });
   });
 
-  it("raw --bucket: PUTs into the bucket with no set resolution", async () => {
-    putResult = false;
+  it("raw --bucket: uploads into the bucket with no set resolution, and no set for the lock", async () => {
+    fileResult = { uploaded: false };
     const result = await upload(undefined, {
       bucket: "raw-bucket",
       file: "/tmp/big.iso",
     });
 
     assert.deepEqual(loadSetCalls, []); // no set → ambient credentials
-    assert.equal(putObjectCalls[0]?.[0], "raw-bucket");
-    assert.equal(putObjectCalls[0]?.[3].force, undefined);
+    assert.equal(uploadFileCalls[0]?.bucket, "raw-bucket");
+    assert.equal(uploadFileCalls[0]?.set, undefined);
+    assert.equal(uploadFileCalls[0]?.force, undefined);
     assert.equal(result.mode, "file");
     assert.equal(result.uploaded, false);
   });
 });
 
 describe("upload --snapshot (a snapshot's objects)", () => {
-  it("hands the snapshot uploader the set's bucket/dir, name, and --since baseline", async () => {
+  it("hands the snapshot uploader the set, the name and the --since baseline", async () => {
     const result = await upload("photos", {
       snapshot: "2026-01-02T0900",
       since: "2026-01-01T0900",
     });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
-    assert.deepEqual(putObjectCalls, []); // snapshot mode never single-PUTs
-    assert.equal(uploadSnapshotCalls.length, 1);
-    assert.deepEqual(uploadSnapshotCalls[0], {
-      bucket: "set-bucket",
-      set: "photos",
-      snapshotDir: "/snaps",
-      name: "2026-01-02T0900",
-      since: "2026-01-01T0900",
-      // Its proof it holds the set, checked just before the snapshot goes up.
-      claimPath: "/photos/claim",
-    });
+    assert.deepEqual(uploadFileCalls, []); // snapshot mode never single-PUTs
+    assert.deepEqual(uploadSnapshotCalls, [
+      [fakeSet, { name: "2026-01-02T0900", since: "2026-01-01T0900" }],
+    ]);
     assert.deepEqual(result, {
       mode: "snapshot",
       set: "photos",
@@ -258,7 +243,7 @@ describe("upload --snapshot (a snapshot's objects)", () => {
   it("omits --since when none is given (uploader then LISTs)", async () => {
     await upload("photos", { snapshot: "2026-01-02T0900" });
 
-    assert.equal(uploadSnapshotCalls[0]?.since, undefined);
+    assert.equal(uploadSnapshotCalls[0]?.[1].since, undefined);
   });
 
   it("takes a snapshot's filename as readily as its name", async () => {
@@ -271,8 +256,8 @@ describe("upload --snapshot (a snapshot's objects)", () => {
       since: "2026-01-01T0900.tsv",
     });
 
-    assert.equal(uploadSnapshotCalls[0]?.name, "2026-01-02T0900");
-    assert.equal(uploadSnapshotCalls[0]?.since, "2026-01-01T0900");
+    assert.equal(uploadSnapshotCalls[0]?.[1].name, "2026-01-02T0900");
+    assert.equal(uploadSnapshotCalls[0]?.[1].since, "2026-01-01T0900");
     assert.equal(
       result.mode === "snapshot" && result.snapshot,
       "2026-01-02T0900",
@@ -280,32 +265,16 @@ describe("upload --snapshot (a snapshot's objects)", () => {
   });
 });
 
-// The confirmation guard on the single-file path. It has the same hash-then-PUT
-// window the bulk paths do — the store trusts the hash on write, so a file edited
-// in between would be stored under its previous content's hash and corrupt that
-// object for every path that dedups to it. One file rather than thousands does not
-// change that, so the invariant is shared even though the PUT loop is not.
+// What a refused single file *means* is this command's to say: the uploader
+// reports the change as data (there is no snapshot to reassure about, and under
+// --bucket no set to name), and the message names the exact re-run.
 describe("upload --file confirmation guard", () => {
-  it("re-confirms the file against the props prop() returned, before the PUT", async () => {
-    await upload("photos", { file: "/f/photo.raw" });
-
-    assert.deepEqual(fileChangeCalls, [
-      ["/f/photo.raw", { hash: "abc123", size: 42 }],
-    ]);
-    assert.equal(putObjectCalls.length, 1, "confirmed, so it was stored");
-  });
-
   it("refuses to store a file that changed while it was being read", async () => {
-    fileChangeResult = { reason: "changed" };
+    fileResult = { uploaded: false, change: { reason: "changed" } };
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw" }),
       /changed while s3cab was reading it/,
-    );
-    assert.deepEqual(
-      putObjectCalls,
-      [],
-      "the stale fingerprint was never used",
     );
   });
 
@@ -316,11 +285,17 @@ describe("upload --file confirmation guard", () => {
       () => upload("photos", { file: "/f/photo.raw" }),
       /changed while s3cab was reading it[^]*s3cab upload photos --file "\/f\/photo\.raw"/,
     );
-    assert.deepEqual(putObjectCalls, []);
+    assert.deepEqual(uploadFileCalls, [], "never reached the uploader");
   });
 
   it("says the same of a file that changed while it was sent", async () => {
-    putError = new ContentMismatchError("streamed as something else");
+    fileResult = {
+      uploaded: false,
+      change: {
+        reason: "changed",
+        cause: new ContentMismatchError("streamed as something else"),
+      },
+    };
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw" }),
@@ -329,7 +304,7 @@ describe("upload --file confirmation guard", () => {
   });
 
   it("names the retry with the set it was given", async () => {
-    fileChangeResult = { reason: "removed" };
+    fileResult = { uploaded: false, change: { reason: "removed" } };
 
     await assert.rejects(() => upload("photos", { file: "/f/photo.raw" }), {
       message: /s3cab upload photos --file "\/f\/photo\.raw"/,
@@ -337,7 +312,7 @@ describe("upload --file confirmation guard", () => {
   });
 
   it("quotes the path in the retry, so one with a space pastes whole", async () => {
-    fileChangeResult = { reason: "changed" };
+    fileResult = { uploaded: false, change: { reason: "changed" } };
 
     await assert.rejects(
       () => upload("photos", { file: "/f/My Photos/x.raw" }),
@@ -347,7 +322,7 @@ describe("upload --file confirmation guard", () => {
 
   it("names the retry with --bucket when that was how it was addressed", async () => {
     // The shared backup message can't serve here: there may be no set to name.
-    fileChangeResult = { reason: "changed" };
+    fileResult = { uploaded: false, change: { reason: "changed" } };
 
     await assert.rejects(
       () => upload(undefined, { file: "/f/photo.raw", bucket: "raw-bucket" }),
@@ -356,7 +331,10 @@ describe("upload --file confirmation guard", () => {
   });
 
   it("keeps the errno in a parenthetical when the file went unreadable", async () => {
-    fileChangeResult = { reason: "unreadable", cause: { code: "EACCES" } };
+    fileResult = {
+      uploaded: false,
+      change: { reason: "unreadable", cause: { code: "EACCES" } },
+    };
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw" }),
@@ -364,21 +342,9 @@ describe("upload --file confirmation guard", () => {
     );
   });
 
-  it("guards --force too — it overwrites deliberately, it does not skip confirming", async () => {
-    // --force is about clobbering an existing object (the repair hatch), not about
-    // storing bytes under a fingerprint that no longer matches them.
-    fileChangeResult = { reason: "changed" };
-
-    await assert.rejects(
-      () => upload("photos", { file: "/f/photo.raw", force: true }),
-      /changed while s3cab was reading it/,
-    );
-    assert.deepEqual(putObjectCalls, []);
-  });
-
   it("keeps --force in the retry, so the overwrite still happens", async () => {
     // Without it, the pasted retry finds the key's old object and stores nothing.
-    putError = new ContentMismatchError("streamed as something else");
+    fileResult = { uploaded: false, change: { reason: "changed" } };
 
     await assert.rejects(
       () => upload("photos", { file: "/f/photo.raw", force: true }),
@@ -388,17 +354,12 @@ describe("upload --file confirmation guard", () => {
 });
 
 describe("upload --dir (seed a folder's objects)", () => {
-  it("hands the seeder the set's bucket, the folder, and the set's exclude path", async () => {
+  it("hands the seeder the set (its bucket and excludes) and the folder", async () => {
     const result = await upload("photos", { dir: tmpdir() });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
-    assert.deepEqual(putObjectCalls, []); // dir mode never single-PUTs
-    assert.equal(uploadDirCalls.length, 1);
-    assert.deepEqual(uploadDirCalls[0], {
-      bucket: "set-bucket",
-      dir: tmpdir(),
-      excludePath: "/snaps/exclude.txt",
-    });
+    assert.deepEqual(uploadFileCalls, []); // dir mode never single-PUTs
+    assert.deepEqual(uploadDirCalls, [[fakeSet, { dir: tmpdir() }]]);
     assert.deepEqual(result, {
       mode: "dir",
       set: "photos",

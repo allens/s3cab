@@ -61,17 +61,34 @@ is answering is "am I about to lose the last copy of this file", not "what is th
 count" ([ADR-0063](docs/adr/0063-forget-snapshots-delete-paths.md)).
 _Avoid_: unreferenced, orphaned file (orphan is object-side only), lost, gone.
 
-**Grace window**:
-The 7-day immunity every stored object has from deletion, measured from its upload time:
-a young object may be an in-flight backup's upload, not yet referenced by its snapshot,
-so no tool may treat it as an orphan. A repository-format contract, stated in the format
-spec.
-_Avoid_: TTL, retention period (retention is about snapshots; the grace window is about objects).
+**Lock**:
+A `locks/<kind>-<instant>` key in the repository, `KEY=value` lines inside, that a running
+upload or delete holds for exactly as long as it runs: written *before* the run looks at
+anything that decides what to skip or delete, then `locks/` is listed and the other kind
+turns it away. Uploads don't exclude each other, nor do deletes. It never expires — age says
+nothing about liveness — so only a hard stop, or a Ctrl+C outside a backup's read-and-upload
+pass, leaves one; it names its machine, process table and process (`BY`, `OS`, `PIDNS`,
+`PID`), so the next run on that machine and process table removes a leftover whose process is
+gone, and `unlock` (a person) removes any other ([ADR-0112](docs/adr/0112-bucket-locks.md), format spec).
+_Avoid_: lease, mutex, stale lock (age means nothing), grace window (what it replaced).
+
+**Upload lock**:
+The **lock** a `backup` or any `upload` holds (`locks/upload-…`), the kind a delete refuses
+on.
+_Avoid_: run lock, backup lock (an `upload --dir` holds one too), lock file (there is none).
+
+**Delete lock**:
+The **lock** a `cleanup` or `delete` holds (`locks/delete-…`), the kind an upload refuses on.
+Written only once the plan is confirmed; `--wait` removes it and writes it again every half
+minute until no upload lock stands, and under it `cleanup` tops its plan up from snapshots
+that landed since it counted.
+_Avoid_: cleanup lock (a `delete` holds one too), exclusive lock (deletes cross freely).
 
 **Repository**:
 One S3 bucket holding the whole backup: the `objects/` object store plus the `snapshots/`
-tree (and, once a **delete** has run, the `objects.deleted-<n>.tsv` records). **One bucket
-is exactly one repository** — the layout is fixed by convention, not an arbitrary prefix.
+tree (and, once a **delete** has run, the `objects.deleted-<n>.tsv` records; while anything
+runs, its **lock** under `locks/`). **One bucket is exactly one repository** — the layout is
+fixed by convention, not an arbitrary prefix.
 _Avoid_: repo (the git sense), archive, vault.
 
 **Deletion record**:

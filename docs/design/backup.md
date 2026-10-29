@@ -274,10 +274,11 @@ conditional PUT is the "already stored?" check, so re-running is cheap and idemp
 consequence is the one open thread: until a backup references them the seeded objects are
 **unreferenced**, indistinguishable from the orphan objects a mid-backup crash leaves. That
 is the *safe* direction (wasted space, never corruption), but a `cleanup` run in the window
-between seeding and the first backup would reap them (the grace window is the only guard). In
-practice you seed → back up and don't `cleanup` a set that has never been fully backed up, so
-this is a documented footnote — flagged here to confirm against real use before, say, writing
-a partial manifest to close it (judged scope creep on `upload` for now).
+between seeding and the first backup reaps them — the upload lock guards a *running* upload,
+nothing guards the gap between runs ([ADR-0112](../adr/0112-bucket-locks.md) accepts it; the
+guide says so). In practice you seed → back up and don't `cleanup` a set that has never been
+fully backed up, so this is a documented footnote — flagged here to confirm against real use
+before, say, writing a partial manifest to close it (judged scope creep on `upload` for now).
 
 ### `restore` — put files back, never destructively by default
 
@@ -547,13 +548,15 @@ the [format spec](../../guide/format.md)), not implementation choice:
   deletes live data. A revalidation based on snapshot immutability — re-read only
   snapshots newer than the list — is sound but unnecessary once the prompt makes
   check-then-do a single pass.)
-- **Grace window: 7 days, fixed (format contract):** cleanup must never delete an object
-  whose `LastModified` is younger than 7 days (the [format spec](../../guide/format.md)
-  states the rule). Under snapshot-last, an in-flight backup's
-  uploaded-but-not-yet-referenced objects are indistinguishable from orphans; the grace
-  window is what makes concurrent backups safe without locks. Any tool that deletes from
-  `objects/` must honour it. No tuning knob: a `--grace` foot-gun buys nothing, and
-  loosening a fixed floor later is additive.
+- **Locks, not a grace window ([ADR-0112](../adr/0112-bucket-locks.md), format contract):**
+  under snapshot-last an in-flight backup's uploaded-but-not-yet-referenced objects are
+  indistinguishable from orphans, so every upload holds an upload lock in the bucket for its
+  whole run, written before anything that decides what to skip, and every delete writes a
+  delete lock before deleting; each refuses on the other kind, and looks only after writing.
+  `reclaim` ([cleanup.mjs](../../src/lib/cleanup.mjs)) takes the lock after the scan, plan and
+  prompt, tops the plan up from snapshots that landed since the scan, deletes, compacts, and
+  removes it; `--wait` turns the refusal into a half-minute poll. The 7-day grace window this
+  replaced guarded fresh uploads only.
 - **Damage interlock:** an **unreadable snapshot, or one with a refused row
   ([ADR-0101](../adr/0101-valid-and-invalid-files.md)), aborts both modes** — its references
   are unknown, so every object only it references would masquerade as an orphan (the
@@ -577,14 +580,12 @@ the [format spec](../../guide/format.md)), not implementation choice:
   ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)), there is no
   local presence-cache left to poison or heal. Every machine's next `backup` re-derives what
   to skip from its own local snapshots (and, on a first backup, a fresh LIST), so cleanup
-  needs no cross-machine "run verify first" reminder. The reclaim path's only stderr note is
-  the race below.
-- **Known residual race (documented, accepted):** an *old* orphan (from a long-ago
-  crashed backup) that a concurrently-running backup is relying on via the
-  conditional-PUT skip can be deleted between the skip and the snapshot upload. The
-  grace window does not cover it (the object is old). Locking would be over-engineering
-  for this audience; instead: **don't run cleanup while a backup is running**, and
-  cleanup's output says so. Do not "optimize away" the grace window or this warning.
+  needs no cross-machine "run verify first" reminder.
+- **The residual race is closed by the lock.** An *old* orphan that a running backup relies
+  on via the conditional-PUT skip used to be deletable between the skip and the snapshot
+  upload, which no grace window could cover; `cleanup` now refuses (or waits) while that
+  backup's lock stands. The model suite and the crash tier assert the refusal where they
+  used to pin the hole.
 - **Retention is the real driver.** The deletion *primitive* ships with this milestone
   (the `forget` command above); retention *policy* automation is deferred and will sit
   on top of it. Until snapshots get deleted, the only garbage is crash orphans —
@@ -768,8 +769,8 @@ snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 All three admin commands are **built**: `verify` (completeness + size cross-check, `<bucket>`
 operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `forget` (snapshot removal,
 TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, act-by-default with `-n` preview
-and `--force` for scripts, single-pass y/N, 7-day grace window, damage interlock, the documented
-race warnings — and no local cache: ADR-0045 dropped it, so there is nothing to rewrite).
+and `--force` for scripts, single-pass y/N, the delete lock (ADR-0112), damage interlock — and
+no local cache: ADR-0045 dropped it, so there is nothing to rewrite).
 The encryption-non-goal note is done (in the format spec), as is the
 versioning/ransomware user doc (README, guide/aws.md, guide/maintenance.md). The
 everyday-vs-elevated delete-rights question is resolved: no split — the everyday

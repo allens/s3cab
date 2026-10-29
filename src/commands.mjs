@@ -17,6 +17,7 @@ import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
 import { takeover } from "./commands/takeover.mjs";
 import { tree } from "./commands/tree.mjs";
+import { unlock } from "./commands/unlock.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
 import {
@@ -28,6 +29,7 @@ import {
   providerDetails,
   snapshotDetails,
   treeDetails,
+  unlockDetails,
 } from "./command-details.mjs";
 import {
   offerBackupChanges,
@@ -46,6 +48,7 @@ import {
   renderStatus,
   renderText,
   renderTree,
+  renderUnlock,
   renderUpload,
   renderVerify,
 } from "./render.mjs";
@@ -605,6 +608,11 @@ export const commands = {
         description:
           "Skip the typed confirmation (required for non-interactive runs)",
       },
+      wait: {
+        type: "boolean",
+        description:
+          "Wait for any running backup or upload to finish instead of refusing",
+      },
     },
     exec: (options, hashes = []) => deleteHashes(hashes, options),
     render: renderDelete,
@@ -636,9 +644,52 @@ export const commands = {
         description:
           "Skip the confirmation (required for a non-interactive reclaim; not needed with --dry-run)",
       },
+      wait: {
+        type: "boolean",
+        description:
+          "Wait for any running backup or upload to finish instead of refusing",
+      },
     },
     exec: (options, [bucket] = []) => cleanup(bucket, options),
     render: renderCleanup,
+  },
+  unlock: {
+    summary:
+      "Remove locks a stopped backup, upload, cleanup or delete left behind",
+    guide: "maintenance",
+    examples: [
+      "s3cab unlock --bucket my-backups",
+      "s3cab unlock --bucket my-backups upload-20261027T140205.123Z",
+      "s3cab unlock --bucket my-backups --force delete-20261027T151000.004Z",
+    ],
+    details: unlockDetails,
+    args: {
+      id: {
+        variadic: true,
+        description:
+          "The locks to remove, by id (as a refusal or the listing prints them; default: every lock, after showing them)",
+      },
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description: "The repository's S3 bucket (required)",
+      },
+      "dry-run": {
+        type: "boolean",
+        short: "n",
+        description: "List the locks, remove nothing",
+      },
+      force: {
+        type: "boolean",
+        short: "f",
+        description:
+          "Skip the confirmation (needs ids; required for non-interactive runs)",
+      },
+    },
+    exec: (options, ids = []) => unlock(ids, options),
+    render: renderUnlock,
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────

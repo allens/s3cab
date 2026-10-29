@@ -3,15 +3,14 @@ import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import {
   ChangedWhileReadError,
-  ContentMismatchError,
   MissingArgError,
   ParseArgsError,
 } from "../lib/error.mjs";
 import { tildeify } from "../lib/home.mjs";
-import { objectKey, putObject } from "../lib/objects.mjs";
+import { objectKey } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
 import { shellCommand } from "../lib/style.mjs";
-import { fileChange, uploadDir, uploadSnapshot } from "../lib/upload.mjs";
+import { uploadDir, uploadFile, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
 /** @import { Drift, FileChange } from "../lib/upload.mjs" */
@@ -56,6 +55,9 @@ import { prop } from "./prop.mjs";
  * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
  * snapshot — is `fileProps`'s `lookup`, used at snapshot time, not `upload`'s concern; the
  * old `--if-modified-from` TODO here was resolved into the `--since` baseline above, ADR-0044.)
+ *
+ * Every mode runs under the upload lock, taken by the lib operation it calls
+ * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)).
  *
  * @typedef {Object} FileUploadResult
  * @property {"file"} mode - Single-object upload
@@ -150,7 +152,8 @@ export async function upload(setName, options = {}) {
   if (file) {
     // Raw bucket → ambient/user-env credentials, no set layer. Otherwise the set
     // supplies the bucket and applies its env layer (loadSet, ADR-0022).
-    const targetBucket = bucket ?? loadSet(setName).bucket;
+    const set = bucket ? undefined : loadSet(setName);
+    const targetBucket = bucket ?? /** @type {string} */ (set?.bucket);
 
     const target = bucket ? `--bucket ${bucket}` : setName;
     // A forced retry keeps --force: without it, the key's old object answers
@@ -173,29 +176,19 @@ export async function upload(setName, options = {}) {
     }
     const { hash, size } = props;
 
-    // The same window the bulk paths guard (ADR-0069): hashing then re-reading to
-    // send means the file can change in between, and the store trusts the hash on
-    // write — so its new bytes would be filed under the old content's hash and
-    // corrupt that object for every path that dedups to it. One file rather than
-    // thousands doesn't change that, so the invariant is shared even though the
-    // loop isn't: --force means "overwrite deliberately", which the transform has
-    // no concept of, and its dedup/skip-list machinery is dead weight for one file.
-    const change = await fileChange(file, props);
+    // The guard and the PUT are `uploadFile`'s (the one-file source of the
+    // shared invariant, ADR-0069); what a refused file *means* is this
+    // command's: there is no snapshot to reassure about and, under --bucket,
+    // no set to name in a re-run, so the message is built here.
+    const { uploaded, change } = await uploadFile({
+      bucket: targetBucket,
+      set,
+      path: file,
+      props,
+      force,
+    });
     if (change) {
       throw fileUnconfirmedError(file, retry, change);
-    }
-
-    let uploaded;
-    try {
-      uploaded = await putObject(targetBucket, hash, file, { force });
-    } catch (error) {
-      if (error instanceof ContentMismatchError) {
-        throw fileUnconfirmedError(file, retry, {
-          reason: "changed",
-          cause: error,
-        });
-      }
-      throw error;
     }
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
@@ -221,11 +214,7 @@ export async function upload(setName, options = {}) {
     // sending, the way `backup` and `snapshot` head their pass, so the lines that
     // follow never have to repeat it.
     console.warn(`Uploading '${tildeify(dir)}' to '${set.bucket}':`);
-    const { candidates, uploaded, skipped } = await uploadDir({
-      bucket: set.bucket,
-      dir,
-      excludePath: set.excludePath,
-    });
+    const { candidates, uploaded, skipped } = await uploadDir(set, { dir });
     return { mode: "dir", set: set.name, dir, candidates, uploaded, skipped };
   }
 
@@ -238,13 +227,9 @@ export async function upload(setName, options = {}) {
   console.warn(`Uploading '${set.name}/${snapshotName}' to '${set.bucket}':`);
   // uploadSnapshot reads the target first, so a missing --snapshot fails fast
   // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
-  const { candidates, uploaded } = await uploadSnapshot({
-    bucket: set.bucket,
-    set: set.name,
-    snapshotDir: set.snapshotsDir,
+  const { candidates, uploaded } = await uploadSnapshot(set, {
     name: snapshotName,
     since,
-    claimPath: set.claimPath,
   });
   return {
     mode: "snapshot",

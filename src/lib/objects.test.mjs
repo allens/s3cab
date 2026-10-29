@@ -128,14 +128,6 @@ describe("listStoredObjects", () => {
     );
     assert.deepEqual(out, [{ hash: "aaa", size: 0 }]);
   });
-
-  it("passes through LastModified as lastModified (for cleanup's grace window)", async () => {
-    const when = new Date("2026-01-02T03:04:05Z");
-    listedObjects = [{ Key: "objects/aaa", Size: 5, LastModified: when }];
-    assert.deepEqual(await Array.fromAsync(listStoredObjects("my-bucket")), [
-      { hash: "aaa", size: 5, lastModified: when },
-    ]);
-  });
 });
 
 describe("getObject", () => {
@@ -273,5 +265,44 @@ describe("deleteStoredObjects", () => {
       await tick();
     }
     assert.equal(started, 50, "only the DELETEs already in flight");
+  });
+
+  it("rejects only once every DELETE already sent has settled — the delete lock goes on the rejection", async () => {
+    let inFlight = 0;
+    remove = async (uri) => {
+      inFlight++;
+      if (uri.endsWith("/h0")) {
+        inFlight--;
+        throw new Error("DELETE failed");
+      }
+      for (let i = 0; i < 5; i++) {
+        await tick();
+      }
+      inFlight--;
+    };
+
+    await assert.rejects(
+      deleteStoredObjects("my-bucket", hashes(200)),
+      /DELETE failed/,
+    );
+
+    assert.equal(inFlight, 0, "no DELETE outlives the call");
+  });
+
+  it("rejects with the first failure in time, not the first worker's", async () => {
+    remove = async (uri) => {
+      if (uri.endsWith("/h5")) {
+        throw new Error("AccessDenied");
+      }
+      await tick();
+      if (uri.endsWith("/h0")) {
+        throw new Error("timed out");
+      }
+    };
+
+    await assert.rejects(
+      deleteStoredObjects("my-bucket", hashes(200)),
+      /AccessDenied/,
+    );
   });
 });

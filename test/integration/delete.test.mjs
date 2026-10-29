@@ -35,10 +35,10 @@ import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 // exhaustively (lib/delete.test.mjs, lib/deletion-record.test.mjs); what only a
 // real bucket proves is the record's write/read reality — the slot allocator's
 // conditional PUT against the live provider, the record round-tripping through
-// real LIST/GET, and the object deletions actually landing. The shared test
-// bucket serves other suites concurrently, so assertions stay scoped to this
-// run's set and objects — never to bucket-wide exit codes or counts, and never
-// to a hard-coded record index (a crashed earlier run may have left one).
+// real LIST/GET, and the object deletions actually landing. The test bucket is
+// shared, so assertions stay scoped to this run's set and objects — never to
+// bucket-wide exit codes or counts, and never to a hard-coded record index (a
+// crashed earlier run may have left one).
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -107,7 +107,13 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
 
     try {
       // ── delete ──────────────────────────────────────────────────────────
-      const result = await deleteHashes(doomedHashes, { bucket, force: true });
+      // `wait`: the bucket is shared with the release legs, whose uploads
+      // hold upload locks; refusing on one would fail this run for nothing.
+      const result = await deleteHashes(doomedHashes, {
+        bucket,
+        force: true,
+        wait: true,
+      });
       assert.equal(result.deleted, true);
       assert.equal(result.deletedObjects, 2);
       assert.deepEqual(result.missing, [], "both hashes were stored");
@@ -210,13 +216,9 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       const second = "2099-01-01T0000";
       await writeSnapshot(set.snapshotsDir, second, [...entries.keys()]);
       snapshots.push(second);
-      const uploaded = await uploadSnapshot({
-        bucket,
-        set: setName,
-        snapshotDir: set.snapshotsDir,
+      const uploaded = await uploadSnapshot(set, {
         name: second,
         since: first,
-        claimPath: set.claimPath,
       });
       assert.equal(
         uploaded.candidates,

@@ -1,8 +1,9 @@
 # Snapshot concurrency lock: the temp file, created atomically; stale locks removed manually
 
-**Status:** accepted. Amended by [0112](0112-bucket-locks.md): an upload also holds a per-set run
-lock for its whole run, the second local file rejected below, because it carries the bucket lock's
-id rather than anything to judge liveness by.
+**Status:** accepted. [0112](0112-bucket-locks.md)'s lock in the bucket *is* judged by a pid,
+from its own machine only: that lock is met by every machine, where this work file is met only by
+the next run of the same set here, for which the user's word (`--resume`, 0092) guesses nothing.
+The rejection below stands for the work file.
 
 Two concurrent snapshots of the same set are destructive: both target the set's one
 fixed-name work file (`.snapshot.tsv.zst` in the set's `snapshots/` directory), and the old
