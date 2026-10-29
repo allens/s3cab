@@ -1,5 +1,4 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { EXIT_INTERRUPTED } from "./error.mjs";
 import { countOf, elapsedSince, localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import { infoFields } from "./set-marker.mjs";
@@ -15,9 +14,9 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // each see the other's lock and at worst both refuse.
 //
 // A lock never expires — its age says nothing about whether its run is alive.
-// What does say so is the process: the body names the machine and the pid, and
-// a run removes any lock from its own machine whose process is gone. Every
-// other leftover (another machine's) is `unlock`'s, a person's word.
+// What does say so is the process: the body names the machine, its OS and the
+// pid, and a run removes any lock from its own machine and OS whose process is
+// gone. Every other leftover (another machine's) is `unlock`'s, a person's word.
 //
 // The two guards here, `holdUploadLock` and `holdDeleteLock`, are taken inside
 // the lib operations that decide what to skip or delete (upload.mjs,
@@ -33,14 +32,15 @@ const LOCKS_PREFIX = "locks/";
  * One lock as the bucket holds it: its id (the key without `locks/`) and the
  * `KEY=value` lines inside, read as `.info` is. The lines are for people and
  * messages — no rule matches on them, and a lock whose body is missing a line
- * is still a lock — except `BY` and `PID` together, which say whose process
- * holds it.
+ * is still a lock — except `BY`, `OS` and `PID` together, which say whose
+ * process holds it.
  * @typedef {Object} Lock
  * @property {string} id - `<kind>-<instant>`, e.g. `upload-20261027T140205.123Z`
  * @property {LockKind} kind
  * @property {string} command - What is running (`COMMAND`)
  * @property {string} [set] - The set it runs for (`SET`); absent for `upload --bucket` and every delete
  * @property {string} by - `user@machine` (`BY`)
+ * @property {string} [os] - The OS whose process table `pid` is in (`OS`, `process.platform`); absent in a hand-made lock
  * @property {number} [pid] - The process holding it (`PID`); absent in a hand-made lock
  * @property {string} started - The key's instant in the extended form (`STARTED`)
  */
@@ -67,10 +67,11 @@ function freshLockId(kind) {
  * @param {Omit<Lock, "id" | "kind">} lock
  * @returns {string}
  */
-const formatLock = ({ command, set, by, pid, started }) =>
+const formatLock = ({ command, set, by, os, pid, started }) =>
   `COMMAND=${command}\n` +
   (set === undefined ? "" : `SET=${set}\n`) +
   `BY=${by}\n` +
+  (os === undefined ? "" : `OS=${os}\n`) +
   (pid === undefined ? "" : `PID=${pid}\n`) +
   `STARTED=${started}\n`;
 
@@ -100,6 +101,7 @@ function parseLock(id, kind, text) {
     command: fields.COMMAND ?? "",
     set: fields.SET,
     by: fields.BY ?? "",
+    os: fields.OS,
     pid: fields.PID && Number.isInteger(pid) ? pid : undefined,
     started: fields.STARTED ?? "",
   };
@@ -117,17 +119,18 @@ function parseLock(id, kind, text) {
  */
 export async function writeLock(bucket, { kind, command, set }) {
   const by = userAtMachine();
+  const os = process.platform;
   const pid = process.pid;
   for (;;) {
     const { id, started } = freshLockId(kind);
-    const body = formatLock({ command, set, by, pid, started });
+    const body = formatLock({ command, set, by, os, pid, started });
     const wrote = await putText(lockUri(bucket, id), body, { noClobber: true });
     if (wrote) {
-      return { id, kind, command, set, by, pid, started };
+      return { id, kind, command, set, by, os, pid, started };
     }
     const existing = await getText(lockUri(bucket, id));
     if (existing === body) {
-      return { id, kind, command, set, by, pid, started };
+      return { id, kind, command, set, by, os, pid, started };
     }
     await sleep(1);
   }
@@ -187,7 +190,7 @@ export function removeLock(bucket, id) {
  * @returns {string}
  */
 export function describeLock(lock) {
-  const { command, set, by, started } = lock;
+  const { command, set, by, pid, started } = lock;
   let since = started;
   try {
     since = `${started} (${elapsedSince(Temporal.Instant.from(started))} ago)`;
@@ -196,7 +199,8 @@ export function describeLock(lock) {
   }
   return (
     `${command || "a run"}${set === undefined ? "" : ` of set '${set}'`}` +
-    ` by ${by || "an unknown machine"}, started ${since}` +
+    ` by ${by || "an unknown machine"}` +
+    `${pid === undefined ? "" : ` (pid ${pid})`}, started ${since}` +
     ` — ${lock.id}`
   );
 }
@@ -281,11 +285,13 @@ function processAlive(pid) {
 
 /**
  * The locks whose runs are alive: every lock in the bucket, minus the ones
- * from this machine whose process is gone, which are removed on the way, each
- * said so. Another machine's lock is always taken as alive — `user@machine`
- * is the identity, so two machines with one name and user would judge each
- * other's locks (ADR-0112's accepted gap). A reused pid reads as alive, which
- * errs toward keeping a lock, never removing a live one.
+ * from this machine and OS whose process is gone, which are removed on the
+ * way, each said so. Another machine's lock is always taken as alive —
+ * `user@machine` is the identity, so two machines with one name and user would
+ * judge each other's locks (ADR-0112's accepted gap). The OS is part of the
+ * match because WSL reports Windows' hostname and often its username, with a
+ * process table of its own. A reused pid reads as alive, which errs toward
+ * keeping a lock, never removing a live one.
  * @param {string} bucket
  * @returns {Promise<Lock[]>}
  */
@@ -295,7 +301,8 @@ async function liveLocks(bucket) {
   /** @type {Lock[]} */
   const live = [];
   for (const lock of locks) {
-    if (lock.by === here && lock.pid !== undefined && !processAlive(lock.pid)) {
+    const mine = lock.by === here && lock.os === process.platform;
+    if (mine && lock.pid !== undefined && !processAlive(lock.pid)) {
       await removeLock(bucket, lock.id);
       console.warn(
         `Removed the lock a stopped run left in bucket '${bucket}': ` +
@@ -308,17 +315,15 @@ async function liveLocks(bucket) {
   return live;
 }
 
-/** The interrupts a held lock is removed on; the same three the work file parks on. */
-const SIGNALS = /** @type {const} */ (["SIGINT", "SIGHUP", "SIGTERM"]);
-
 /**
- * Run `fn` with `lock` held, and remove the lock on every exit: `fn`'s
- * return, its throw, or an interrupt. An interrupt removes the lock and exits
- * 130 — unless a later listener is on the signal, which is the snapshot
- * write's park-on-interrupt (snapshot-file.mjs): that one ends `fn` cleanly,
- * and the removal below runs as for any other failure. A second interrupt
- * quits at once. A removal that fails is said, with the `unlock` command, and
- * doesn't fail the run: the next run from this machine removes the lock.
+ * Run `fn` with `lock` held, and remove the lock however `fn` ends. A removal
+ * that fails is said, with the `unlock` command, and doesn't fail the run.
+ *
+ * Not an interrupt handler that removes the lock on Ctrl+C: `fn`'s requests
+ * may still be in flight, and a run on another machine could start under
+ * them. A Ctrl+C leaves the lock, as a crash does, for the next run from this
+ * machine to remove once the process is gone. (During the snapshot write,
+ * Ctrl+C parks the work file and ends `fn` cleanly, so the lock goes here.)
  * @template T
  * @param {string} bucket
  * @param {Lock} lock
@@ -326,55 +331,15 @@ const SIGNALS = /** @type {const} */ (["SIGINT", "SIGHUP", "SIGTERM"]);
  * @returns {Promise<T>}
  */
 async function hold(bucket, lock, fn) {
-  let interrupted = false;
-  const before = Object.fromEntries(
-    SIGNALS.map((signal) => [signal, process.listenerCount(signal)]),
-  );
-  /** @param {NodeJS.Signals} signal */
-  const onSignal = (signal) => {
-    if (interrupted) {
-      process.exit(EXIT_INTERRUPTED);
-    }
-    interrupted = true;
-    if (process.listenerCount(signal) > (before[signal] ?? 0) + 1) {
-      return;
-    }
-    console.warn(
-      `\nStopping — removing this run's lock from bucket '${bucket}'.\n` +
-        `Interrupt again (Ctrl+C) to quit immediately.`,
-    );
-    removeLock(bucket, lock.id)
-      .catch((removal) => console.warn(lockLeft(bucket, lock, removal)))
-      .then(() => process.exit(EXIT_INTERRUPTED));
-  };
-  for (const signal of SIGNALS) {
-    process.on(signal, onSignal);
-  }
-
-  let failed = false;
-  /** @type {unknown} */
-  let failure;
-  /** @type {T | undefined} */
-  let result;
   try {
-    result = await fn();
-  } catch (error) {
-    failed = true;
-    failure = error;
+    return await fn();
   } finally {
-    for (const signal of SIGNALS) {
-      process.off(signal, onSignal);
+    try {
+      await removeLock(bucket, lock.id);
+    } catch (removal) {
+      console.warn(lockLeft(bucket, lock, removal));
     }
   }
-  try {
-    await removeLock(bucket, lock.id);
-  } catch (removal) {
-    console.warn(lockLeft(bucket, lock, removal));
-  }
-  if (failed) {
-    throw failure;
-  }
-  return /** @type {T} */ (result);
 }
 
 /**
@@ -385,17 +350,18 @@ async function hold(bucket, lock, fn) {
  */
 const lockLeft = (bucket, lock, cause) =>
   `Couldn't remove this run's lock from bucket '${bucket}' ` +
-  `(${reason(cause)}). The next backup, upload, cleanup or delete from this ` +
-  `computer will remove it; until then every ` +
+  `(${reason(cause)}). Until it goes, every ` +
   `${lock.kind === "upload" ? "cleanup and delete" : "backup and upload"} ` +
-  `of the bucket is refused. Or remove it now with:\n` +
+  `of the bucket is refused. The next backup, upload, cleanup or delete ` +
+  `from this computer should remove it, once it can tell this run has ` +
+  `stopped; to remove it yourself:\n` +
   `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`;
 
 /**
  * Run `work` as an upload under ADR-0112's rules: write the upload lock
  * **before anything that decides what to skip**, list `locks/`, refuse on any
  * live delete lock, run, then remove the lock — on any failure the run
- * survives too, and on an interrupt.
+ * survives too.
  *
  * Everything `work` sees in the bucket stays there until it ends, because no
  * delete can start meanwhile: that is what makes a baseline, a store LIST, a
@@ -426,7 +392,7 @@ export const WAIT_MS = 30_000;
 /**
  * Run `work` as a delete under ADR-0112's rules: write the delete lock, list
  * `locks/`, refuse on any live upload lock (naming each), run, then remove the
- * lock — on any failure the run survives too, and on an interrupt. With
+ * lock — on any failure the run survives too. With
  * `wait`, a refusal becomes a wait: the lock is removed while waiting
  * (holding it would turn away every backup that starts meanwhile), the run
  * says which locks it is waiting on, sleeps {@link WAIT_MS}, and writes its

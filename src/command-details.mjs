@@ -83,9 +83,9 @@ On a terminal you confirm by typing the bucket name; scripts must pass
 export const unlockDetails = `While a backup or upload runs, it holds a lock in the bucket's locks/
 folder, and so does a cleanup or delete; each refuses to start while the
 other kind's lock is there. A lock is removed when its command finishes,
-however it finishes, Ctrl+C included — only a crash, a lost machine or a
-killed process leaves one behind, and a lock never expires on its own:
-its age says nothing about whether its command is still running.
+even when it fails; a crash, a lost machine, a killed process or Ctrl+C
+leaves one behind, and a lock never expires on its own: its age says
+nothing about whether its command is still running.
 
 A lock names its computer and its process, so the next backup, upload,
 cleanup or delete from the same computer removes a leftover whose process

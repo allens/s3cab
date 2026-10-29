@@ -98,9 +98,9 @@ Then the upload lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdUploadLock` 
 [locks.mjs](../../src/lib/locks.mjs)), around everything below: no-clobber PUT of
 `locks/upload-<instant>` **[atomic]**; LIST `locks/` **[atomic]** — a lock of this machine's
 whose process is gone is removed on the way, and a `delete-` lock means remove the own lock and
-refuse. Write first, look second. The lock is removed on every exit — success, failure or
-Ctrl+C — after step 7 and before step 8; only a hard stop leaves it, for the next run from
-this machine, or `unlock`.
+refuse. Write first, look second. The lock is removed on success or failure, after step 7 and
+before step 8; a hard stop or a Ctrl+C outside the snapshot write leaves it, for the next run
+from this machine, or `unlock`.
 
 1. `readBaseline` — pick the latest **local** snapshot. Local read.
 2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — compare the baseline's remote

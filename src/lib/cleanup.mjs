@@ -241,6 +241,7 @@ export function topUp(plan, stored, added) {
  * @typedef {Object} Reclaimed
  * @property {number} deleted - Orphans removed, after the top-up
  * @property {number} reclaimedBytes - The bytes those held
+ * @property {number} referencedObjects - Distinct objects any snapshot references, after the top-up
  * @property {Awaited<ReturnType<typeof compactDeletionRecords>>} compaction - What the deletion record's compaction did
  */
 
@@ -289,6 +290,7 @@ export function reclaim(
     return {
       deleted: topped.orphanHashes.length,
       reclaimedBytes: topped.reclaimableBytes,
+      referencedObjects: topped.referencedObjects,
       compaction,
     };
   });

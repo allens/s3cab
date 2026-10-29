@@ -322,7 +322,7 @@ as it runs, and refuses to start while the other kind's lock is there:
 ```console
 > s3cab cleanup my-backups
 Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
-  backup of set 'photos' by me@LAPTOP, started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
+  backup of set 'photos' by me@LAPTOP (pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
 
 Try again once it has finished, or let this run wait for it:
   s3cab cleanup my-backups --wait
@@ -334,9 +334,9 @@ Backups don't block each other, and neither do a `cleanup` and a `delete`. A `ba
 meets a running `cleanup` refuses the same way, with no `--wait`: a scheduled backup fails
 loudly and the next schedule tries again.
 
-A lock is removed when its command finishes, however it finishes — a failed run takes its
-lock with it, and so does Ctrl+C. Only a hard stop leaves one: a crash, a machine that lost
-power, a process killed outright. And a lock never expires on its own, because its age says
+A lock is removed when its command finishes, and a failed run takes its lock with it. A stop
+that cuts the run short leaves one: a crash, a machine that lost power, a process killed
+outright, or Ctrl+C, which can't be sure the run's last requests have finished. And a lock never expires on its own, because its age says
 nothing about whether the run is alive — a first backup of a large set runs for hours. What
 does say so is the process: a lock names its computer and its process, so a leftover is
 cleared by whoever can tell the run is dead:
@@ -349,8 +349,8 @@ cleared by whoever can tell the run is dead:
   ```console
   > s3cab unlock --bucket my-backups
   2 locks in bucket 'my-backups':
-    backup of set 'photos' by me@LAPTOP, started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
-    cleanup by me@DESKTOP, started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
+    backup of set 'photos' by me@LAPTOP (pid 18204), started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
+    cleanup by me@DESKTOP (pid 9120), started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
 
   A lock whose command is still running keeps a cleanup or delete from removing what that backup needs — or a backup from storing what that cleanup is removing. Remove one only when you know its command has stopped.
   Remove these 2 locks? [y/N] y

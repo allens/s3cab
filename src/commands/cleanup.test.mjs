@@ -234,6 +234,7 @@ describe("cleanup command", () => {
 
     assert.deepEqual(deleteCalls, ["orphan"]);
     assert.equal(result.deleted, 1);
+    assert.equal(result.referencedObjects, 2, "the counts add up again");
     assert.deepEqual(compactCalls[0]?.referenced, new Set(["kept", "landed"]));
     assert.ok(
       warnings.some((w) =>

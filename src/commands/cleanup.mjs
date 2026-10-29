@@ -213,6 +213,7 @@ export async function cleanup(bucket, options = {}) {
   const {
     deleted: removed,
     reclaimedBytes,
+    referencedObjects,
     compaction,
   } = await reclaim(bucket, { plan, snapshotFiles, stored }, { wait });
 
@@ -243,10 +244,11 @@ export async function cleanup(bucket, options = {}) {
     console.warn("Nothing to reclaim.");
   }
 
-  // What was reclaimed is the result (→ renderCleanup on stdout): the orphans
-  // and bytes after the top-up, not the scan's count the prompt showed.
+  // What was reclaimed is the result (→ renderCleanup on stdout): the counts
+  // after the top-up, not the scan's the prompt showed.
   report.deleted = removed;
   report.orphanObjects = removed;
+  report.referencedObjects = referencedObjects;
   report.reclaimableBytes = reclaimedBytes;
   return report;
 }

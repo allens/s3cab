@@ -129,12 +129,16 @@ const plant = (
   /** @type {string} */ id,
   /** @type {string} */ command,
   /** @type {string | undefined} */ set = undefined,
-  /** @type {{ by?: string, pid?: number }} */ { by, pid } = {},
+  /** @type {{ by?: string, os?: string, pid?: number }} */ {
+    by,
+    os,
+    pid,
+  } = {},
 ) =>
   store.set(
     `locks/${id}`,
     `COMMAND=${command}\n${set ? `SET=${set}\n` : ""}BY=${by ?? "other@LAPTOP"}\n` +
-      `PID=${pid ?? 4242}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
+      `OS=${os ?? process.platform}\nPID=${pid ?? 4242}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
   );
 
 const lockKeys = () => [...store.keys()].filter((k) => k.startsWith("locks/"));
@@ -190,8 +194,9 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
     assert.equal(
       store.get(`locks/${lock.id}`),
-      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
+      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nOS=${process.platform}\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
     );
+    assert.equal(lock.os, process.platform);
     assert.equal(lock.pid, process.pid);
     // The key's instant is the STARTED line in the basic form.
     assert.equal(
@@ -270,6 +275,7 @@ describe("listLocks, removeLock, describeLock", () => {
       command: "backup",
       set: "photos",
       by: "other@LAPTOP",
+      os: process.platform,
       pid: 4242,
       started: "2026-10-27T14:02:05.123Z",
     });
@@ -319,7 +325,7 @@ describe("listLocks, removeLock, describeLock", () => {
 
     assert.match(
       text,
-      /^backup of set 'photos' by other@LAPTOP, started 2026-10-27T14:02:05\.123Z \(.+ ago\) — upload-20261027T140205\.123Z$/,
+      /^backup of set 'photos' by other@LAPTOP \(pid 4242\), started 2026-10-27T14:02:05\.123Z \(.+ ago\) — upload-20261027T140205\.123Z$/,
     );
   });
 });
@@ -437,7 +443,7 @@ describe("holdUploadLock", () => {
     assert.match(
       warnings.at(-1) ?? "",
       new RegExp(
-        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. The next backup, upload, cleanup or delete from this computer will remove it; until then every cleanup and delete of the bucket is refused[\\s\\S]*s3cab unlock --bucket b ${id}`,
+        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. Until it goes, every cleanup and delete of the bucket is refused\\. The next backup, upload, cleanup or delete from this computer should remove it, once it can tell this run has stopped; to remove it yourself:\\n {2}s3cab unlock --bucket b ${id}`,
       ),
     );
   });
@@ -460,7 +466,7 @@ describe("holdUploadLock", () => {
       assert.equal(warnings.length, 1);
       assert.match(
         warnings[0] ?? "",
-        /^Removed the lock a stopped run left in bucket 'b': cleanup by allen@DESKTOP, started 2026-10-27T14:02:05\.123Z \(.+ ago\) — delete-20261027T140100\.000Z$/,
+        /^Removed the lock a stopped run left in bucket 'b': cleanup by allen@DESKTOP \(pid 31337\), started 2026-10-27T14:02:05\.123Z \(.+ ago\) — delete-20261027T140100\.000Z$/,
       );
     });
 
@@ -502,10 +508,51 @@ describe("holdUploadLock", () => {
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
     });
 
+    it("from another OS is kept: WSL shares the machine's name, not its process table", async () => {
+      plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+        by: "allen@DESKTOP",
+        os: process.platform === "linux" ? "win32" : "linux",
+        pid: 31337,
+      });
+      deadPids.add(31337);
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+      assert.ok(
+        kill.mock.calls.every(({ arguments: [pid] }) => pid !== 31337),
+        "the OS was never asked about it",
+      );
+    });
+
+    it("with no OS is kept: a lock that can't say whose process table it means is never judged", async () => {
+      store.set(
+        "locks/delete-20261027T140100.000Z",
+        "COMMAND=cleanup\nBY=allen@DESKTOP\nPID=31337\nSTARTED=2026-10-27T14:02:05.123Z\n",
+      );
+      deadPids.add(31337);
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+    });
+
     it("with no pid is kept: a hand-made lock is a person's to remove", async () => {
       store.set(
         "locks/delete-20261027T140100.000Z",
-        "COMMAND=cleanup\nBY=allen@DESKTOP\nSTARTED=2026-10-27T14:02:05.123Z\n",
+        `COMMAND=cleanup\nBY=allen@DESKTOP\nOS=${process.platform}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
       );
 
       await assert.rejects(
@@ -539,100 +586,10 @@ describe("holdUploadLock", () => {
     );
   });
 
-  describe("an interrupt while the lock is held", () => {
-    /** @type {ReturnType<typeof mock.method>} */
-    let exit;
-    beforeEach(() => {
-      exit = mock.method(process, "exit", () => undefined);
-    });
-    afterEach(() => {
-      exit.mock.restore();
-    });
+  it("takes no interrupt handler: Ctrl+C mid-work must not remove the lock under requests in flight", async () => {
+    const before = process.listenerCount("SIGINT");
 
-    it("removes the lock, says so, and exits 130", async () => {
-      /** @type {() => void} */
-      let finish = () => {};
-      const held = holdUploadLock(
-        { bucket: "b", command: "backup", set: "photos" },
-        () => new Promise((resolve) => (finish = () => resolve("done"))),
-      );
-      await settle();
-      assert.equal(lockKeys().length, 1);
-
-      process.emit("SIGINT", "SIGINT");
-      await settle();
-
-      assert.deepEqual(lockKeys(), [], "the lock went on the interrupt");
-      assert.match(
-        warnings[0] ?? "",
-        /Stopping — removing this run's lock from bucket 'b'\.\nInterrupt again \(Ctrl\+C\) to quit immediately\./,
-      );
-      assert.deepEqual(
-        exit.mock.calls.map(({ arguments: args }) => args),
-        [[130]],
-      );
-      finish();
-      await held;
-    });
-
-    it("a second interrupt quits at once, without waiting for the removal", async () => {
-      /** @type {() => void} */
-      let finish = () => {};
-      const held = holdUploadLock(
-        { bucket: "b", command: "backup", set: "photos" },
-        () => new Promise((resolve) => (finish = () => resolve("done"))),
-      );
-      await settle();
-
-      process.emit("SIGINT", "SIGINT");
-      process.emit("SIGINT", "SIGINT");
-
-      assert.deepEqual(
-        exit.mock.calls.map(({ arguments: args }) => args),
-        [[130]],
-        "exited on the second press, before the removal's response",
-      );
-      await settle();
-      finish();
-      await held;
-    });
-
-    it("stands aside when a later listener is on the signal — the snapshot's park handles it, and the lock goes with the work's end", async () => {
-      /** @type {() => void} */
-      let fail = () => {};
-      const held = holdUploadLock(
-        { bucket: "b", command: "backup", set: "photos" },
-        () =>
-          new Promise((_resolve, reject) => {
-            fail = () => reject(new Error("interrupted, parked"));
-          }),
-      );
-      await settle();
-      const park = () => {};
-      process.on("SIGINT", park);
-      try {
-        process.emit("SIGINT", "SIGINT");
-        await settle();
-
-        assert.equal(lockKeys().length, 1, "the lock is still held");
-        assert.deepEqual(warnings, []);
-        assert.equal(exit.mock.callCount(), 0);
-
-        fail();
-        await assert.rejects(held, /interrupted, parked/);
-        assert.deepEqual(lockKeys(), [], "removed as for any failure");
-      } finally {
-        process.off("SIGINT", park);
-      }
-    });
-
-    it("leaves no handler behind once the work is done", async () => {
-      const before = process.listenerCount("SIGINT");
-
-      await holdUploadLock({ bucket: "b", command: "upload" }, async () => {
-        assert.equal(process.listenerCount("SIGINT"), before + 1);
-      });
-
+    await holdUploadLock({ bucket: "b", command: "upload" }, async () => {
       assert.equal(process.listenerCount("SIGINT"), before);
     });
   });

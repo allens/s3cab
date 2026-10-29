@@ -215,8 +215,9 @@ successor can sweep up and reuse instead of bin.
 Two pieces are built. [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) makes a
 hard-killed work file recoverable with `--resume` (§2's *"Recovering it, rather than deleting
 it"*), and [ADR-0112](../docs/adr/0112-bucket-locks.md) settles the cross-machine half with
-locks in the bucket that never expire — the user is the liveness check there too, through
-`--resume` and `unlock`, so the two halves share one stance rather than one mechanism.
+locks in the bucket that never expire. A run removes its own machine's locks whose process is
+gone; a lock from any other machine waits for `unlock`, so the user is the liveness check only
+there. The local half still has the user as its only check, through `--resume`.
 
 What is left is local: item 2's stale lock itself, where the **unique-temp-name-per-run** option
 would make recovery automatic rather than user-invoked, and §4's uncompressed work file as a way
