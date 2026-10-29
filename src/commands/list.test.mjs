@@ -39,7 +39,7 @@ afterEach(() => {
  * @param {string} name
  * @param {string[]} dirs
  * @param {string} bucket
- * @param {string[]} snapshots - snapshot names, e.g. `2026-06-12T0915`
+ * @param {string[]} snapshots - snapshot names, e.g. `20260612T0915`
  */
 function seedSet(name, dirs, bucket, snapshots) {
   const set = writeSet(name, { dirs, bucket });
@@ -64,10 +64,10 @@ describe("list", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("photos", ["/data/photos"], "my-bucket", [
-      "2026-06-11T0915",
-      "2026-06-12T0915",
+      "20260611T0915",
+      "20260612T0915",
     ]);
-    seedSet("docs", ["/data/docs"], "my-bucket", ["2026-05-12T0946"]);
+    seedSet("docs", ["/data/docs"], "my-bucket", ["20260512T0946"]);
 
     const result = await list();
 
@@ -75,8 +75,8 @@ describe("list", () => {
     assert(result.mode === "summary");
     // Sorted by set name (listSets order); snapshots newest first.
     assert.deepEqual(result.sets, [
-      { name: "docs", snapshots: ["2026-05-12T0946"] },
-      { name: "photos", snapshots: ["2026-06-12T0915", "2026-06-11T0915"] },
+      { name: "docs", snapshots: ["20260512T0946"] },
+      { name: "photos", snapshots: ["20260612T0915", "20260611T0915"] },
     ]);
   });
 
@@ -95,23 +95,23 @@ describe("list", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("photos", ["/data/photos"], "my-bucket", [
-      "2026-06-11T0915",
-      "2026-06-12T0915",
+      "20260611T0915",
+      "20260612T0915",
     ]);
 
     const result = await list(undefined, { latest: true });
 
     assert(result.mode === "summary");
     assert.deepEqual(result.sets, [
-      { name: "photos", snapshots: ["2026-06-12T0915"] },
+      { name: "photos", snapshots: ["20260612T0915"] },
     ]);
   });
 
   it("returns a named set in detail — its config and snapshots", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    seedSet("docs", ["/data/docs"], "my-bucket", ["2026-05-12T0946"]);
-    seedSet("photos", ["/data/photos"], "other-bucket", ["2026-06-12T0915"]);
+    seedSet("docs", ["/data/docs"], "my-bucket", ["20260512T0946"]);
+    seedSet("photos", ["/data/photos"], "other-bucket", ["20260612T0915"]);
 
     const result = await list("docs");
 
@@ -124,7 +124,7 @@ describe("list", () => {
     // The config paths the detail view surfaces are the named set's own.
     assert.match(result.set.dirsPath, /docs.dirs\.txt$/);
     assert.match(result.set.excludePath, /docs.exclude\.txt$/);
-    assert.deepEqual(result.snapshots, ["2026-05-12T0946"]);
+    assert.deepEqual(result.snapshots, ["20260512T0946"]);
     // The set env carries only its bucket → no provider overrides.
     assert.deepEqual(result.overrides, {
       profile: undefined,
@@ -141,8 +141,8 @@ describe("list", () => {
     const set = writeSet("docs", { bucket: "b" }); // attached, never claimed
     mkdirSync(set.snapshotsDir, { recursive: true });
     for (const [name, by] of /** @type {const} */ ([
-      ["2026-06-11T0915", "alice@desktop"],
-      ["2026-06-12T0915", "bob@laptop"],
+      ["20260611T0915", "alice@desktop"],
+      ["20260612T0915", "bob@laptop"],
     ])) {
       const rows = HEADING + formatLine("@SNAPSHOT", "BY", "", "", by) + ".\n";
       writeFileSync(join(set.snapshotsDir, `${name}.tsv.gz`), gzipSync(rows));

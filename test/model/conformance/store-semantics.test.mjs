@@ -113,12 +113,9 @@ describe("conformance: store semantics", () => {
     async () => {
       // `alpha` vs `alphabet`: a prefix that forgets its trailing slash would
       // leak the neighbour's snapshots into the listing.
+      await putText(`s3://${bucket}/snapshots/alpha/20260101T0000.tsv.gz`, "a");
       await putText(
-        `s3://${bucket}/snapshots/alpha/2026-01-01T0000.tsv.gz`,
-        "a",
-      );
-      await putText(
-        `s3://${bucket}/snapshots/alphabet/2026-01-01T0000.tsv.gz`,
+        `s3://${bucket}/snapshots/alphabet/20260101T0000.tsv.gz`,
         "b",
       );
 
@@ -128,7 +125,7 @@ describe("conformance: store semantics", () => {
       )) {
         alpha.push(object.Key);
       }
-      assert.deepEqual(alpha, ["snapshots/alpha/2026-01-01T0000.tsv.gz"]);
+      assert.deepEqual(alpha, ["snapshots/alpha/20260101T0000.tsv.gz"]);
     },
   );
 
@@ -143,14 +140,11 @@ describe("conformance: store semantics", () => {
       // see it: every seam call encoded identically, so s3cab's own round-trip
       // always worked (and the Tier 1 fake shared the parsing). The parse is a
       // plain string split now; the *stored* key must be the raw spelling.
-      await putText(
-        `s3://${bucket}/snapshots/café/2026-01-01T0000.tsv.gz`,
-        "c",
-      );
+      await putText(`s3://${bucket}/snapshots/café/20260101T0000.tsv.gz`, "c");
 
       const raw = await real.listAll(bucket);
       const stored = raw.map(({ key }) => key).filter((k) => k.includes("caf"));
-      assert.deepEqual(stored, ["snapshots/café/2026-01-01T0000.tsv.gz"]);
+      assert.deepEqual(stored, ["snapshots/café/20260101T0000.tsv.gz"]);
 
       // And the seam's own view agrees with the inspector's — listing and
       // fetching under the raw name round-trips.
@@ -160,9 +154,9 @@ describe("conformance: store semantics", () => {
       )) {
         seamListed.push(object.Key);
       }
-      assert.deepEqual(seamListed, ["snapshots/café/2026-01-01T0000.tsv.gz"]);
+      assert.deepEqual(seamListed, ["snapshots/café/20260101T0000.tsv.gz"]);
       const body = await getText(
-        `s3://${bucket}/snapshots/café/2026-01-01T0000.tsv.gz`,
+        `s3://${bucket}/snapshots/café/20260101T0000.tsv.gz`,
       );
       assert.equal(body, "c");
     },

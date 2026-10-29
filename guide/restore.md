@@ -10,7 +10,7 @@ everyday one to the rare backstop:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
-Restored 1 file from 'photos' (snapshot 2026-06-12T0915).
+Restored 1 file from 'photos' (snapshot 20260612T0915).
 ```
 
 Restore always reads from the **cloud**, never a local snapshot: a local snapshot records
@@ -71,7 +71,7 @@ If nothing matches, restore stops rather than silently doing nothing:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
-No files in snapshot '2026-06-12T0915' matched:
+No files in snapshot '20260612T0915' matched:
   C:\Users\me\Photos\nope.jpg
 
 Find how the backup spells a file, and which snapshots hold it:
@@ -89,8 +89,8 @@ older snapshot with `--snapshot` (`-s`) — the names are what `s3cab list <set>
 prints:
 
 ```console
-> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 2026-05-01T0800
-Restored 1 file from 'photos' (snapshot 2026-05-01T0800).
+> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+Restored 1 file from 'photos' (snapshot 20260501T0800).
 ```
 
 This is the case a sync service can't help with once its short version history has expired.
@@ -105,8 +105,8 @@ quietly restore the wrong thing:
 > s3cab restore --set photos --snapshot 2026-05-01
 Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
-  2026-06-12T0915
-  2026-05-01T0800
+  20260612T0915
+  20260501T0800
 ```
 
 ## Existing files are never touched
@@ -115,7 +115,7 @@ By default restore **skips any file that already exists** and tells you which:
 
 ```console
 > s3cab restore --set photos --all
-Restored 2 files from 'photos' (snapshot 2026-06-12T0915).
+Restored 2 files from 'photos' (snapshot 20260612T0915).
 
 Skipped 1 existing file (rerun with --overwrite to replace):
   C:\Users\me\Photos\report.pdf
@@ -176,8 +176,8 @@ rather than at its full path the way `restore --output` does. It's the command f
 look at last month's copy":
 
 ```console
-> s3cab extract --set photos C:\Users\me\Documents\report.pdf --snapshot 2026-05-01T0800
-Extracted 1 file from 'photos' (snapshot 2026-05-01T0800) to C:\Users\me\report.pdf.
+> s3cab extract --set photos C:\Users\me\Documents\report.pdf --snapshot 20260501T0800
+Extracted 1 file from 'photos' (snapshot 20260501T0800) to C:\Users\me\report.pdf.
 ```
 
 - **One path per run**, a file or a folder, matched just as `restore` matches it. For several
@@ -265,7 +265,7 @@ carries on with the rest**, then lists everything it couldn't produce:
 
 ```console
 > s3cab restore --set photos --all
-Restored 1,238 files from 'photos' (snapshot 2026-06-12T0915).
+Restored 1,238 files from 'photos' (snapshot 20260612T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
   C:\Users\me\Photos\2019\hike.jpg

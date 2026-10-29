@@ -68,7 +68,7 @@ describe("model harness smoke", () => {
     const result = await backup("photos");
 
     // The virtual clock named the snapshot: the fixed origin, in UTC.
-    assert.equal(result.snapshot, "2026-01-05T0000");
+    assert.equal(result.snapshot, "20260105T0000");
 
     // The fake holds exactly the two distinct objects plus the manifest, and
     // the op log shows objects first, snapshot last (the commit-point order).
@@ -80,16 +80,14 @@ describe("model harness smoke", () => {
       `objects/${sha("alpha")}`,
       `objects/${sha("beta")}`,
       "snapshots/photos.info", // the holder's marker
-      "snapshots/photos/2026-01-05T0000.tsv.gz",
+      "snapshots/photos/20260105T0000.tsv.gz",
     ]);
     // Objects strictly before the manifest (the commit point); the set config
     // may land after it, and did.
     const putKeys = fake.log
       .filter(({ op }) => op === "PUT")
       .map(({ uri }) => uri.slice(`s3://${BUCKET}/`.length));
-    const manifestAt = putKeys.indexOf(
-      "snapshots/photos/2026-01-05T0000.tsv.gz",
-    );
+    const manifestAt = putKeys.indexOf("snapshots/photos/20260105T0000.tsv.gz");
     assert.ok(manifestAt >= 0, "manifest was PUT");
     for (const key of putKeys.filter((k) => k.startsWith("objects/"))) {
       assert.ok(putKeys.indexOf(key) < manifestAt, `${key} before manifest`);
@@ -110,7 +108,7 @@ describe("model harness smoke", () => {
 
     const result = await backup("photos");
 
-    assert.equal(result.snapshot, "2026-01-05T0001");
+    assert.equal(result.snapshot, "20260105T0001");
     // Only the changed content went up.
     assert.equal(result.uploaded, 1);
     const stored = await backendHolder.current.listAll(BUCKET);

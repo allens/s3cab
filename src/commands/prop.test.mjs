@@ -85,7 +85,7 @@ describe("prop", () => {
     await utimes(filePath, mtime, mtime);
 
     await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-prop-"));
-    const snapshotPath = await writeSnapshot(dir.path, "2026-06-23T1000", [
+    const snapshotPath = await writeSnapshot(dir.path, "20260623T1000", [
       filePath,
     ]);
 

@@ -273,11 +273,21 @@ export const formatDuration = (milliseconds) =>
 const readClock = () => Temporal.Now.zonedDateTimeISO();
 
 /**
+ * An ISO 8601 date-time in its basic form, the one every timestamped name takes
+ * ([ADR-0113](../../docs/adr/0113-names-in-iso-basic-form.md)):
+ * `2026-06-12T09:15` → `20260612T0915`.
+ * @param {string} iso - Extended form
+ * @returns {string}
+ */
+export const basicForm = (iso) => iso.replaceAll(/[-:]/g, "");
+
+/**
  * One moment, in the two spellings every timestamped artifact records
  * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)),
  * from a **single clock read**:
  *
- * - `name` — local wall clock with the colons dropped, at the precision the
+ * - `name` — local wall clock in ISO 8601's basic form
+ *   ([ADR-0113](../../docs/adr/0113-names-in-iso-basic-form.md)), at the precision the
  *   artifact names itself by (`minutes` for a snapshot, `seconds` for a forget
  *   audit). This is the *identity*: a filename, typed and read by people, so it
  *   stays the time the clock on the wall said. An artifact named by something
@@ -298,7 +308,7 @@ const readClock = () => Temporal.Now.zonedDateTimeISO();
 export function localMoment(smallestUnit) {
   const now = readClock();
   return {
-    name: now.toPlainDateTime().toString({ smallestUnit }).replaceAll(":", ""),
+    name: basicForm(now.toPlainDateTime().toString({ smallestUnit })),
     instant: now.toInstant().toString({ smallestUnit: "millisecond" }),
     zone: now.timeZoneId,
   };
@@ -324,7 +334,7 @@ export const completionInstant = () =>
  * instant first, then the artifact's own name and the clock it was minted from:
  *
  * ```
- * 2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
+ * 2026-07-19T13:22:04.881Z  (20260719T1422 Europe/London)
  * ```
  *
  * One spelling for every such header, so the format spec tells one story

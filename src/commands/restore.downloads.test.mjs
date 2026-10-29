@@ -77,7 +77,7 @@ mock.module("../lib/env.mjs", {
 });
 mock.module("../lib/remote.mjs", {
   exports: {
-    listRemoteSnapshots: async () => ["2026-07-19T1200"],
+    listRemoteSnapshots: async () => ["20260719T1200"],
     readRemoteSnapshot: async () => ({
       refused: new Map(),
       instant: "2026-07-19T12:00:00.000Z",
@@ -471,7 +471,7 @@ describe("restore names what it restores (ADR-0110)", () => {
       }),
       {
         message:
-          "No files in snapshot '2026-07-19T1200' matched:\n" +
+          "No files in snapshot '20260719T1200' matched:\n" +
           "  /data/frist.txt\n  /data/lats.txt\n\n" +
           "Find how the backup spells a file, and which snapshots hold it:\n" +
           "  s3cab find <pattern> --set photos",

@@ -49,7 +49,7 @@ const gunzipError = () =>
 
 describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
   it("skips a snapshot that vanished between LIST and read — not unreadable, no abort", async () => {
-    snapshotKeys = [key("s", "2025-01-01T0000"), key("s", "2025-01-02T0000")];
+    snapshotKeys = [key("s", "20250101T0000"), key("s", "20250102T0000")];
     onGetStream = async () => {
       throw named("NoSuchKey");
     };
@@ -71,7 +71,7 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
   });
 
   it("still flags a corrupt (undecompressable) snapshot as unreadable", async () => {
-    snapshotKeys = [key("s", "2025-03-10T0900")];
+    snapshotKeys = [key("s", "20250310T0900")];
     onGetStream = async () => {
       throw gunzipError();
     };
@@ -81,12 +81,12 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     assert.ok(result);
     assert.deepEqual(
       result.unreadable.map((u) => u.snapshot),
-      ["2025-03-10T0900"],
+      ["20250310T0900"],
     );
   });
 
   it("carries a readable snapshot's refused row into `invalid` — cleanup's abort signal (ADR-0101)", async () => {
-    snapshotKeys = [key("s", "2025-05-01T0800")];
+    snapshotKeys = [key("s", "20250501T0800")];
     const ok = "a".repeat(64);
     const text =
       HEADING +
@@ -106,7 +106,7 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     assert.deepEqual([...result.referenced.keys()], [ok]);
     assert.deepEqual(result.invalid, [
       {
-        snapshot: "2025-05-01T0800",
+        snapshot: "20250501T0800",
         path: "/home/me/torn.txt",
         reason: "its size isn't a whole number of bytes",
       },
@@ -114,12 +114,12 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
   });
 
   it("carries each read snapshot's START, which the deletion rows are dated against", async () => {
-    snapshotKeys = [key("s", "2025-07-01T0800"), key("s", "2025-07-02T0800")];
+    snapshotKeys = [key("s", "20250701T0800"), key("s", "20250702T0800")];
     const start =
       "@SNAPSHOT\tSTART\t\t2025-07-01T08:00:00.000Z\tEurope/London\n";
     onGetStream = async (uri) =>
       Readable.from([
-        gzipSync(HEADING + (uri.includes("07-01") ? start : "") + ".\n"),
+        gzipSync(HEADING + (uri.includes("0701T") ? start : "") + ".\n"),
       ]);
 
     const bySet = await referencedObjects(BUCKET);
@@ -127,14 +127,14 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     assert.deepEqual(
       bySet.get("s")?.starts,
       new Map([
-        ["2025-07-02T0800", undefined],
-        ["2025-07-01T0800", "2025-07-01T08:00:00.000Z"],
+        ["20250702T0800", undefined],
+        ["20250701T0800", "2025-07-01T08:00:00.000Z"],
       ]),
     );
   });
 
   it("skips a set's `<set>.info` marker, which sits beside its folder, not in it", async () => {
-    snapshotKeys = ["snapshots/s.info", key("s", "2025-06-01T0800")];
+    snapshotKeys = ["snapshots/s.info", key("s", "20250601T0800")];
     onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
 
     const bySet = await referencedObjects(BUCKET);
@@ -143,7 +143,7 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
   });
 
   it("still rethrows an operational error (aborts the scan)", async () => {
-    snapshotKeys = [key("s", "2025-04-01T1200")];
+    snapshotKeys = [key("s", "20250401T1200")];
     onGetStream = async () => {
       throw named("AccessDenied");
     };

@@ -665,7 +665,7 @@ const uploadFailedError = (cause, set, name) =>
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
  * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
- * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
+ * @param {string} args.name - The snapshot name to upload, e.g. `20260612T0915`
  * @param {string} args.claimPath - The set's `claim` file, this machine's proof it holds the set
  * @returns {Promise<void>}
  */
@@ -748,7 +748,7 @@ const nameTakenError = (set, name, uri) =>
  * fast with nothing to undo.
  * @param {Pick<BackupSet, "name" | "bucket" | "snapshotsDir" | "claimPath">} set - The resolved set
  * @param {object} args
- * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
+ * @param {string} args.name - The snapshot name to upload, e.g. `20260612T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead
  * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}

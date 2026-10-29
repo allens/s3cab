@@ -65,7 +65,7 @@ describe("parseInfo", () => {
 describe("listRemoteSets", () => {
   it("finds every set under snapshots/, one with only a marker included", async () => {
     remoteText = {
-      "s3://b/snapshots/photos/2026-06-12T0915.tsv.gz": "",
+      "s3://b/snapshots/photos/20260612T0915.tsv.gz": "",
       "s3://b/snapshots/photos.info": "",
       "s3://b/snapshots/docs.info": "",
       "s3://b/snapshots/Not A Set/x": "",

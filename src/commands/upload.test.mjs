@@ -119,7 +119,7 @@ describe("upload validation", () => {
 
   it("rejects two modes together (mutually exclusive: --file and --snapshot)", async () => {
     await assert.rejects(
-      upload("photos", { file: "f", snapshot: "2026-01-01T0900" }),
+      upload("photos", { file: "f", snapshot: "20260101T0900" }),
       /Pass one of --file, --snapshot, or --dir/,
     );
     // The conflict is caught before either mode runs.
@@ -138,21 +138,21 @@ describe("upload validation", () => {
 
   it("rejects --bucket without --file", async () => {
     await assert.rejects(
-      upload(undefined, { bucket: "b", snapshot: "2026-01-01T0900" }),
+      upload(undefined, { bucket: "b", snapshot: "20260101T0900" }),
       /--bucket uploads a single file/,
     );
   });
 
   it("rejects --force outside single-file mode", async () => {
     await assert.rejects(
-      upload("photos", { snapshot: "2026-01-01T0900", force: true }),
+      upload("photos", { snapshot: "20260101T0900", force: true }),
       /--force applies only to --file uploads/,
     );
   });
 
   it("rejects --since outside snapshot mode", async () => {
     await assert.rejects(
-      upload("photos", { file: "f", since: "2026-01-01T0900" }),
+      upload("photos", { file: "f", since: "20260101T0900" }),
       /--since applies only to --snapshot uploads/,
     );
   });
@@ -222,26 +222,26 @@ describe("upload --file (single object)", () => {
 describe("upload --snapshot (a snapshot's objects)", () => {
   it("hands the snapshot uploader the set, the name and the --since baseline", async () => {
     const result = await upload("photos", {
-      snapshot: "2026-01-02T0900",
-      since: "2026-01-01T0900",
+      snapshot: "20260102T0900",
+      since: "20260101T0900",
     });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
     assert.deepEqual(uploadFileCalls, []); // snapshot mode never single-PUTs
     assert.deepEqual(uploadSnapshotCalls, [
-      [fakeSet, { name: "2026-01-02T0900", since: "2026-01-01T0900" }],
+      [fakeSet, { name: "20260102T0900", since: "20260101T0900" }],
     ]);
     assert.deepEqual(result, {
       mode: "snapshot",
       set: "photos",
-      snapshot: "2026-01-02T0900",
+      snapshot: "20260102T0900",
       candidates: 5,
       uploaded: 2,
     });
   });
 
   it("omits --since when none is given (uploader then LISTs)", async () => {
-    await upload("photos", { snapshot: "2026-01-02T0900" });
+    await upload("photos", { snapshot: "20260102T0900" });
 
     assert.equal(uploadSnapshotCalls[0]?.[1].since, undefined);
   });
@@ -252,15 +252,15 @@ describe("upload --snapshot (a snapshot's objects)", () => {
     // strict resolver downstream only ever sees a bare name (and so does the
     // result, rather than echoing back whatever was typed).
     const result = await upload("photos", {
-      snapshot: "2026-01-02T0900.tsv.gz",
-      since: "2026-01-01T0900.tsv",
+      snapshot: "20260102T0900.tsv.gz",
+      since: "20260101T0900.tsv",
     });
 
-    assert.equal(uploadSnapshotCalls[0]?.[1].name, "2026-01-02T0900");
-    assert.equal(uploadSnapshotCalls[0]?.[1].since, "2026-01-01T0900");
+    assert.equal(uploadSnapshotCalls[0]?.[1].name, "20260102T0900");
+    assert.equal(uploadSnapshotCalls[0]?.[1].since, "20260101T0900");
     assert.equal(
       result.mode === "snapshot" && result.snapshot,
-      "2026-01-02T0900",
+      "20260102T0900",
     );
   });
 });

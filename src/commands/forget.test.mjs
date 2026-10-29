@@ -64,8 +64,8 @@ let notHeld;
 const fakeReferenced = () =>
   enumeration({
     photos: {
-      "2026-06-11T0915": { "a.jpg": ["h1", 500], "b.jpg": ["h2", 300] },
-      "2026-06-12T0915": { "b.jpg": ["h2", 300] },
+      "20260611T0915": { "a.jpg": ["h1", 500], "b.jpg": ["h2", 300] },
+      "20260612T0915": { "b.jpg": ["h2", 300] },
     },
   });
 
@@ -157,7 +157,7 @@ beforeEach(() => {
     bucket: "b1",
     dir: join(home, ".s3cab", "sets", "photos"),
   };
-  remoteSnapshots = ["2026-06-12T0915", "2026-06-11T0915"];
+  remoteSnapshots = ["20260612T0915", "20260611T0915"];
   deleteCalls = [];
   promptAnswer = false;
   promptCalls = 0;
@@ -202,7 +202,7 @@ describe("forget command", () => {
   it("requires --set", async () => {
     // The snapshot is the operand; the set is addressed by a flag (ADR-0062).
     await assert.rejects(
-      () => forget(["2026-06-12T0915"], {}),
+      () => forget(["20260612T0915"], {}),
       /Missing required argument: set/,
     );
   });
@@ -218,18 +218,18 @@ describe("forget command", () => {
     // Snapshots are the bulk operand (ADR-0062): one run, one confirmation.
     stdin.isTTY = true;
     promptAnswer = true;
-    const result = await forget(["2026-06-12T0915", "2026-06-11T0915"], {
+    const result = await forget(["20260612T0915", "20260611T0915"], {
       set: "photos",
     });
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, [
-      ["b1", "photos", "2026-06-12T0915"],
-      ["b1", "photos", "2026-06-11T0915"],
+      ["b1", "photos", "20260612T0915"],
+      ["b1", "photos", "20260611T0915"],
     ]);
     assert.deepEqual(result, {
       set: "photos",
-      snapshots: ["2026-06-12T0915", "2026-06-11T0915"],
+      snapshots: ["20260612T0915", "20260611T0915"],
       forgotten: true,
     });
   });
@@ -241,10 +241,10 @@ describe("forget command", () => {
     stdin.isTTY = true;
     await assert.rejects(
       () =>
-        forget(["2026-06-12T0915", "2099-01-01T0000"], {
+        forget(["20260612T0915", "20990101T0000"], {
           set: "photos",
         }),
-      /Snapshot '2099-01-01T0000' is not backed up for set 'photos'/,
+      /Snapshot '20990101T0000' is not backed up for set 'photos'/,
     );
     assert.equal(deleteCalls.length, 0);
   });
@@ -252,7 +252,7 @@ describe("forget command", () => {
   it("errors helpfully when the snapshot isn't backed up", async () => {
     stdin.isTTY = true;
     await assert.rejects(
-      () => forget(["2099-01-01T0000"], { set: "photos" }),
+      () => forget(["20990101T0000"], { set: "photos" }),
       /not backed up for set 'photos'[\s\S]*s3cab list photos --remote/,
     );
     assert.equal(deleteCalls.length, 0);
@@ -263,7 +263,7 @@ describe("forget command", () => {
     // history (ADR-0108); --force skips the confirmation, not this.
     notHeld = new Error("not held");
     await assert.rejects(
-      () => forget(["2026-06-12T0915"], { set: "photos", force: true }),
+      () => forget(["20260612T0915"], { set: "photos", force: true }),
       /not held/,
     );
     assert.equal(referencedCalls, 0);
@@ -276,8 +276,8 @@ describe("forget command", () => {
     // delete — and names the exact --force invocation.
     stdin.isTTY = false;
     await assert.rejects(
-      () => forget(["2026-06-12T0915"], { set: "photos" }),
-      /no terminal to ask on[\s\S]*forget --set photos 2026-06-12T0915 --force/,
+      () => forget(["20260612T0915"], { set: "photos" }),
+      /no terminal to ask on[\s\S]*forget --set photos 20260612T0915 --force/,
     );
     assert.equal(referencedCalls, 0);
     assert.deepEqual(deleteCalls, []);
@@ -286,19 +286,19 @@ describe("forget command", () => {
   it("deletes on a TTY when the user confirms", async () => {
     stdin.isTTY = true;
     promptAnswer = true;
-    const result = await forget(["2026-06-12T0915"], {
+    const result = await forget(["20260612T0915"], {
       set: "photos",
     });
 
     assert.equal(promptCalls, 1);
-    assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-12T0915"]]);
+    assert.deepEqual(deleteCalls, [["b1", "photos", "20260612T0915"]]);
     assert.equal(result.forgotten, true);
   });
 
   it("deletes nothing on a TTY when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;
-    const result = await forget(["2026-06-12T0915"], {
+    const result = await forget(["20260612T0915"], {
       set: "photos",
     });
 
@@ -311,12 +311,12 @@ describe("forget command", () => {
     it("writes the preview and summarises it on stdout before the prompt", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["20260611T0915"], { set: "photos" });
 
-      // a.jpg loses its last reference; b.jpg survives in 2026-06-12T0915.
+      // a.jpg loses its last reference; b.jpg survives in 20260612T0915.
       const preview = readFileSync(previewPath(), "utf8");
       const rows = preview.split("\n").filter((l) => l && !l.startsWith("#"));
-      assert.deepEqual(rows, ["2026-06-11T0915\ta.jpg"]);
+      assert.deepEqual(rows, ["20260611T0915\ta.jpg"]);
       // The trustworthy total is the header's, files and objects apart.
       assert.match(preview, /# 1 file, holding 500B across 1 stored object\./);
 
@@ -339,7 +339,7 @@ describe("forget command", () => {
 
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["20260611T0915"], { set: "photos" });
 
       const rows = readFileSync(previewPath(), "utf8")
         .split("\n")
@@ -351,7 +351,7 @@ describe("forget command", () => {
     it("computes over the whole selection, so shared content shows as shared", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915", "2026-06-12T0915"], {
+      await forget(["20260611T0915", "20260612T0915"], {
         set: "photos",
       });
 
@@ -364,7 +364,7 @@ describe("forget command", () => {
     });
 
     it("leaves out content a delete already removed, checking only what this run would orphan", async () => {
-      // h2 is recorded too, but b.jpg survives in 2026-06-12T0915 — so only h1
+      // h2 is recorded too, but b.jpg survives in 20260612T0915 — so only h1
       // is worth a HEAD.
       recorded = new Map([
         ["h1", { deletedOn: "2026-06-13T10:00:00.000Z" }],
@@ -373,7 +373,7 @@ describe("forget command", () => {
 
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["20260611T0915"], { set: "photos" });
 
       assert.deepEqual(headCalls, ["h1"]);
       const rows = readFileSync(previewPath(), "utf8")
@@ -393,7 +393,7 @@ describe("forget command", () => {
 
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["20260611T0915"], { set: "photos" });
 
       const summary = stdout.join("\n");
       assert.match(summary, /^ {2}total unrestorable +1 +500B$/m);
@@ -409,7 +409,7 @@ describe("forget command", () => {
       stdin.isTTY = true;
       promptAnswer = true;
       await assert.rejects(
-        () => forget(["2026-06-11T0915"], { set: "photos" }),
+        () => forget(["20260611T0915"], { set: "photos" }),
         /HEAD failed/,
       );
 
@@ -423,15 +423,12 @@ describe("forget command", () => {
     it("keeps a record in the set's directory once the deletion happens", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["20260611T0915"], { set: "photos" });
 
       const records = auditRecords();
       assert.equal(records.length, 1);
       // Second precision, so two runs a minute apart can't overwrite one another.
-      assert.match(
-        records[0] ?? "",
-        /forget-unrestorable-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
-      );
+      assert.match(records[0] ?? "", /forget-unrestorable-\d{8}T\d{6}\.txt$/);
       // It holds the same list as the preview did.
       assert.match(readFileSync(records[0] ?? "", "utf8"), /a\.jpg/);
     });
@@ -441,7 +438,7 @@ describe("forget command", () => {
       // paying for a second scan.
       stdin.isTTY = true;
       promptAnswer = false;
-      const result = await forget(["2026-06-11T0915"], {
+      const result = await forget(["20260611T0915"], {
         set: "photos",
       });
 
@@ -454,10 +451,10 @@ describe("forget command", () => {
       // --force is the only non-interactive door; it skips the whole-bucket scan
       // and files the "check skipped" stub record.
       stdin.isTTY = false;
-      await forget(["2026-06-11T0915"], { set: "photos", force: true });
+      await forget(["20260611T0915"], { set: "photos", force: true });
 
       assert.equal(referencedCalls, 0, "no whole-bucket scan");
-      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
+      assert.deepEqual(deleteCalls, [["b1", "photos", "20260611T0915"]]);
       const records = auditRecords();
       assert.equal(records.length, 1);
       assert.match(
@@ -473,7 +470,7 @@ describe("forget command", () => {
       // is worse than one that names the gap.
       stdin.isTTY = true;
       promptAnswer = false; // would cancel, if it were ever asked
-      const result = await forget(["2026-06-11T0915"], {
+      const result = await forget(["20260611T0915"], {
         set: "photos",
         force: true,
       });
@@ -486,7 +483,7 @@ describe("forget command", () => {
         "no preview file",
       );
       assert.equal(result.forgotten, true);
-      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
+      assert.deepEqual(deleteCalls, [["b1", "photos", "20260611T0915"]]);
 
       const records = auditRecords();
       assert.equal(records.length, 1);

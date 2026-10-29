@@ -615,8 +615,8 @@ const oneFileFixture = async (dirPath) => {
 
   const snapshotDir = join(dirPath, "snapshots");
   mkdirSync(snapshotDir, { recursive: true });
-  const target = "2025-01-15T1030";
-  const baseline = "2025-01-15T1020";
+  const target = "20250115T1030";
+  const baseline = "20250115T1020";
   await writeSnapshot(snapshotDir, baseline, [file]);
   await writeSnapshot(snapshotDir, target, [file]);
   const baselineUri = publishSnapshot(
@@ -772,7 +772,7 @@ describe("uploadSnapshot baseline trust", () => {
 
   it("distrusts a same-name baseline holding different bytes — another machine's snapshot", async () => {
     // The cross-machine vouching bug (ADR-0084): snapshot names are
-    // minute-resolution wall clock, so machine B can publish `2025-01-15T1020`
+    // minute-resolution wall clock, so machine B can publish `20250115T1020`
     // for a completely different set of files. Its *presence* used to be enough
     // for machine A to skip every hash its own local baseline lists — objects
     // never stored anywhere, silently omitted, and the published snapshot
@@ -966,8 +966,8 @@ describe("uploadSnapshot drift guard", () => {
 
     const snapshotDir = join(dirPath, "snapshots");
     mkdirSync(snapshotDir, { recursive: true });
-    const target = "2025-01-15T1030";
-    const baseline = "2025-01-15T1020";
+    const target = "20250115T1030";
+    const baseline = "20250115T1020";
     await writeSnapshot(snapshotDir, baseline, []); // empty → target file planned
     await writeSnapshot(snapshotDir, target, [file]);
     publishSnapshot(snapshotDir, "drift-guard-bucket", "drifty", baseline);

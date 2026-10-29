@@ -142,7 +142,7 @@ export const commands = {
   compare: {
     summary: "Show what changed between two snapshots",
     guide: "compare",
-    examples: ["s3cab compare", "s3cab compare photos --since 2025-11-11T0830"],
+    examples: ["s3cab compare", "s3cab compare photos --since 20251111T0830"],
     details: compareDetails,
     args: {
       set: {
@@ -489,7 +489,7 @@ export const commands = {
     guide: "restore",
     examples: [
       "s3cab extract --set photos C:\\Users\\me\\Documents\\report.pdf",
-      "s3cab extract --set photos C:\\Users\\me\\Photos --snapshot 2026-05-01T0800 --name Photos-May",
+      "s3cab extract --set photos C:\\Users\\me\\Photos --snapshot 20260501T0800 --name Photos-May",
     ],
     args: {
       path: {
@@ -543,9 +543,9 @@ export const commands = {
     summary: "Remove snapshots from a backup",
     guide: "maintenance",
     examples: [
-      "s3cab forget --set photos 2026-06-12T0915",
-      "s3cab forget --set photos 2026-06-12T0915 2026-06-19T0902",
-      "s3cab forget --set photos 2026-06-12T0915 --force",
+      "s3cab forget --set photos 20260612T0915",
+      "s3cab forget --set photos 20260612T0915 20260619T0902",
+      "s3cab forget --set photos 20260612T0915 --force",
     ],
     args: {
       snapshot: {
@@ -712,7 +712,7 @@ export const commands = {
     examples: [
       "s3cab upload photos --file C:\\Users\\me\\big.iso",
       "s3cab upload photos --dir C:\\Users\\me\\Photos\\2026",
-      "s3cab upload photos --snapshot 2026-06-12T0915",
+      "s3cab upload photos --snapshot 20260612T0915",
       "s3cab upload --bucket my-backups --file big.iso",
     ],
     args: {

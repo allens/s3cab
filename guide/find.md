@@ -11,7 +11,7 @@ searches **every set attached here** unless `--set` narrows it to one.
 #
 # C:\Users\me\secretsdir\aws-keys.txt
 #   892 bytes   modified 2019-03-28 14:02Z
-#   myset  2019-03-28T0812 … 2026-08-14T0930   (943 snapshots)
+#   myset  20190328T0812 … 20260814T0930   (943 snapshots)
 #   ⚠ also backs 3 other paths — deleting this removes all of them
 5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93
 ```
@@ -84,7 +84,7 @@ then which snapshots hold it. A file that sat unchanged for five years is one
 line with a span, not 900 identical ones:
 
 ```
-#   myset  2019-03-28T0812 … 2026-08-14T0930   (943 snapshots)
+#   myset  20190328T0812 … 20260814T0930   (943 snapshots)
 ```
 
 The span covers **consecutive** snapshots holding that exact content. If the

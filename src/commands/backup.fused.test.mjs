@@ -185,7 +185,7 @@ describe("backup's run report (real engine)", () => {
     const snapshotDir = await oneSet(dir.path);
     await writeSnapshot(
       snapshotDir,
-      "2020-01-01T0900",
+      "20200101T0900",
       ["a.txt", "b.txt", "copy.txt"],
       data(dir.path),
     );
@@ -226,16 +226,11 @@ describe("backup's run report (real engine)", () => {
     const snapshotDir = await oneSet(dir.path);
     const root = data(dir.path);
     // A baseline taken before `copy.txt` existed.
-    await writeSnapshot(
-      snapshotDir,
-      "2020-01-01T0900",
-      ["a.txt", "b.txt"],
-      root,
-    );
+    await writeSnapshot(snapshotDir, "20200101T0900", ["a.txt", "b.txt"], root);
 
     const result = await backup("photos");
 
-    assert.equal(result.comparison?.since, "2020-01-01T0900");
+    assert.equal(result.comparison?.since, "20200101T0900");
     assert.equal(result.comparison?.until, result.snapshot);
     assert.deepEqual(
       result.comparison?.added.map((entry) => entry.path),

@@ -34,7 +34,7 @@ mock.module("../lib/env.mjs", {
 });
 mock.module("../lib/remote.mjs", {
   exports: {
-    listRemoteSnapshots: async () => ["2026-07-19T1200"],
+    listRemoteSnapshots: async () => ["20260719T1200"],
     readRemoteSnapshot: async () => {
       snapshotReads++;
       return { entries, refused: new Map(), dirs: [] };
@@ -131,7 +131,7 @@ describe("extract won't hand back what was already there", () => {
     await assert.rejects(
       extract(["/home/me/Photos/a.jpg"], {
         set: "s",
-        snapshot: "2026-07-19T1200",
+        snapshot: "20260719T1200",
         output: out,
       }),
       (/** @type {Error} */ error) => {
@@ -141,7 +141,7 @@ describe("extract won't hand back what was already there", () => {
         );
         // Each keeps the rest of the line, so a pasted --overwrite can't land
         // the latest copy in the cwd instead.
-        const run = `s3cab extract --set s "/home/me/Photos/a.jpg" --snapshot 2026-07-19T1200`;
+        const run = `s3cab extract --set s "/home/me/Photos/a.jpg" --snapshot 20260719T1200`;
         assert.ok(
           error.message.endsWith(
             [
@@ -276,7 +276,7 @@ describe("extract's arguments", () => {
   it("says when the snapshot holds nothing at that path", async () => {
     await assert.rejects(
       extract(["/home/me/Phots"], { set: "s", output: out }),
-      /No files in snapshot '2026-07-19T1200' matched:\n {2}\/home\/me\/Phots\n/,
+      /No files in snapshot '20260719T1200' matched:\n {2}\/home\/me\/Phots\n/,
     );
   });
 });
