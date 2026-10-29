@@ -93,7 +93,8 @@ mock.module("./user-at-machine.mjs", {
 let sleeps = [];
 // The wait between looks is a real half minute; here each such sleep parks
 // until the test wakes it, so a test steps the wait loop by hand. A retry's
-// millisecond passes by itself.
+// millisecond really passes: the fresh lock id is the clock's next instant,
+// and waking at once would mint the same id again.
 mock.module("node:timers/promises", {
   exports: {
     setTimeout: (/** @type {number} */ ms) =>
@@ -101,7 +102,7 @@ mock.module("node:timers/promises", {
         const wake = () => resolve(undefined);
         sleeps.push({ ms, wake });
         if (ms < 1000) {
-          wake();
+          setTimeout(wake, ms);
         }
       }),
   },
