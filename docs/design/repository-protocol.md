@@ -95,11 +95,12 @@ First, `assertHeld` reads `snapshots/<set>.info` and refuses unless its OWNER an
 `claim`. **[atomic]** read.
 
 Then the upload lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdUploadLock` in
-[locks.mjs](../../src/lib/locks.mjs)), around everything below: `open(".upload.lock", "wx")`
-**[atomic]**; no-clobber PUT of `locks/upload-<instant>` **[atomic]**, the id written to the
-local file first; LIST `locks/` **[atomic]** — a `delete-` lock means remove the own lock and
-refuse. Write first, look second. The lock is removed on every exit, success or failure, after
-step 7 and before step 8; only a hard stop leaves it, with the local file, for `--resume`.
+[locks.mjs](../../src/lib/locks.mjs)), around everything below: no-clobber PUT of
+`locks/upload-<instant>` **[atomic]**; LIST `locks/` **[atomic]** — a lock of this machine's
+whose process is gone is removed on the way, and a `delete-` lock means remove the own lock and
+refuse. Write first, look second. The lock is removed on every exit — success, failure or
+Ctrl+C — after step 7 and before step 8; only a hard stop leaves it, for the next run from
+this machine, or `unlock`.
 
 1. `readBaseline` — pick the latest **local** snapshot. Local read.
 2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — compare the baseline's remote
@@ -138,8 +139,7 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 
 ### `upload`
 
-Every form holds the upload lock around the whole operation, as `backup` does; `--bucket` has
-no set and so no local file, which is why its hard stop is `unlock`'s to clear.
+Every form holds the upload lock around the whole operation, as `backup` does.
 
 - `--snapshot` — objects first, manifest last; same holder check, commit point and atomicity.
 - `--dir` — objects only, no manifest.
@@ -170,9 +170,9 @@ First, `assertHeld`, as `backup` does.
 6. Prompt. Everything so far ran with no lock, so a preview costs a running backup nothing.
 7. The delete lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdDeleteLock` in
    [locks.mjs](../../src/lib/locks.mjs)): no-clobber PUT of `locks/delete-<instant>`
-   **[atomic]**, then LIST `locks/` **[atomic]**. An `upload-` lock means remove the own lock
-   and refuse, naming each; with `--wait`, remove it, sleep `WAIT_MS`, and write it again.
-   Write first, look second.
+   **[atomic]**, then LIST `locks/` **[atomic]**, removing any lock of this machine's whose
+   process is gone. An `upload-` lock means remove the own lock and refuse, naming each; with
+   `--wait`, remove it, sleep `WAIT_MS`, and write it again. Write first, look second.
 8. Top up: LIST `snapshots/` again and read every key the scan's listing lacked; their objects
    leave the orphan plan and join the reference set, and step 5's checks apply to them. No
    snapshot can land from here on, so the plan is final.
@@ -181,7 +181,8 @@ First, `assertHeld`, as `backup` does.
     record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
     **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
     deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
-11. Remove the lock, on every exit; a hard stop leaves it for `unlock`.
+11. Remove the lock, on every exit; a hard stop leaves it for the next run from this machine,
+    or `unlock`.
 
 **The ordering in 1–3 still matters**: reading snapshots before the object LIST means an object
 a running backup uploads during the scan appears unreferenced, which step 8 resolves if its

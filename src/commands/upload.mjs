@@ -57,10 +57,7 @@ import { prop } from "./prop.mjs";
  * old `--if-modified-from` TODO here was resolved into the `--since` baseline above, ADR-0044.)
  *
  * Every mode runs under the upload lock, taken by the lib operation it calls
- * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)); a set's modes also keep the set's
- * `.upload.lock`, which `--resume` takes over after a hard stop. `--bucket` has no set and
- * so no local file — a lock a killed `--bucket` upload leaves is `unlock`'s to remove — which
- * is why `--resume` is rejected with it.
+ * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)).
  *
  * @typedef {Object} FileUploadResult
  * @property {"file"} mode - Single-object upload
@@ -96,11 +93,10 @@ import { prop } from "./prop.mjs";
  * @param {string} [options.bucket] - Raw bucket for a `--file` upload with no set (ambient creds)
  * @param {string} [options.since] - Baseline snapshot to skip against (snapshot mode only)
  * @param {boolean} [options.force] - Re-upload even if the object already exists (`--file` only)
- * @param {boolean} [options.resume] - Take over the `.upload.lock` an interrupted upload of the set left behind
  * @returns {Promise<UploadResult>}
  */
 export async function upload(setName, options = {}) {
-  const { file, dir, bucket, force, resume } = options;
+  const { file, dir, bucket, force } = options;
   // `--snapshot`/`--since` name snapshots, and the user may have either spelling
   // to hand: `list` prints bare names, but the file in the set's snapshots folder
   // is `<name>.tsv.gz`. Accept both by canonicalizing here at the boundary, as
@@ -142,12 +138,6 @@ export async function upload(setName, options = {}) {
   }
   if (since && !snapshotName) {
     throw new ParseArgsError("--since applies only to --snapshot uploads.");
-  }
-  if (resume && bucket) {
-    throw new ParseArgsError(
-      "--resume takes over a set's local lock, and --bucket has no set — " +
-        "a lock a stopped --bucket upload left behind is removed with 's3cab unlock'.",
-    );
   }
   // A target flag is the whole point — no mode selected is nothing to do.
   // (After the `bucket && !file` check above, so `--bucket` alone keeps its more
@@ -196,7 +186,6 @@ export async function upload(setName, options = {}) {
       path: file,
       props,
       force,
-      resume,
     });
     if (change) {
       throw fileUnconfirmedError(file, retry, change);
@@ -225,10 +214,7 @@ export async function upload(setName, options = {}) {
     // sending, the way `backup` and `snapshot` head their pass, so the lines that
     // follow never have to repeat it.
     console.warn(`Uploading '${tildeify(dir)}' to '${set.bucket}':`);
-    const { candidates, uploaded, skipped } = await uploadDir(set, {
-      dir,
-      resume,
-    });
+    const { candidates, uploaded, skipped } = await uploadDir(set, { dir });
     return { mode: "dir", set: set.name, dir, candidates, uploaded, skipped };
   }
 
@@ -244,7 +230,6 @@ export async function upload(setName, options = {}) {
   const { candidates, uploaded } = await uploadSnapshot(set, {
     name: snapshotName,
     since,
-    resume,
   });
   return {
     mode: "snapshot",

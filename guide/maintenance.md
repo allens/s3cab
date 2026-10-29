@@ -335,17 +335,16 @@ meets a running `cleanup` refuses the same way, with no `--wait`: a scheduled ba
 loudly and the next schedule tries again.
 
 A lock is removed when its command finishes, however it finishes — a failed run takes its
-lock with it. Only a hard stop leaves one: a crash, a machine that lost power, a process
-killed outright. And a lock never expires on its own, because its age says nothing about
-whether the run is alive — a first backup of a large set runs for hours. So a leftover is
-cleared by someone who knows the run is dead:
+lock with it, and so does Ctrl+C. Only a hard stop leaves one: a crash, a machine that lost
+power, a process killed outright. And a lock never expires on its own, because its age says
+nothing about whether the run is alive — a first backup of a large set runs for hours. What
+does say so is the process: a lock names its computer and its process, so a leftover is
+cleared by whoever can tell the run is dead:
 
-- **A backup's or upload's own leftover** is cleared by the next `backup` or `upload` of that
-  set on the same computer: it refuses first, exactly as a leftover work file makes it refuse,
-  and `--resume` is your word that nothing is running
-  ([stopping part way](backup.md#stopping-part-way)).
-- **Everything else** — a stopped `cleanup` or `delete`, a stopped `upload --bucket`, a backup
-  from a machine that is gone — is `unlock`'s. It shows every lock and asks:
+- **A leftover from this computer** is removed by the next `backup`, `upload`, `cleanup` or
+  `delete` run here, which can see its process is gone. It says so as it does.
+- **A leftover from another computer** — one that is gone, or one nothing will run on for a
+  while — is `unlock`'s. It shows every lock and asks:
 
   ```console
   > s3cab unlock --bucket my-backups

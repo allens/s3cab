@@ -165,8 +165,6 @@ const fixture = async (dirPath) => {
     snapshotsDir,
     excludePath: join(dirPath, "exclude.txt"),
     claimPath: join(dirPath, "claim"),
-    uploadLockPath: join(dirPath, ".upload.lock"),
-    uploadUnlockPath: join(dirPath, ".upload.unlock"),
   };
   return { set, file, props, hash: sha("original bytes") };
 };
@@ -224,14 +222,14 @@ describe("uploadSet (the fused pass)", () => {
     assert.ok(sendingMs >= 0);
   });
 
-  it("holds the upload lock for the set, as a backup, with --resume passed on", async () => {
+  it("holds the upload lock for the set, as a backup", async () => {
     await using dir = await mkTmpDir();
     const { set } = await fixture(dir.path);
 
     await uploadSet(set, { resume: true });
 
     assert.deepEqual(lockCalls, [
-      { bucket: "b", command: "backup", set, resume: true },
+      { bucket: "b", command: "backup", set: "photos" },
     ]);
   });
 

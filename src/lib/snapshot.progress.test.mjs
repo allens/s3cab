@@ -104,8 +104,6 @@ function threeFileSet(root) {
     excludePath: join(root, "exclude.txt"),
     envPath: join(root, "env"),
     claimPath: join(root, "claim"),
-    uploadLockPath: join(root, ".upload.lock"),
-    uploadUnlockPath: join(root, ".upload.unlock"),
   };
 }
 

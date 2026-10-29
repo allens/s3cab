@@ -1662,16 +1662,16 @@ export function renderCleanup(result) {
 }
 
 /**
- * Confirm an `unlock` (ADR-0043) — whether the listed locks were removed. The
- * listing itself went to stdout inside the command, before the decision, and
- * the dry-run, cancel and unknown-id notices to stderr; this is only the
- * result line.
+ * Confirm an `unlock` (ADR-0043) — what was removed. The listing itself went
+ * to stdout inside the command, before the decision, and the dry-run, cancel
+ * and empty-bucket notices to stderr, so a run that removed nothing has
+ * nothing left to say.
  * @param {UnlockResult} result
  * @returns {string}
  */
 export function renderUnlock({ bucket, locks, removed }) {
   if (!removed) {
-    return "Nothing was removed.";
+    return "";
   }
   return `${bucket}: removed ${countOf(locks.length, "lock")}.`;
 }

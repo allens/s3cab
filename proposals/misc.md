@@ -90,11 +90,10 @@ seed of a future "platform / release" epic).
   language-choice discussion (2026-10-07) as the cheapest slice of what a functional language's
   newtypes would buy.
 - **Rename `claim` to `.claim`, and write the dot-file rule down.** A dot marks a file as
-  s3cab's own, not the user's to read or edit (`.snapshot.tsv.gz`, `.snapshot.lookup.tsv.gz`,
-  `.upload.lock`, `.upload.unlock`); a plain name is the user's (`dirs.txt`, `exclude.txt`,
-  `env`). `claim` holds the pair `assertHeld` compares and nobody edits by hand, so it belongs
-  on the dot side ([ADR-0112](../docs/adr/0112-bucket-locks.md), rejected alternatives). Review
-  every file under `~/.s3cab/sets/<set>/` against the rule while at it, and codify it in
+  s3cab's own, not the user's to read or edit (`.snapshot.tsv.gz`, `.snapshot.lookup.tsv.gz`);
+  a plain name is the user's (`dirs.txt`, `exclude.txt`, `env`). `claim` holds the pair
+  `assertHeld` compares and nobody edits by hand, so it belongs on the dot side. Review every
+  file under `~/.s3cab/sets/<set>/` against the rule while at it, and codify it in
   `guide/format.md`'s local-surface section.
 - **A readable reference: s3cab's core in a program someone who codes a little can read in
   half an hour.** That was s3cab's founding test, which `src/` outgrew. Snapshot, upload and

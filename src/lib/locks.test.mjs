@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // The bucket locks (ADR-0112) over an in-memory bucket at the s3.mjs seam —
 // a keyed text store whose no-overwrite PUT really refuses a taken key — so
 // every rule here is proved by the requests the bucket sees, in order: write
-// first, look second; the own lock removed before a refusal; the local file
-// holding the id for as long as the bucket lock exists. Mocks first, then a
-// dynamic import (objects.test.mjs rule).
+// first, look second; the own lock removed before a refusal; a dead run's
+// lock from this machine swept on the way in, judged by `process.kill(pid, 0)`
+// at a mocked `process.kill`. Mocks first, then a dynamic import
+// (objects.test.mjs rule).
 
 /** @type {Map<string, string>} the bucket: key → body */
 let store = new Map();
@@ -26,6 +24,9 @@ let vanishOnGet = false;
 let deleteError;
 /** @type {Error | undefined} let the LIST fail */
 let listError;
+/** How many GETs were in flight at once, at most. */
+let getsInFlight = 0;
+let mostGetsInFlight = 0;
 
 const keyOf = (/** @type {string} */ uri) => uri.replace(/^s3:\/\/[^/]+\//, "");
 
@@ -53,6 +54,10 @@ mock.module("./s3.mjs", {
     getText: async (/** @type {string} */ uri) => {
       const key = keyOf(uri);
       requests.push(`get:${key}`);
+      getsInFlight++;
+      mostGetsInFlight = Math.max(mostGetsInFlight, getsInFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      getsInFlight--;
       if (vanishOnGet) {
         store.delete(key);
       }
@@ -85,18 +90,26 @@ mock.module("./user-at-machine.mjs", {
 });
 /** @type {{ ms: number, wake: () => void }[]} every `--wait` sleep, to be woken by the test */
 let sleeps = [];
-// The wait between looks is a real half minute; here each sleep parks until
-// the test wakes it, so a test steps the wait loop by hand.
+// The wait between looks is a real half minute; here each such sleep parks
+// until the test wakes it, so a test steps the wait loop by hand. A retry's
+// millisecond passes by itself.
 mock.module("node:timers/promises", {
   exports: {
     setTimeout: (/** @type {number} */ ms) =>
       new Promise((resolve) => {
-        sleeps.push({ ms, wake: () => resolve(undefined) });
+        const wake = () => resolve(undefined);
+        sleeps.push({ ms, wake });
+        if (ms < 1000) {
+          wake();
+        }
       }),
   },
 });
 /** Let the run reach its next sleep, or finish. */
-const settle = () => new Promise((resolve) => setImmediate(resolve));
+const settle = () =>
+  new Promise((resolve) => setTimeout(resolve, 0)).then(
+    () => new Promise((resolve) => setImmediate(resolve)),
+  );
 
 const {
   WAIT_MS,
@@ -108,24 +121,20 @@ const {
   writeLock,
 } = await import("./locks.mjs");
 
-const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
-
-/** @param {string} dirPath */
-const setIn = (dirPath) => ({
-  name: "photos",
-  uploadLockPath: join(dirPath, ".upload.lock"),
-  uploadUnlockPath: join(dirPath, ".upload.unlock"),
-});
+/** Pids `process.kill(pid, 0)` reports gone. @type {Set<number>} */
+let deadPids = new Set();
 
 /** A lock another run holds, planted straight into the bucket. */
 const plant = (
   /** @type {string} */ id,
   /** @type {string} */ command,
   /** @type {string | undefined} */ set = undefined,
+  /** @type {{ by?: string, pid?: number }} */ { by, pid } = {},
 ) =>
   store.set(
     `locks/${id}`,
-    `COMMAND=${command}\n${set ? `SET=${set}\n` : ""}BY=other@LAPTOP\nSTARTED=2026-10-27T14:02:05.123Z\n`,
+    `COMMAND=${command}\n${set ? `SET=${set}\n` : ""}BY=${by ?? "other@LAPTOP"}\n` +
+      `PID=${pid ?? 4242}\nSTARTED=2026-10-27T14:02:05.123Z\n`,
   );
 
 const lockKeys = () => [...store.keys()].filter((k) => k.startsWith("locks/"));
@@ -134,6 +143,8 @@ const lockKeys = () => [...store.keys()].filter((k) => k.startsWith("locks/"));
 let warnings = [];
 /** @type {ReturnType<typeof mock.method>} */
 let warn;
+/** @type {ReturnType<typeof mock.method>} */
+let kill;
 beforeEach(() => {
   store = new Map();
   requests = [];
@@ -142,18 +153,33 @@ beforeEach(() => {
   vanishOnGet = false;
   deleteError = undefined;
   listError = undefined;
+  getsInFlight = 0;
+  mostGetsInFlight = 0;
   sleeps = [];
+  deadPids = new Set();
   warnings = [];
   warn = mock.method(console, "warn", (/** @type {string} */ m) =>
     warnings.push(m),
   );
+  kill = mock.method(
+    process,
+    "kill",
+    (/** @type {number} */ pid, /** @type {string | number} */ signal) => {
+      assert.equal(signal, 0, "liveness is asked with signal 0, never sent");
+      if (deadPids.has(pid)) {
+        throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+      }
+      return true;
+    },
+  );
 });
 afterEach(() => {
   warn.mock.restore();
+  kill.mock.restore();
 });
 
 describe("writeLock", () => {
-  it("writes locks/<kind>-<instant> with the run's command, set, machine and start", async () => {
+  it("writes locks/<kind>-<instant> with the run's command, set, machine, pid and start", async () => {
     const lock = await writeLock("b", {
       kind: "upload",
       command: "backup",
@@ -164,8 +190,9 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
     assert.equal(
       store.get(`locks/${lock.id}`),
-      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nSTARTED=${lock.started}\n`,
+      `COMMAND=backup\nSET=photos\nBY=allen@DESKTOP\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
     );
+    assert.equal(lock.pid, process.pid);
     // The key's instant is the STARTED line in the basic form.
     assert.equal(
       lock.id,
@@ -194,7 +221,7 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
   });
 
-  it("mints a fresh instant when the 412 was someone else's lock", async () => {
+  it("mints a fresh instant, a millisecond on, when the 412 was someone else's lock", async () => {
     let first = true;
     beforePut = (key) => {
       if (first) {
@@ -210,36 +237,61 @@ describe("writeLock", () => {
     assert.notEqual(puts[0], puts[1], "never the id that just lost");
     assert.equal(puts[1], `put:locks/${lock.id}`);
     assert.equal(lockKeys().length, 2, "theirs stays, ours is the second");
+    assert.deepEqual(
+      sleeps.map(({ ms }) => ms),
+      [1],
+      "it waited for the clock to move, not for a derived id",
+    );
   });
 });
 
 describe("listLocks, removeLock, describeLock", () => {
-  it("lists every lock oldest first, parsed, skipping keys of neither kind", async () => {
+  it("lists every lock oldest first whatever its kind, parsed, skipping keys of neither kind", async () => {
     plant("upload-20261027T140205.123Z", "backup", "photos");
-    plant("delete-20261027T140100.000Z", "cleanup");
+    plant("delete-20261027T140900.000Z", "cleanup");
+    plant("upload-20261027T140100.000Z", "upload");
     store.set("locks/", ""); // a console-made folder marker
     store.set("locks/README", "not a lock");
 
     const locks = await listLocks("b");
 
-    assert.deepEqual(locks, [
-      {
-        id: "delete-20261027T140100.000Z",
-        kind: "delete",
-        command: "cleanup",
-        set: undefined,
-        by: "other@LAPTOP",
-        started: "2026-10-27T14:02:05.123Z",
-      },
-      {
-        id: "upload-20261027T140205.123Z",
-        kind: "upload",
-        command: "backup",
-        set: "photos",
-        by: "other@LAPTOP",
-        started: "2026-10-27T14:02:05.123Z",
-      },
-    ]);
+    assert.deepEqual(
+      locks.map(({ id }) => id),
+      [
+        "upload-20261027T140100.000Z",
+        "upload-20261027T140205.123Z",
+        "delete-20261027T140900.000Z",
+      ],
+      "by instant, not by kind-then-instant",
+    );
+    assert.deepEqual(locks[1], {
+      id: "upload-20261027T140205.123Z",
+      kind: "upload",
+      command: "backup",
+      set: "photos",
+      by: "other@LAPTOP",
+      pid: 4242,
+      started: "2026-10-27T14:02:05.123Z",
+    });
+    assert.equal(mostGetsInFlight, 3, "the bodies are fetched at once");
+  });
+
+  it("reads a lock with no PID line, or a bad one, as a lock with no pid", async () => {
+    store.set(
+      "locks/upload-20261027T140205.123Z",
+      "COMMAND=backup\nBY=other@LAPTOP\nSTARTED=2026-10-27T14:02:05.123Z\n",
+    );
+    store.set(
+      "locks/upload-20261027T140300.000Z",
+      "COMMAND=backup\nBY=other@LAPTOP\nPID=soon\nSTARTED=2026-10-27T14:03:00.000Z\n",
+    );
+
+    const locks = await listLocks("b");
+
+    assert.deepEqual(
+      locks.map(({ pid }) => pid),
+      [undefined, undefined],
+    );
   });
 
   it("skips a lock that vanished between the LIST and its read — a run that just ended", async () => {
@@ -273,18 +325,14 @@ describe("listLocks, removeLock, describeLock", () => {
 });
 
 describe("holdUploadLock", () => {
-  it("writes its lock before it looks, keeps it through the work, removes it after — with the local file alongside", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
+  it("writes its lock before it looks, keeps it through the work, removes it after", async () => {
     /** @type {string[]} */
     let duringWork = [];
-    let fileDuringWork = "";
 
     const result = await holdUploadLock(
-      { bucket: "b", command: "backup", set },
+      { bucket: "b", command: "backup", set: "photos" },
       async () => {
         duringWork = lockKeys();
-        fileDuringWork = readFileSync(set.uploadLockPath, "utf8");
         return "done";
       },
     );
@@ -299,10 +347,7 @@ describe("holdUploadLock", () => {
       `get:locks/${id}`,
       `delete:locks/${id}`,
     ]);
-    // The local file held the bucket lock's id, and is gone with it.
-    assert.equal(fileDuringWork, `${id}\n`);
     assert.deepEqual(lockKeys(), []);
-    assert.ok(!existsSync(set.uploadLockPath));
   });
 
   it("writes no SET line for an upload with no set", async () => {
@@ -317,15 +362,16 @@ describe("holdUploadLock", () => {
   });
 
   it("refuses when a delete lock is in the bucket, removing its own lock first and never running the work", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
     plant("delete-20261027T140100.000Z", "cleanup");
     let ran = false;
 
     await assert.rejects(
-      holdUploadLock({ bucket: "b", command: "backup", set }, async () => {
-        ran = true;
-      }),
+      holdUploadLock(
+        { bucket: "b", command: "backup", set: "photos" },
+        async () => {
+          ran = true;
+        },
+      ),
       (/** @type {Error} */ error) => {
         assert.match(
           error.message,
@@ -339,7 +385,6 @@ describe("holdUploadLock", () => {
 
     assert.equal(ran, false);
     assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
-    assert.ok(!existsSync(set.uploadLockPath), "the local file went with it");
   });
 
   it("other upload locks are no obstacle — uploads don't exclude each other", async () => {
@@ -354,18 +399,17 @@ describe("holdUploadLock", () => {
   });
 
   it("removes its lock when the work fails, and the failure is the run's", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-
     await assert.rejects(
-      holdUploadLock({ bucket: "b", command: "backup", set }, async () => {
-        throw new Error("connection reset");
-      }),
+      holdUploadLock(
+        { bucket: "b", command: "backup", set: "photos" },
+        async () => {
+          throw new Error("connection reset");
+        },
+      ),
       /connection reset/,
     );
 
     assert.deepEqual(lockKeys(), []);
-    assert.ok(!existsSync(set.uploadLockPath));
   });
 
   it("removes its lock when the LIST fails", async () => {
@@ -379,154 +423,218 @@ describe("holdUploadLock", () => {
     assert.deepEqual(lockKeys(), []);
   });
 
-  it("when the lock's PUT fails, leaves the id it tried as the removal owed — the PUT may have landed", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-    beforePut = () => {
-      throw new Error("socket hang up");
-    };
-
-    await assert.rejects(
-      holdUploadLock(
-        { bucket: "b", command: "backup", set },
-        async () => undefined,
-      ),
-      /socket hang up/,
-    );
-
-    assert.ok(!existsSync(set.uploadLockPath));
-    assert.match(readFileSync(set.uploadUnlockPath, "utf8"), /^upload-\S+\n$/);
-  });
-
-  it("refuses a set whose .upload.lock exists — a run is live, or was killed — and says --resume", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-    writeFileSync(set.uploadLockPath, "upload-20261027T140205.123Z\n");
-
-    await assert.rejects(
-      holdUploadLock(
-        { bucket: "b", command: "backup", set },
-        async () => undefined,
-      ),
-      /A backup or upload of set 'photos' is already running on this computer[\s\S]*--resume/,
-    );
-
-    assert.deepEqual(requests, [], "nothing touched the bucket");
-    assert.ok(existsSync(set.uploadLockPath), "the file is never auto-broken");
-  });
-
-  it("--resume takes a leftover .upload.lock over: the bucket lock it names goes first", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-    plant("upload-20261027T140205.123Z", "backup", "photos"); // the killed run's
-    writeFileSync(set.uploadLockPath, "upload-20261027T140205.123Z\n");
-
-    await holdUploadLock(
-      { bucket: "b", command: "backup", set, resume: true },
-      async () => undefined,
-    );
-
-    assert.equal(requests[0], "delete:locks/upload-20261027T140205.123Z");
-    assert.deepEqual(lockKeys(), []);
-    assert.ok(!existsSync(set.uploadLockPath));
-  });
-
-  it("pays the removal an earlier run left owed (.upload.unlock) before taking its own", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-    plant("upload-20261027T140205.123Z", "backup", "photos"); // its removal failed
-    writeFileSync(set.uploadUnlockPath, "upload-20261027T140205.123Z\n");
-
-    await holdUploadLock(
-      { bucket: "b", command: "backup", set },
-      async () => undefined,
-    );
-
-    assert.equal(requests[0], "delete:locks/upload-20261027T140205.123Z");
-    assert.deepEqual(lockKeys(), []);
-    assert.ok(!existsSync(set.uploadUnlockPath));
-  });
-
-  it("leaves the owed removal for the next run when it fails again, and carries on", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-    writeFileSync(set.uploadUnlockPath, "upload-20261027T140205.123Z\n");
-    deleteError = new Error("denied");
-    let ran = false;
-
-    await holdUploadLock({ bucket: "b", command: "backup", set }, async () => {
-      ran = true;
-    });
-
-    assert.equal(ran, true);
-    assert.ok(existsSync(set.uploadUnlockPath), "still owed");
-    assert.match(
-      warnings[0] ?? "",
-      /Couldn't remove the lock 'upload-20261027T140205.123Z' an earlier upload left/,
-    );
-  });
-
-  it("when its own removal fails for a set, renames the file to .upload.unlock and says so", async () => {
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
+  it("when its removal fails after the work, says so with the unlock command and still returns the result", async () => {
     deleteError = new Error("denied");
 
     const result = await holdUploadLock(
-      { bucket: "b", command: "backup", set },
+      { bucket: "b", command: "backup", set: "photos" },
       async () => "done",
     );
 
     assert.equal(result, "done", "the work's result still comes back");
     assert.equal(lockKeys().length, 1, "the lock is still in the bucket");
     const id = String(lockKeys()[0]).slice("locks/".length);
-    assert.ok(!existsSync(set.uploadLockPath));
-    assert.equal(readFileSync(set.uploadUnlockPath, "utf8"), `${id}\n`);
     assert.match(
       warnings.at(-1) ?? "",
       new RegExp(
-        `The next backup or upload of set 'photos' will remove it[\\s\\S]*s3cab unlock --bucket b ${id}`,
+        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. The next backup, upload, cleanup or delete from this computer will remove it; until then every cleanup and delete of the bucket is refused[\\s\\S]*s3cab unlock --bucket b ${id}`,
       ),
     );
   });
 
-  it("when its own removal fails with no set, the run fails naming the lock — nothing will clear it later", async () => {
-    deleteError = new Error("denied");
+  describe("a leftover from this machine", () => {
+    it("is removed on the way in when its process is gone, and said so", async () => {
+      plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+        by: "allen@DESKTOP",
+        pid: 31337,
+      });
+      deadPids.add(31337);
+      let ran = false;
+
+      await holdUploadLock({ bucket: "b", command: "backup" }, async () => {
+        ran = true;
+      });
+
+      assert.equal(ran, true, "the dead delete lock no longer refuses");
+      assert.deepEqual(lockKeys(), []);
+      assert.equal(warnings.length, 1);
+      assert.match(
+        warnings[0] ?? "",
+        /^Removed the lock a stopped run left in bucket 'b': cleanup by allen@DESKTOP, started 2026-10-27T14:02:05\.123Z \(.+ ago\) — delete-20261027T140100\.000Z$/,
+      );
+    });
+
+    it("is kept when its process is alive — the run is still going", async () => {
+      plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+        by: "allen@DESKTOP",
+        pid: 31337,
+      });
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+      assert.deepEqual(warnings, []);
+    });
+
+    it("is kept when another user's process holds it (EPERM is alive)", async () => {
+      plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+        by: "allen@DESKTOP",
+        pid: 31337,
+      });
+      kill.mock.mockImplementation(() => {
+        throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+      });
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+    });
+
+    it("with no pid is kept: a hand-made lock is a person's to remove", async () => {
+      store.set(
+        "locks/delete-20261027T140100.000Z",
+        "COMMAND=cleanup\nBY=allen@DESKTOP\nSTARTED=2026-10-27T14:02:05.123Z\n",
+      );
+
+      await assert.rejects(
+        holdUploadLock(
+          { bucket: "b", command: "backup" },
+          async () => undefined,
+        ),
+        /a cleanup or delete is running/,
+      );
+
+      assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+    });
+  });
+
+  it("another machine's lock is never judged, whatever its pid says here", async () => {
+    plant("delete-20261027T140100.000Z", "cleanup", undefined, {
+      by: "other@LAPTOP",
+      pid: 31337,
+    });
+    deadPids.add(31337);
 
     await assert.rejects(
-      holdUploadLock({ bucket: "b", command: "upload" }, async () => "done"),
-      (/** @type {Error} */ error) => {
-        const id = String(lockKeys()[0]).slice("locks/".length);
-        assert.match(
-          error.message,
-          /Finished, but couldn't remove this run's lock/,
-        );
-        assert.match(
-          error.message,
-          /every cleanup and delete of this bucket is refused/,
-        );
-        assert.match(
-          error.message,
-          new RegExp(`s3cab unlock --bucket b ${id}`),
-        );
-        return true;
-      },
+      holdUploadLock({ bucket: "b", command: "backup" }, async () => undefined),
+      /a cleanup or delete is running/,
+    );
+
+    assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+    assert.ok(
+      kill.mock.calls.every(({ arguments: [pid] }) => pid !== 31337),
+      "the OS was never asked about it",
     );
   });
 
-  it("never removes or renames a local file another run has since written", async () => {
-    // The user deleted a live run's file and started a second upload; the
-    // first run's end must not take the second's file with it.
-    await using dir = await mkTmpDir();
-    const set = setIn(dir.path);
-
-    await holdUploadLock({ bucket: "b", command: "backup", set }, async () => {
-      writeFileSync(set.uploadLockPath, "upload-SOMEONE-ELSES\n");
+  describe("an interrupt while the lock is held", () => {
+    /** @type {ReturnType<typeof mock.method>} */
+    let exit;
+    beforeEach(() => {
+      exit = mock.method(process, "exit", () => undefined);
+    });
+    afterEach(() => {
+      exit.mock.restore();
     });
 
-    assert.equal(
-      readFileSync(set.uploadLockPath, "utf8"),
-      "upload-SOMEONE-ELSES\n",
-    );
+    it("removes the lock, says so, and exits 130", async () => {
+      /** @type {() => void} */
+      let finish = () => {};
+      const held = holdUploadLock(
+        { bucket: "b", command: "backup", set: "photos" },
+        () => new Promise((resolve) => (finish = () => resolve("done"))),
+      );
+      await settle();
+      assert.equal(lockKeys().length, 1);
+
+      process.emit("SIGINT", "SIGINT");
+      await settle();
+
+      assert.deepEqual(lockKeys(), [], "the lock went on the interrupt");
+      assert.match(
+        warnings[0] ?? "",
+        /Stopping — removing this run's lock from bucket 'b'\.\nInterrupt again \(Ctrl\+C\) to quit immediately\./,
+      );
+      assert.deepEqual(
+        exit.mock.calls.map(({ arguments: args }) => args),
+        [[130]],
+      );
+      finish();
+      await held;
+    });
+
+    it("a second interrupt quits at once, without waiting for the removal", async () => {
+      /** @type {() => void} */
+      let finish = () => {};
+      const held = holdUploadLock(
+        { bucket: "b", command: "backup", set: "photos" },
+        () => new Promise((resolve) => (finish = () => resolve("done"))),
+      );
+      await settle();
+
+      process.emit("SIGINT", "SIGINT");
+      process.emit("SIGINT", "SIGINT");
+
+      assert.deepEqual(
+        exit.mock.calls.map(({ arguments: args }) => args),
+        [[130]],
+        "exited on the second press, before the removal's response",
+      );
+      await settle();
+      finish();
+      await held;
+    });
+
+    it("stands aside when a later listener is on the signal — the snapshot's park handles it, and the lock goes with the work's end", async () => {
+      /** @type {() => void} */
+      let fail = () => {};
+      const held = holdUploadLock(
+        { bucket: "b", command: "backup", set: "photos" },
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = () => reject(new Error("interrupted, parked"));
+          }),
+      );
+      await settle();
+      const park = () => {};
+      process.on("SIGINT", park);
+      try {
+        process.emit("SIGINT", "SIGINT");
+        await settle();
+
+        assert.equal(lockKeys().length, 1, "the lock is still held");
+        assert.deepEqual(warnings, []);
+        assert.equal(exit.mock.callCount(), 0);
+
+        fail();
+        await assert.rejects(held, /interrupted, parked/);
+        assert.deepEqual(lockKeys(), [], "removed as for any failure");
+      } finally {
+        process.off("SIGINT", park);
+      }
+    });
+
+    it("leaves no handler behind once the work is done", async () => {
+      const before = process.listenerCount("SIGINT");
+
+      await holdUploadLock({ bucket: "b", command: "upload" }, async () => {
+        assert.equal(process.listenerCount("SIGINT"), before + 1);
+      });
+
+      assert.equal(process.listenerCount("SIGINT"), before);
+    });
   });
 });
 
@@ -570,7 +678,10 @@ describe("holdDeleteLock", () => {
           /Can't clean up right now — a backup or upload is running on bucket 'b'/,
         );
         assert.match(error.message, /backup of set 'photos' by other@LAPTOP/);
-        assert.match(error.message, /s3cab cleanup b --wait/);
+        assert.match(
+          error.message,
+          /run the same command again with --wait to let this run wait for it/,
+        );
         assert.match(error.message, /s3cab unlock --bucket b/);
         return true;
       },
@@ -580,12 +691,12 @@ describe("holdDeleteLock", () => {
     assert.deepEqual(lockKeys(), ["locks/upload-20261027T140205.123Z"]);
   });
 
-  it("names delete's own --wait form", async () => {
+  it("frames delete's refusal by its own goal", async () => {
     plant("upload-20261027T140205.123Z", "upload");
 
     await assert.rejects(
       holdDeleteLock({ bucket: "b", command: "delete" }, async () => undefined),
-      /s3cab delete --bucket b --wait <hash>\.\.\./,
+      /Can't delete right now — a backup or upload is running on bucket 'b', and deleting while it runs/,
     );
   });
 
@@ -598,6 +709,26 @@ describe("holdDeleteLock", () => {
     });
 
     assert.equal(ran, true);
+  });
+
+  it("sweeps a dead upload lock from this machine instead of refusing on it", async () => {
+    plant("upload-20261027T140205.123Z", "backup", "photos", {
+      by: "allen@DESKTOP",
+      pid: 31337,
+    });
+    deadPids.add(31337);
+    let ran = false;
+
+    await holdDeleteLock({ bucket: "b", command: "cleanup" }, async () => {
+      ran = true;
+    });
+
+    assert.equal(ran, true);
+    assert.deepEqual(lockKeys(), []);
+    assert.match(
+      warnings[0] ?? "",
+      /^Removed the lock a stopped run left in bucket 'b': backup of set 'photos' by allen@DESKTOP/,
+    );
   });
 
   it("--wait: holds no lock while waiting, says which uploads once, and goes once they are gone", async () => {
@@ -671,12 +802,18 @@ describe("holdDeleteLock", () => {
     assert.deepEqual(lockKeys(), []);
   });
 
-  it("fails naming the lock when its removal fails after the work — nothing will clear it later", async () => {
+  it("when its removal fails after the work, says so and still returns the result", async () => {
     deleteError = new Error("denied");
 
-    await assert.rejects(
-      holdDeleteLock({ bucket: "b", command: "cleanup" }, async () => "done"),
-      /Finished, but couldn't remove this run's lock[\s\S]*every backup and upload of this bucket is refused[\s\S]*s3cab unlock --bucket b delete-/,
+    const result = await holdDeleteLock(
+      { bucket: "b", command: "cleanup" },
+      async () => "done",
+    );
+
+    assert.equal(result, "done");
+    assert.match(
+      warnings.at(-1) ?? "",
+      /Couldn't remove this run's lock from bucket 'b' \(denied\)[\s\S]*every backup and upload of the bucket is refused[\s\S]*s3cab unlock --bucket b delete-/,
     );
   });
 });

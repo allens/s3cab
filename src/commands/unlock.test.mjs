@@ -165,6 +165,20 @@ describe("unlock", () => {
     assert.ok(warnings.includes("Dry run — nothing removed."));
   });
 
+  it("--force --dry-run without ids is a listing — a dry run removes nothing", async () => {
+    stdin.isTTY = false;
+
+    const result = await unlock([], {
+      bucket: "b",
+      force: true,
+      "dry-run": true,
+    });
+
+    assert.equal(lines.length, 1);
+    assert.deepEqual(removed, []);
+    assert.equal(result.removed, false);
+  });
+
   it("--force with ids removes them without asking", async () => {
     stdin.isTTY = false;
 

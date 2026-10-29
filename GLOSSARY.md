@@ -66,18 +66,15 @@ A `locks/<kind>-<instant>` key in the repository, `KEY=value` lines inside, that
 upload or delete holds for exactly as long as it runs: written *before* the run looks at
 anything that decides what to skip or delete, then `locks/` is listed and the other kind
 turns it away. Uploads don't exclude each other, nor do deletes. It never expires — age says
-nothing about liveness — so only a hard stop leaves one, and only `--resume` (a set's own) or
-`unlock` (a person) removes a leftover ([ADR-0112](docs/adr/0112-bucket-locks.md), format spec).
+nothing about liveness — so only a hard stop leaves one; it names its machine and process
+(`BY`, `PID`), so the next run from that machine removes a leftover whose process is gone, and
+`unlock` (a person) removes any other ([ADR-0112](docs/adr/0112-bucket-locks.md), format spec).
 _Avoid_: lease, mutex, stale lock (age means nothing), grace window (what it replaced).
 
 **Upload lock**:
 The **lock** a `backup` or any `upload` holds (`locks/upload-…`), the kind a delete refuses
-on. A set's upload also keeps the lock's id in its local `.upload.lock` file, created
-atomically for the run's whole length, so a later run of that set can clear exactly that
-lock: `--resume` after a hard stop, or by itself when the file was renamed `.upload.unlock`
-by a run that finished with its lock still in the bucket.
-_Avoid_: run lock, backup lock (an `upload --dir` holds one too), lock file (names the local
-half only).
+on.
+_Avoid_: run lock, backup lock (an `upload --dir` holds one too), lock file (there is none).
 
 **Delete lock**:
 The **lock** a `cleanup` or `delete` holds (`locks/delete-…`), the kind an upload refuses on.

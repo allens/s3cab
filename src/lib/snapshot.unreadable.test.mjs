@@ -45,8 +45,6 @@ describe("a pass over files that vanish before they are read", () => {
         excludePath: join(dir.path, "exclude.txt"),
         envPath: join(dir.path, "env"),
         claimPath: join(dir.path, "claim"),
-        uploadLockPath: join(dir.path, ".upload.lock"),
-        uploadUnlockPath: join(dir.path, ".upload.unlock"),
       },
       {
         // The pipeline is lazy, so the rows after the first are not yet hashed

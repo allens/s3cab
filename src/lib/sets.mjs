@@ -62,17 +62,6 @@ const setExcludePath = (name) => join(setDir(name), "exclude.txt");
 const setClaimPath = (name) => join(setDir(name), "claim");
 
 /**
- * The set's local upload lock, present while an upload of the set holds a
- * bucket lock, and its twin, the bucket lock a finished upload couldn't remove
- * (locks.mjs). Dot names: s3cab's own files, like the work file, never a
- * user's to read or edit.
- * @param {string} name
- */
-const setUploadLockPath = (name) => join(setDir(name), ".upload.lock");
-/** @param {string} name */
-const setUploadUnlockPath = (name) => join(setDir(name), ".upload.unlock");
-
-/**
  * Read a file's text, or undefined if it doesn't exist.
  * @param {string} path
  */
@@ -327,8 +316,6 @@ export function listSets() {
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
  * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
  * @property {string} claimPath - The set's claim file, `~/.s3cab/sets/<name>/claim` (derived from `name`)
- * @property {string} uploadLockPath - The set's local upload lock, `~/.s3cab/sets/<name>/.upload.lock` (derived from `name`)
- * @property {string} uploadUnlockPath - The bucket lock a finished upload couldn't remove, `~/.s3cab/sets/<name>/.upload.unlock` (derived from `name`)
  */
 
 /**
@@ -377,8 +364,6 @@ export function readSet(name) {
     excludePath: setExcludePath(name),
     envPath: setEnvPath(name),
     claimPath: setClaimPath(name),
-    uploadLockPath: setUploadLockPath(name),
-    uploadUnlockPath: setUploadUnlockPath(name),
   };
 }
 

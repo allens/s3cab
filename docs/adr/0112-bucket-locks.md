@@ -1,9 +1,8 @@
 # Locks in the bucket keep uploads and deletes apart
 
-**Status:** accepted & implemented (2026-10-29; proposed 2026-10-28). Replaces the 7-day grace window and "don't clean up while a
-backup is running" (the [format spec](../../guide/format.md) and
-[design/backup.md](../design/backup.md)). Amends [0048](0048-snapshot-lock-atomic-temp-file.md):
-uploads also hold a second local file, the upload lock's.
+**Status:** accepted & implemented (2026-10-29; proposed 2026-10-28). Replaces the 7-day grace
+window and "don't clean up while a backup is running" (the [format spec](../../guide/format.md)
+and [design/backup.md](../design/backup.md)).
 
 ## Context
 
@@ -38,61 +37,58 @@ deletes: two cleanups, or a cleanup and a `delete`, can safely cross, as
   COMMAND=backup
   SET=photos
   BY=allen@DESKTOP
+  PID=18204
   STARTED=2026-10-27T14:02:05.123Z
   ```
   `COMMAND` is what is running. `SET` is there when the run is for one set, which every upload is
-  except `upload --bucket`. `BY` is `user@machine`, as in `@SNAPSHOT BY`. `STARTED` is the key's
-  instant in the extended form, the 24-character form `.info` uses. They are for people and
-  messages: no rule matches on them.
+  except `upload --bucket`. `BY` is `user@machine`, as in `@SNAPSHOT BY`, and `PID` the process:
+  together they say whose process holds the lock, the one thing a rule reads (below). `STARTED`
+  is the key's instant in the extended form, the 24-character form `.info` uses. The rest is for
+  people and messages.
 - **A lock never expires.** Its age says nothing about whether its run is alive: a first backup
-  runs for hours. 0048 rejected age-based breaking of the local lock for the same reason.
+  runs for hours. 0048 rejected age-based breaking of the work file for the same reason. What
+  does say so is the process, below.
 
 ### An upload
 
-1. **s3cab only: create the set's local lock file** (below). If it exists, refuse.
-2. **Write the upload lock, before anything that decides what to skip.** Everything the run then
+1. **Write the upload lock, before anything that decides what to skip.** Everything the run then
    sees in the bucket stays there until it ends, because no delete can start meanwhile.
-3. **List `locks/`.**
-4. **Any delete lock:** remove your own lock and refuse. Nothing has been touched.
-5. **Upload**, objects first and the snapshot last.
-6. **Remove the lock**, on any failure the run survives too. Only a hard stop (a crash, a power
-   cut, a second Ctrl+C) leaves it.
+2. **List `locks/`**, removing any leftover of this machine's (below).
+3. **Any delete lock:** remove your own lock and refuse. Nothing has been touched.
+4. **Upload**, objects first and the snapshot last.
+5. **Remove the lock**, on any failure the run survives too, and on an interrupt (Ctrl+C, which
+   first removes the lock, then quits; a second press quits at once). Only a hard stop — a
+   crash, a power cut, a killed process, that second press — leaves it.
 
 There is no `--wait`. A scheduled backup that refuses fails loudly, and the next schedule tries
 again.
 
-### The local lock file (s3cab's, not the spec's)
+### A leftover lock
 
-A crashed upload's lock must clear itself, but only a run that knows the lock is dead may remove
-it. Matching on `SET` and `BY` can't know: `upload` runs beside `backup` on the same set, and a
-cloned machine shares `user@machine`
-([0108](0108-set-ownership.md)'s known gap). So every upload for a set keeps a local file,
-`~/.s3cab/sets/<set>/.upload.lock`, for as long as its upload lock exists:
+A lock a hard stop left must clear itself, but only a run that knows the lock is dead may remove
+it. The lock's `BY` and `PID` say whose process holds it, and whether a process on this machine
+is alive is the OS's to answer (`kill(pid, 0)`: `ESRCH` is gone; `EPERM` is alive, another
+user's). So:
 
-- **Created atomically** (`open(…, "wx")`, as 0048), before step 2, and removed after step 6. It
-  spans the whole time the upload lock exists, which 0048's work file does not: that becomes the
-  snapshot before the snapshot is uploaded. A dot name, like the work file: s3cab's own, not the
-  user's to read or edit.
-- **Its content is the upload lock's id**, one line, written before the PUT, so a crash at any
-  point leaves the id behind; an id that names no lock is harmless to remove. Nothing else: a PID
-  or a time would invite judging liveness, which 0048 rejected.
-- **A run that ends with its upload lock still in the bucket** (it couldn't reach it) renames the
-  file to `.upload.unlock`: the unlock it owes. The next upload of the set, once it holds
-  `.upload.lock`, removes the lock named there and deletes the file. One rename, so there is no
-  moment where both files exist or neither does.
-- **A hard stop leaves `.upload.lock` itself.** The next upload of that set refuses, as a leftover
-  work file makes it refuse today, and says so in plain words. `--resume`, which `backup` already
-  has and every set-scoped `upload` form gains, is the user's word that nothing is running: the
-  run removes the upload lock the file names and takes the file over. For a `backup` this is the
-  same `--resume` the leftover work file already asks for, so nothing new is asked.
-- **Before deleting or renaming the file, a run checks it still holds its own id.** A user who
-  deleted a live run's file let a second upload start; without the check the first run's end
-  would rename the second's file, and the next upload would remove a live lock.
-- **`upload --bucket` has no set,** so no local file: its hard stop leaves a lock for `unlock`.
+- **Every upload and delete, when it lists `locks/`, removes any lock whose `BY` is its own
+  `user@machine` and whose process is gone**, and says so.
+- **Another machine's lock is always taken as alive.** Nothing here can tell, so it is `unlock`'s.
+- **A reused pid reads as alive**, so a dead lock stays until `unlock`: the error is a refusal,
+  never a live lock removed.
+- **Two machines with one `user@machine`** — a cloned machine ([0108](0108-set-ownership.md)'s
+  known gap), or one username on two machines with one hostname — would each judge the other's
+  locks by their own process table, and could remove a live one. Accepted: `user@machine` is the
+  identity every record keeps, and the collision needs the same name on two machines sharing one
+  bucket.
+- **A lock a run couldn't remove** (it couldn't reach the bucket) is reported with the `unlock`
+  command, and the run still succeeds: the next upload or delete from this machine removes it.
+- **`--resume` keeps its one meaning**, the work file ([0092](0092-recover-the-interrupted-work-file.md));
+  no run carries a flag for the lock.
 
-0048 rejected a second local file because everything its content bought was liveness guessing.
-This one guesses nothing: whether the run is dead is the user's word, as for the work file, and
-the content is only what to clear up once it is.
+0048 rejected a pid as a way to judge the work file, which only the next run of the same set on
+the same machine ever meets: there the user's word, `--resume`, costs nothing and guesses
+nothing. A lock in the bucket is met by every machine, and the pid is the one thing that lets a
+machine tell its own dead runs from a live run anywhere else.
 
 ### Where s3cab takes the locks
 
@@ -110,7 +106,7 @@ Plan and confirm without a lock: cleanup's reading, listing, plan and y/N, and d
 typed bucket name. Then:
 
 1. **Write the delete lock.**
-2. **List `locks/`.**
+2. **List `locks/`**, removing any leftover of this machine's.
 3. **Any upload lock:** remove your own lock and refuse, naming each lock in plain words. With
    `--wait`, remove it, say which locks it is waiting on, wait 30 s and go back to step 1, with no
    limit, saying so again whenever the list changes. Holding the lock while waiting would turn
@@ -125,9 +121,9 @@ typed bucket name. Then:
    - `delete` writes its deletion record, then deletes.
    - `cleanup` deletes its orphans, then compacts the deletion record (0090), trimming against
      the topped-up set.
-6. **Remove the lock**, on any failure the run survives too: a half-done cleanup leaves only
-   orphans, and a half-done `delete` is explained by its record, so rerunning finishes either.
-   Only a hard stop leaves it, and then `unlock` clears it.
+6. **Remove the lock**, on any failure the run survives too, and on an interrupt: a half-done
+   cleanup leaves only orphans, and a half-done `delete` is explained by its record, so rerunning
+   finishes either. Only a hard stop leaves it, for the next run from this machine, or `unlock`.
 
 **Both sides write first and look second.** An upload and a delete that start together each see
 the other's lock, so at worst both refuse. If either looked first, both could see nothing and
@@ -157,14 +153,15 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
 ### What the spec holds
 
 - **The format spec gets** `locks/` in the layout, a section on locks that opens by telling a
-  reader to skip it, the upload steps in the Uploading checklist and the delete steps in the
-  Deleting checklist, with "write first, look second" and its reason beside each. The Reading
-  checklist adds `locks/` to what a reader ignores.
+  reader to skip it — the key, the lines, write first look second, and that a run may remove a
+  lock from its own machine whose process is gone — the upload steps in the Uploading checklist
+  and the delete steps in the Deleting checklist, with "write first, look second" and its reason
+  beside each. The Reading checklist adds `locks/` to what a reader ignores.
 - **Provider and permissions:** a listing shows a key written a moment before (AWS S3 has
   guaranteed it since December 2020), and every identity that uploads or deletes can put, delete
-  and list under `locks/`. An upload that can't remove its lock reports it and leaves it for
-  `unlock`.
-- **Left to each tool:** the local lock file, `--wait`, the messages, `unlock`.
+  and list under `locks/`. A run that can't remove its lock reports it; the next run from its
+  machine, or `unlock`, removes it.
+- **Left to each tool:** `--wait`, the messages, `unlock`.
 - **Like `.info`, these are rules for tools that follow the spec,** not enforcement: anyone holding
   the bucket's write keys can ignore them.
 
@@ -173,20 +170,18 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
 - **Keeping the grace window as a backstop.** It guards against our own bugs, not a gap in the
   design, and testing is what guards against bugs.
 - **An expiry or a lease.** See "A lock never expires".
-- **Clearing a crashed upload's lock by its `SET` and `BY`.** It removes live locks: see the local
-  lock file.
-- **Recording the owed unlock by rewriting `.upload.lock`'s content**, or by a shared list file.
-  Two uploads starting together both read "finished" and both proceed; only an exclusive create or
-  a rename is atomic without an OS lock, and `.upload.unlock` is read only by a run that already
-  created `.upload.lock`.
-- **`.upload.lock~` or `.upload.lock.stale` for the owed unlock.** `~` already means home in every
-  path s3cab prints, and in the wild reads both as "old copy" and as Office's live lock file;
-  "stale" claims age. The file is no lock once renamed, and `.upload.unlock` names what the next
-  run does with it.
-- **A plain name for the local file, beside `claim`.** A dot marks s3cab's own file, as the work
-  file is; a plain name is the user's to read or edit. `claim` arguably belongs on the dot side
-  too; that, and reviewing every local file against the rule, is a follow-up
-  (`proposals/misc.md`).
+- **Clearing a leftover by its `SET` and `BY`.** `upload` runs beside `backup` on the same set,
+  so a match on those removes live locks; `BY` and `PID` name one process.
+- **A local file instead of the pid** — this ADR's first form: a per-set `.upload.lock` holding
+  the lock's id for the run's length, taken over with `--resume` after a hard stop, renamed
+  `.upload.unlock` by a run that finished with its lock still in the bucket. It cleared only a
+  set's own upload lock on its own machine, left a killed `cleanup`, `delete` or `upload --bucket`
+  to `unlock`, needed the rename and an own-id check before every removal, and asked `--resume`
+  of a run with nothing to resume. The pid clears every lock from the machine with nothing on
+  disk.
+- **A machine id, or the MAC address, in `BY` to tell two machines with one name apart.** A MAC
+  changes with the adapter, and an id would be invented and kept for this alone; `user@machine`
+  is the identity every record already keeps.
 - **Deletes excluding each other.** Crossing is safe (0090), blocking it was reversed once
   already ([0087](0087-deletion-record-suffix-on-collision.md)), and the tie-break it needs can't
   be made sound: an id is chosen before its PUT lands, so two deletes can each see only a later
@@ -216,8 +211,8 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
 - **A cleanup can now delete a crashed backup's fresh orphans,** which the grace window used to
   keep. The retried backup uploads them again: it costs time, never data, because step 2 comes
   before anything decides what to skip.
-- **A hard stop between the work file's rename and the snapshot's upload** used to leave nothing;
-  now it leaves `.upload.lock`, so the next backup asks for `--resume`.
+- **A hard stop anywhere before the snapshot lands leaves the lock**, and the next backup,
+  upload, cleanup or delete from that machine removes it, saying so.
 - **The seeding gap:** a cleanup between `upload --dir` and the first backup deletes the seeds,
   and the backup uploads them again. The guide says so: it's for the people sharing a bucket to
   avoid, not something to build for.
@@ -231,8 +226,8 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
   upgrade every machine before cleaning up.
 - **Docs:** `guide/format.md` as above, losing the two rules under "objects first, snapshot last";
   `guide/maintenance.md` (locks, `--wait`, `unlock`, draining, the seeding gap, upgrading every
-  machine); `guide/aws.md` (the `locks/` permissions); `GLOSSARY.md` (Lock, Upload lock with its local
-  file, and Delete lock in; Grace window out); `docs/design/backup.md`'s grace-window and
+  machine); `guide/aws.md` (the `locks/` permissions); `GLOSSARY.md` (Lock, Upload lock and
+  Delete lock in; Grace window out); `docs/design/backup.md`'s grace-window and
   residual-race bullets; `docs/design/repository-protocol.md`'s cleanup steps and its "the ordering
   … is itself a guard"; `docs/design/snapshot-deletion.md`; forward pointers in 0069 and 0104;
   `test/README.md`; the grace window in `.github/workflows/nightly.yml` and

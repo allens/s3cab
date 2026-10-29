@@ -35,8 +35,6 @@ describe("a pass over a link to a folder outside the backup", () => {
       excludePath: join(dir.path, "exclude.txt"),
       envPath: join(dir.path, "env"),
       claimPath: join(dir.path, "claim"),
-      uploadLockPath: join(dir.path, ".upload.lock"),
-      uploadUnlockPath: join(dir.path, ".upload.unlock"),
     });
 
     const root = realpathSync.native(data);

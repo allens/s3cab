@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { deleteContent } from "../lib/delete.mjs";
 import { isENOENT, requireArg } from "../lib/error.mjs";
-import { countOf, formatByteValue, localMoment } from "../lib/format.mjs";
+import { countOf, formatByteValue } from "../lib/format.mjs";
 import { storedObjectSizes } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 import { isInteractive, shellCommand } from "../lib/style.mjs";
-import { userAtMachine } from "../lib/user-at-machine.mjs";
 
 /**
  * The SHA-256 of zero bytes — the object backing every empty file in the
@@ -255,16 +254,7 @@ export async function deleteHashes(hashes = [], options = {}) {
     }
   }
 
-  // One clock read and one identity for the run, so every row agrees by
-  // construction. The record is named by index, not by a moment, so only the
-  // instant is wanted — the precision names nothing.
-  const { instant } = localMoment("seconds");
-  const by = userAtMachine();
-  const recordUri = await deleteContent(
-    bucket,
-    found.map(({ hash, size }) => ({ hash, size, instant, by })),
-    { wait },
-  );
+  const recordUri = await deleteContent(bucket, found, { wait });
 
   // No headline: `renderDelete` states the count and that snapshots stand, on
   // stdout. What is left is the one thing the result can't carry — where the

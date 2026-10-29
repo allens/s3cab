@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -15,8 +15,6 @@ import {
   s3cab,
   s3cabAsync,
   seedSet,
-  unlockAll,
-  uploadLockPath,
   waitForFile,
   wipeBucket,
 } from "./harness.mjs";
@@ -88,11 +86,9 @@ async function holdAt(args, { scratch, id, ...child }) {
 /**
  * Crash orphans: a backup of `home`'s set killed between its last object and
  * the manifest leaves every object uploaded, no snapshot — and its upload
- * lock, which a kill never removes and which would turn every cleanup away.
- * The lock is cleared the way a person clears a lock whose run they know is
- * dead (`unlock`), and the set's `.upload.lock` is deleted by hand — a person
- * would run `--resume`, but that is a backup, and the cases want the orphans
- * without one. The orphans stay.
+ * lock, which a kill never removes. The lock stays: every child here runs on
+ * this machine, so the next upload or delete sees its process is gone and
+ * sweeps it on the way in (ADR-0112), which the cases count on.
  * @param {string} home
  * @param {string} set
  * @returns {Promise<number>} how many objects the killed run left
@@ -107,8 +103,6 @@ async function crashOrphans(home, set) {
   const stale = await lockKeys();
   assert.equal(stale.length, 1, `the killed run's lock (${stale.join(", ")})`);
   assert.match(stale[0] ?? "", /^locks\/upload-/);
-  assert.equal((await unlockAll(home)).length, 1);
-  rmSync(uploadLockPath(home, set));
   return (await objectKeys()).length;
 }
 
@@ -253,7 +247,8 @@ describe("concurrency: cleanup vs in-flight backup", () => {
 
     // Machine B takes the set over, backs up the same content, skips the
     // stored orphans, and parks before its manifest PUT — the §1 window, wide
-    // open, with B's upload lock standing in it.
+    // open, with B's upload lock standing in it. A's dead lock went on B's
+    // way in.
     await claimSet(homeB, "s");
     const b = await holdAt(["backup", "s"], {
       scratch,
@@ -401,7 +396,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     });
 
     // The backup writes its upload lock, looks, sees the delete lock, takes
-    // its lock back — bucket and local — and refuses before deciding anything.
+    // its lock back and refuses before deciding anything.
     const refused = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.notEqual(refused.status, 0, "backup must refuse beside a cleanup");
     assert.match(
@@ -409,10 +404,6 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       /Can't back up right now — a cleanup or delete is running on bucket/,
     );
     assert.match(refused.stderr, /\n {2}cleanup by \S+, started /);
-    assert.ok(
-      !existsSync(uploadLockPath(home, "s")),
-      "the refused backup took its local lock back",
-    );
     const standing = await lockKeys();
     assert.equal(
       standing.length,
@@ -489,7 +480,6 @@ describe("concurrency: cleanup vs in-flight backup", () => {
 
     // Both took their locks back; nothing changed in the store.
     assert.deepEqual(await lockKeys(), []);
-    assert.ok(!existsSync(uploadLockPath(home, "s")));
     assert.equal((await manifestKeys()).length, 1);
     assert.equal((await objectKeys()).length, 4);
     assert.deepEqual(await bucketViolations(), []);

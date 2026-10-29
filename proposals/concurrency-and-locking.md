@@ -69,10 +69,9 @@ not for sweeping this stale lock, which it leaves untouched. That verdict above 
 for a kill **inside the fused pipeline** (before/between object PUTs, mid-multipart); a kill in
 the window *between the last object PUT and the manifest PUT* leaves no work file, because it
 has already been renamed into place. Since [ADR-0112](../docs/adr/0112-bucket-locks.md) a kill
-anywhere before the manifest lands also leaves the set's `.upload.lock` and the run's lock in
-the bucket, so every kill before the commit point now makes the rerun refuse, and `--resume`
-is the one answer to all of it: it removes the dead bucket lock, takes the local file over, and
-reuses the parked hashes. What the hard kill costs is still the interrupted hash pass.
+anywhere before the manifest lands also leaves the run's lock in the bucket, which the next
+backup from the same machine removes by itself (its process is gone); `--resume` answers the
+work file as before. What the hard kill costs is still the interrupted hash pass.
 
 ### A hard-killed work file turned out to be readable (2026-09-13)
 

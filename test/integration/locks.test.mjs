@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { unlock } from "../../src/commands/unlock.mjs";
 import { getText } from "../../src/lib/s3.mjs";
 import {
   describeLock,
@@ -10,11 +11,12 @@ import {
 import { bucket } from "../helpers/integration.mjs";
 
 // A lock's round trip through a real bucket (ADR-0112): the no-overwrite PUT,
-// the body as `.info` is read, the LIST + GET listing, the idempotent DELETE.
-// The interplay — an upload lock turning a cleanup away, `--wait`, `unlock` —
-// is the crash tier's (test/crash/concurrency.test.mjs), on its sole-owner
-// bucket: this one is shared, and a delete lock planted here would turn away
-// every upload another file is running at the same moment.
+// the body as `.info` is read, the LIST + GET listing, the idempotent DELETE,
+// and `unlock` removing one by id. The interplay — an upload lock turning a
+// cleanup away, `--wait`, the sweep of a dead run's lock — is the crash
+// tier's (test/crash/concurrency.test.mjs), on its sole-owner bucket: this
+// one is shared, and a delete lock planted here would turn away every upload
+// another file is running at the same moment.
 
 describe("locks (real bucket)", () => {
   it("writes, lists, describes and removes a lock", async () => {
@@ -27,7 +29,7 @@ describe("locks (real bucket)", () => {
       assert.match(lock.id, /^upload-\d{8}T\d{6}\.\d{3}Z$/);
       assert.equal(
         await getText(`s3://${bucket}/locks/${lock.id}`),
-        `COMMAND=backup\nSET=${lock.set}\nBY=${lock.by}\nSTARTED=${lock.started}\n`,
+        `COMMAND=backup\nSET=${lock.set}\nBY=${lock.by}\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
       );
 
       const listed = (await listLocks(bucket)).find(({ id }) => id === lock.id);
@@ -48,5 +50,29 @@ describe("locks (real bucket)", () => {
       "removed",
     );
     await removeLock(bucket, lock.id); // already gone: not an error
+  });
+
+  it("unlock removes the lock it is given by id", async () => {
+    const lock = await writeLock(bucket, {
+      kind: "upload",
+      command: "upload",
+      set: `locks-${Date.now()}`,
+    });
+    try {
+      const result = await unlock([lock.id], { bucket, force: true });
+
+      assert.equal(result.removed, true);
+      assert.deepEqual(
+        result.locks.map(({ id }) => id),
+        [lock.id],
+        "exactly the lock named, whatever else the shared bucket holds",
+      );
+      assert.equal(
+        (await listLocks(bucket)).some(({ id }) => id === lock.id),
+        false,
+      );
+    } finally {
+      await removeLock(bucket, lock.id);
+    }
   });
 });

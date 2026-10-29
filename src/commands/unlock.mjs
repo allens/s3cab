@@ -10,11 +10,9 @@ import { isInteractive, shellCommand } from "../lib/style.mjs";
 /**
  * Remove locks a stopped run left in the bucket
  * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)). A lock never expires —
- * its age says nothing about whether its run is alive — so only a person can
- * say one is dead, and this is where they say it. The one lock s3cab clears
- * for itself is a set's own upload lock on this machine (`--resume`); every
- * other leftover, a killed `cleanup`, `delete` or `upload --bucket`, or an
- * upload from a machine that is gone, is this command's.
+ * its age says nothing about whether its run is alive. A run clears for
+ * itself any lock from its own machine whose process is gone; a leftover from
+ * another machine is this command's, where a person says it is dead.
  *
  * It lists every lock in plain words (what is running, for which set, from
  * which machine, since when), warns what removing a live one does, and asks
@@ -42,8 +40,8 @@ export async function unlock(ids = [], options = {}) {
   const force = Boolean(options.force);
 
   // The gates, before any S3 traffic. `--force` with no ids would remove
-  // whatever happens to be there, unseen.
-  if (force && ids.length === 0) {
+  // whatever happens to be there, unseen; a dry run removes nothing.
+  if (force && !dryRun && ids.length === 0) {
     throw new Error(
       `--force removes locks without showing them first, so it needs their ` +
         `ids.\n\n` +

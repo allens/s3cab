@@ -257,35 +257,6 @@ export async function lockKeys() {
 }
 
 /**
- * Remove every lock in the bucket through `unlock --force`, as a person does
- * after a killed run: a lock never expires, and a killed child's would turn
- * the next cleanup (an upload lock) or backup (a delete lock) away.
- * @param {string} home - A child's S3CAB_HOME to run `unlock` from
- * @returns {Promise<string[]>} the ids removed
- */
-export async function unlockAll(home) {
-  const ids = (await lockKeys()).map((key) => key.slice("locks/".length));
-  if (ids.length === 0) {
-    return ids;
-  }
-  const run = s3cab(["unlock", "--bucket", bucket, "--force", ...ids], {
-    home,
-  });
-  if (run.status !== 0) {
-    throw new Error(`unlock failed:\n${run.stderr}`);
-  }
-  const left = await lockKeys();
-  if (left.length > 0) {
-    throw new Error(`unlock left ${left.join(", ")}`);
-  }
-  return ids;
-}
-
-/** A set's local upload lock (ADR-0112). @param {string} home @param {string} set */
-export const uploadLockPath = (home, set) =>
-  join(home, "sets", set, ".upload.lock");
-
-/**
  * Restore a set (latest snapshot) into a fresh output dir on a fresh
  * "recovery machine" home, and compare byte-for-byte against an expected
  * tree captured with `captureTree`.

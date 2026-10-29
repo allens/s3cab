@@ -426,7 +426,7 @@ export const commands = {
       resume: {
         type: "boolean",
         description:
-          "Carry on from what a killed run left behind: its work file, reusing the hashes it had already worked out, and its lock",
+          "Carry on from the work file a killed run left behind, reusing the hashes it had already worked out",
       },
     },
     exec: (options, [set] = []) => backup(set, options),
@@ -753,11 +753,6 @@ export const commands = {
         short: "f",
         description:
           "Re-upload even if the object already exists (--file only)",
-      },
-      resume: {
-        type: "boolean",
-        description:
-          "Take over the lock an interrupted backup or upload of the set left behind (not with --bucket)",
       },
     },
     exec: (options, [set] = []) => upload(set, options),

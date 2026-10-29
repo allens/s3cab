@@ -1,13 +1,10 @@
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import { isENOENT } from "./error.mjs";
+import { EXIT_INTERRUPTED } from "./error.mjs";
 import { countOf, elapsedSince, localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 import { infoFields } from "./set-marker.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
-
-/** @import { BackupSet } from "./sets.mjs" */
 
 // The locks that keep uploads and deletes apart, on any machine
 // ([ADR-0112](../../docs/adr/0112-bucket-locks.md)): a `locks/<kind>-<instant>`
@@ -15,24 +12,18 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // (`cleanup`, `delete`). Uploads don't exclude each other, and neither do
 // deletes. The rule both sides follow is **write first, look second**: a run
 // writes its own lock, *then* lists `locks/`, so two runs that start together
-// each see the other's lock and at worst both refuse. A lock never expires —
-// its age says nothing about whether its run is alive.
+// each see the other's lock and at worst both refuse.
+//
+// A lock never expires — its age says nothing about whether its run is alive.
+// What does say so is the process: the body names the machine and the pid, and
+// a run removes any lock from its own machine whose process is gone. Every
+// other leftover (another machine's) is `unlock`'s, a person's word.
 //
 // The two guards here, `holdUploadLock` and `holdDeleteLock`, are taken inside
 // the lib operations that decide what to skip or delete (upload.mjs,
 // cleanup.mjs, delete.mjs), never by the commands that call them: a command
 // cannot upload or delete without passing through one of those, so no command
 // carries a "takes the lock" flag.
-//
-// An upload for a set also keeps a local file, the set's `.upload.lock`, for as
-// long as its bucket lock exists: created atomically (the work file's `wx`,
-// ADR-0048), holding the bucket lock's id and nothing else. A crashed run's
-// lock must clear itself, but only a run that *knows* the lock is dead may
-// remove it, and nothing in the bucket can know: the local file is how the
-// set's next upload on this machine knows which lock was its own, and
-// `--resume` is the user's word that nothing is running. A run that finished
-// but could not remove its bucket lock renames the file to `.upload.unlock`,
-// the removal it owes, which the next upload of the set pays before it starts.
 
 const LOCKS_PREFIX = "locks/";
 
@@ -42,20 +33,16 @@ const LOCKS_PREFIX = "locks/";
  * One lock as the bucket holds it: its id (the key without `locks/`) and the
  * `KEY=value` lines inside, read as `.info` is. The lines are for people and
  * messages — no rule matches on them, and a lock whose body is missing a line
- * is still a lock.
+ * is still a lock — except `BY` and `PID` together, which say whose process
+ * holds it.
  * @typedef {Object} Lock
  * @property {string} id - `<kind>-<instant>`, e.g. `upload-20261027T140205.123Z`
  * @property {LockKind} kind
  * @property {string} command - What is running (`COMMAND`)
  * @property {string} [set] - The set it runs for (`SET`); absent for `upload --bucket` and every delete
  * @property {string} by - `user@machine` (`BY`)
+ * @property {number} [pid] - The process holding it (`PID`); absent in a hand-made lock
  * @property {string} started - The key's instant in the extended form (`STARTED`)
- */
-
-/**
- * The set an upload runs for, as far as the lock is concerned: its name for
- * the `SET` line and the two local files.
- * @typedef {Pick<BackupSet, "name" | "uploadLockPath" | "uploadUnlockPath">} LockedSet
  */
 
 /**
@@ -66,18 +53,12 @@ const lockUri = (bucket, id) => `s3://${bucket}/${LOCKS_PREFIX}${id}`;
 
 /**
  * The id a lock taken now gets: the kind, then the instant in ISO 8601's basic
- * form (a colon in a key needs escaping when a request is signed). Spun until
- * the instant moves on from `after`, so a retry after a 412 never re-mints the
- * id that just lost.
+ * form (a colon in a key needs escaping when a request is signed).
  * @param {LockKind} kind
- * @param {string} [after] - The instant of the id someone else took
  * @returns {{ id: string, started: string }}
  */
-function freshLockId(kind, after) {
-  let { instant } = localMoment("seconds");
-  while (instant === after) {
-    ({ instant } = localMoment("seconds"));
-  }
+function freshLockId(kind) {
+  const { instant } = localMoment("seconds");
   const basic = instant.replaceAll("-", "").replaceAll(":", "");
   return { id: `${kind}-${basic}`, started: instant };
 }
@@ -86,32 +67,40 @@ function freshLockId(kind, after) {
  * @param {Omit<Lock, "id" | "kind">} lock
  * @returns {string}
  */
-const formatLock = ({ command, set, by, started }) =>
+const formatLock = ({ command, set, by, pid, started }) =>
   `COMMAND=${command}\n` +
   (set === undefined ? "" : `SET=${set}\n`) +
-  `BY=${by}\nSTARTED=${started}\n`;
+  `BY=${by}\n` +
+  (pid === undefined ? "" : `PID=${pid}\n`) +
+  `STARTED=${started}\n`;
 
 /**
  * @param {string} id
- * @param {string} text
- * @returns {Lock | undefined} `undefined` for a key under `locks/` that names neither kind
+ * @returns {LockKind | undefined} `undefined` for a key under `locks/` that names neither kind
  */
-function parseLock(id, text) {
-  const kind = id.startsWith("upload-")
+const kindOf = (id) =>
+  id.startsWith("upload-")
     ? "upload"
     : id.startsWith("delete-")
       ? "delete"
       : undefined;
-  if (kind === undefined) {
-    return undefined;
-  }
+
+/**
+ * @param {string} id
+ * @param {LockKind} kind
+ * @param {string} text
+ * @returns {Lock}
+ */
+function parseLock(id, kind, text) {
   const fields = infoFields(text);
+  const pid = Number(fields.PID);
   return {
     id,
     kind,
     command: fields.COMMAND ?? "",
     set: fields.SET,
     by: fields.BY ?? "",
+    pid: fields.PID && Number.isInteger(pid) ? pid : undefined,
     started: fields.STARTED ?? "",
   };
 }
@@ -120,59 +109,61 @@ function parseLock(id, text) {
  * Write a lock of `kind` with a no-overwrite PUT and return it. A 412 is read
  * back: the same bytes are this run's own earlier write, retried after a lost
  * response, so the lock is ours; anything else means another run took that
- * instant, and a fresh one is tried. `beforePut` runs with each id before its
- * PUT — the local file records the id *before* the bucket has it, so a crash
- * at any point leaves the id behind.
+ * instant, and a fresh one is tried a millisecond on. The pid in the body is
+ * what tells two runs of one command on one machine apart.
  * @param {string} bucket
  * @param {{ kind: LockKind, command: string, set?: string }} args
- * @param {(id: string) => void} [beforePut]
  * @returns {Promise<Lock>}
  */
-export async function writeLock(bucket, { kind, command, set }, beforePut) {
+export async function writeLock(bucket, { kind, command, set }) {
   const by = userAtMachine();
-  /** @type {string | undefined} */
-  let taken;
+  const pid = process.pid;
   for (;;) {
-    const { id, started } = freshLockId(kind, taken);
-    const body = formatLock({ command, set, by, started });
-    beforePut?.(id);
+    const { id, started } = freshLockId(kind);
+    const body = formatLock({ command, set, by, pid, started });
     const wrote = await putText(lockUri(bucket, id), body, { noClobber: true });
     if (wrote) {
-      return { id, kind, command, set, by, started };
+      return { id, kind, command, set, by, pid, started };
     }
     const existing = await getText(lockUri(bucket, id));
     if (existing === body) {
-      return { id, kind, command, set, by, started };
+      return { id, kind, command, set, by, pid, started };
     }
-    taken = started;
+    await sleep(1);
   }
 }
 
 /**
- * Every lock in the bucket, oldest first. One LIST and one GET each; a key
- * that vanished between the two was a lock that just ended, and is skipped.
+ * Every lock in the bucket, oldest first. One LIST, then the GETs at once; a
+ * key that vanished between the two was a lock that just ended, and is skipped.
  * @param {string} bucket
  * @returns {Promise<Lock[]>}
  */
 export async function listLocks(bucket) {
-  /** @type {string[]} */
-  const ids = [];
+  /** @type {{ id: string, kind: LockKind }[]} */
+  const keys = [];
   for await (const { Key } of listObjects(`s3://${bucket}/${LOCKS_PREFIX}`)) {
-    const id = Key?.slice(LOCKS_PREFIX.length);
-    if (id) {
-      ids.push(id);
+    const id = Key?.slice(LOCKS_PREFIX.length) ?? "";
+    const kind = kindOf(id);
+    if (kind) {
+      keys.push({ id, kind });
     }
   }
+  // By the instant, not the whole id: the kind comes first in the id, and
+  // would put every delete before every upload.
+  const instantOf = (/** @type {string} */ id) => id.slice(id.indexOf("-") + 1);
+  keys.sort((a, b) => instantOf(a.id).localeCompare(instantOf(b.id)));
+  const texts = await Promise.all(
+    keys.map(({ id }) => getText(lockUri(bucket, id))),
+  );
   /** @type {Lock[]} */
   const locks = [];
-  for (const id of ids.sort()) {
-    const text = await getText(lockUri(bucket, id));
-    if (text === undefined) {
-      continue;
-    }
-    const lock = parseLock(id, text);
-    if (lock) {
-      locks.push(lock);
+  for (const [i, text] of texts.entries()) {
+    const { id, kind } = /** @type {{ id: string, kind: LockKind }} */ (
+      keys[i]
+    );
+    if (text !== undefined) {
+      locks.push(parseLock(id, kind, text));
     }
   }
   return locks;
@@ -255,7 +246,8 @@ const deleteRunningError = (bucket, command, deletes) =>
 /**
  * A delete refused because an upload is running (step 3 of ADR-0112's delete).
  * The run's own lock was removed before this is raised. Offers `--wait`,
- * which this error is the alternative to.
+ * which this error is the alternative to — as "the same command again", since
+ * the user's other options (`--force`, the hashes) aren't known here.
  * @param {string} bucket
  * @param {string} command
  * @param {Lock[]} uploads - The upload locks seen
@@ -266,145 +258,144 @@ const uploadRunningError = (bucket, command, uploads) =>
     `Can't ${goalOf(command).cant} right now — a backup or upload is running ` +
       `on bucket '${bucket}', and ${goalOf(command).doing} while it runs ` +
       `could delete files it needs:\n${lockLines(uploads)}\n\n` +
-      `Try again once it has finished, or let this run wait for it:\n` +
-      `  ${shellCommand(
-        command === "cleanup"
-          ? `s3cab cleanup ${bucket} --wait`
-          : `s3cab delete --bucket ${bucket} --wait <hash>...`,
-      )}\n` +
+      `Try again once it has finished, or run the same command again with ` +
+      `--wait to let this run wait for it.\n` +
       `If it was stopped without finishing and left its lock behind, remove ` +
       `the lock with:\n` +
       `  ${shellCommand(`s3cab unlock --bucket ${bucket}`)}`,
   );
 
 /**
- * The run's work is done, but its lock is still in the bucket. Raised only
- * where no later run will clear it: a delete, or `upload --bucket`.
+ * Whether a process of this machine is still running. `ESRCH` is the one
+ * answer that means gone; `EPERM` (another user's process) means alive.
+ * @param {number} pid
+ */
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return /** @type {NodeJS.ErrnoException} */ (error).code !== "ESRCH";
+  }
+}
+
+/**
+ * The locks whose runs are alive: every lock in the bucket, minus the ones
+ * from this machine whose process is gone, which are removed on the way, each
+ * said so. Another machine's lock is always taken as alive — `user@machine`
+ * is the identity, so two machines with one name and user would judge each
+ * other's locks (ADR-0112's accepted gap). A reused pid reads as alive, which
+ * errs toward keeping a lock, never removing a live one.
+ * @param {string} bucket
+ * @returns {Promise<Lock[]>}
+ */
+async function liveLocks(bucket) {
+  const here = userAtMachine();
+  const locks = await listLocks(bucket);
+  /** @type {Lock[]} */
+  const live = [];
+  for (const lock of locks) {
+    if (lock.by === here && lock.pid !== undefined && !processAlive(lock.pid)) {
+      await removeLock(bucket, lock.id);
+      console.warn(
+        `Removed the lock a stopped run left in bucket '${bucket}': ` +
+          describeLock(lock),
+      );
+      continue;
+    }
+    live.push(lock);
+  }
+  return live;
+}
+
+/** The interrupts a held lock is removed on; the same three the work file parks on. */
+const SIGNALS = /** @type {const} */ (["SIGINT", "SIGHUP", "SIGTERM"]);
+
+/**
+ * Run `fn` with `lock` held, and remove the lock on every exit: `fn`'s
+ * return, its throw, or an interrupt. An interrupt removes the lock and exits
+ * 130 — unless a later listener is on the signal, which is the snapshot
+ * write's park-on-interrupt (snapshot-file.mjs): that one ends `fn` cleanly,
+ * and the removal below runs as for any other failure. A second interrupt
+ * quits at once. A removal that fails is said, with the `unlock` command, and
+ * doesn't fail the run: the next run from this machine removes the lock.
+ * @template T
+ * @param {string} bucket
+ * @param {Lock} lock
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function hold(bucket, lock, fn) {
+  let interrupted = false;
+  const before = Object.fromEntries(
+    SIGNALS.map((signal) => [signal, process.listenerCount(signal)]),
+  );
+  /** @param {NodeJS.Signals} signal */
+  const onSignal = (signal) => {
+    if (interrupted) {
+      process.exit(EXIT_INTERRUPTED);
+    }
+    interrupted = true;
+    if (process.listenerCount(signal) > (before[signal] ?? 0) + 1) {
+      return;
+    }
+    console.warn(
+      `\nStopping — removing this run's lock from bucket '${bucket}'.\n` +
+        `Interrupt again (Ctrl+C) to quit immediately.`,
+    );
+    removeLock(bucket, lock.id)
+      .catch((removal) => console.warn(lockLeft(bucket, lock, removal)))
+      .then(() => process.exit(EXIT_INTERRUPTED));
+  };
+  for (const signal of SIGNALS) {
+    process.on(signal, onSignal);
+  }
+
+  let failed = false;
+  /** @type {unknown} */
+  let failure;
+  /** @type {T | undefined} */
+  let result;
+  try {
+    result = await fn();
+  } catch (error) {
+    failed = true;
+    failure = error;
+  } finally {
+    for (const signal of SIGNALS) {
+      process.off(signal, onSignal);
+    }
+  }
+  try {
+    await removeLock(bucket, lock.id);
+  } catch (removal) {
+    console.warn(lockLeft(bucket, lock, removal));
+  }
+  if (failed) {
+    throw failure;
+  }
+  return /** @type {T} */ (result);
+}
+
+/**
+ * The run's lock could not be removed.
  * @param {string} bucket
  * @param {Lock} lock
  * @param {unknown} cause
- * @returns {Error}
  */
-const lockLeftError = (bucket, lock, cause) =>
-  new Error(
-    `Finished, but couldn't remove this run's lock from bucket '${bucket}' ` +
-      `(${reason(cause)}). Until it is removed, every ` +
-      `${lock.kind === "upload" ? "cleanup and delete" : "backup and upload"} ` +
-      `of this bucket is refused.\n\n` +
-      `Remove it with:\n` +
-      `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`,
-    { cause },
-  );
+const lockLeft = (bucket, lock, cause) =>
+  `Couldn't remove this run's lock from bucket '${bucket}' ` +
+  `(${reason(cause)}). The next backup, upload, cleanup or delete from this ` +
+  `computer will remove it; until then every ` +
+  `${lock.kind === "upload" ? "cleanup and delete" : "backup and upload"} ` +
+  `of the bucket is refused. Or remove it now with:\n` +
+  `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`;
 
 /**
- * The set's `.upload.lock` exists: an upload is live, or one was killed. Never
- * auto-broken — the user is the liveness check, as for the work file
- * (ADR-0048, ADR-0092).
- * @param {string} set
- * @param {string} lockPath
- * @returns {Error}
- */
-const uploadInProgressError = (set, lockPath) =>
-  new Error(
-    `A backup or upload of set '${set}' is already running on this computer — ` +
-      `or a previous one was interrupted and left its lock behind ` +
-      `(${lockPath}).\n\n` +
-      `If no backup or upload of this set is running now, run the same ` +
-      `command again with --resume.`,
-  );
-
-/**
- * The id the file holds, or `undefined` for an empty one (a crash between the
- * create and the id's write).
- * @param {string} path
- * @returns {string | undefined}
- */
-const readLockId = (path) => readFileSync(path, "utf8").trim() || undefined;
-
-/**
- * Create the set's `.upload.lock` — `wx`, so the kernel refuses a second one
- * (ADR-0048). Under `resume` an existing file is taken over: the bucket lock
- * it names is removed first, since the user has said that run is dead.
- * @param {string} bucket
- * @param {LockedSet} set
- * @param {boolean} resume
- * @returns {Promise<void>}
- */
-async function takeLocalLock(bucket, set, resume) {
-  try {
-    writeFileSync(set.uploadLockPath, "", { flag: "wx" });
-    return;
-  } catch (error) {
-    if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") {
-      throw error;
-    }
-  }
-  if (!resume) {
-    throw uploadInProgressError(set.name, set.uploadLockPath);
-  }
-  const dead = readLockId(set.uploadLockPath);
-  if (dead) {
-    await removeLock(bucket, dead);
-  }
-  writeFileSync(set.uploadLockPath, "");
-}
-
-/**
- * Pay the removal a finished upload left owed (`.upload.unlock`), once this
- * run holds `.upload.lock`. One that fails again is left for the next run,
- * said so, and the run goes on: its own lock is what it is here for.
- * @param {string} bucket
- * @param {LockedSet} set
- * @returns {Promise<void>}
- */
-async function clearOwedUnlock(bucket, set) {
-  /** @type {string | undefined} */
-  let owed;
-  try {
-    owed = readLockId(set.uploadUnlockPath);
-  } catch (error) {
-    if (isENOENT(error)) {
-      return;
-    }
-    throw error;
-  }
-  if (owed) {
-    try {
-      await removeLock(bucket, owed);
-    } catch (error) {
-      console.warn(
-        `Couldn't remove the lock '${owed}' an earlier upload left in bucket ` +
-          `'${bucket}' (${reason(error)}); the next backup or upload of set ` +
-          `'${set.name}' will try again.`,
-      );
-      return;
-    }
-  }
-  rmSync(set.uploadUnlockPath);
-}
-
-/**
- * Whether the file still holds this run's id. A user who deleted a live run's
- * file let a second upload start; without this check the first run's end would
- * remove or rename the second run's file, and the next upload would then
- * remove a live lock.
- * @param {string} path
- * @param {string} id
- */
-function holdsOwnId(path, id) {
-  try {
-    return readLockId(path) === id;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Run `work` as an upload under ADR-0112's rules: take the set's local lock
- * (for an upload with a set), write the upload lock **before anything that
- * decides what to skip**, list `locks/`, refuse on any delete lock, run, then
- * remove the lock — on any failure the run survives too. Only a hard stop
- * leaves it, and then `--resume` (for a set) or `unlock` clears it.
+ * Run `work` as an upload under ADR-0112's rules: write the upload lock
+ * **before anything that decides what to skip**, list `locks/`, refuse on any
+ * live delete lock, run, then remove the lock — on any failure the run
+ * survives too, and on an interrupt.
  *
  * Everything `work` sees in the bucket stays there until it ends, because no
  * delete can start meanwhile: that is what makes a baseline, a store LIST, a
@@ -413,113 +404,20 @@ function holdsOwnId(path, id) {
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.command - What is running, for the lock's `COMMAND` line and the messages
- * @param {LockedSet} [args.set] - The set the upload is for; absent for `upload --bucket`
- * @param {boolean} [args.resume] - The user's word that no upload of the set is running: take a leftover local lock over
+ * @param {string} [args.set] - The set the upload is for; absent for `upload --bucket`
  * @param {() => Promise<T>} work - The upload itself
  * @returns {Promise<T>}
  */
-export async function holdUploadLock({ bucket, command, set, resume }, work) {
-  if (set) {
-    await takeLocalLock(bucket, set, Boolean(resume));
-    await clearOwedUnlock(bucket, set);
-  }
-  /** @type {Lock} */
-  let lock;
-  try {
-    lock = await writeLock(
-      bucket,
-      { kind: "upload", command, set: set?.name },
-      (id) => {
-        if (set) {
-          writeFileSync(set.uploadLockPath, `${id}\n`);
-        }
-      },
-    );
-  } catch (error) {
-    // The PUT failed from here, which is not the same as not landing: the
-    // last id tried may be in the bucket. For a set the file already holds
-    // it, so it becomes the removal the next upload pays.
-    if (set) {
-      if (readLockId(set.uploadLockPath)) {
-        renameSync(set.uploadLockPath, set.uploadUnlockPath);
-      } else {
-        rmSync(set.uploadLockPath);
-      }
+export async function holdUploadLock({ bucket, command, set }, work) {
+  const lock = await writeLock(bucket, { kind: "upload", command, set });
+  return hold(bucket, lock, async () => {
+    const live = await liveLocks(bucket);
+    const deletes = live.filter(({ kind }) => kind === "delete");
+    if (deletes.length > 0) {
+      throw deleteRunningError(bucket, command, deletes);
     }
-    throw error;
-  }
-
-  const releaseLocal = () => {
-    if (set && holdsOwnId(set.uploadLockPath, lock.id)) {
-      rmSync(set.uploadLockPath);
-    }
-  };
-
-  /** @type {Lock[]} */
-  let locks;
-  try {
-    locks = await listLocks(bucket);
-  } catch (error) {
-    await removeLock(bucket, lock.id);
-    releaseLocal();
-    throw error;
-  }
-  const deletes = locks.filter(({ kind }) => kind === "delete");
-  if (deletes.length > 0) {
-    await removeLock(bucket, lock.id);
-    releaseLocal();
-    throw deleteRunningError(bucket, command, deletes);
-  }
-
-  /** @type {T} */
-  let result;
-  try {
-    result = await work();
-  } catch (error) {
-    try {
-      await removeLock(bucket, lock.id);
-      releaseLocal();
-    } catch (removal) {
-      leaveLock(bucket, lock, set, removal);
-    }
-    throw error;
-  }
-  try {
-    await removeLock(bucket, lock.id);
-  } catch (removal) {
-    leaveLock(bucket, lock, set, removal);
-    if (!set) {
-      throw lockLeftError(bucket, lock, removal);
-    }
-    return result;
-  }
-  releaseLocal();
-  return result;
-}
-
-/**
- * The bucket lock could not be removed. For a set, rename `.upload.lock` to
- * `.upload.unlock` so the next upload of the set pays it, and say so; with no
- * set there is nothing to leave it for, and the caller raises `lockLeftError`.
- * @param {string} bucket
- * @param {Lock} lock
- * @param {LockedSet | undefined} set
- * @param {unknown} cause
- */
-function leaveLock(bucket, lock, set, cause) {
-  if (!set) {
-    return;
-  }
-  if (holdsOwnId(set.uploadLockPath, lock.id)) {
-    renameSync(set.uploadLockPath, set.uploadUnlockPath);
-  }
-  console.warn(
-    `Couldn't remove this run's lock from bucket '${bucket}' ` +
-      `(${reason(cause)}). The next backup or upload of set '${set.name}' ` +
-      `will remove it; until then every cleanup and delete of the bucket is ` +
-      `refused. Or remove it now with:\n` +
-      `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`,
-  );
+    return work();
+  });
 }
 
 /** How long a `--wait` sleeps between looks at `locks/`. */
@@ -527,12 +425,12 @@ export const WAIT_MS = 30_000;
 
 /**
  * Run `work` as a delete under ADR-0112's rules: write the delete lock, list
- * `locks/`, refuse on any upload lock (naming each), run, then remove the lock
- * — on any failure the run survives too. With `wait`, a refusal becomes a
- * wait: the lock is removed while waiting (holding it would turn away every
- * backup that starts meanwhile), the run says which locks it is waiting on,
- * sleeps {@link WAIT_MS}, and writes its lock again, without limit, saying so
- * again whenever the list changes.
+ * `locks/`, refuse on any live upload lock (naming each), run, then remove the
+ * lock — on any failure the run survives too, and on an interrupt. With
+ * `wait`, a refusal becomes a wait: the lock is removed while waiting
+ * (holding it would turn away every backup that starts meanwhile), the run
+ * says which locks it is waiting on, sleeps {@link WAIT_MS}, and writes its
+ * lock again, without limit, saying so again whenever the list changes.
  *
  * Deletes never exclude each other (ADR-0090 makes crossing safe), so other
  * delete locks are ignored.
@@ -545,59 +443,33 @@ export const WAIT_MS = 30_000;
  * @returns {Promise<T>}
  */
 export async function holdDeleteLock({ bucket, command, wait }, work) {
-  /** @type {Lock} */
-  let lock;
   /** @type {string | undefined} what the last wait message named */
   let waitingOn;
   for (;;) {
-    lock = await writeLock(bucket, { kind: "delete", command });
-    /** @type {Lock[]} */
-    let locks;
-    try {
-      locks = await listLocks(bucket);
-    } catch (error) {
-      await removeLock(bucket, lock.id);
-      throw error;
+    const lock = await writeLock(bucket, { kind: "delete", command });
+    /** @type {{ value: T } | { uploads: Lock[] }} */
+    const outcome = await hold(bucket, lock, async () => {
+      const live = await liveLocks(bucket);
+      const uploads = live.filter(({ kind }) => kind === "upload");
+      if (uploads.length > 0) {
+        return { uploads };
+      }
+      return { value: await work() };
+    });
+    if ("value" in outcome) {
+      return outcome.value;
     }
-    const uploads = locks.filter(({ kind }) => kind === "upload");
-    if (uploads.length === 0) {
-      break;
-    }
-    await removeLock(bucket, lock.id);
     if (!wait) {
-      throw uploadRunningError(bucket, command, uploads);
+      throw uploadRunningError(bucket, command, outcome.uploads);
     }
-    const ids = uploads.map(({ id }) => id).join(" ");
+    const ids = outcome.uploads.map(({ id }) => id).join(" ");
     if (ids !== waitingOn) {
       waitingOn = ids;
       console.warn(
-        `Waiting for ${countOf(uploads.length, "running upload")} to finish ` +
-          `before ${goalOf(command).doing}:\n${lockLines(uploads)}`,
+        `Waiting for ${countOf(outcome.uploads.length, "running upload")} to ` +
+          `finish before ${goalOf(command).doing}:\n${lockLines(outcome.uploads)}`,
       );
     }
     await sleep(WAIT_MS);
   }
-
-  /** @type {T} */
-  let result;
-  try {
-    result = await work();
-  } catch (error) {
-    try {
-      await removeLock(bucket, lock.id);
-    } catch (removal) {
-      console.warn(
-        `Couldn't remove this run's lock '${lock.id}' from bucket '${bucket}' ` +
-          `(${reason(removal)}). Remove it with:\n` +
-          `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`,
-      );
-    }
-    throw error;
-  }
-  try {
-    await removeLock(bucket, lock.id);
-  } catch (removal) {
-    throw lockLeftError(bucket, lock, removal);
-  }
-  return result;
 }

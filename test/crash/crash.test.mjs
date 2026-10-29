@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -13,8 +13,6 @@ import {
   restoreAndCompare,
   s3cab,
   seedSet,
-  unlockAll,
-  uploadLockPath,
   wipeBucket,
 } from "./harness.mjs";
 import { captureTree } from "../model/harness/model.mjs";
@@ -47,8 +45,9 @@ import { REQUESTS_IN_FLIGHT } from "../../src/lib/objects.mjs";
 //     snapshots/... ×named
 //
 // A kill after a lock's PUT leaves the lock (ADR-0112): a lock never expires,
-// so each case's recovery clears it the way a person would — `--resume` for
-// the set's own upload lock, `unlock` for any other.
+// but it names its machine and process, and every child here runs on this
+// machine, so the next upload or delete sweeps it on its way in. Each case
+// asserts the residue, then that the rerun swept it.
 //
 // Each case wipes the sole-owner bucket, builds fresh homes/trees, runs, and
 // checks the bucket through the independent inspector + parser only.
@@ -93,11 +92,18 @@ describe("interruption: backup", () => {
    * @param {string} args.name
    * @param {string} args.kill
    * @param {boolean} args.expectLockLeft - Killed while the upload lock was
-   *   held → the set's `.upload.lock` and the bucket lock survive, and the
-   *   rerun refuses until told the run is dead (`--resume`)
+   *   held → the bucket lock survives, for the rerun to sweep
+   * @param {boolean} args.expectWorkFile - Killed inside the fused pass → the
+   *   work file survives, and the rerun refuses until `--resume` (ADR-0092)
    * @param {boolean} args.expectManifest - Kill lands after the commit point
    */
-  function tornBackupCase({ name, kill, expectLockLeft, expectManifest }) {
+  function tornBackupCase({
+    name,
+    kill,
+    expectLockLeft,
+    expectWorkFile,
+    expectManifest,
+  }) {
     it(name, async () => {
       const scratch = freshScratch(name.replaceAll(/[^a-z0-9-]/g, "-"));
       await wipeBucket();
@@ -132,40 +138,47 @@ describe("interruption: backup", () => {
         `manifest presence after kill (${manifests.map((m) => m.key).join(", ")})`,
       );
 
-      // Recovery. A kill while the upload lock is held leaves the set's
-      // `.upload.lock` and the run's lock in the bucket, so the rerun refuses
-      // until the user says the run is dead: `--resume` then removes the
-      // dead bucket lock, takes the local one over, and reuses the parked
-      // hash work (ADR-0092) on the way.
-      let rerun = s3cab(["backup", "s"], { home, tz: nextZone() });
+      // Recovery. A kill while the upload lock is held leaves the run's lock
+      // in the bucket; the rerun, from the same machine, sees its process is
+      // gone and sweeps it on the way in. A kill inside the fused pass also
+      // leaves the work file, which the rerun then refuses on until
+      // `--resume` takes it over, reusing the parked hash work (ADR-0092).
+      const stale = await lockKeys();
       if (expectLockLeft) {
-        assert.notEqual(
-          rerun.status,
-          0,
-          "rerun should refuse on the stale lock",
-        );
-        assert.match(
-          rerun.stderr,
-          /already running on this computer[\s\S]*--resume/,
-          "the stale-lock refusal names the situation and the way out",
-        );
-        assert.ok(
-          existsSync(uploadLockPath(home, "s")),
-          "the local lock file is the residue",
-        );
-        const stale = await lockKeys();
         assert.equal(
           stale.length,
           1,
           `the killed run's bucket lock is the residue (${stale.join(", ")})`,
         );
         assert.match(stale[0] ?? "", /^locks\/upload-/);
-        rerun = s3cab(["backup", "s", "--resume"], { home, tz: nextZone() });
       } else {
-        assert.ok(
-          !existsSync(uploadLockPath(home, "s")),
-          "a kill after the unlock leaves no local lock",
+        assert.deepEqual(stale, [], "a kill after the unlock leaves no lock");
+      }
+      let rerun = s3cab(["backup", "s"], { home, tz: nextZone() });
+      if (expectLockLeft) {
+        assert.match(
+          rerun.stderr,
+          /Removed the lock a stopped run left in bucket/,
+          "the rerun swept the dead lock on its way in",
         );
+      }
+      if (expectWorkFile) {
+        assert.notEqual(
+          rerun.status,
+          0,
+          "rerun should refuse on the work file",
+        );
+        assert.match(
+          rerun.stderr,
+          /same command again with --resume/,
+          "the work-file refusal names the way out",
+        );
+        assert.deepEqual(
+          await lockKeys(),
+          [],
+          "the refused rerun took its own lock back",
+        );
+        rerun = s3cab(["backup", "s", "--resume"], { home, tz: nextZone() });
       }
       assert.equal(
         rerun.status,
@@ -177,7 +190,6 @@ describe("interruption: backup", () => {
         [],
         "the recovery removed the dead lock and its own",
       );
-      assert.ok(!existsSync(uploadLockPath(home, "s")));
 
       assert.deepEqual(await bucketViolations(), []);
       const { violations } = restoreAndCompare({
@@ -198,24 +210,28 @@ describe("interruption: backup", () => {
     name: "kill before the first object PUT",
     kill: "1:PUT:^/objects/",
     expectLockLeft: true,
+    expectWorkFile: true,
     expectManifest: false,
   });
   tornBackupCase({
     name: "kill between object uploads",
     kill: "3:PUT:^/objects/",
     expectLockLeft: true,
+    expectWorkFile: true,
     expectManifest: false,
   });
   tornBackupCase({
     name: "kill between the last object and the manifest PUT",
     kill: "1:PUT:^/snapshots/",
     expectLockLeft: true, // the pipeline drained, but the lock is held to the manifest
+    expectWorkFile: false, // the work file was already renamed into place
     expectManifest: false,
   });
   tornBackupCase({
     name: "kill after the commit point, before the config push",
     kill: "1:PUT:^/\\.s3cab/",
     expectLockLeft: false, // the lock went before the config push
+    expectWorkFile: false,
     expectManifest: true,
   });
 });
@@ -267,13 +283,12 @@ describe("interruption: multipart", () => {
         `  [${name}] stranded multipart uploads: ${stranded.length}`,
       );
 
-      // Recovery: every kill here lands while the upload lock is held, so
-      // `--resume` clears the residue; then the backup must complete and
-      // restore byte-identically — the stranded MPU must not get in its way.
-      assert.ok(
-        existsSync(uploadLockPath(home, "mp")),
-        "the local lock is left",
-      );
+      // Recovery: every kill here lands inside the fused pass with the upload
+      // lock held, so the rerun sweeps the dead lock and `--resume` takes the
+      // work file over; then the backup must complete and restore
+      // byte-identically — the stranded MPU must not get in its way.
+      const stale = await lockKeys();
+      assert.equal(stale.length, 1, `the dead lock (${stale.join(", ")})`);
       const rerun = s3cab(["backup", "mp", "--resume"], {
         home,
         tz: nextZone(),
@@ -282,6 +297,10 @@ describe("interruption: multipart", () => {
         rerun.status,
         0,
         `recovery backup failed:\n${rerun.stderr}\n${rerun.stdout}`,
+      );
+      assert.match(
+        rerun.stderr,
+        /Removed the lock a stopped run left in bucket/,
       );
       assert.deepEqual(await lockKeys(), []);
       assert.deepEqual(await bucketViolations(), []);
@@ -348,8 +367,9 @@ describe("interruption: cleanup and forget", () => {
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
     assert.equal(orphanKeys.length, orphans, "crash orphans seeded");
-    // The killed backup's upload lock would turn cleanup away; it is dead.
-    assert.equal((await unlockAll(home)).length, 1);
+    // The killed backup's upload lock is left; cleanup, from the same
+    // machine, sweeps it on its way in rather than turning away.
+    assert.equal((await lockKeys()).length, 1);
 
     const cleanupKilled = s3cab(["cleanup", bucket, "--force"], {
       home,
@@ -363,11 +383,15 @@ describe("interruption: cleanup and forget", () => {
     // Torn delete pass: some orphans gone, some left — but orphans are
     // unreferenced by definition, so the store must still be healthy. How many
     // of the in-flight DELETEs landed is a race; the bounds are not. The
-    // killed run's delete lock stays (a legal key).
+    // killed run's delete lock stays (a legal key); the backup's was swept.
     assert.deepEqual(await bucketViolations(), []);
     const killedLock = await lockKeys();
     assert.equal(killedLock.length, 1, killedLock.join(", "));
     assert.match(killedLock[0] ?? "", /^locks\/delete-/);
+    assert.match(
+      cleanupKilled.stderr,
+      /Removed the lock a stopped run left in bucket/,
+    );
     const remaining = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
@@ -381,43 +405,26 @@ describe("interruption: cleanup and forget", () => {
     );
 
     // Re-running is the recovery: same plan minus the already-deleted. The
-    // dead delete lock doesn't stand in its way — deletes never exclude each
-    // other — but it would turn every backup away until `unlock` removes it.
+    // dead delete lock would turn every backup away; the rerun, from the
+    // same machine, sweeps it along with the orphans.
     const rerun = s3cab(["cleanup", bucket, "--force"], { home });
     assert.equal(rerun.status, 0, `cleanup rerun failed:\n${rerun.stderr}`);
     const after = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
     assert.deepEqual(after, [], "rerun reclaimed the remaining orphans");
+    assert.match(rerun.stderr, /Removed the lock a stopped run left in bucket/);
     assert.deepEqual(
       await lockKeys(),
-      killedLock,
-      "the rerun removed only its own lock",
+      [],
+      "the rerun removed the dead lock and its own",
     );
     assert.deepEqual(await bucketViolations(), []);
 
-    // `--resume`: the killed backup's `.upload.lock` is still here, and the
-    // bucket lock it names is already gone. The refusal releases it again.
-    const refused = s3cab(["backup", "s", "--resume"], {
-      home,
-      tz: nextZone(),
-    });
-    assert.notEqual(
-      refused.status,
-      0,
-      "a backup must refuse on the dead delete lock",
-    );
-    assert.match(
-      refused.stderr,
-      /a cleanup or delete is running[\s\S]*s3cab unlock/,
-    );
-    assert.deepEqual(
-      await unlockAll(home),
-      killedLock.map((key) => key.slice("locks/".length)),
-    );
-    assert.ok(!existsSync(uploadLockPath(home, "s")), "released on refusal");
+    // Nothing stands in a backup's way now.
     const backup = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(backup.status, 0, backup.stderr);
+    assert.deepEqual(await lockKeys(), []);
   });
 
   it("kill mid-forget between manifest DELETEs", async () => {

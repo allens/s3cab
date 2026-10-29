@@ -210,11 +210,11 @@ export async function cleanup(bucket, options = {}) {
     }
   }
 
-  const { deleted: removed, compaction } = await reclaim(
-    bucket,
-    { plan, snapshotFiles, stored },
-    { wait },
-  );
+  const {
+    deleted: removed,
+    reclaimedBytes,
+    compaction,
+  } = await reclaim(bucket, { plan, snapshotFiles, stored }, { wait });
 
   if (compaction.files > 0) {
     console.warn(
@@ -243,7 +243,10 @@ export async function cleanup(bucket, options = {}) {
     console.warn("Nothing to reclaim.");
   }
 
-  // What was reclaimed is the result (→ renderCleanup on stdout).
+  // What was reclaimed is the result (→ renderCleanup on stdout): the orphans
+  // and bytes after the top-up, not the scan's count the prompt showed.
   report.deleted = removed;
+  report.orphanObjects = removed;
+  report.reclaimableBytes = reclaimedBytes;
   return report;
 }

@@ -550,8 +550,6 @@ const fileChangeFrom = (error) =>
  * that drifted only costs a fresh `backup`, which reads that snapshot as its
  * hash lookup and so re-reads nothing that didn't change.
  *
- * `resume` serves both leftovers a killed run leaves — the work file
- * (ADR-0092) and the set's `.upload.lock` (ADR-0112) — with the one word.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
@@ -561,7 +559,7 @@ const fileChangeFrom = (error) =>
  */
 export function uploadSet(set, { rehash, resume, debug } = {}) {
   return holdUploadLock(
-    { bucket: set.bucket, command: "backup", set, resume },
+    { bucket: set.bucket, command: "backup", set: set.name },
     async () => {
       const baseline = await readBaseline(set, { rehash, resume });
       const { name: since, previous } = baseline;
@@ -748,17 +746,16 @@ const nameTakenError = (set, name, uri) =>
  * else a LIST); the PUT loop, the dedup and the drift guard are `uploadObjects`'.
  * The target is read before the lock is taken, so a missing `--snapshot` fails
  * fast with nothing to undo.
- * @param {Pick<BackupSet, "name" | "bucket" | "snapshotsDir" | "claimPath" | "uploadLockPath" | "uploadUnlockPath">} set - The resolved set
+ * @param {Pick<BackupSet, "name" | "bucket" | "snapshotsDir" | "claimPath">} set - The resolved set
  * @param {object} args
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead
- * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
  * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}
  *   `candidates` = objects considered for upload; `uploaded` = those actually
  *   transferred (the rest were no-ops the conditional PUT found already present).
  */
-export async function uploadSnapshot(set, { name, since, resume }) {
+export async function uploadSnapshot(set, { name, since }) {
   const { bucket, snapshotsDir: snapshotDir } = set;
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
@@ -770,7 +767,7 @@ export async function uploadSnapshot(set, { name, since, resume }) {
   }
 
   return holdUploadLock(
-    { bucket, command: "upload", set, resume },
+    { bucket, command: "upload", set: set.name },
     async () => {
       const stored = await storedHashes({
         bucket,
@@ -840,19 +837,18 @@ export async function uploadSnapshot(set, { name, since, resume }) {
  * that *were* confirmed are worth having either way. The skips are returned for the
  * caller to report (never swallowed — they are files the user asked for and didn't
  * get); a transport failure still throws, because nothing more can be sent.
- * @param {Pick<BackupSet, "name" | "bucket" | "excludePath" | "uploadLockPath" | "uploadUnlockPath">} set - The resolved set, for its bucket and `exclude.txt`
+ * @param {Pick<BackupSet, "name" | "bucket" | "excludePath">} set - The resolved set, for its bucket and `exclude.txt`
  * @param {object} args
  * @param {string} args.dir - The subtree to seed from (already validated as a directory)
- * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
  * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
  *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
  *   (the rest were already stored); `skipped` = files that failed their hash or
  *   the guard.
  */
-export function uploadDir(set, { dir, resume }) {
+export function uploadDir(set, { dir }) {
   const { bucket } = set;
   return holdUploadLock(
-    { bucket, command: "upload", set, resume },
+    { bucket, command: "upload", set: set.name },
     async () => {
       const { files } = walkDirs([dir], readExcludePatterns(set.excludePath));
       /** @type {Drift[]} files that failed their hash */
@@ -903,17 +899,16 @@ export function uploadDir(set, { dir, resume }) {
  * thrown: the message names the exact re-run, which the caller holds.
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
- * @param {Pick<BackupSet, "name" | "uploadLockPath" | "uploadUnlockPath">} [args.set] - The set the upload is for; absent for `upload --bucket`, which keeps no local lock
+ * @param {Pick<BackupSet, "name">} [args.set] - The set the upload is for; absent for `upload --bucket`
  * @param {string} args.path - The file to store
  * @param {Props} args.props - Its hash, size and mtime, as just taken
  * @param {boolean} [args.force] - Overwrite an object already stored under the hash
- * @param {boolean} [args.resume] - Take over the `.upload.lock` an interrupted upload left (ADR-0112)
  * @returns {Promise<{ uploaded: boolean, change?: FileChange }>} `uploaded` =
  *   transferred (false: already stored, or `change` says why nothing was)
  */
-export function uploadFile({ bucket, set, path, props, force, resume }) {
+export function uploadFile({ bucket, set, path, props, force }) {
   return holdUploadLock(
-    { bucket, command: "upload", set, resume },
+    { bucket, command: "upload", set: set?.name },
     async () => {
       const change = await fileChange(path, props);
       if (change) {

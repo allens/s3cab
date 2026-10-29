@@ -55,9 +55,14 @@ jobs:
     name: fresh deps
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Not in ci.yml's `s3-integration` group, though it shares that bucket: the group
-    # keeps one pending job, so a waiting weekly run would cancel a PR's gate or be
-    # cancelled unseen, against a collision that needs two deletes in the same minute.
+    # In ci.yml's `s3-integration` group because it shares that bucket: an integration
+    # run's delete lock (ADR-0112) turns away every upload another run makes meanwhile,
+    # so two runs at once fail each other. The group keeps one pending job, so a
+    # waiting weekly run can cancel a PR's gate or be cancelled unseen — a visible
+    # "cancelled, re-run me" over an intermittent refusal in a log nobody re-reads.
+    concurrency:
+      group: s3-integration
+      cancel-in-progress: false
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
       contents: read

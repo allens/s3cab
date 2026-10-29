@@ -223,8 +223,6 @@ const uploadSnapshotOf = ({
       bucket,
       snapshotsDir: snapshotDir,
       claimPath,
-      uploadLockPath: join(snapshotDir, ".upload.lock"),
-      uploadUnlockPath: join(snapshotDir, ".upload.unlock"),
     },
     { name, since },
   );
@@ -1069,8 +1067,6 @@ describe("uploadDir (seed a folder's objects)", () => {
       name: "seed",
       bucket: "seed-bucket",
       excludePath,
-      uploadLockPath: join(dirPath, ".upload.lock"),
-      uploadUnlockPath: join(dirPath, ".upload.unlock"),
     };
     return { root, set };
   };

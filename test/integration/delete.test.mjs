@@ -107,7 +107,13 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
 
     try {
       // ── delete ──────────────────────────────────────────────────────────
-      const result = await deleteHashes(doomedHashes, { bucket, force: true });
+      // `wait`: the bucket is shared with the release legs, whose uploads
+      // hold upload locks; refusing on one would fail this run for nothing.
+      const result = await deleteHashes(doomedHashes, {
+        bucket,
+        force: true,
+        wait: true,
+      });
       assert.equal(result.deleted, true);
       assert.equal(result.deletedObjects, 2);
       assert.deepEqual(result.missing, [], "both hashes were stored");

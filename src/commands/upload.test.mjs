@@ -16,15 +16,13 @@ import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 // (`tmpdir()`). Mocks first, then a dynamic import (objects.test.mjs ordering
 // rule).
 
-/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string, uploadLockPath: string, uploadUnlockPath: string }} */
+/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, claimPath: string }} */
 const fakeSet = {
   name: "photos",
   bucket: "set-bucket",
   snapshotsDir: "/snaps",
   excludePath: "/snaps/exclude.txt",
   claimPath: "/photos/claim",
-  uploadLockPath: "/photos/.upload.lock",
-  uploadUnlockPath: "/photos/.upload.unlock",
 };
 /** @type {(string | undefined)[]} */
 let loadSetCalls = [];
@@ -159,14 +157,6 @@ describe("upload validation", () => {
     );
   });
 
-  it("rejects --resume with --bucket — there is no set whose lock it could take over", async () => {
-    await assert.rejects(
-      upload(undefined, { bucket: "b", file: "f", resume: true }),
-      /--resume takes over a set's local lock[\s\S]*s3cab unlock/,
-    );
-    assert.deepEqual(uploadFileCalls, []);
-  });
-
   it("rejects no mode at all", async () => {
     await assert.rejects(
       upload("photos", {}),
@@ -187,11 +177,10 @@ describe("upload validation", () => {
 });
 
 describe("upload --file (single object)", () => {
-  it("set-scoped: hashes, hands the set and its bucket to the uploader, forwards --force and --resume", async () => {
+  it("set-scoped: hashes, hands the set and its bucket to the uploader, forwards --force", async () => {
     const result = await upload("photos", {
       file: "/tmp/big.iso",
       force: true,
-      resume: true,
     });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
@@ -199,11 +188,10 @@ describe("upload --file (single object)", () => {
     assert.deepEqual(uploadFileCalls, [
       {
         bucket: "set-bucket",
-        set: fakeSet, // the uploader keeps the set's local lock
+        set: fakeSet, // the lock names the set
         path: "/tmp/big.iso",
         props: { hash: "abc123", size: 42 },
         force: true,
-        resume: true,
       },
     ]);
     assert.deepEqual(result, {
@@ -232,20 +220,16 @@ describe("upload --file (single object)", () => {
 });
 
 describe("upload --snapshot (a snapshot's objects)", () => {
-  it("hands the snapshot uploader the set, the name, the --since baseline and --resume", async () => {
+  it("hands the snapshot uploader the set, the name and the --since baseline", async () => {
     const result = await upload("photos", {
       snapshot: "2026-01-02T0900",
       since: "2026-01-01T0900",
-      resume: true,
     });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
     assert.deepEqual(uploadFileCalls, []); // snapshot mode never single-PUTs
     assert.deepEqual(uploadSnapshotCalls, [
-      [
-        fakeSet,
-        { name: "2026-01-02T0900", since: "2026-01-01T0900", resume: true },
-      ],
+      [fakeSet, { name: "2026-01-02T0900", since: "2026-01-01T0900" }],
     ]);
     assert.deepEqual(result, {
       mode: "snapshot",
@@ -370,14 +354,12 @@ describe("upload --file confirmation guard", () => {
 });
 
 describe("upload --dir (seed a folder's objects)", () => {
-  it("hands the seeder the set (its bucket and excludes), the folder and --resume", async () => {
-    const result = await upload("photos", { dir: tmpdir(), resume: true });
+  it("hands the seeder the set (its bucket and excludes) and the folder", async () => {
+    const result = await upload("photos", { dir: tmpdir() });
 
     assert.deepEqual(loadSetCalls, ["photos"]);
     assert.deepEqual(uploadFileCalls, []); // dir mode never single-PUTs
-    assert.deepEqual(uploadDirCalls, [
-      [fakeSet, { dir: tmpdir(), resume: true }],
-    ]);
+    assert.deepEqual(uploadDirCalls, [[fakeSet, { dir: tmpdir() }]]);
     assert.deepEqual(result, {
       mode: "dir",
       set: "photos",

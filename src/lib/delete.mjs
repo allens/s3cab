@@ -2,10 +2,10 @@ import {
   formatDeletionRecord,
   writeDeletionRecord,
 } from "./deletion-record.mjs";
+import { localMoment } from "./format.mjs";
 import { holdDeleteLock } from "./locks.mjs";
 import { deleteStoredObjects } from "./objects.mjs";
-
-/** @import { DeletionRow } from "./deletion-record.mjs" */
+import { userAtMachine } from "./user-at-machine.mjs";
 
 /**
  * Remove content from the repository, by hash: the record first, then the
@@ -21,14 +21,22 @@ import { deleteStoredObjects } from "./objects.mjs";
  *
  * The lock is what keeps a backup from vouching for an object this run is
  * about to remove: a running upload's conditional PUT would see the object
- * present and skip it, and its snapshot would then reference nothing.
+ * present and skip it, and its snapshot would then reference nothing. The
+ * record's instant is taken under it too — with `--wait` the lock can come
+ * long after the confirmation, and the record says when the content went.
  * @param {string} bucket - The repository's S3 bucket
- * @param {DeletionRow[]} rows - What to delete, as the record will say it
+ * @param {{ hash: string, size: number }[]} items - What to delete, with the sizes the record keeps
  * @param {{ wait?: boolean }} [options] - `wait` for running uploads instead of refusing
  * @returns {Promise<string>} The deletion record's URI
  */
-export function deleteContent(bucket, rows, { wait = false } = {}) {
+export function deleteContent(bucket, items, { wait = false } = {}) {
   return holdDeleteLock({ bucket, command: "delete", wait }, async () => {
+    // One clock read and one identity for the run, so every row agrees by
+    // construction. The record is named by index, not by a moment, so only
+    // the instant is wanted — the precision names nothing.
+    const { instant } = localMoment("seconds");
+    const by = userAtMachine();
+    const rows = items.map(({ hash, size }) => ({ hash, size, instant, by }));
     const recordUri = await writeDeletionRecord(
       bucket,
       formatDeletionRecord(rows),
