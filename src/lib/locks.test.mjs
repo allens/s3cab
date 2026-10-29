@@ -130,6 +130,11 @@ let deadPids = new Set();
 const HERE_PIDNS =
   process.platform === "linux" ? readlinkSync("/proc/self/ns/pid") : undefined;
 const PIDNS_LINE = HERE_PIDNS === undefined ? "" : `PIDNS=${HERE_PIDNS}\n`;
+/** How `describeLock` names this system, regex-escaped: `win32` or `linux, pid:[…]`. */
+const HERE_SYSTEM = [process.platform, HERE_PIDNS]
+  .filter(Boolean)
+  .join(", ")
+  .replace(/[[\]]/g, "\\$&");
 
 /** A lock another run holds, planted straight into the bucket. */
 const plant = (
@@ -336,7 +341,9 @@ describe("listLocks, removeLock, describeLock", () => {
 
     assert.match(
       text,
-      /^backup of set 'photos' by other@LAPTOP \(pid 4242\), started 2026-10-27T14:02:05\.123Z \(.+ ago\) — upload-20261027T140205\.123Z$/,
+      new RegExp(
+        `^backup of set 'photos' by other@LAPTOP \\(${HERE_SYSTEM}, pid 4242\\), started 2026-10-27T14:02:05\\.123Z \\(.+ ago\\) — upload-20261027T140205\\.123Z$`,
+      ),
     );
   });
 });
@@ -477,7 +484,9 @@ describe("holdUploadLock", () => {
       assert.equal(warnings.length, 1);
       assert.match(
         warnings[0] ?? "",
-        /^Removed the lock a stopped run left in bucket 'b': cleanup by allen@DESKTOP \(pid 31337\), started 2026-10-27T14:02:05\.123Z \(.+ ago\) — delete-20261027T140100\.000Z$/,
+        new RegExp(
+          `^Removed the lock a stopped run left in bucket 'b': cleanup by allen@DESKTOP \\(${HERE_SYSTEM}, pid 31337\\), started 2026-10-27T14:02:05\\.123Z \\(.+ ago\\) — delete-20261027T140100\\.000Z$`,
+        ),
       );
     });
 
@@ -564,6 +573,31 @@ describe("holdUploadLock", () => {
         "the OS was never asked about it",
       );
     });
+
+    it(
+      "on Linux, with no PIDNS is kept: only a lock naming this namespace is judged here",
+      {
+        skip:
+          process.platform !== "linux" && "a PIDNS is written only on Linux",
+      },
+      async () => {
+        store.set(
+          "locks/delete-20261027T140100.000Z",
+          `COMMAND=cleanup\nBY=allen@DESKTOP\nOS=linux\nPID=31337\nSTARTED=2026-10-27T14:02:05.123Z\n`,
+        );
+        deadPids.add(31337);
+
+        await assert.rejects(
+          holdUploadLock(
+            { bucket: "b", command: "backup" },
+            async () => undefined,
+          ),
+          /a cleanup or delete is running/,
+        );
+
+        assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
+      },
+    );
 
     it("with no OS is kept: a lock that can't say whose process table it means is never judged", async () => {
       store.set(

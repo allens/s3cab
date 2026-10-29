@@ -288,4 +288,21 @@ describe("deleteStoredObjects", () => {
 
     assert.equal(inFlight, 0, "no DELETE outlives the call");
   });
+
+  it("rejects with the first failure in time, not the first worker's", async () => {
+    remove = async (uri) => {
+      if (uri.endsWith("/h5")) {
+        throw new Error("AccessDenied");
+      }
+      await tick();
+      if (uri.endsWith("/h0")) {
+        throw new Error("timed out");
+      }
+    };
+
+    await assert.rejects(
+      deleteStoredObjects("my-bucket", hashes(200)),
+      /AccessDenied/,
+    );
+  });
 });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readlinkSync } from "node:fs";
 import { describe, it } from "node:test";
 import { unlock } from "../../src/commands/unlock.mjs";
 import { getText } from "../../src/lib/s3.mjs";
@@ -29,7 +30,7 @@ describe("locks (real bucket)", () => {
       assert.match(lock.id, /^upload-\d{8}T\d{6}\.\d{3}Z$/);
       assert.equal(
         await getText(`s3://${bucket}/locks/${lock.id}`),
-        `COMMAND=backup\nSET=${lock.set}\nBY=${lock.by}\nOS=${process.platform}\n${lock.pidns === undefined ? "" : `PIDNS=${lock.pidns}\n`}PID=${process.pid}\nSTARTED=${lock.started}\n`,
+        `COMMAND=backup\nSET=${lock.set}\nBY=${lock.by}\nOS=${process.platform}\n${process.platform === "linux" ? `PIDNS=${readlinkSync("/proc/self/ns/pid")}\n` : ""}PID=${process.pid}\nSTARTED=${lock.started}\n`,
       );
 
       const locks = await listLocks(bucket);

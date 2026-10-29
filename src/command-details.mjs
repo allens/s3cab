@@ -91,13 +91,14 @@ its age says nothing about whether its command is still running.
 A lock names its computer, its system and its process, so the next backup,
 upload, cleanup or delete on the same system removes a leftover whose
 process is gone. Windows and WSL on one computer are two systems, and so
-are two WSL distributions or two containers. A leftover from any other
-system is yours to remove here.
+are two WSL distributions or two containers, and a WSL distribution or
+container counts as a new system after it restarts. A leftover from any
+other system is yours to remove here.
 
 Removing a lock whose command IS still running lets a cleanup or delete
 remove what that backup needs, silently. So this command shows every
-lock — what is running, for which set, from which machine, since when —
-and asks before removing exactly those. Scripts must name the ids and
+lock — what is running, for which set, from which machine and system,
+since when — and asks before removing exactly those. Scripts must name the ids and
 pass --force.`;
 
 export const awsDetails = `It only PRINTS the steps — it never touches your account and needs no

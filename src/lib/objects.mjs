@@ -132,7 +132,7 @@ export const REQUESTS_IN_FLIGHT = 50;
 /**
  * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. A call
  * that fails stops any more being started, and once those already started have
- * settled, rejects with a failure's error.
+ * settled, rejects with the first failure's error.
  * @param {string[]} hashes
  * @param {(hash: string) => Promise<void>} request
  * @returns {Promise<void>}
@@ -149,19 +149,29 @@ async function eachInFlight(hashes, request) {
   // and starts none while `highWaterMark` of them (99 at 50) wait behind one
   // stalled request, and despite its docs the signal it gives the mapper isn't
   // aborted when another call fails (measured on Node 26).
-  const workers = await Promise.allSettled(
+  let failed = false;
+  /** @type {unknown} */
+  let failure;
+  // Every worker settles before this rejects, not just the first to fail: a
+  // caller removes its delete lock on the rejection, and a DELETE still in
+  // flight then can remove an object a backup on another machine has just
+  // skipped as stored (ADR-0112).
+  await Promise.all(
     Array.from({ length: REQUESTS_IN_FLIGHT }, async () => {
-      for (const hash of queue) {
-        await request(hash);
+      try {
+        for (const hash of queue) {
+          await request(hash);
+        }
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
       }
     }),
   );
-  // allSettled, not all: a caller removes its delete lock when this rejects,
-  // and a DELETE still in flight then can remove an object a backup on another
-  // machine has just skipped as stored (ADR-0112).
-  const failed = workers.find((worker) => worker.status === "rejected");
   if (failed) {
-    throw failed.reason;
+    throw failure;
   }
 }
 

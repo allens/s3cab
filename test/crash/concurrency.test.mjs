@@ -411,7 +411,10 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       refused.stderr,
       /Can't back up right now — a cleanup or delete is running on bucket/,
     );
-    assert.match(refused.stderr, /\n {2}cleanup by \S+ \(pid \d+\), started /);
+    assert.match(
+      refused.stderr,
+      /\n {2}cleanup by \S+ \([^)]*pid \d+\), started /,
+    );
     const standing = await lockKeys();
     assert.equal(
       standing.length,

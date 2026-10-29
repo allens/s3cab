@@ -56,7 +56,7 @@ deletes: two cleanups, or a cleanup and a `delete`, can safely cross, as
 
 1. **Write the upload lock, before anything that decides what to skip.** Everything the run then
    sees in the bucket stays there until it ends, because no delete can start meanwhile.
-2. **List `locks/`**, removing any leftover of this machine's (below).
+2. **List `locks/`**, removing any leftover from its own process table (below).
 3. **Any delete lock:** remove your own lock and refuse. Nothing has been touched.
 4. **Upload**, objects first and the snapshot last.
 5. **Remove the lock**, on any failure the run survives too. A stop that doesn't end the work
@@ -83,7 +83,10 @@ alive, another user's). So:
   would find a running backup's pid missing in another and remove its lock. A lock whose `OS` or
   `PIDNS` differs, or whose `OS` is absent, is never judged.
 - **A reused pid reads as alive**, so a dead lock stays until `unlock`: the error is a refusal,
-  never a live lock removed.
+  never a live lock removed. So does a lock from before a container or WSL restart, whose
+  namespace may come back under a new `PIDNS`.
+- **`unlock` shows each lock's `OS` and `PIDNS`**, so a person can tell a live Windows lock from
+  a dead WSL one under the same `user@machine` before removing it.
 - **Two machines with one `user@machine`** — a cloned machine ([0108](0108-set-ownership.md)'s
   known gap), or one username on two machines with one hostname — would each judge the other's
   locks by their own process table, and could remove a live one. Accepted: `user@machine` is the
@@ -116,7 +119,7 @@ Plan and confirm without a lock: cleanup's reading, listing, plan and y/N, and d
 typed bucket name. Then:
 
 1. **Write the delete lock.**
-2. **List `locks/`**, removing any leftover of this machine's.
+2. **List `locks/`**, removing any leftover from its own process table.
 3. **Any upload lock:** remove your own lock and refuse, naming each lock in plain words. With
    `--wait`, remove it, say which locks it is waiting on, wait 30 s and go back to step 1, with no
    limit, saying so again whenever the list changes. Holding the lock while waiting would turn
@@ -135,7 +138,7 @@ typed bucket name. Then:
    orphans, and a half-done `delete` is explained by its record, so rerunning finishes either.
    A failed delete first waits for every delete request it already sent to settle, since one
    still in flight could remove an object a backup has just skipped. A hard stop or Ctrl+C
-   leaves the lock, for the next run from this machine, or `unlock`.
+   leaves the lock, for the next run from the same process table, or `unlock`.
 
 **Both sides write first and look second.** An upload and a delete that start together each see
 the other's lock, so at worst both refuse. If either looked first, both could see nothing and
@@ -166,7 +169,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
 
 - **The format spec gets** `locks/` in the layout, a section on locks that opens by telling a
   reader to skip it — the key, the lines, write first look second, and that a run may remove a
-  lock from its own machine whose process is gone — the upload steps in the Uploading checklist
+  lock from its own process table whose process is gone — the upload steps in the Uploading checklist
   and the delete steps in the Deleting checklist, with "write first, look second" and its reason
   beside each. The Reading checklist adds `locks/` to what a reader ignores.
 - **Provider and permissions:** a listing shows a key written a moment before (AWS S3 has
@@ -200,7 +203,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
   one.
 - **Removing the lock on Ctrl+C.** The work's requests may still be in flight when the handler
   runs, so a run on another machine could start under them: a backup that skips an object a
-  delete still in flight then removes. The next run from this machine removes the lock anyway.
+  delete still in flight then removes. The next run from the same process table removes the lock anyway, and `unlock` any other.
 - **Keeping a delete's lock after a failure it survives.** It stops every backup on every machine
   until someone notices, and there is nothing to inspect first.
 - **A delete lock for the whole run.** Planning only reads, and the top-up makes its result final.

@@ -70,11 +70,21 @@ function freshLockId(kind) {
  * This process's pid namespace on Linux, the target of `/proc/self/ns/pid`
  * (`pid:[4026531836]`); `undefined` elsewhere. Each WSL distro and each
  * container has a process table of its own under the one hostname, and this
- * is what tells them apart.
+ * is what tells them apart. A Linux with no such link (a kernel without pid
+ * namespaces, a chroot without `/proc`) has one process table, so `undefined`
+ * there too: throwing would stop every upload and delete.
  * @returns {string | undefined}
  */
-const pidNamespace = () =>
-  process.platform === "linux" ? readlinkSync("/proc/self/ns/pid") : undefined;
+function pidNamespace() {
+  if (process.platform !== "linux") {
+    return undefined;
+  }
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * @param {Omit<Lock, "id" | "kind" | "os" | "pid"> & { os: string, pid: number }} lock
@@ -201,12 +211,17 @@ export function removeLock(bucket, id) {
 
 /**
  * A lock in plain words, for a refusal or `unlock`'s listing: what is running,
- * for which set, from which machine, since when, and the id to name it by.
+ * for which set, from which machine and system, since when, and the id to name
+ * it by. The system (`OS`, `PIDNS`) is what tells a Windows lock from a WSL one
+ * under the same `user@machine`, before a person removes either.
  * @param {Lock} lock
  * @returns {string}
  */
 export function describeLock(lock) {
-  const { command, set, by, pid, started } = lock;
+  const { command, set, by, os, pidns, pid, started } = lock;
+  const system = [os, pidns, pid === undefined ? undefined : `pid ${pid}`]
+    .filter(Boolean)
+    .join(", ");
   let since = started;
   try {
     since = `${started} (${elapsedSince(Temporal.Instant.from(started))} ago)`;
@@ -216,7 +231,7 @@ export function describeLock(lock) {
   return (
     `${command || "a run"}${set === undefined ? "" : ` of set '${set}'`}` +
     ` by ${by || "an unknown machine"}` +
-    `${pid === undefined ? "" : ` (pid ${pid})`}, started ${since}` +
+    `${system ? ` (${system})` : ""}, started ${since}` +
     ` — ${lock.id}`
   );
 }
@@ -340,8 +355,8 @@ async function liveLocks(bucket) {
  *
  * Not an interrupt handler that removes the lock on Ctrl+C: `fn`'s requests
  * may still be in flight, and a run on another machine could start under
- * them. A Ctrl+C leaves the lock, as a crash does, for the next run from this
- * machine to remove once the process is gone. (During the snapshot write,
+ * them. A Ctrl+C leaves the lock, as a crash does, for the next run on this
+ * system (machine, OS and pid namespace) to remove once the process is gone. (During the snapshot write,
  * Ctrl+C parks the work file and ends `fn` cleanly, so the lock goes here.)
  * @template T
  * @param {string} bucket

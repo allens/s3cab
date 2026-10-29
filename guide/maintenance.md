@@ -322,7 +322,7 @@ as it runs, and refuses to start while the other kind's lock is there:
 ```console
 > s3cab cleanup my-backups
 Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
-  backup of set 'photos' by me@LAPTOP (pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
+  backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
 
 Try again once it has finished, or let this run wait for it:
   s3cab cleanup my-backups --wait
@@ -345,15 +345,17 @@ leftover is cleared by whoever can tell the run is dead:
 
 - **A leftover from this system** is removed by the next `backup`, `upload`, `cleanup` or
   `delete` run on it, which can see its process is gone. It says so as it does. Windows and
-  WSL on one computer are two systems, and so are two WSL distributions or two containers.
+  WSL on one computer are two systems, and so are two WSL distributions or two containers. A
+  WSL distribution or container counts as a new system after it restarts, so a lock it left
+  before the restart is `unlock`'s.
 - **A leftover from any other system** — another computer, one that is gone, or one nothing
   will run on for a while — is `unlock`'s. It shows every lock and asks:
 
   ```console
   > s3cab unlock --bucket my-backups
   2 locks in bucket 'my-backups':
-    backup of set 'photos' by me@LAPTOP (pid 18204), started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
-    cleanup by me@DESKTOP (pid 9120), started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
+    backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
+    cleanup by me@DESKTOP (linux, pid:[4026531836], pid 9120), started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
 
   A lock whose command is still running keeps a cleanup or delete from removing what that backup needs — or a backup from storing what that cleanup is removing. Remove one only when you know its command has stopped.
   Remove these 2 locks? [y/N] y

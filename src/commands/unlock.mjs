@@ -11,11 +11,12 @@ import { isInteractive, shellCommand } from "../lib/style.mjs";
  * Remove locks a stopped run left in the bucket
  * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)). A lock never expires —
  * its age says nothing about whether its run is alive. A run clears for
- * itself any lock from its own machine whose process is gone; a leftover from
- * another machine is this command's, where a person says it is dead.
+ * itself any lock from its own system (machine, OS and pid namespace) whose
+ * process is gone; a leftover from any other system is this command's, where
+ * a person says it is dead.
  *
  * It lists every lock in plain words (what is running, for which set, from
- * which machine, since when), warns what removing a live one does, and asks
+ * which machine and system, since when), warns what removing a live one does, and asks
  * y/N. It removes **exactly the locks it showed**, never one written after:
  * the listing is the thing confirmed. Ids narrow the listing to the locks
  * named. Without a terminal it needs `--force` and ids; `--force` always
