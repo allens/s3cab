@@ -67,9 +67,8 @@ mock.module("../../../src/lib/s3.mjs", {
       backendHolder.current.objectExists(uri),
     deleteObject: (/** @type {string} */ uri) =>
       backendHolder.current.deleteObject(uri),
-    // Imported by objects.mjs (delete's preflight); the model doesn't drive
-    // `delete`, so no sequence reaches it.
-    objectSize: async () => undefined,
+    objectSize: (/** @type {string} */ uri) =>
+      backendHolder.current.objectSize(uri),
     isObjectNotFound,
     isPreconditionFailed,
   },
@@ -85,6 +84,8 @@ export const { restore } = await import("../../../src/commands/restore.mjs");
 export const { verify } = await import("../../../src/commands/verify.mjs");
 export const { forget } = await import("../../../src/commands/forget.mjs");
 export const { cleanup } = await import("../../../src/commands/cleanup.mjs");
+export const { deleteHashes } =
+  await import("../../../src/commands/delete.mjs");
 export const { takeover } = await import("../../../src/commands/takeover.mjs");
 export const { upload } = await import("../../../src/commands/upload.mjs");
 

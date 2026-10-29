@@ -18,6 +18,7 @@ import { RepoModel, restoredAt, sha256 } from "./harness/model.mjs";
 import {
   backup,
   cleanup,
+  deleteHashes,
   forget,
   parseCompressedSnapshotStream,
   restore,
@@ -430,6 +431,63 @@ describe("prior-audit findings, encoded", () => {
     const model = new RepoModel(BUCKET, backendHolder.current);
     assert.deepEqual(await checkStore(model), []);
     await cleanup(BUCKET, { force: true });
+    assert.deepEqual(await checkStore(model), []);
+    process.exitCode = 0;
+    await verify(BUCKET);
+    assert.equal(process.exitCode, 0);
+  });
+
+  it("delete <hash> mid-backup is refused by the backup's upload lock, so the baseline-skipped object the new snapshot references survives (2026-10-29 locks audit, ADR-0112)", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    useHome(root, "mA");
+    const data = await makeSet(root, "unlink", "data");
+    const content = Buffer.from("vouched for by the baseline");
+    writeFileSync(join(data, "f.txt"), content);
+    await backup("unlink");
+    clockHolder.current.advance(MINUTE_MS);
+
+    // The second backup trusts its baseline and skips the object. In the gap
+    // before its manifest PUT, `delete` names that hash: its preflight HEAD
+    // finds the object, and its delete lock then meets the upload lock. A
+    // delete here would have recorded the removal and left the new snapshot
+    // listing content that is deliberately gone — correct by the format, but
+    // not what the user who typed the hash while a backup ran was told.
+    const fake = backendHolder.current;
+    const hash = sha256(content);
+    /** @type {unknown} */
+    let deleteOutcome;
+    const realPutFile = fake.putFile.bind(fake);
+    fake.putFile = async (path, uri, options) => {
+      if (uri.includes("/snapshots/")) {
+        deleteOutcome = await deleteHashes([hash], {
+          bucket: BUCKET,
+          force: true,
+        }).catch((error) => error);
+      }
+      return realPutFile(path, uri, options);
+    };
+    process.exitCode = 0;
+    const result = await backup("unlink");
+
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.uploaded, 0, "every object was baseline-skipped");
+    assert.equal(process.exitCode, 0);
+    assert.match(
+      /** @type {Error} */ (deleteOutcome).message,
+      /a backup or upload is running on bucket 'model-bucket'/,
+    );
+
+    // Nothing was deleted and nothing recorded as deleted; the refused delete
+    // left no lock, and the backup removed its own at the end.
+    const keys = (await fake.listAll(BUCKET)).map(({ key }) => key);
+    assert.ok(keys.includes(`objects/${hash}`), "the object is still stored");
+    assert.deepEqual(
+      keys.filter((key) => /^objects\.deleted-|^locks\//.test(key)),
+      [],
+      "no deletion record, no lock",
+    );
+    const model = new RepoModel(BUCKET, backendHolder.current);
     assert.deepEqual(await checkStore(model), []);
     process.exitCode = 0;
     await verify(BUCKET);
