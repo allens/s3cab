@@ -27,13 +27,14 @@ import {
   writeSet,
 } from "./harness/seam.mjs";
 
-// The prior audits' findings (proposals/bugs.md, the 2026-08-12 durability
-// audit; proposals/concurrency-and-locking.md §1) encoded as deterministic
-// Tier 1 tests — this suite is how those hypotheses get sorted into real bugs
-// and ruled-out worries. Each test names its source entry and asserts the
-// behaviour observed **today**, with a TODO stating what the assertion flips
-// to when the bug is fixed; a fix then fails here loudly and gets a
-// deliberate decision.
+// The prior audits' findings (proposals/bugs.md — the 2026-08-12 durability
+// audit and the 2026-10-29 locks audit; proposals/concurrency-and-locking.md
+// §1) encoded as deterministic Tier 1 tests — this suite is how those
+// hypotheses get sorted into real bugs and ruled-out worries. Each test names
+// its source entry. One for an open bug asserts the behaviour observed
+// **today**, with a TODO stating what the assertion flips to when the bug is
+// fixed, so a fix fails here loudly and gets a deliberate decision; one for a
+// finding an ADR has since closed pins the correct behaviour, naming the ADR.
 //
 // Not here: the mid-transfer mutation and backup-exit-0 cases (both fixed,
 // their tests flipped) live in model.hostile.test.mjs (hostile-tree cases); the
@@ -84,6 +85,22 @@ const makeSet = async (root, set, dirName) => {
   const { claimPath } = writeSet(set, { dirs: [dir], bucket: BUCKET });
   await holdSet(BUCKET, set, claimPath);
   return dir;
+};
+
+/**
+ * Run `action` in the gap before a backup's manifest PUT — every object
+ * stored or skipped, the snapshot not yet published, the upload lock held.
+ * @param {FakeS3} fake
+ * @param {() => Promise<void>} action
+ */
+const beforeManifestPut = (fake, action) => {
+  const realPutFile = fake.putFile.bind(fake);
+  fake.putFile = async (path, uri, options) => {
+    if (uri.includes("/snapshots/")) {
+      await action();
+    }
+    return realPutFile(path, uri, options);
+  };
 };
 
 describe("prior-audit findings, encoded", () => {
@@ -355,15 +372,11 @@ describe("prior-audit findings, encoded", () => {
     // manifest PUT, where it used to delete the object as an orphan.
     /** @type {unknown} */
     let cleanupOutcome;
-    const realPutFile = fake.putFile.bind(fake);
-    fake.putFile = async (path, uri, options) => {
-      if (uri.includes("/snapshots/")) {
-        cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
-          (error) => error,
-        );
-      }
-      return realPutFile(path, uri, options);
-    };
+    beforeManifestPut(fake, async () => {
+      cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
+        (error) => error,
+      );
+    });
     process.exitCode = 0;
     const result = await backup("race");
 
@@ -405,16 +418,12 @@ describe("prior-audit findings, encoded", () => {
     const fake = backendHolder.current;
     /** @type {unknown} */
     let cleanupOutcome;
-    const realPutFile = fake.putFile.bind(fake);
-    fake.putFile = async (path, uri, options) => {
-      if (uri.includes("/snapshots/")) {
-        await forget(["20260105T0000"], { set: "interleave", force: true });
-        cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
-          (error) => error,
-        );
-      }
-      return realPutFile(path, uri, options);
-    };
+    beforeManifestPut(fake, async () => {
+      await forget(["20260105T0000"], { set: "interleave", force: true });
+      cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
+        (error) => error,
+      );
+    });
     process.exitCode = 0;
     const result = await backup("interleave");
 
@@ -449,32 +458,27 @@ describe("prior-audit findings, encoded", () => {
 
     // The second backup trusts its baseline and skips the object. In the gap
     // before its manifest PUT, `delete` names that hash: its preflight HEAD
-    // finds the object, and its delete lock then meets the upload lock. A
-    // delete here would have recorded the removal and left the new snapshot
-    // listing content that is deliberately gone — correct by the format, but
-    // not what the user who typed the hash while a backup ran was told.
+    // finds the object, and its delete lock then meets the upload lock. The
+    // pin: a snapshot is published referencing only stored content.
     const fake = backendHolder.current;
     const hash = sha256(content);
     /** @type {unknown} */
     let deleteOutcome;
-    const realPutFile = fake.putFile.bind(fake);
-    fake.putFile = async (path, uri, options) => {
-      if (uri.includes("/snapshots/")) {
-        deleteOutcome = await deleteHashes([hash], {
-          bucket: BUCKET,
-          force: true,
-        }).catch((error) => error);
-      }
-      return realPutFile(path, uri, options);
-    };
+    beforeManifestPut(fake, async () => {
+      deleteOutcome = await deleteHashes([hash], {
+        bucket: BUCKET,
+        force: true,
+      }).catch((error) => error);
+    });
     process.exitCode = 0;
     const result = await backup("unlink");
 
     assert.deepEqual(result.errors, []);
     assert.equal(result.uploaded, 0, "every object was baseline-skipped");
     assert.equal(process.exitCode, 0);
+    assert.ok(deleteOutcome instanceof Error, "delete was refused");
     assert.match(
-      /** @type {Error} */ (deleteOutcome).message,
+      deleteOutcome.message,
       /a backup or upload is running on bucket 'model-bucket'/,
     );
 
@@ -487,6 +491,50 @@ describe("prior-audit findings, encoded", () => {
       [],
       "no deletion record, no lock",
     );
+    const model = new RepoModel(BUCKET, backendHolder.current);
+    assert.deepEqual(await checkStore(model), []);
+    process.exitCode = 0;
+    await verify(BUCKET);
+    assert.equal(process.exitCode, 0);
+  });
+
+  it("a deletion record subtracts a hash from the trusted baseline only while its object is absent: re-uploaded once, then trusted again (presence wins, guide/format.md)", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    useHome(root, "mA");
+    const data = await makeSet(root, "presence", "data");
+    const content = Buffer.from("deleted, then backed up again");
+    writeFileSync(join(data, "f.txt"), content);
+    const hash = sha256(content);
+    await backup("presence");
+    await deleteHashes([hash], { bucket: BUCKET, force: true });
+    const fake = backendHolder.current;
+    assert.equal(await fake.getBytes(BUCKET, `objects/${hash}`), undefined);
+
+    // Absent: the record is respected and the baseline-trusting backup
+    // re-stores the object rather than publishing a reference to nothing.
+    clockHolder.current.advance(MINUTE_MS);
+    const reupload = await backup("presence");
+    assert.deepEqual(reupload.errors, []);
+    assert.equal(
+      reupload.uploaded,
+      1,
+      "the recorded-deleted object is re-stored",
+    );
+
+    // Present again, row still in the record: the HEAD finds it, so the
+    // baseline keeps vouching for it and nothing is re-uploaded.
+    clockHolder.current.advance(MINUTE_MS);
+    const trusted = await backup("presence");
+    assert.deepEqual(trusted.errors, []);
+    assert.equal(trusted.uploaded, 0, "presence wins over the record");
+    assert.ok(
+      fake.log.some(
+        ({ op, uri }) => op === "HEAD" && uri.endsWith(`objects/${hash}`),
+      ),
+      "the baseline's recorded hash was HEADed, not taken from the record",
+    );
+
     const model = new RepoModel(BUCKET, backendHolder.current);
     assert.deepEqual(await checkStore(model), []);
     process.exitCode = 0;
