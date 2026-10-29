@@ -289,7 +289,7 @@ the set's own directory under your home directory — never inside your backed-u
   env                            # S3CAB_BUCKET=… plus how this set signs in
   exclude.txt                    # glob patterns for files to skip — yours to edit
   snapshots/
-    20251110T2104.tsv.gz       # one snapshot per run (gzip-compressed TSV)
+    20251110T2104.tsv.gz         # one snapshot per run (gzip-compressed TSV)
     20251111T0830.tsv.gz
 ```
 
@@ -418,7 +418,7 @@ store is skipped automatically — identical bytes always map to the same key �
 ```console
 > s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
 > s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's objects, no snapshot
-> s3cab upload photos --snapshot 20260612T0915            # that snapshot's objects, snapshot file last
+> s3cab upload photos --snapshot 20260612T0915              # that snapshot's objects, snapshot file last
 > s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
 ```
 

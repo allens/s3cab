@@ -75,7 +75,7 @@ A snapshot is a point in time. When you don't want to keep one any more:
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot            files    size
-  20260501T0800     3,201  12.4GB
+  20260501T0800       3,201  12.4GB
                       ─────────────
   total unrestorable  3,201  12.4GB
 
@@ -108,9 +108,9 @@ preview covers the whole selection:
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot                   files     size
-  20260501T0800            3,201   12.4GB
-  20260508T0800              118  412.0MB
-  20260515T0800                0       0B
+  20260501T0800              3,201   12.4GB
+  20260508T0800                118  412.0MB
+  20260515T0800                  0       0B
   shared across 3 snapshots    842    3.1GB
                              ──────────────
   total unrestorable         4,161   15.9GB
