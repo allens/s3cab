@@ -147,7 +147,7 @@ A point-in-time record of every file in a backup set. Recorded on disk as a
 tab-separated (TSV) **snapshot file** — one `-` row (a **file row**) per file
 (`hash` → `size` → `mtime` → `path`).
 A snapshot name is unique only within its set, so anything spanning the whole bucket names one
-as **`set/snapshot`** (`work-laptop/2026-07-30T1400`) — matching its place in the bucket, so the
+as **`set/snapshot`** (`work-laptop/20260730T1400`) — matching its place in the bucket, so the
 name pastes straight after `s3://<bucket>/snapshots/`. Used where several snapshots across
 several sets are listed together; a single one named in a sentence stays prose (`'work-laptop'
 (snapshot …)`).

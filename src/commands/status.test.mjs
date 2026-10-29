@@ -42,7 +42,7 @@ const { writeSet } = await import("../lib/sets.mjs");
 const { writeSnapshot } = await import("../../test/helpers/write-snapshot.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
-const NAME = "2026-10-09T1200";
+const NAME = "20261009T1200";
 const HELLO_HASH =
   "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 

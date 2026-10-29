@@ -13,8 +13,8 @@ describe("remoteSnapshotUri", () => {
     // The repository layout the format spec promises a recoverer — spelled
     // out independently so a change to prefix or extension fails here.
     assert.equal(
-      remoteSnapshotUri("my-bucket", "photos", "2026-06-12T0915"),
-      "s3://my-bucket/snapshots/photos/2026-06-12T0915.tsv.gz",
+      remoteSnapshotUri("my-bucket", "photos", "20260612T0915"),
+      "s3://my-bucket/snapshots/photos/20260612T0915.tsv.gz",
     );
   });
 });

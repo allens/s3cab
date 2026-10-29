@@ -52,7 +52,7 @@ let warnings = [];
 beforeEach(() => {
   savedEnv = { ...process.env };
   texts.clear();
-  remoteSnapshots = ["2026-08-01T0900", "2026-08-02T0900"];
+  remoteSnapshots = ["20260801T0900", "20260802T0900"];
   warnings = [];
   mock.method(console, "warn", (/** @type {unknown[]} */ ...args) =>
     warnings.push(args.join(" ")),

@@ -12,6 +12,8 @@
 // The clock only ever moves forward (the runner advances it ≥1 minute per op);
 // tests that want the clock-went-backwards path set it backwards deliberately.
 
+import { basicForm } from "../../../src/lib/format.mjs";
+
 /** @typedef {{ name: string, instant: string, zone: string }} Moment */
 
 /**
@@ -44,10 +46,7 @@ export class VirtualClock {
       this.ms,
     ).toZonedDateTimeISO("UTC");
     return {
-      name: zdt
-        .toPlainDateTime()
-        .toString({ smallestUnit })
-        .replaceAll(":", ""),
+      name: basicForm(zdt.toPlainDateTime().toString({ smallestUnit })),
       instant: zdt.toInstant().toString({ smallestUnit: "millisecond" }),
       zone: zdt.timeZoneId,
     };

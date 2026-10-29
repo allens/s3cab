@@ -3,7 +3,8 @@
 **Status:** accepted & implemented — except the pre-0072 compatibility reader, **withdrawn
 2026-08-08** (see "Both layouts were read"). "The `#SNAPSHOT` line" is superseded by
 [0098](0098-snapshot-row-layout.md): one fact per row, the instant and zone on
-`#SNAPSHOT START`; UTC inside files and local names stand. Settles the timezone/precision question the
+`#SNAPSHOT START`; UTC inside files and local names stand. The spelling of names is superseded
+by [0113](0113-names-in-iso-basic-form.md): ISO 8601's basic form, `20260612T0915`. Settles the timezone/precision question the
 snapshot-format proposal carried. Extends
 [0004](0004-tsv-snapshot-manifests.md) (the row grammar) and applies
 [0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).

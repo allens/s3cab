@@ -79,7 +79,7 @@ export const HEADING = formatLine(S3CAB, FORMAT, "size", "time", HEADING_URL);
  * The date of the format s3cab writes, `@S3CAB SPEC`'s value (ADR-0107). It
  * moves when the format does, never for a wording edit to guide/format.md.
  */
-export const SPEC_DATE = "2026-10-24";
+export const SPEC_DATE = "2026-10-29";
 
 /**
  * The last line of every whole s3cab file, and its completeness check
@@ -699,7 +699,7 @@ function notFoundError(snapshotDir, name) {
  * The moment a snapshot is taken, in the three spellings the format needs, from
  * **one clock read** ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)):
  *
- * - `name` — local wall clock, minute precision, colon dropped (`2026-06-12T0915`).
+ * - `name` — local wall clock, minute precision, ISO 8601 basic form (`20260612T0915`).
  *   The snapshot's filename and identity, typed by people, so it stays the time
  *   the clock on the wall said.
  * - `instant` — the same moment in UTC at millisecond precision
@@ -723,8 +723,8 @@ export const snapshotMoment = () => localMoment("minutes");
  * instead of spelling the grammar they don't own. The `.tsv.gz` itself is a
  * user-facing promise (guide/format.md, ADR-0002): a recoverer decompresses it
  * with plain `gunzip`.
- * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @returns {string} e.g. `2026-06-12T0915.tsv.gz`
+ * @param {string} name - Snapshot name without extension, e.g. `20260612T0915`
+ * @returns {string} e.g. `20260612T0915.tsv.gz`
  */
 export const snapshotFileName = (name) => `${name}.tsv.gz`;
 
@@ -744,14 +744,14 @@ export const normalizeSnapshotName = (name) =>
  * their `snapshots/<set>/` prefix already stripped) both run through here,
  * so a local and a remote listing sort and filter identically. Anchored at
  * both ends: the remote listing is recursive, so a key in a folder below the
- * set's (`old/2099-01-01T0000.tsv.gz`) arrives here with its folder, and isn't
+ * set's (`old/20990101T0000.tsv.gz`) arrives here with its folder, and isn't
  * the set's snapshot.
- * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.gz`)
- * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
+ * @param {Iterable<string>} names - Snapshot file names (e.g. `20260612T0915.tsv.gz`)
+ * @returns {string[]} Snapshot names without extension (e.g. `20260612T0915`), newest first
  */
 export function snapshotNames(names) {
   return [...names]
-    .filter((name) => /^\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
+    .filter((name) => /^\d{8}T\d{4}\.tsv\.gz$/.test(name))
     .map((name) => name.slice(0, -".tsv.gz".length))
     .sort()
     .reverse();

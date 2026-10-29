@@ -221,7 +221,7 @@ describe("prior-audit findings, encoded", () => {
     const routine = await backup("stale");
     assert.equal(process.exitCode, 0);
     assert.equal(routine.uploaded, 0);
-    assert.equal(await restoredFrom(root, "2026-01-05T0001"), "old bytes!!");
+    assert.equal(await restoredFrom(root, "20260105T0001"), "old bytes!!");
 
     // And the documented cure.
     clockHolder.current.advance(MINUTE_MS);
@@ -229,7 +229,7 @@ describe("prior-audit findings, encoded", () => {
     const rehashed = await backup("stale", { rehash: true });
     assert.equal(process.exitCode, 0);
     assert.equal(rehashed.uploaded, 1, "the rewrite is seen and uploaded");
-    assert.equal(await restoredFrom(root, "2026-01-05T0002"), "new bytes!!");
+    assert.equal(await restoredFrom(root, "20260105T0002"), "new bytes!!");
   });
 
   it("a same-size rewrite preserving mtime is caught under S3CAB_CHECK_CHANGE_TIME (bugs.md, fixed: ADR-0085, opt-in since ADR-0094)", async () => {
@@ -249,7 +249,7 @@ describe("prior-audit findings, encoded", () => {
     // ctime boundary is pinned in src/lib/file-props.test.mjs; this asserts the
     // end-to-end outcome: the new bytes are backed up.
     assert.equal(result.uploaded, 1, "the rewrite is seen and uploaded");
-    assert.equal(await restoredFrom(root, "2026-01-05T0001"), "new bytes!!");
+    assert.equal(await restoredFrom(root, "20260105T0001"), "new bytes!!");
   });
 
   it("a truncated stored manifest is a loud parse error — verify reports it, restore refuses (format-spec audit, fixed by ADR-0082)", async () => {
@@ -263,7 +263,7 @@ describe("prior-audit findings, encoded", () => {
     await backup("trunc");
 
     const fake = backendHolder.current;
-    const key = "snapshots/trunc/2026-01-05T0000.tsv.gz";
+    const key = "snapshots/trunc/20260105T0000.tsv.gz";
     const full = /** @type {Buffer} */ (await fake.getBytes(BUCKET, key));
 
     // The untruncated manifest must parse, or the loop below proves nothing:
@@ -325,7 +325,7 @@ describe("prior-audit findings, encoded", () => {
         s.set,
         s.unreadableSnapshots.map((u) => u.snapshot),
       ]),
-      [["trunc", ["2026-01-05T0000"]]],
+      [["trunc", ["20260105T0000"]]],
       "the truncated snapshot is reported unreadable under its set",
     );
     const out = join(root, "out");
@@ -407,7 +407,7 @@ describe("prior-audit findings, encoded", () => {
     const realPutFile = fake.putFile.bind(fake);
     fake.putFile = async (path, uri, options) => {
       if (uri.includes("/snapshots/")) {
-        await forget(["2026-01-05T0000"], { set: "interleave", force: true });
+        await forget(["20260105T0000"], { set: "interleave", force: true });
         cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
           (error) => error,
         );

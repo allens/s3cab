@@ -36,7 +36,7 @@ is one listing of the whole store either way. Findings are still reported per se
 my-backups: 3 sets, 48,210 objects checked — 1 set with findings ✗
 
   photos   2 files with problems
-    C:\Users\me\Photos\beach.jpg    missing      (in snapshot 2026-06-12T0915)
+    C:\Users\me\Photos\beach.jpg    missing      (in snapshot 20260612T0915)
     C:\Users\me\Photos\report.pdf   wrong size   (recorded 245,760 bytes, stored 0)
 ```
 
@@ -71,22 +71,22 @@ my-backups: 3 sets, 47,913 objects checked — all verified ✓
 A snapshot is a point in time. When you don't want to keep one any more:
 
 ```console
-> s3cab forget --set photos 2026-05-01T0800
+> s3cab forget --set photos 20260501T0800
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot            files    size
-  2026-05-01T0800     3,201  12.4GB
+  20260501T0800       3,201  12.4GB
                       ─────────────
   total unrestorable  3,201  12.4GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
-Forget snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forget snapshot '20260501T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
 Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
   s3cab cleanup my-backups
 Record of this removal:
-  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-01T080213.txt
-Snapshot '2026-05-01T0800' forgotten from set 'photos'.
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260501T080213.txt
+Snapshot '20260501T0800' forgotten from set 'photos'.
 ```
 
 Before it asks, `forget` works out **what you'd be the last to hold** — files that, once
@@ -104,24 +104,24 @@ Name as many as you like in one run — it's one question, not one per snapshot,
 preview covers the whole selection:
 
 ```console
-> s3cab forget --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
+> s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot                   files     size
-  2026-05-01T0800            3,201   12.4GB
-  2026-05-08T0800              118  412.0MB
-  2026-05-15T0800                0       0B
+  20260501T0800              3,201   12.4GB
+  20260508T0800                118  412.0MB
+  20260515T0800                  0       0B
   shared across 3 snapshots    842    3.1GB
                              ──────────────
   total unrestorable         4,161   15.9GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
-Forget 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forget 3 snapshots ('20260501T0800', '20260508T0800', '20260515T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
 Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
   s3cab cleanup my-backups
 Record of this removal:
-  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-20T141807.txt
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260520T141807.txt
 3 snapshots forgotten from set 'photos'.
 ```
 
@@ -143,7 +143,7 @@ you're in a script (where it's required: there's no terminal to answer the promp
 **`--force`** skips the check and the confirmation together:
 
 ```console
-> s3cab forget --set photos 2026-05-01T0800 --force
+> s3cab forget --set photos 20260501T0800 --force
 ```
 
 ### The two files it leaves behind
@@ -155,7 +155,7 @@ use once you have.
 Once you say **yes**, though, s3cab also keeps a permanent copy in the set's own folder:
 
 ```
-~/.s3cab/sets/photos/forget-unrestorable-2026-05-01T080213.txt
+~/.s3cab/sets/photos/forget-unrestorable-20260501T080213.txt
 ```
 
 That one is a record of what you forgot and what it cost you, and it isn't overwritten or

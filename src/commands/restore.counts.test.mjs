@@ -31,7 +31,7 @@ mock.module("../lib/env.mjs", {
 });
 mock.module("../lib/remote.mjs", {
   exports: {
-    listRemoteSnapshots: async () => ["2026-07-19T1200"],
+    listRemoteSnapshots: async () => ["20260719T1200"],
     readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
   },
 });

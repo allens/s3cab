@@ -29,8 +29,8 @@ mock.module("../lib/set-marker.mjs", {
     },
     readRemoteInfo: async () => ({
       owner: "someone-else",
-      claimed: "2026-01-01T0000",
-      created: "2026-01-01T0000",
+      claimed: "20260101T0000",
+      created: "20260101T0000",
     }),
     writeClaim: () => {},
     pushSetConfig: async () => {},

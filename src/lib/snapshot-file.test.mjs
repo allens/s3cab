@@ -836,36 +836,33 @@ describe("listSnapshotNames", () => {
   it("lists snapshot names newest-first", async () => {
     await using dir = await mkTmpDir();
     makeSnapshots(dir.path, [
-      "2025-01-14T0830.tsv.gz",
-      "2025-01-15T1030.tsv.gz",
-      "2025-01-13T1200.tsv.gz",
+      "20250114T0830.tsv.gz",
+      "20250115T1030.tsv.gz",
+      "20250113T1200.tsv.gz",
     ]);
     assert.deepEqual(listSnapshotNames(dir.path), [
-      "2025-01-15T1030",
-      "2025-01-14T0830",
-      "2025-01-13T1200",
+      "20250115T1030",
+      "20250114T0830",
+      "20250113T1200",
     ]);
   });
 
   it("ignores non-snapshot files", async () => {
     await using dir = await mkTmpDir();
     makeSnapshots(dir.path, [
-      "2025-01-15T1030.tsv.gz",
+      "20250115T1030.tsv.gz",
       "not-a-snapshot.txt",
       ".snapshot.tsv.gz",
     ]);
-    assert.deepEqual(listSnapshotNames(dir.path), ["2025-01-15T1030"]);
+    assert.deepEqual(listSnapshotNames(dir.path), ["20250115T1030"]);
   });
 
   // `.at(0)` is how every caller wanting just the newest one spells it, so the
   // two cases that used to cover the `latest` option are asserted through it.
   it("puts the newest snapshot name first", async () => {
     await using dir = await mkTmpDir();
-    makeSnapshots(dir.path, [
-      "2025-01-14T0830.tsv.gz",
-      "2025-01-15T1030.tsv.gz",
-    ]);
-    assert.equal(listSnapshotNames(dir.path).at(0), "2025-01-15T1030");
+    makeSnapshots(dir.path, ["20250114T0830.tsv.gz", "20250115T1030.tsv.gz"]);
+    assert.equal(listSnapshotNames(dir.path).at(0), "20250115T1030");
   });
 
   it("has no first name when no snapshots exist", async () => {
@@ -877,7 +874,7 @@ describe("listSnapshotNames", () => {
 describe("snapshotMoment's minted name", () => {
   it("is a minute-precision name the snapshot lister recognises", () => {
     const { name } = snapshotMoment();
-    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    assert.match(name, /^\d{8}T\d{4}$/);
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
     assert.deepEqual(snapshotNames([`${name}.tsv.gz`]), [name]);
@@ -906,12 +903,13 @@ describe("snapshotNames", () => {
     // off, and the nested one would otherwise be the latest, then a 404.
     assert.deepEqual(
       snapshotNames([
-        "2026-06-12T0915.tsv.gz",
-        "old/2099-01-01T0000.tsv.gz",
-        "x2099-01-01T0000.tsv.gz",
-        "2099-01-01T0000.tsv.gz.bak",
+        "20260612T0915.tsv.gz",
+        "old/20990101T0000.tsv.gz",
+        "x20990101T0000.tsv.gz",
+        "2099-01-01T0000.tsv.gz",
+        "20990101T0000.tsv.gz.bak",
       ]),
-      ["2026-06-12T0915"],
+      ["20260612T0915"],
     );
   });
 });
@@ -951,13 +949,13 @@ describe("snapshotFileName", () => {
   it("appends the stored extension — the format spec's promise, spelled out", () => {
     // The literal is written independently on purpose: `.tsv.gz` is a
     // user-facing contract (guide/format.md), so changing it must fail here.
-    assert.equal(snapshotFileName("2026-06-12T0915"), "2026-06-12T0915.tsv.gz");
+    assert.equal(snapshotFileName("20260612T0915"), "20260612T0915.tsv.gz");
   });
 });
 
 describe("normalizeSnapshotName", () => {
   it("strips the .tsv/.tsv.gz extension and leaves bare names alone", () => {
-    const name = "2026-06-12T0915";
+    const name = "20260612T0915";
     assert.equal(normalizeSnapshotName(`${name}.tsv.gz`), name);
     assert.equal(normalizeSnapshotName(`${name}.tsv`), name);
     assert.equal(normalizeSnapshotName(name), name);
@@ -970,7 +968,7 @@ describe("normalizeSnapshotName", () => {
 // below; what these pin is the *resolution*, which used to try `<name>` and
 // `<name>.tsv` first and accept anything `existsSync` liked.
 describe("readSnapshot", () => {
-  const name = "2026-06-23T1000";
+  const name = "20260623T1000";
   const file = "/home/me/a.txt";
 
   /** @param {string} snapshotDir */
@@ -1040,7 +1038,7 @@ describe("writeSnapshot", () => {
     const archive = resolve(dir.path, "archive");
     const outside = "link to a folder outside the backup: /mnt/archive";
 
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       set: setOf([dir.path]),
       files: [a, b, bad],
       excluded: [{ pattern: "*.tmp", path: scratch, isDir: false }],
@@ -1059,14 +1057,14 @@ describe("writeSnapshot", () => {
       },
     });
 
-    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
+    assert.match(path, /20260623T1000\.tsv\.gz$/);
 
     const { entries, errors, dirs, instant } = await readSnapshot(
       dir.path,
-      "2026-06-23T1000",
+      "20260623T1000",
     );
 
-    assert.equal(instant, momentOf("2026-06-23T1000").instant);
+    assert.equal(instant, momentOf("20260623T1000").instant);
     assert.deepEqual(dirs, [resolve(dir.path) + sep]);
     assert.deepEqual([...entries.keys()], [a, b]);
     assert.equal(entries.get(a)?.hash, hashA);
@@ -1097,7 +1095,7 @@ describe("writeSnapshot", () => {
     const a = resolve(dir.path, "a.txt");
     const cache = resolve(dir.path, "cache");
 
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       set: {
         name: "photos",
         bucket: "my-backups",
@@ -1180,7 +1178,7 @@ describe("writeSnapshot", () => {
     // excluded folder alike.
     assert.deepEqual(tail("@SET DIR"), [["", dir.path + sep]]);
     assert.deepEqual(tail("#excluded cache"), [["", cache + sep]]);
-    assert.deepEqual(tail("@SNAPSHOT NAME"), [["", "2026-06-23T1000"]]);
+    assert.deepEqual(tail("@SNAPSHOT NAME"), [["", "20260623T1000"]]);
     assert.match(tail("@SNAPSHOT BY")[0]?.[1] ?? "", /^.+@.+$/);
     // Every spelling of the moment comes from the one `snapshotMoment` read the
     // caller made (ADR-0072), so the filename and these rows cannot disagree.
@@ -1222,7 +1220,7 @@ describe("writeSnapshot", () => {
     // stay one row per line when either turns up (ADR-0100).
     await using dir = await mkTmpDir();
 
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       set: setOf([dir.path]),
       files: [],
       excluded: [
@@ -1278,11 +1276,11 @@ describe("writeSnapshot", () => {
     // The same name both times (the rows carry it), so only the transform differs.
     const plain = await writeSnapshot(
       dir.path,
-      momentOf("2026-06-23T1000"),
+      momentOf("20260623T1000"),
       args,
     );
     const plainText = gunzipSync(readFileSync(plain)).toString("utf8");
-    const fused = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const fused = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       ...args,
       through: async function* (rows) {
         for await (const row of rows) {
@@ -1309,7 +1307,7 @@ describe("writeSnapshot", () => {
     const files = Array.from({ length: 400 }, (_, i) =>
       resolve(dir.path, `photo-${i}.jpg`),
     );
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       set: setOf([dir.path]),
       files,
       ...nothingElse,
@@ -1341,13 +1339,13 @@ describe("writeSnapshot", () => {
       getProps: props,
     };
 
-    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), args);
+    await writeSnapshot(dir.path, momentOf("20260623T1000"), args);
     await assert.rejects(
-      writeSnapshot(dir.path, momentOf("2026-06-23T1000"), args),
+      writeSnapshot(dir.path, momentOf("20260623T1000"), args),
       /same minute/,
     );
     // The debug escape hatch: overwrite replaces it without erroring.
-    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       ...args,
       overwrite: true,
     });
@@ -1367,7 +1365,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // First run: signal once inside the callback (lock held), then block.
     // The callback must end the stream itself (in production writeSnapshot's
     // pipeline does that) or the compression pipeline never settles.
-    const first = withSnapshotFile(dir.path, "2026-06-23T1000", async (s) => {
+    const first = withSnapshotFile(dir.path, "20260623T1000", async (s) => {
       acquired.resolve(undefined);
       await gate.promise;
       s.end("x");
@@ -1377,7 +1375,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // Second run (different name, so it's the lock refusing, not the
     // same-minute check) must fail with the in-progress error.
     await assert.rejects(
-      withSnapshotFile(dir.path, "2026-06-23T1001", async () => {}),
+      withSnapshotFile(dir.path, "20260623T1001", async () => {}),
       /already in progress/,
     );
 
@@ -1385,7 +1383,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // snapshot is also what releases the lock — no temp file remains.
     gate.resolve(undefined);
     const path = await first;
-    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
+    assert.match(path, /20260623T1000\.tsv\.gz$/);
     assert.ok(
       !existsSync(resolve(dir.path, ".snapshot.tsv.gz")),
       "success must release the lock (temp renamed away)",
@@ -1398,7 +1396,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     writeFileSync(tmpPath, "");
 
     await assert.rejects(
-      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {}),
+      withSnapshotFile(dir.path, "20260623T1000", async () => {}),
       (/** @type {Error} */ error) => {
         // ADR-0030: goal-framed headline, then the copy-pasteable fixes, gated
         // on nothing else running. Recovery leads (ADR-0092) — the file holds
@@ -1421,7 +1419,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
-      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {
+      withSnapshotFile(dir.path, "20260623T1000", async () => {
         throw new Error("member directory vanished");
       }),
       /vanished/,
@@ -1434,12 +1432,12 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // The retry acquires cleanly and completes.
     const path = await withSnapshotFile(
       dir.path,
-      "2026-06-23T1000",
+      "20260623T1000",
       async (s) => {
         s.end("x");
       },
     );
-    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
+    assert.match(path, /20260623T1000\.tsv\.gz$/);
   });
 });
 
@@ -1501,13 +1499,13 @@ describe("withSnapshotFile (park on interrupt)", () => {
     const files = paths(dir.path);
 
     await assert.rejects(
-      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
+      write(dir.path, "20260623T1000", files, interruptAfter(2)),
       InterruptedError,
     );
 
     // No snapshot lands — this run did not finish the tree.
     assert.ok(
-      !existsSync(resolve(dir.path, "2026-06-23T1000.tsv.gz")),
+      !existsSync(resolve(dir.path, "20260623T1000.tsv.gz")),
       "an interrupted run must not install a partial snapshot",
     );
     // The lock is released by the park, not left for `inProgressError`.
@@ -1528,14 +1526,14 @@ describe("withSnapshotFile (park on interrupt)", () => {
     assert.equal(parked.entries.get(files[0] ?? "")?.hash, hashA);
     // The stopped run's start comes back with them — the change-time boundary
     // when there is no previous snapshot (ADR-0094).
-    assert.equal(parked.instant, momentOf("2026-06-23T1000").instant);
+    assert.equal(parked.instant, momentOf("20260623T1000").instant);
   });
 
   it("stops the parked file after its last - row, with no trailer", async () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
-      write(dir.path, "2026-06-23T1000", paths(dir.path), interruptAfter(2)),
+      write(dir.path, "20260623T1000", paths(dir.path), interruptAfter(2)),
       InterruptedError,
     );
 
@@ -1559,7 +1557,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     const files = paths(dir.path);
 
     await assert.rejects(
-      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
+      write(dir.path, "20260623T1000", files, interruptAfter(2)),
       InterruptedError,
     );
 
@@ -1571,7 +1569,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       throw new Error("member directory vanished");
     }
     await assert.rejects(
-      write(dir.path, "2026-06-23T1001", vanishing(), props),
+      write(dir.path, "20260623T1001", vanishing(), props),
       /vanished/,
     );
     assert.ok(
@@ -1581,7 +1579,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
 
     // The completed snapshot re-records every parked row, so the parked copy
     // is redundant — and only then is it removed.
-    await write(dir.path, "2026-06-23T1002", files, props);
+    await write(dir.path, "20260623T1002", files, props);
     assert.ok(
       !existsSync(parkedPath(dir.path)),
       "a landed snapshot must consume the parked lookup",
@@ -1594,7 +1592,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     const files = paths(dir.path);
 
     await assert.rejects(
-      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
+      write(dir.path, "20260623T1000", files, interruptAfter(2)),
       InterruptedError,
     );
     const first = await readParkedLookup(dir.path);
@@ -1604,7 +1602,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     // parked file is a superset — and replacing must work on Windows too, where
     // a rename cannot land on an existing file.
     await assert.rejects(
-      write(dir.path, "2026-06-23T1001", files, interruptAfter(3)),
+      write(dir.path, "20260623T1001", files, interruptAfter(3)),
       InterruptedError,
     );
     const second = await readParkedLookup(dir.path);
@@ -1615,7 +1613,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     await using dir = await mkTmpDir();
     const before = process.listenerCount("SIGINT");
 
-    await write(dir.path, "2026-06-23T1000", paths(dir.path), props);
+    await write(dir.path, "20260623T1000", paths(dir.path), props);
     assert.equal(
       process.listenerCount("SIGINT"),
       before,
@@ -1624,7 +1622,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
 
     // Including on the park path — the handler is removed as the run unwinds.
     await assert.rejects(
-      write(dir.path, "2026-06-23T1001", paths(dir.path), interruptAfter(1)),
+      write(dir.path, "20260623T1001", paths(dir.path), interruptAfter(1)),
       InterruptedError,
     );
     assert.equal(process.listenerCount("SIGINT"), before);
@@ -1664,7 +1662,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       process.on("SIGINT", absorb);
       try {
         await assert.rejects(
-          write(dir.path, "2026-06-23T1000", files, getProps),
+          write(dir.path, "20260623T1000", files, getProps),
           InterruptedError,
         );
       } finally {
@@ -1829,7 +1827,7 @@ describe("recoverWorkFile", () => {
 
     // Before: the lock is held by a run that no longer exists.
     await assert.rejects(
-      writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      writeSnapshot(dir.path, momentOf("20260623T1000"), {
         set: setOf([dir.path]),
         files,
         ...nothingElse,
@@ -1844,7 +1842,7 @@ describe("recoverWorkFile", () => {
 
     await recoverWorkFile(dir.path);
 
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("20260623T1000"), {
       set: setOf([dir.path]),
       files,
       ...nothingElse,
@@ -1854,7 +1852,7 @@ describe("recoverWorkFile", () => {
         hash: hashA,
       }),
     });
-    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
+    assert.match(path, /20260623T1000\.tsv\.gz$/);
     // And the snapshot landing consumes the recovered lookup, exactly as it
     // consumes a gracefully parked one.
     assert.ok(!existsSync(parkedPath(dir.path)));
@@ -1906,23 +1904,23 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
 
   it("lists the snapshots that do exist, newest first and untruncated", async () => {
     await using dir = await mkTmpDir();
-    await seed(dir.path, "2026-06-12T0915");
-    await seed(dir.path, "2026-06-19T0902");
-    await seed(dir.path, "2026-06-05T1130");
+    await seed(dir.path, "20260612T0915");
+    await seed(dir.path, "20260619T0902");
+    await seed(dir.path, "20260605T1130");
 
-    await assert.rejects(readSnapshot(dir.path, "2026-06-13T0000"), (error) => {
+    await assert.rejects(readSnapshot(dir.path, "20260613T0000"), (error) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /Snapshot '2026-06-13T0000' not found/);
+      assert.match(error.message, /Snapshot '20260613T0000' not found/);
       // Every candidate, in the order `list` would show them — so the name can
       // be copied straight out of the error.
       const listed = error.message
         .split("\n")
-        .filter((line) => /^ {2}\d{4}-/.test(line))
+        .filter((line) => /^ {2}\d{8}T/.test(line))
         .map((line) => line.trim());
       assert.deepStrictEqual(listed, [
-        "2026-06-19T0902",
-        "2026-06-12T0915",
-        "2026-06-05T1130",
+        "20260619T0902",
+        "20260612T0915",
+        "20260605T1130",
       ]);
       return true;
     });
@@ -1932,7 +1930,7 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
     await using dir = await mkTmpDir();
     // Listing nothing under "here are the others" would read as a bug, so the
     // empty case gets its own sentence and points at how to make one.
-    await assert.rejects(readSnapshot(dir.path, "2026-06-12T0915"), (error) => {
+    await assert.rejects(readSnapshot(dir.path, "20260612T0915"), (error) => {
       assert.ok(error instanceof Error);
       assert.match(error.message, /no snapshots in/);
       assert.match(error.message, /s3cab snapshot/);
@@ -1954,10 +1952,10 @@ describe("the snapshot moment (ADR-0072)", () => {
       .toZonedDateTimeISO(zone)
       .toPlainDateTime()
       .toString({ smallestUnit: "minutes" })
-      .replace(":", "");
+      .replaceAll(/[-:]/g, "");
     assert.equal(roundTrip, name);
 
-    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    assert.match(name, /^\d{8}T\d{4}$/);
     assert.equal(instant.length, 24, "must fit mtime's own 24-wide column");
     assert.match(instant, /Z$/);
   });

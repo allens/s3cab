@@ -196,7 +196,7 @@ describe("snapshot", () => {
         ["@SET", "NAME", "", "", "photos"],
         ["@SET", "BUCKET", "", "", "s3://b"],
         ["@SET", "DIR", "", "", `${realpathSync.native(workDir())}${sep}`],
-        ["@SNAPSHOT", "NAME", "", "", "2025-02-01T0900"],
+        ["@SNAPSHOT", "NAME", "", "", "20250201T0900"],
         ["@SNAPSHOT", "START", "", "2025-02-01T09:00:00.000Z", "Europe/London"],
       ],
     );

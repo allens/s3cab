@@ -90,7 +90,7 @@ const makeSet = async (root, dataDir) => {
 const nextMinute = () => clockHolder.current.advance(MINUTE_MS);
 
 /** The first backup's snapshot, in the bucket. */
-const MANIFEST_KEY = "snapshots/hostile/2026-01-05T0000.tsv.gz";
+const MANIFEST_KEY = "snapshots/hostile/20260105T0000.tsv.gz";
 
 /** The first backup's snapshot, decompressed. */
 const manifestText = async () =>

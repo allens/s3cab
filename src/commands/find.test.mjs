@@ -41,7 +41,7 @@ async function seedSet(name, bucket) {
   mkdirSync(set.snapshotsDir, { recursive: true });
   await writeSnapshot(
     set.snapshotsDir,
-    "2026-06-11T0915",
+    "20260611T0915",
     [new File([name], `${name}/secret1`, { lastModified: 1_500_000_000_000 })],
     BASE,
   );

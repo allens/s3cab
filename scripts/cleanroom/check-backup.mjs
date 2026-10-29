@@ -171,8 +171,7 @@ const ownFolder = [];
 const strays = [];
 for (const key of keys) {
   const object = /^objects\/([0-9a-f]{64})$/.exec(key);
-  const snapshot =
-    /^snapshots\/([^/]+)\/(\d{4}-\d{2}-\d{2}T\d{4})\.tsv\.gz$/.exec(key);
+  const snapshot = /^snapshots\/([^/]+)\/(\d{8}T\d{4})\.tsv\.gz$/.exec(key);
   if (object?.[1]) {
     objects.add(object[1]);
   } else if (snapshot?.[1] && snapshot[2]) {

@@ -1336,11 +1336,13 @@ export function withHandEdits(text) {
  * The snapshot name `minutes` before this one. Snapshot names are *local* time, so this
  * parses and prints as UTC throughout: both ends of the arithmetic use the same zone, so
  * the answer is the local name that many minutes back, and no offset is ever applied.
- * @param {string} name e.g. `2026-08-20T1432`
+ * @param {string} name e.g. `20260820T1432`
  * @param {number} minutes
  */
 function minutesBefore(name, minutes) {
-  const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
+  const [, y, mo, d, h, mi] =
+    /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)$/.exec(name) ?? [];
+  const stamp = new Date(`${y}-${mo}-${d}T${h}:${mi}:00Z`);
   stamp.setUTCMinutes(stamp.getUTCMinutes() - minutes);
-  return stamp.toISOString().slice(0, 16).replace(":", "");
+  return stamp.toISOString().slice(0, 16).replaceAll(/[-:]/g, "");
 }

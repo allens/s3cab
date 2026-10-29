@@ -900,11 +900,11 @@ function problemDetail(p) {
  * then what to do next:
  *
  * ```
- * Backed up 'onedrive' → snapshot 2026-08-08T0206
+ * Backed up 'onedrive' → snapshot 20260808T0206
  * Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
  * Uploaded 426 objects (14.9GB) in 2m 12s
  *
- * Changes since 2026-08-01T0846:
+ * Changes since 20260801T0846:
  *   Added     425
  *   Modified    1
  *   Deleted     0
@@ -922,7 +922,7 @@ function problemDetail(p) {
  *   Outlook\archive.pst
  *
  * To see the details:
- *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
+ *   s3cab compare onedrive --since 20260801T0846 --until 20260808T0206
  * ```
  *
  * **The report is about files** (§1). The object counts stay — they are the

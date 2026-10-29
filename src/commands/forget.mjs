@@ -48,7 +48,7 @@ const auditFile = (timestamp) => `forget-unrestorable-${timestamp}.txt`;
 
 /**
  * "Now" as the audit record's moment: a local name at second precision
- * (`2026-05-01T080213`) — the same shape as a snapshot name, one unit finer,
+ * (`20260501T080213`) — the same shape as a snapshot name, one unit finer,
  * because a second `forget` within the same minute is plausible where a second
  * snapshot is not — plus the UTC instant and zone every timestamped artifact
  * records. Precision is per artifact; the instant and zone are not

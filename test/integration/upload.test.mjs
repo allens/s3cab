@@ -40,8 +40,8 @@ describe("uploadSnapshot (real bucket)", () => {
   it("first backup LISTs the store; a --since backup diffs against the local previous snapshot", async () => {
     await using dir = await mkTmpDir();
     const set = `upload-${Date.now()}`;
-    const first = "2025-01-15T1030";
-    const second = "2025-01-15T1130";
+    const first = "20250115T1030";
+    const second = "20250115T1130";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
@@ -152,8 +152,8 @@ describe("uploadSnapshot (real bucket)", () => {
     // gone remotely → distrust it, LIST instead.
     await using dir = await mkTmpDir();
     const set = `trust-${Date.now()}`;
-    const first = "2025-01-15T1030";
-    const second = "2025-01-15T1130";
+    const first = "20250115T1030";
+    const second = "20250115T1130";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
@@ -226,7 +226,7 @@ describe("uploadSnapshot (real bucket)", () => {
   it("fails when a file drifts mid-backup — no snapshot published, drifted object never stored", async () => {
     await using dir = await mkTmpDir();
     const set = `drift-${Date.now()}`;
-    const name = "2025-01-15T1030";
+    const name = "20250115T1030";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });

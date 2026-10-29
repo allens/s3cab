@@ -115,7 +115,7 @@ beforeEach(() => {
   heldCalls = [];
   notHeld = undefined;
   baseline = {
-    name: "2026-01-01T0900",
+    name: "20260101T0900",
     previous: new Map(),
     previousErrors: new Map(),
     lookup: { entries: new Map() },
@@ -124,8 +124,8 @@ beforeEach(() => {
   uploadSets = [];
   uploadFails = undefined;
   pass = {
-    name: "2026-01-02T0900",
-    path: "snaps/2026-01-02T0900.tsv.gz",
+    name: "20260102T0900",
+    path: "snaps/20260102T0900.tsv.gz",
     files: 400,
     bytes: 4_000_000,
     hashedFiles: 12,
@@ -143,7 +143,7 @@ beforeEach(() => {
     sendingMs: 2_000,
   };
   compareCalls = [];
-  comparison = { since: "2026-01-01T0900", until: "2026-01-02T0900" };
+  comparison = { since: "20260101T0900", until: "20260102T0900" };
   pushCalls = [];
   pushFails = undefined;
 });
@@ -181,7 +181,7 @@ describe("backup", () => {
     assert.deepEqual(result, {
       set: "photos",
       bucket: "b",
-      snapshot: "2026-01-02T0900",
+      snapshot: "20260102T0900",
       files: 400,
       bytes: 4_000_000,
       hashedFiles: 12,
@@ -320,11 +320,11 @@ describe("backup", () => {
         // the entries and the paths that snapshot couldn't hash, without which a
         // file that was merely locked last time reads as new (ADR-0079).
         since: {
-          name: "2026-01-01T0900",
+          name: "20260101T0900",
           entries: baseline.previous,
           errors: baseline.previousErrors,
         },
-        until: "2026-01-02T0900",
+        until: "20260102T0900",
         setName: "photos",
       },
     ]);
@@ -375,7 +375,7 @@ describe("backup config re-sync (ADR-0052)", () => {
     const result = await backup("photos");
     warn.mock.restore();
 
-    assert.equal(result.snapshot, "2026-01-02T0900");
+    assert.equal(result.snapshot, "20260102T0900");
     assert.equal(pushCalls.length, 1); // it was attempted
     assert.match(
       warnings.join("\n"),

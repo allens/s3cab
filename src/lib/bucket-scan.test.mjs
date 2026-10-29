@@ -69,7 +69,7 @@ describe("scanBucket", () => {
     // Every read has something to find, so the order is not an artifact of an
     // empty phase returning early.
     keysByPrefix = {
-      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.gz" }],
+      "snapshots/": [{ Key: "snapshots/photos/20260612T0915.tsv.gz" }],
       "objects/": [{ Key: "objects/aaa", Size: 10 }],
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
@@ -85,7 +85,7 @@ describe("scanBucket", () => {
     // The listing the top-up will diff against: every key, by set.
     assert.deepEqual(
       scan.snapshotFiles,
-      new Map([["photos", ["2026-06-12T0915.tsv.gz"]]]),
+      new Map([["photos", ["20260612T0915.tsv.gz"]]]),
     );
     assert.deepEqual(scan.stored, new Map([["aaa", { size: 10 }]]));
     assert.deepEqual(
@@ -102,7 +102,7 @@ describe("scanBucket", () => {
     // cannot see — two awaits started back to back would list in the right
     // order and still race.
     keysByPrefix = {
-      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.gz" }],
+      "snapshots/": [{ Key: "snapshots/photos/20260612T0915.tsv.gz" }],
     };
     /** @type {() => void} */
     let releaseSnapshotRead = () => {};
