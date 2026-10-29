@@ -1178,10 +1178,10 @@ describe("putObjectParams", () => {
     // today (`validateSetName` allows only `[a-z0-9-]+`), but the parse must
     // not be what that validation is silently load-bearing for.
     const params = putObjectParams(
-      "s3://bucket/snapshots/café/2026-01-01T0000.tsv.gz",
+      "s3://bucket/snapshots/café/20260101T0000.tsv.gz",
     );
     assert.equal(params.Bucket, "bucket");
-    assert.equal(params.Key, "snapshots/café/2026-01-01T0000.tsv.gz");
+    assert.equal(params.Key, "snapshots/café/20260101T0000.tsv.gz");
   });
 });
 

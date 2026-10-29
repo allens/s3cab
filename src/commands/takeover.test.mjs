@@ -36,7 +36,7 @@ mock.module("../lib/s3.mjs", {
 });
 mock.module("../lib/remote.mjs", {
   exports: {
-    listRemoteSnapshots: async () => ["2026-08-01T0900"],
+    listRemoteSnapshots: async () => ["20260801T0900"],
     downloadRemoteSnapshots: async () => 0,
   },
 });

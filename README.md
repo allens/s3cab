@@ -121,7 +121,7 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
 # 2. Back it up to the cloud. With one set, you can leave its name out.
 > s3cab backup
 Contacting the cloud…
-Backed up 'photos' → snapshot 2025-11-12T0915
+Backed up 'photos' → snapshot 20251112T0915
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
 First backup — every file is new.
@@ -129,7 +129,7 @@ First backup — every file is new.
 # 3. Deleted a file by accident? Get just that one back:
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 2025-11-12T0915).
+Restored 1 file from 'photos' (snapshot 20251112T0915).
 ```
 
 That's the whole loop: set up once, `backup` whenever, `restore` when you need something
@@ -152,11 +152,11 @@ file, not a delete plus an add:
 ```console
 > s3cab snapshot
 Using s3cab home 'C:\Users\you\.s3cab'
-Reading previous snapshot '~\.s3cab\sets\photos\snapshots\2025-11-11T0830.tsv.gz'
-Snapshotting 'photos/2025-11-12T0915' ('~\.s3cab\sets\photos\snapshots\2025-11-12T0915.tsv.gz'):
+Reading previous snapshot '~\.s3cab\sets\photos\snapshots\20251111T0830.tsv.gz'
+Snapshotting 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
 Finding files in '~\Photos'… 1,204 in 3 sec
-Comparing '2025-11-11T0830' → '2025-11-12T0915'
-photos: ~\Photos  2025-11-11T0830 → 2025-11-12T0915
+Comparing '20251111T0830' → '20251112T0915'
+photos: ~\Photos  20251111T0830 → 20251112T0915
 
 Added (1)
   2025\new.jpg
@@ -289,8 +289,8 @@ the set's own directory under your home directory — never inside your backed-u
   env                            # S3CAB_BUCKET=… plus how this set signs in
   exclude.txt                    # glob patterns for files to skip — yours to edit
   snapshots/
-    2025-11-10T2104.tsv.gz       # one snapshot per run (gzip-compressed TSV)
-    2025-11-11T0830.tsv.gz
+    20251110T2104.tsv.gz       # one snapshot per run (gzip-compressed TSV)
+    20251111T0830.tsv.gz
 ```
 
 Editing a set _is_ editing these files, and deleting the directory deletes the set. Only
@@ -418,7 +418,7 @@ store is skipped automatically — identical bytes always map to the same key �
 ```console
 > s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
 > s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's objects, no snapshot
-> s3cab upload photos --snapshot 2026-06-12T0915            # that snapshot's objects, snapshot file last
+> s3cab upload photos --snapshot 20260612T0915            # that snapshot's objects, snapshot file last
 > s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
 ```
 

@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-24.
+This is the spec of 2026-10-29.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -100,7 +100,7 @@ s3://my-backup-bucket/
   hash. Keep one: given only `objects/`, you have your data but no way to tell what any of it
   was. (This is why snapshots are immutable and never overwritten.)
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
-  local timestamp (`2026-06-12T0915.tsv.gz`). Only a key directly in that folder, named
+  local timestamp (`20260612T0915.tsv.gz`). Only a key directly in that folder, named
   exactly that way, is a snapshot, for every purpose: one in a folder below it is not, so
   it names the latest for no reader and protects no object from a clean-up. A snapshot is uploaded **byte for byte**, with
   no conversion on the way. Whether a tool keeps a local copy too is its own choice; s3cab
@@ -289,7 +289,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-24
+@S3CAB    SPEC                                                        2026-10-29
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -405,7 +405,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-24
+@S3CAB    SPEC                                                        2026-10-29
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -414,7 +414,7 @@ in a bucket:
 @SET      BUCKET                                                      s3://my-backup-bucket
 @SET      DIR                                                         C:\Users\me\Photos\
 @SET      DIR                                                         D:\Pics\
-@SNAPSHOT NAME                                                        2026-06-12T0915
+@SNAPSHOT NAME                                                        20260612T0915
 @SNAPSHOT BY                                                          me@DESKTOP
 @SNAPSHOT START                             2026-06-12T08:15:32.123Z  Europe/London
 #excluded *.tmp                                                       C:\Users\me\Photos\upload.tmp
@@ -847,7 +847,7 @@ the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START` and `FINISH`, and 
 A deletion record has no finish instant: each `#deleted` row has its own.
 
 Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
-always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
+always `YYYYMMDDTHHMM` — local wall-clock time to the minute, in ISO 8601's basic form —
 and the file is that name plus `.tsv.gz`. Names sort in time order except when the clock
 goes back (the end of daylight saving, or a move to another zone): a later snapshot can then
 sort before an earlier one, and s3cab, which takes the last name as the latest, warns when
@@ -956,10 +956,10 @@ substitute: it is a content hash only for single-part uploads to AWS.
 ## Recovering by hand (no s3cab)
 
 1. List `snapshots/<set>/` in the bucket and download the snapshot you want.
-2. Decompress it: `gunzip 2026-06-12T0915.tsv.gz`. Windows has no `gunzip`, but
+2. Decompress it: `gunzip 20260612T0915.tsv.gz`. Windows has no `gunzip`, but
    PowerShell needs nothing installed, since .NET's `GZipStream` is built in:
    ```powershell
-   $f = Resolve-Path 2026-06-12T0915.tsv.gz
+   $f = Resolve-Path 20260612T0915.tsv.gz
    $gz = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($f), [IO.Compression.CompressionMode]::Decompress)
    $out = [IO.File]::Create(($f -replace "\.gz$", "")); $gz.CopyTo($out); $out.Close(); $gz.Close()
    ```
@@ -991,12 +991,12 @@ For a restorer, or anything else that reads the files.
   error, makes the file damaged.
 - Asked for a set's latest snapshot, s3cab takes the key directly under
   `snapshots/<set>/` whose [name](#the-last-line) sorts last:
-  - It ignores any key not named exactly `YYYY-MM-DDTHHMM.tsv.gz`, digits in those places
+  - It ignores any key not named exactly `YYYYMMDDTHHMM.tsv.gz`, digits in those places
     and nothing more.
-  - It doesn't check that the digits make a date, so a hand-placed `2026-13-45T9999.tsv.gz`
+  - It doesn't check that the digits make a date, so a hand-placed `20261345T9999.tsv.gz`
     counts, and sorts by its text like any other.
   - It ignores any key in a folder below, such as
-    `snapshots/<set>/old/2099-01-01T0000.tsv.gz`.
+    `snapshots/<set>/old/20990101T0000.tsv.gz`.
   - It doesn't fall back to an earlier one when that one is refused.
   - Neither the upload time nor `START` decides.
 - Take a row's type from its first field, and an `@` row's property from its second, each
@@ -1266,7 +1266,7 @@ For a restorer, or anything else that reads the files.
   its instant rounded up, then the `.`.
 - Five tab-separated fields on every line but the `.`, UTF-8 with no BOM, LF endings, one gzip
   stream.
-- Name the file `YYYY-MM-DDTHHMM.tsv.gz` from the run's start in local time. Refuse a second
+- Name the file `YYYYMMDDTHHMM.tsv.gz` from the run's start in local time. Refuse a second
   snapshot of the set in the same minute, and never overwrite one.
 
 Lay the rows out in [canonical form](#canonical-form) too, so the file reads as a table.

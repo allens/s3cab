@@ -133,8 +133,8 @@ const findResult = {
           spans: [
             {
               set: "media",
-              first: "2026-08-14T0935",
-              last: "2026-08-20T0900",
+              first: "20260814T0935",
+              last: "20260820T0900",
               count: 3,
             },
           ],
@@ -152,8 +152,8 @@ const findResult = {
           spans: [
             {
               set: "media",
-              first: "2026-08-20T0900",
-              last: "2026-08-20T0900",
+              first: "20260820T0900",
+              last: "20260820T0900",
               count: 1,
             },
           ],
@@ -163,7 +163,7 @@ const findResult = {
     },
   ],
   unreadable: [
-    { set: "media", snapshot: "2026-01-01T0000", reason: "truncated" },
+    { set: "media", snapshot: "20260101T0000", reason: "truncated" },
   ],
 };
 
@@ -215,11 +215,11 @@ describe("delete command", () => {
     // before any S3 traffic.
     await assert.rejects(
       () =>
-        deleteHashes(["D:\\Media\\secrets", "2026-07-19T1422"], {
+        deleteHashes(["D:\\Media\\secrets", "20260719T1422"], {
           bucket: "b",
           force: true,
         }),
-      /takes content hashes[\s\S]*D:\\Media\\secrets[\s\S]*2026-07-19T1422[\s\S]*s3cab find/,
+      /takes content hashes[\s\S]*D:\\Media\\secrets[\s\S]*20260719T1422[\s\S]*s3cab find/,
     );
     assert.equal(heads, 0);
     assert.deepEqual(effects, []);

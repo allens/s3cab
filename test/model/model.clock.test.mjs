@@ -63,7 +63,7 @@ describe("under the virtual clock, every recorded instant is virtual", () => {
 
     const snapshotsDir = join(home, "sets", "clock", "snapshots");
     const [name] = listSnapshotNames(snapshotsDir);
-    assert.equal(name, "2026-01-05T0001");
+    assert.equal(name, "20260105T0001");
     const { instant } = await readSnapshot(snapshotsDir, name);
     assert.equal(instant, "2026-01-05T00:01:00.000Z");
     // The `@SNAPSHOT FINISH` row is minted as the last row lands, from the same

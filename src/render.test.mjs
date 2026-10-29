@@ -48,8 +48,8 @@ const under = (/** @type {string[]} */ ...parts) => join(ROOT, ...parts);
 const result = (over) => ({
   setName: "photos",
   dirs: [ROOT],
-  since: "2026-07-01T0900",
-  until: "2026-07-04T1000",
+  since: "20260701T0900",
+  until: "20260704T1000",
   added: [],
   moved: [],
   modified: [],
@@ -167,7 +167,7 @@ describe("renderCompareResult", () => {
     // Header: set name, base (home-shortened), and the compared range.
     assert.match(
       text,
-      /^photos: ~[\\/]Pictures {2}2026-07-01T0900 → 2026-07-04T1000\n/,
+      /^photos: ~[\\/]Pictures {2}20260701T0900 → 20260704T1000\n/,
     );
     // Sections with counts, paths shortened to the common base.
     assert.match(text, /\nAdded \(2\)\n {2}2025[\\/]beach\.jpg\n/);
@@ -223,7 +223,7 @@ describe("renderCompareResult", () => {
 
     assert.match(
       text,
-      /\nAdded \(1\)\n {2}X\.doc {2}\(was unreadable in 2026-07-01T0900\)\n/,
+      /\nAdded \(1\)\n {2}X\.doc {2}\(was unreadable in 20260701T0900\)\n/,
     );
     // Still an addition, and still counted as one: the content did reach the
     // store on this run, so the summary must not disagree with what was stored.
@@ -246,7 +246,7 @@ describe("renderCompareResult", () => {
 
     assert.match(
       text,
-      /\n {2}X\.doc {2}\(was unreadable in 2026-07-01T0900; duplicate of copy of X\.doc\)\n/,
+      /\n {2}X\.doc {2}\(was unreadable in 20260701T0900; duplicate of copy of X\.doc\)\n/,
     );
   });
 
@@ -319,7 +319,7 @@ describe("renderCompareResult", () => {
     assert.doesNotMatch(text, /Added \(/);
     assert.doesNotMatch(text, /a\.jpg/);
     // The header shows only `until` (there is no `since`).
-    assert.match(text, /^photos: ~[\\/]Pictures {2}2026-07-04T1000\n/);
+    assert.match(text, /^photos: ~[\\/]Pictures {2}20260704T1000\n/);
   });
 
   it("collapses to 'No changes.' when nothing differs", () => {
@@ -441,7 +441,7 @@ describe("renderCompareResult", () => {
       }),
     );
 
-    assert.match(text, /^photos: 2026-07-01T0900 → 2026-07-04T1000\n/);
+    assert.match(text, /^photos: 20260701T0900 → 20260704T1000\n/);
     assert.ok(text.includes(`\n  ${onC}\n`), text);
   });
 
@@ -453,7 +453,7 @@ describe("renderCompareResult", () => {
       }),
     );
 
-    assert.match(text, /^photos: 2026-07-01T0900 → 2026-07-04T1000\n/);
+    assert.match(text, /^photos: 20260701T0900 → 20260704T1000\n/);
     assert.ok(text.includes(`\n  ${under("x.txt")}\n`), text);
   });
 
@@ -472,15 +472,14 @@ describe("renderList", () => {
     const text = renderList({
       mode: "summary",
       sets: [
-        { name: "photos", snapshots: ["2026-06-12T0915", "2026-06-11T0915"] },
-        { name: "docs", snapshots: ["2026-05-12T0946"] },
+        { name: "photos", snapshots: ["20260612T0915", "20260611T0915"] },
+        { name: "docs", snapshots: ["20260512T0946"] },
       ],
     });
 
     assert.equal(
       text,
-      "photos:\n  2026-06-12T0915\n  2026-06-11T0915\n" +
-        "docs:\n  2026-05-12T0946",
+      "photos:\n  20260612T0915\n  20260611T0915\n" + "docs:\n  20260512T0946",
     );
   });
 
@@ -508,7 +507,7 @@ describe("renderList", () => {
       mode: "detail",
       set: detailSet,
       overrides: { rolesAnywhere: false },
-      snapshots: ["2026-05-12T0946"],
+      snapshots: ["20260512T0946"],
       remote: false,
       held: true,
     });
@@ -517,7 +516,7 @@ describe("renderList", () => {
     assert.match(text, /bucket: my-bucket/);
     assert.match(text, /dirs \(.*docs\/dirs\.txt\):\n {2}\/data\/docs/);
     assert.match(text, /exclude file: .*docs\/exclude\.txt/);
-    assert.match(text, /\nsnapshots:\n {2}2026-05-12T0946$/);
+    assert.match(text, /\nsnapshots:\n {2}20260512T0946$/);
     // A set with no provider settings of its own shows no block — absence IS the answer.
     assert.doesNotMatch(text, /provider overrides/);
   });
@@ -705,20 +704,20 @@ describe("renderStatus", () => {
   it("reports the upload count against latest local and remote snapshots", () => {
     const text = renderStatus({
       set: "photos",
-      snapshot: "2026-07-04T1000",
-      backedUp: "2026-07-01T0900",
+      snapshot: "20260704T1000",
+      backedUp: "20260701T0900",
       toUpload: 12,
     });
     assert.match(text, /^photos\n/);
-    assert.match(text, /\n {2}latest snapshot {3}2026-07-04T1000\n/);
-    assert.match(text, /\n {2}backed up {9}2026-07-01T0900\n/);
+    assert.match(text, /\n {2}latest snapshot {3}20260704T1000\n/);
+    assert.match(text, /\n {2}backed up {9}20260701T0900\n/);
     assert.match(text, /\n {2}12 objects to upload$/);
   });
 
   it("collapses to 'up to date' at zero and 'never' when never backed up", () => {
     const text = renderStatus({
       set: "photos",
-      snapshot: "2026-07-04T1000",
+      snapshot: "20260704T1000",
       backedUp: null,
       toUpload: 0,
     });
@@ -874,7 +873,7 @@ describe("renderVerify", () => {
             set: "music",
             referencedObjects: 10,
             unreadableSnapshots: [
-              { snapshot: "2026-05-01T0800", reason: "unexpected end of file" },
+              { snapshot: "20260501T0800", reason: "unexpected end of file" },
             ],
           }),
         ],
@@ -884,7 +883,7 @@ describe("renderVerify", () => {
     assert.match(text, /\n {2}music {3}could not fully check\n/);
     assert.match(
       text,
-      /snapshot 2026-05-01T0800 could not be read \(unexpected end of file\)/,
+      /snapshot 20260501T0800 could not be read \(unexpected end of file\)/,
     );
   });
 
@@ -988,7 +987,7 @@ describe("renderBackup", () => {
   const run = (over = {}) => ({
     set: "photos",
     bucket: "my-backups",
-    snapshot: "2026-07-04T1000",
+    snapshot: "20260704T1000",
     files: 265_716,
     bytes: 1_800_000_000_000,
     hashedFiles: 1_204,
@@ -1001,7 +1000,7 @@ describe("renderBackup", () => {
     errors: [],
     excludeSuggestions: [],
     excludePath: "/sets/photos/exclude.txt",
-    comparison: result({ since: "2026-07-01T0900", until: "2026-07-04T1000" }),
+    comparison: result({ since: "20260701T0900", until: "20260704T1000" }),
     ...over,
   });
 
@@ -1024,8 +1023,8 @@ describe("renderBackup", () => {
       run({
         errors: failed(1),
         comparison: result({
-          since: "2026-07-01T0900",
-          until: "2026-07-04T1000",
+          since: "20260701T0900",
+          until: "20260704T1000",
           added: Array.from({ length: 425 }, () => added(under("a.jpg"))),
           modified: [{ path: under("b.jpg"), size: 1 }],
         }),
@@ -1034,11 +1033,11 @@ describe("renderBackup", () => {
 
     assert.equal(
       text,
-      "Backed up 'photos' → snapshot 2026-07-04T1000\n" +
+      "Backed up 'photos' → snapshot 20260704T1000\n" +
         "Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)\n" +
         "Uploaded 426 objects (14.9GB) in 2m 12s\n" +
         "\n" +
-        "Changes since 2026-07-01T0900:\n" +
+        "Changes since 20260701T0900:\n" +
         "  Added     425\n" +
         "  Modified    1\n" +
         "  Deleted     0\n" +
@@ -1052,7 +1051,7 @@ describe("renderBackup", () => {
         "  s3cab backup photos\n" +
         "\n" +
         "To see the details:\n" +
-        "  s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000",
+        "  s3cab compare photos --since 20260701T0900 --until 20260704T1000",
     );
   });
 
@@ -1120,18 +1119,18 @@ describe("renderBackup", () => {
         candidates: 0,
         uploaded: 0,
         comparison: result({
-          since: "2026-07-01T0900",
+          since: "20260701T0900",
           moved: [{ path: under("a.jpg"), to: under("new", "a.jpg"), size: 1 }],
         }),
       }),
     );
-    assert.match(text, /^Changes since 2026-07-01T0900:$/m);
+    assert.match(text, /^Changes since 20260701T0900:$/m);
     assert.match(text, /^ {2}Moved {5}1$/m);
   });
 
   it("collapses an unchanged run to one line, with no command to run", () => {
     const text = renderBackup(run());
-    assert.match(text, /^No changes since 2026-07-01T0900\.$/m);
+    assert.match(text, /^No changes since 20260701T0900\.$/m);
     assert.doesNotMatch(text, /Couldn't|To try again|s3cab compare/);
   });
 
@@ -1147,7 +1146,7 @@ describe("renderBackup", () => {
     assert.match(text, /\nCouldn't be backed up:\n {2}Errors {2}12\n/);
     assert.match(
       text,
-      /\nTo see the details:\n {2}s3cab compare photos --until 2026-07-04T1000$/,
+      /\nTo see the details:\n {2}s3cab compare photos --until 20260704T1000$/,
     );
   });
 
@@ -1253,7 +1252,7 @@ describe("renderBackup", () => {
     // is now the only way to see the other two.
     assert.match(
       text,
-      /\nTo see the details:\n {2}s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000$/,
+      /\nTo see the details:\n {2}s3cab compare photos --since 20260701T0900 --until 20260704T1000$/,
     );
   });
 
@@ -1266,7 +1265,7 @@ describe("renderBackup", () => {
     assert.ok(text.includes(`  ${bold("s3cab backup photos")}`));
     assert.ok(
       text.includes(
-        `  ${bold("s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000")}`,
+        `  ${bold("s3cab compare photos --since 20260701T0900 --until 20260704T1000")}`,
       ),
     );
     assert.ok(text.includes(bold(red("  Errors  11"))));
@@ -1275,7 +1274,7 @@ describe("renderBackup", () => {
 
 describe("offerBackupChanges", () => {
   const changed = result({
-    since: "2026-07-01T0900",
+    since: "20260701T0900",
     added: [added(under("beach.jpg"))],
   });
 
@@ -1289,7 +1288,7 @@ describe("offerBackupChanges", () => {
   const run = (comparison, over = {}) =>
     /** @type {BackupResult} */ ({
       set: "photos",
-      snapshot: "2026-07-04T1000",
+      snapshot: "20260704T1000",
       errors: [],
       comparison,
       ...over,
@@ -1415,13 +1414,13 @@ describe("renderUpload", () => {
     const text = renderUpload({
       mode: "snapshot",
       set: "photos",
-      snapshot: "2026-07-04T1000",
+      snapshot: "20260704T1000",
       candidates: 120,
       uploaded: 3,
     });
     assert.equal(
       text,
-      "Uploaded snapshot '2026-07-04T1000' to 'photos': " +
+      "Uploaded snapshot '20260704T1000' to 'photos': " +
         "uploaded 3 of 120 objects (117 already stored).",
     );
   });
@@ -1430,7 +1429,7 @@ describe("renderUpload", () => {
     const text = renderUpload({
       mode: "snapshot",
       set: "photos",
-      snapshot: "2026-07-04T1000",
+      snapshot: "20260704T1000",
       candidates: 0,
       uploaded: 0,
     });
@@ -1530,7 +1529,7 @@ describe("renderUpload", () => {
 const restoreResult = (over) => ({
   set: "photos",
   bucket: "my-backups",
-  snapshot: "2026-07-04T1000",
+  snapshot: "20260704T1000",
   restored: [],
   skipped: [],
   collided: [],
@@ -1553,7 +1552,7 @@ describe("renderRestore", () => {
     );
     assert.equal(
       text,
-      "Restored 2 files from 'photos' (snapshot 2026-07-04T1000).",
+      "Restored 2 files from 'photos' (snapshot 20260704T1000).",
     );
   });
 
@@ -1566,7 +1565,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 1 file from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1580,7 +1579,7 @@ describe("renderRestore", () => {
     const text = renderRestore(restoreResult({ skipped: ["/home/me/b.jpg"] }));
     assert.match(
       text,
-      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1598,7 +1597,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Extracted 1 file from 'photos' \(snapshot 2026-07-04T1000\) to \/out\/Photos\.\n/,
+      /^Extracted 1 file from 'photos' \(snapshot 20260704T1000\) to \/out\/Photos\.\n/,
     );
     assert.match(
       text,
@@ -1612,7 +1611,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Extracted 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Extracted 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
   });
 
@@ -1634,7 +1633,7 @@ describe("renderRestore", () => {
     const text = renderRestore(restoreResult({}));
     assert.equal(
       text,
-      "Nothing to restore from 'photos' (snapshot 2026-07-04T1000).",
+      "Nothing to restore from 'photos' (snapshot 20260704T1000).",
     );
   });
 
@@ -1649,7 +1648,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 1 file from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1664,7 +1663,7 @@ describe("renderRestore", () => {
     const text = renderRestore(restoreResult({ missing: ["/home/me/b.jpg"] }));
     assert.match(
       text,
-      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1681,7 +1680,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 1 file from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1706,7 +1705,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 1 file from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     // The form feed itself would print as nothing (or a page break), hiding the
     // one character that explains the refusal.
@@ -1732,7 +1731,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.ok(
       text.includes(
@@ -1778,7 +1777,7 @@ describe("renderRestore", () => {
     );
     assert.equal(
       text,
-      "Restored 2 files from 'photos' (snapshot 2026-07-04T1000).\n\n" +
+      "Restored 2 files from 'photos' (snapshot 20260704T1000).\n\n" +
         "This disk keeps modification times more coarsely than the backup: " +
         "2 files are up to 2 seconds off.",
     );
@@ -1790,7 +1789,7 @@ describe("renderRestore", () => {
     );
     assert.match(
       text,
-      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
     assert.match(
       text,
@@ -1844,7 +1843,7 @@ describe("renderRestore", () => {
     const text = renderRestore(restoreResult({ corrupt: ["/home/me/b.jpg"] }));
     assert.match(
       text,
-      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+      /^Restored 0 files from 'photos' \(snapshot 20260704T1000\)\.\n/,
     );
   });
 
@@ -1937,8 +1936,8 @@ describe("renderFind", () => {
                 spans: [
                   {
                     set: "myset",
-                    first: "2019-04-02T0810",
-                    last: "2021-11-30T2201",
+                    first: "20190402T0810",
+                    last: "20211130T2201",
                     count: 612,
                   },
                 ],
@@ -1956,8 +1955,8 @@ describe("renderFind", () => {
                 spans: [
                   {
                     set: "myset",
-                    first: "2019-03-28T0812",
-                    last: "2026-08-14T0930",
+                    first: "20190328T0812",
+                    last: "20260814T0930",
                     count: 943,
                   },
                 ],
@@ -1977,12 +1976,12 @@ describe("renderFind", () => {
         "#",
         "# C:\\Users\\me\\secretsdir\\secret1",
         "#   1,204 bytes (1.2kB)   modified 2019-04-02 07:55Z",
-        "#   myset  2019-04-02T0810 … 2021-11-30T2201   (612 snapshots)",
+        "#   myset  20190402T0810 … 20211130T2201   (612 snapshots)",
         "a3f9c21e",
         "#",
         "# C:\\Users\\me\\secretsdir\\aws-keys.txt",
         "#   892 bytes   modified 2019-03-28 14:02Z",
-        "#   myset  2019-03-28T0812 … 2026-08-14T0930   (943 snapshots)",
+        "#   myset  20190328T0812 … 20260814T0930   (943 snapshots)",
         "#   ⚠ also backs 3 other paths — deleting this removes all of them",
         "5e21ab7f",
       ].join("\n"),
@@ -2006,8 +2005,8 @@ describe("renderFind", () => {
                   spans: [
                     {
                       set: "myset",
-                      first: "2026-06-11T0915",
-                      last: "2026-06-11T0915",
+                      first: "20260611T0915",
+                      last: "20260611T0915",
                       count: 1,
                     },
                   ],
@@ -2052,8 +2051,8 @@ describe("renderFind", () => {
                 spans: [
                   {
                     set: "myset",
-                    first: "2019-03-28T0812",
-                    last: "2026-08-14T0930",
+                    first: "20190328T0812",
+                    last: "20260814T0930",
                     count: 943,
                   },
                 ],
@@ -2086,8 +2085,8 @@ describe("renderFind", () => {
                 spans: [
                   {
                     set: "myset",
-                    first: "2026-06-11T0915",
-                    last: "2026-06-11T0915",
+                    first: "20260611T0915",
+                    last: "20260611T0915",
                     count: 1,
                   },
                 ],
@@ -2099,7 +2098,7 @@ describe("renderFind", () => {
       }),
     );
 
-    assert.match(text, /^# {3}myset {2}2026-06-11T0915$/m);
+    assert.match(text, /^# {3}myset {2}20260611T0915$/m);
   });
 
   it("warns when the results span more than one bucket", () => {
@@ -2119,14 +2118,14 @@ describe("renderFind", () => {
               spans: [
                 {
                   set: "myset",
-                  first: "2026-06-11T0915",
-                  last: "2026-06-11T0915",
+                  first: "20260611T0915",
+                  last: "20260611T0915",
                   count: 1,
                 },
                 {
                   set: "work",
-                  first: "2026-06-11T0915",
-                  last: "2026-06-11T0915",
+                  first: "20260611T0915",
+                  last: "20260611T0915",
                   count: 1,
                 },
               ],
@@ -2167,7 +2166,7 @@ describe("renderFind", () => {
         unreadable: [
           {
             set: "myset",
-            snapshot: "2026-06-12T0915",
+            snapshot: "20260612T0915",
             reason: "Truncated snapshot",
           },
         ],
@@ -2175,7 +2174,7 @@ describe("renderFind", () => {
     );
 
     assert.match(text, /# ⚠ 1 snapshot could not be read and went unsearched:/);
-    assert.match(text, /# {5}myset\/2026-06-12T0915 — Truncated snapshot/);
+    assert.match(text, /# {5}myset\/20260612T0915 — Truncated snapshot/);
   });
 });
 
@@ -2184,10 +2183,10 @@ describe("renderForget", () => {
     assert.equal(
       renderForget({
         set: "photos",
-        snapshots: ["2026-06-12T0915"],
+        snapshots: ["20260612T0915"],
         forgotten: true,
       }),
-      "Snapshot '2026-06-12T0915' forgotten from set 'photos'.",
+      "Snapshot '20260612T0915' forgotten from set 'photos'.",
     );
   });
 
@@ -2197,7 +2196,7 @@ describe("renderForget", () => {
     assert.equal(
       renderForget({
         set: "photos",
-        snapshots: ["2026-06-12T0915", "2026-06-19T0902"],
+        snapshots: ["20260612T0915", "20260619T0902"],
         forgotten: true,
       }),
       "2 snapshots forgotten from set 'photos'.",
@@ -2208,10 +2207,10 @@ describe("renderForget", () => {
     assert.equal(
       renderForget({
         set: "photos",
-        snapshots: ["2026-06-12T0915"],
+        snapshots: ["20260612T0915"],
         forgotten: false,
       }),
-      "Snapshot '2026-06-12T0915' kept — nothing was removed.",
+      "Snapshot '20260612T0915' kept — nothing was removed.",
     );
   });
 });

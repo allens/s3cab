@@ -138,7 +138,7 @@ describe("cli (e2e)", () => {
     // The snapshot is now listed under the set (compact: `files:` then the time).
     const listed = runWithHome(home, "list");
     assert.strictEqual(listed.status, 0, listed.stderr);
-    assert.match(listed.stdout, /files:\n\s+\d{4}-\d{2}-\d{2}T\d{4}/);
+    assert.match(listed.stdout, /files:\n\s+\d{8}T\d{4}/);
   });
 
   it("the global --json flag emits the structured result and is stripped before exec", async () => {
@@ -209,7 +209,7 @@ describe("cli (e2e)", () => {
     const home = join(dir.path, "home");
     mkdirSync(home);
 
-    const { status, stderr } = runWithHome(home, "forget", "2026-06-12T0915");
+    const { status, stderr } = runWithHome(home, "forget", "20260612T0915");
     assert.strictEqual(status, 2);
     // Both spellings, straight from the registry — a user who missed `--set`
     // learns `-S` exists here rather than only from `--help` (ADR-0038).

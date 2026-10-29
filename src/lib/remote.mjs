@@ -57,7 +57,7 @@ export const remoteSnapshotsPrefix = (set) => `${SNAPSHOTS_PREFIX}${set}/`;
  * addresses the snapshot it PUTs.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @param {string} name - Snapshot name without extension, e.g. `20260612T0915`
  * @returns {string}
  */
 export const remoteSnapshotUri = (bucket, set, name) =>
@@ -98,7 +98,7 @@ export async function listRemoteSnapshots(bucket, set) {
  * delete) rather than destroying history — the ransomware-safety model (ADR-0033).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @param {string} name - Snapshot name without extension, e.g. `20260612T0915`
  * @returns {Promise<void>}
  */
 export async function deleteRemoteSnapshot(bucket, set, name) {
@@ -148,7 +148,7 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  * so buffering one is nothing.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @param {string} name - Snapshot name without extension, e.g. `20260612T0915`
  * @param {string} snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @returns {Promise<"identical" | "different" | "absent">}
  */
@@ -180,7 +180,7 @@ export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
  * the lookup (a remote snapshot file is the one a recoverer finds alone).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @param {string} name - Snapshot name without extension, e.g. `20260612T0915`
  * @returns {Promise<Snapshot>}
  */
 export async function readRemoteSnapshot(bucket, set, name) {

@@ -86,7 +86,7 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
   it("pulls each snapshot file down byte-identically, and only once (the reattach refresh, ADR-0108)", async () => {
     await using dir = await mkTmpDir();
     const set = `dl-${Date.now()}`;
-    const name = "2025-02-20T0900";
+    const name = "20250220T0900";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
@@ -139,7 +139,7 @@ describe("referencedObjects (real bucket)", () => {
   it("unions a set's snapshot hashes and flags an unreadable snapshot", async () => {
     await using dir = await mkTmpDir();
     const set = `ref-${Date.now()}`;
-    const name = "2025-03-10T0800";
+    const name = "20250310T0800";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
@@ -157,7 +157,7 @@ describe("referencedObjects (real bucket)", () => {
 
     // A second, garbage snapshot object under a valid-looking name: it lists but
     // fails to decompress, so it must be recorded unreadable (not abort the run).
-    const badName = "2025-03-10T0900";
+    const badName = "20250310T0900";
     const badKey = `${remoteSnapshotsPrefix(set)}${badName}.tsv.gz`;
 
     try {
@@ -210,7 +210,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
   // `.pipe`), and the drop test kills a request that is genuinely still in
   // flight rather than one already buffered.
   const set = `stream-${Date.now()}`;
-  const name = "2025-05-05T0700";
+  const name = "20250505T0700";
   const fileCount = 20_000;
 
   /** @type {Awaited<ReturnType<typeof mkTmpDir>>} */
@@ -286,7 +286,7 @@ describe("deleteRemoteSnapshot (real bucket)", () => {
   it("removes just the snapshot, leaving its objects in place", async () => {
     await using dir = await mkTmpDir();
     const set = `del-${Date.now()}`;
-    const name = "2025-04-01T1200";
+    const name = "20250401T1200";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });

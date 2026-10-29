@@ -39,7 +39,7 @@ const whole = gzipSync(
     property("@SET", "NAME", "faults-linux") +
     property("@SET", "BUCKET", "s3://test-s3cab-ci-cleanroom-restore") +
     property("@SET", "DIR", dir) +
-    property("@SNAPSHOT", "NAME", "2026-10-20T1000") +
+    property("@SNAPSHOT", "NAME", "20261020T1000") +
     property("@SNAPSHOT", "BY", "runner@seed") +
     property(
       "@SNAPSHOT",
@@ -62,8 +62,8 @@ const read = (text) => parseSnapshotStream(Readable.from([Buffer.from(text)]));
 describe("the seed's damaged copies of faults' snapshot", () => {
   it("are backdated whole: name, START and FINISH move back together", () => {
     const { name, text } = backdated(whole, 2);
-    assert.equal(name, "2026-10-20T0958");
-    assert.match(text, /\n@SNAPSHOT\tNAME +\t +\t +\t2026-10-20T0958\n/);
+    assert.equal(name, "20261020T0958");
+    assert.match(text, /\n@SNAPSHOT\tNAME +\t +\t +\t20261020T0958\n/);
     assert.match(text, /\n@SNAPSHOT\tSTART +\t +\t2026-10-20T08:58:01\.000Z\t/);
     assert.match(
       text,

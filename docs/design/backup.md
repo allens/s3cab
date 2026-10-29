@@ -91,7 +91,7 @@ diagram is repeated here because the design points below lean on it.)
       env                # S3CAB_BUCKET=… + how to reach it (profile or keys)
       exclude.txt        # optional; patterns applied relative to each member dir
       snapshots/
-        2026-06-12T0915.tsv.gz
+        20260612T0915.tsv.gz
 ```
 
 - **The files are the API.** Editing a set = opening `dirs.txt`/`env`/`exclude.txt` in
@@ -185,10 +185,10 @@ so a single-set user's plain `s3cab list` is still their snapshots:
 ```
 > s3cab list
 docs:
-  2026-05-12T0946
+  20260512T0946
 photos:
-  2026-06-12T0915
-  2026-06-11T0915
+  20260612T0915
+  20260611T0915
 ```
 
 With a set **named** it switches to a detail view — the set's bucket, member directories, and
@@ -204,8 +204,8 @@ dirs (~/.s3cab/sets/photos/dirs.txt):
   D:\Pics
 exclude file: ~/.s3cab/sets/photos/exclude.txt
 snapshots:
-  2026-06-12T0915
-  2026-06-11T0915
+  20260612T0915
+  20260611T0915
 ```
 
 `--latest` narrows the snapshot list to the newest. `--remote` lists one set's cloud backups

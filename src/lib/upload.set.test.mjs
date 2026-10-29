@@ -120,8 +120,8 @@ mock.module("./snapshot.mjs", {
         void row;
       }
       return {
-        name: "2026-01-02T0900",
-        path: "snaps/2026-01-02T0900.tsv.gz",
+        name: "20260102T0900",
+        path: "snaps/20260102T0900.tsv.gz",
         files: rows.length,
         bytes: 0,
         hashedFiles: rows.length,
@@ -170,7 +170,7 @@ const fixture = async (dirPath) => {
 };
 
 const objectUri = (/** @type {string} */ hash) => `s3://b/objects/${hash}`;
-const manifestUri = "s3://b/snapshots/photos/2026-01-02T0900.tsv.gz";
+const manifestUri = "s3://b/snapshots/photos/20260102T0900.tsv.gz";
 
 beforeEach(() => {
   events = [];
@@ -212,7 +212,7 @@ describe("uploadSet (the fused pass)", () => {
     assert.equal(generateOptions?.baseline, baseline);
     assert.deepEqual(baselineCalls, [{ rehash: undefined, resume: undefined }]);
     const { sendingMs, pass, ...rest } = result;
-    assert.equal(pass.name, "2026-01-02T0900");
+    assert.equal(pass.name, "20260102T0900");
     assert.deepEqual(rest, {
       baseline,
       candidates: 1,
@@ -246,7 +246,7 @@ describe("uploadSet (the fused pass)", () => {
   it("skips against a baseline the cloud still holds byte-for-byte, with no store LIST (ADR-0084)", async () => {
     await using dir = await mkTmpDir();
     const { set, file, props, hash } = await fixture(dir.path);
-    const since = "2026-01-01T0900";
+    const since = "20260101T0900";
     await writeSnapshot(set.snapshotsDir, since, [file]);
     const baselineUri = `s3://b/snapshots/photos/${since}.tsv.gz`;
     remoteFiles.set(
@@ -282,7 +282,7 @@ describe("uploadSet (the fused pass)", () => {
       assert.match(error.message, /connection reset/);
       assert.match(
         error.message,
-        /s3cab upload photos --snapshot 2026-01-02T0900/,
+        /s3cab upload photos --snapshot 20260102T0900/,
       );
       assert.equal(error.cause, putError);
       return true;
@@ -325,7 +325,7 @@ describe("uploadSet (the fused pass)", () => {
 
     await assert.rejects(uploadSet(set), (/** @type {Error} */ error) => {
       assert.match(error.message, /connection reset/);
-      assert.match(error.message, /--snapshot 2026-01-02T0900/);
+      assert.match(error.message, /--snapshot 20260102T0900/);
       return true;
     });
   });

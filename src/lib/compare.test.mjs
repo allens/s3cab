@@ -303,9 +303,9 @@ describe("diff", () => {
 // listSnapshotNames() only reports datestamped `.tsv.gz` snapshots, so tests
 // that lean on the default since/until resolution use real-looking names —
 // lexical order is chronological order.
-const OLDEST = "2023-12-31T0101";
-const PREVIOUS = "2024-01-01T0101";
-const CURRENT = "2024-01-02T0101";
+const OLDEST = "20231231T0101";
+const PREVIOUS = "20240101T0101";
+const CURRENT = "20240102T0101";
 
 /**
  * Project a structured {@link CompareResult} into compact relative strings for
@@ -816,9 +816,9 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
   // The autumn fold: 01:30 BST is 00:30 UTC, and 01:15 GMT — a quarter of an
   // hour *later* — is 01:15 UTC. So the earlier-sorting name is the newer file,
   // which is exactly the case a name-ordered diff reads backwards.
-  const EARLIER_NAME = "2026-10-25T0115";
+  const EARLIER_NAME = "20261025T0115";
   const LATER_INSTANT = "2026-10-25T01:15:00.000Z";
-  const LATER_NAME = "2026-10-25T0130";
+  const LATER_NAME = "20261025T0130";
   const EARLIER_INSTANT = "2026-10-25T00:30:00.000Z";
 
   it("says the diff reads backwards when the names disagree with the instants", async () => {
@@ -839,13 +839,13 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
 
   it("stays quiet when the instants agree with the names", async () => {
     await using dir = await mkTmpDir();
-    plant(dir.path, "2026-06-12T0915", "2026-06-12T08:15:00.000Z");
-    plant(dir.path, "2026-06-12T1030", "2026-06-12T09:30:00.000Z");
+    plant(dir.path, "20260612T0915", "2026-06-12T08:15:00.000Z");
+    plant(dir.path, "20260612T1030", "2026-06-12T09:30:00.000Z");
 
     const said = await warningsFrom(() =>
       compareSnapshots(dir.path, [dir.path], {
-        since: "2026-06-12T0915",
-        until: "2026-06-12T1030",
+        since: "20260612T0915",
+        until: "20260612T1030",
       }),
     );
     assert.doesNotMatch(said, /actually taken after/);
@@ -856,12 +856,12 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     // No instant to compare, so the check cannot be certain — and a check that
     // guessed from the names would reintroduce the very ambiguity it exists to
     // see through.
-    plant(dir.path, "2026-10-25T0115", undefined);
+    plant(dir.path, "20261025T0115", undefined);
     plant(dir.path, LATER_NAME, EARLIER_INSTANT);
 
     const said = await warningsFrom(() =>
       compareSnapshots(dir.path, [dir.path], {
-        since: "2026-10-25T0115",
+        since: "20261025T0115",
         until: LATER_NAME,
       }),
     );

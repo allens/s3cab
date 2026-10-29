@@ -187,7 +187,7 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [file("notes/secret1", "S")],
+      "20260611T0915": [file("notes/secret1", "S")],
     });
 
     const result = await findInSnapshots([set], ["secret1"]);
@@ -204,8 +204,8 @@ describe("findInSnapshots", () => {
     assert.deepEqual(object?.spans, [
       {
         set: "myset",
-        first: "2026-06-11T0915",
-        last: "2026-06-11T0915",
+        first: "20260611T0915",
+        last: "20260611T0915",
         count: 1,
       },
     ]);
@@ -217,10 +217,10 @@ describe("findInSnapshots", () => {
     useTempHome(dir.path);
     const secret = file("notes/secret1", "S");
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [secret],
-      "2026-06-12T0915": [secret],
-      "2026-06-13T0915": [file("notes/other", "X")],
-      "2026-06-14T0915": [secret],
+      "20260611T0915": [secret],
+      "20260612T0915": [secret],
+      "20260613T0915": [file("notes/other", "X")],
+      "20260614T0915": [secret],
     });
 
     const result = await findInSnapshots([set], ["secret1"]);
@@ -228,14 +228,14 @@ describe("findInSnapshots", () => {
     assert.deepEqual(result.files[0]?.objects[0]?.spans, [
       {
         set: "myset",
-        first: "2026-06-11T0915",
-        last: "2026-06-12T0915",
+        first: "20260611T0915",
+        last: "20260612T0915",
         count: 2,
       },
       {
         set: "myset",
-        first: "2026-06-14T0915",
-        last: "2026-06-14T0915",
+        first: "20260614T0915",
+        last: "20260614T0915",
         count: 1,
       },
     ]);
@@ -246,8 +246,8 @@ describe("findInSnapshots", () => {
     useTempHome(dir.path);
     const secret = file("notes/secret1", "S");
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [secret],
-      "2026-06-12T0915": [secret],
+      "20260611T0915": [secret],
+      "20260612T0915": [secret],
     });
 
     const result = await findInSnapshots([set], ["secret1"], { all: true });
@@ -259,8 +259,8 @@ describe("findInSnapshots", () => {
         count,
       })),
       [
-        { first: "2026-06-11T0915", last: "2026-06-11T0915", count: 1 },
-        { first: "2026-06-12T0915", last: "2026-06-12T0915", count: 1 },
+        { first: "20260611T0915", last: "20260611T0915", count: 1 },
+        { first: "20260612T0915", last: "20260612T0915", count: 1 },
       ],
     );
   });
@@ -269,9 +269,9 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [file("notes/secret1", "old", 1_000_000_000_000)],
-      "2026-06-12T0915": [file("notes/secret1", "old", 1_000_000_000_000)],
-      "2026-06-13T0915": [file("notes/secret1", "new", 1_700_000_000_000)],
+      "20260611T0915": [file("notes/secret1", "old", 1_000_000_000_000)],
+      "20260612T0915": [file("notes/secret1", "old", 1_000_000_000_000)],
+      "20260613T0915": [file("notes/secret1", "new", 1_700_000_000_000)],
     });
 
     const result = await findInSnapshots([set], ["secret1"]);
@@ -290,12 +290,12 @@ describe("findInSnapshots", () => {
         {
           size: 3,
           mtime: "2023-11-14T22:13:20.000Z",
-          snapshots: ["2026-06-13T0915..2026-06-13T0915"],
+          snapshots: ["20260613T0915..20260613T0915"],
         },
         {
           size: 3,
           mtime: "2001-09-09T01:46:40.000Z",
-          snapshots: ["2026-06-11T0915..2026-06-12T0915"],
+          snapshots: ["20260611T0915..20260612T0915"],
         },
       ],
     );
@@ -305,7 +305,7 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [
+      "20260611T0915": [
         file("notes/secret1", "S"),
         file("backup/copy-of-it", "S"),
         file("notes/unrelated", "X"),
@@ -323,7 +323,7 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [
+      "20260611T0915": [
         file("notes/secret1", "S"),
         file("backup/copy-secret1", "S"),
       ],
@@ -345,11 +345,11 @@ describe("findInSnapshots", () => {
     useTempHome(dir.path);
     const secret = file("notes/secret1", "S");
     const mine = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [secret],
+      "20260611T0915": [secret],
     });
     const work = await seedSet("work", "work-bucket", {
-      "2026-06-12T0915": [secret],
-      "2026-06-13T0915": [secret],
+      "20260612T0915": [secret],
+      "20260613T0915": [secret],
     });
 
     const result = await findInSnapshots([mine, work], ["secret1"]);
@@ -371,7 +371,7 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [file("notes/secret1", "S")],
+      "20260611T0915": [file("notes/secret1", "S")],
     });
 
     const result = await findInSnapshots([set], ["nothing-like-this"]);
@@ -387,16 +387,16 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [file("notes/secret1", "S")],
+      "20260611T0915": [file("notes/secret1", "S")],
     });
-    writeFileSync(join(set.snapshotsDir, "2026-06-12T0915.tsv.gz"), "");
+    writeFileSync(join(set.snapshotsDir, "20260612T0915.tsv.gz"), "");
 
     const result = await findInSnapshots([set], ["secret1"]);
 
     assert.equal(result.unreadable.length, 1);
     assert.deepEqual(
       result.unreadable.map(({ set: name, snapshot }) => [name, snapshot]),
-      [["myset", "2026-06-12T0915"]],
+      [["myset", "20260612T0915"]],
     );
     assert.equal(result.files[0]?.path, at("notes/secret1"));
   });
@@ -405,7 +405,7 @@ describe("findInSnapshots", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const set = await seedSet("myset", "my-bucket", {
-      "2026-06-11T0915": [
+      "20260611T0915": [
         file("notes/secret1", "S"),
         file("notes/aws-keys.txt", "K"),
         file("notes/unrelated", "X"),

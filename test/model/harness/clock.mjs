@@ -47,7 +47,7 @@ export class VirtualClock {
       name: zdt
         .toPlainDateTime()
         .toString({ smallestUnit })
-        .replaceAll(":", ""),
+        .replaceAll(/[-:]/g, ""),
       instant: zdt.toInstant().toString({ smallestUnit: "millisecond" }),
       zone: zdt.timeZoneId,
     };

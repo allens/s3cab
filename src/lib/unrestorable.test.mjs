@@ -427,7 +427,7 @@ describe("formatUnrestorableReport", () => {
       set: "photos",
       bucket: "b1",
       snapshots: ["s1", "s2"],
-      generated: "2026-07-19T024107",
+      generated: "20260719T024107",
     });
 
     const rows = report.split("\n").filter((l) => l && !l.startsWith("#"));
@@ -452,7 +452,7 @@ describe("formatUnrestorableReport", () => {
       set: "photos",
       bucket: "b1",
       snapshots: ["s1"],
-      generated: "2026-07-19T024107",
+      generated: "20260719T024107",
     });
 
     assert.match(report, /# 2 files, holding 900B across 1 stored object\./);
@@ -471,7 +471,7 @@ describe("formatUnrestorableReport", () => {
       set: "photos",
       bucket: "b1",
       snapshots: ["s1"],
-      generated: "2026-07-19T024107",
+      generated: "20260719T024107",
     });
 
     assert.match(
@@ -491,7 +491,7 @@ describe("formatForcedReport", () => {
       set: "photos",
       bucket: "b1",
       snapshots: ["s1", "s2"],
-      generated: "2026-07-19T024107",
+      generated: "20260719T024107",
     });
 
     assert.match(report, /no unrestorable check \(--force\)/);

@@ -213,7 +213,7 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       // later snapshot name (a real `backup` here would collide with the
       // first's same-minute name), which is the same engine path `backup`
       // composes — and lets the assertion be exact: 2 candidates, not ≥.
-      const second = "2099-01-01T0000";
+      const second = "20990101T0000";
       await writeSnapshot(set.snapshotsDir, second, [...entries.keys()]);
       snapshots.push(second);
       const uploaded = await uploadSnapshot(set, {

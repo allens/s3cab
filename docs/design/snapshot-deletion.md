@@ -146,9 +146,9 @@ Each orphaned hash is referenced by one or more of the named snapshots. Count th
 ```
 Unrestorable preview — what you could no longer restore once these are gone:
 
-  2026-06-12T0915             3,201 files   12.4GB
-  2026-06-19T0902               118 files    412MB
-  2026-07-03T1140                 0 files       0B
+  20260612T0915             3,201 files   12.4GB
+  20260619T0902               118 files    412MB
+  20260703T1140                 0 files       0B
   shared across 3 snapshots     842 files    3.1GB
                               ───────────────────────
   total unrestorable          4,161 files   15.9GB
