@@ -32,7 +32,8 @@ describe("locks (real bucket)", () => {
         `COMMAND=backup\nSET=${lock.set}\nBY=${lock.by}\nPID=${process.pid}\nSTARTED=${lock.started}\n`,
       );
 
-      const listed = (await listLocks(bucket)).find(({ id }) => id === lock.id);
+      const locks = await listLocks(bucket);
+      const listed = locks.find(({ id }) => id === lock.id);
       assert.deepEqual(listed, lock, "the listing reads back what was written");
       assert.match(
         describeLock(/** @type {typeof lock} */ (listed)),
@@ -44,8 +45,9 @@ describe("locks (real bucket)", () => {
       await removeLock(bucket, lock.id);
     }
 
+    const after = await listLocks(bucket);
     assert.equal(
-      (await listLocks(bucket)).some(({ id }) => id === lock.id),
+      after.some(({ id }) => id === lock.id),
       false,
       "removed",
     );
@@ -67,8 +69,9 @@ describe("locks (real bucket)", () => {
         [lock.id],
         "exactly the lock named, whatever else the shared bucket holds",
       );
+      const after = await listLocks(bucket);
       assert.equal(
-        (await listLocks(bucket)).some(({ id }) => id === lock.id),
+        after.some(({ id }) => id === lock.id),
         false,
       );
     } finally {

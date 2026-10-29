@@ -59,11 +59,23 @@ async function objectKeys() {
     .filter((key) => key.startsWith("objects/"));
 }
 
+/** How many objects are under objects/. */
+async function objectCount() {
+  const keys = await objectKeys();
+  return keys.length;
+}
+
 /** Manifests currently under snapshots/. */
 async function manifestKeys() {
   return (await inspector.listAll(bucket))
     .map(({ key }) => key)
     .filter((key) => key.endsWith(".tsv.gz"));
+}
+
+/** How many manifests are under snapshots/. */
+async function manifestCount() {
+  const keys = await manifestKeys();
+  return keys.length;
 }
 
 /**
@@ -103,7 +115,7 @@ async function crashOrphans(home, set) {
   const stale = await lockKeys();
   assert.equal(stale.length, 1, `the killed run's lock (${stale.join(", ")})`);
   assert.match(stale[0] ?? "", /^locks\/upload-/);
-  return (await objectKeys()).length;
+  return await objectCount();
 }
 
 describe("concurrency: backup vs backup", () => {
@@ -273,7 +285,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     );
     assert.match(cleanup.stderr, /backup of set 's'/);
     assert.match(cleanup.stderr, /--wait/);
-    assert.equal((await objectKeys()).length, 4, "nothing was deleted");
+    assert.equal(await objectCount(), 4, "nothing was deleted");
     const standing = await lockKeys();
     assert.equal(standing.length, 1, `only B's lock (${standing.join(", ")})`);
     assert.match(standing[0] ?? "", /^locks\/upload-/);
@@ -294,7 +306,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     // Nothing running: cleanup goes ahead, and finds every object referenced.
     const again = s3cab(["cleanup", bucket, "--force"], { home: homeA });
     assert.equal(again.status, 0, again.stderr);
-    assert.equal((await objectKeys()).length, 4);
+    assert.equal(await objectCount(), 4);
     assert.deepEqual(await lockKeys(), []);
   });
 
@@ -338,11 +350,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       log: join(scratch, "trace-cleanup.log"),
       tag: "CLEANUP",
     });
-    assert.equal(
-      (await objectKeys()).length,
-      5,
-      "nothing deleted while waiting",
-    );
+    assert.equal(await objectCount(), 5, "nothing deleted while waiting");
     const standing = await lockKeys();
     assert.deepEqual(
       standing.filter((key) => key.startsWith("locks/delete-")),
@@ -362,7 +370,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     );
 
     // B's four are referenced by its snapshot; the fifth went.
-    assert.equal((await objectKeys()).length, 4, "only the true orphan swept");
+    assert.equal(await objectCount(), 4, "only the true orphan swept");
     assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
@@ -423,7 +431,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     // reused are gone, which costs time, never data.
     const backup = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(backup.status, 0, backup.stderr);
-    assert.equal((await objectKeys()).length, 4);
+    assert.equal(await objectCount(), 4);
     assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
@@ -480,8 +488,8 @@ describe("concurrency: cleanup vs in-flight backup", () => {
 
     // Both took their locks back; nothing changed in the store.
     assert.deepEqual(await lockKeys(), []);
-    assert.equal((await manifestKeys()).length, 1);
-    assert.equal((await objectKeys()).length, 4);
+    assert.equal(await manifestCount(), 1);
+    assert.equal(await objectCount(), 4);
     assert.deepEqual(await bucketViolations(), []);
   });
 
@@ -498,10 +506,8 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     // Backup 1 establishes the baseline.
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
-    const m1 = (await manifestKeys())[0]?.slice(
-      "snapshots/s/".length,
-      -".tsv.gz".length,
-    );
+    const [firstManifest] = await manifestKeys();
+    const m1 = firstManifest?.slice("snapshots/s/".length, -".tsv.gz".length);
     assert.ok(m1);
 
     // Backup 2 (one new file): the baseline trust check HEADs the manifest —
@@ -529,7 +535,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     const cleanup = s3cab(["cleanup", bucket, "--force"], { home });
     assert.notEqual(cleanup.status, 0, "cleanup must refuse");
     assert.match(cleanup.stderr, /a backup or upload is running/);
-    assert.equal((await objectKeys()).length, 5, "nothing swept");
+    assert.equal(await objectCount(), 5, "nothing swept");
 
     release(b2.gate);
     const b2Done = await b2.done;
@@ -559,10 +565,8 @@ describe("concurrency: forget and cleanup", () => {
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
-    const m1 = (await manifestKeys())[0]?.slice(
-      "snapshots/s/".length,
-      -".tsv.gz".length,
-    );
+    const [firstManifest] = await manifestKeys();
+    const m1 = firstManifest?.slice("snapshots/s/".length, -".tsv.gz".length);
     assert.ok(m1);
 
     makeTree(data, { "f.txt": "fresh file for backup 2" });
@@ -607,10 +611,8 @@ describe("concurrency: forget and cleanup", () => {
 
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
-    const m1 = (await manifestKeys())[0]?.slice(
-      "snapshots/s/".length,
-      -".tsv.gz".length,
-    );
+    const [firstManifest] = await manifestKeys();
+    const m1 = firstManifest?.slice("snapshots/s/".length, -".tsv.gz".length);
     assert.ok(m1);
 
     // cleanup reads the snapshot listing + manifests, then parks before its
@@ -638,7 +640,7 @@ describe("concurrency: forget and cleanup", () => {
     // *conservative* (keeps now-unreferenced objects), never destructive.
     // The next cleanup run sweeps them — correctly.
     assert.equal(
-      (await objectKeys()).length,
+      await objectCount(),
       4,
       "the objects survive this cleanup run",
     );
@@ -672,7 +674,8 @@ describe("concurrency: forget and cleanup", () => {
       home,
       hold: "1:DELETE:^/objects/",
     });
-    assert.equal((await lockKeys()).length, 2, "both delete locks stand");
+    const standing = await lockKeys();
+    assert.equal(standing.length, 2, "both delete locks stand");
     release(one.gate);
     release(two.gate);
     const [oneDone, twoDone] = await Promise.all([one.done, two.done]);
@@ -702,7 +705,8 @@ describe("concurrency: forget and cleanup", () => {
     makeTree(data, { "f.txt": "second snapshot filler" });
     const second = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(second.status, 0, second.stderr);
-    const names = (await manifestKeys()).map((key) =>
+    const manifests = await manifestKeys();
+    const names = manifests.map((key) =>
       key.slice("snapshots/s/".length, -".tsv.gz".length),
     );
     const target = /** @type {string} */ (names.sort()[0]);
@@ -731,7 +735,7 @@ describe("concurrency: forget and cleanup", () => {
     // not damage.
     assert.equal(oneDone.status, 0, oneDone.stderr);
     assert.equal(twoDone.status, 0, twoDone.stderr);
-    assert.equal((await manifestKeys()).length, 1);
+    assert.equal(await manifestCount(), 1);
     assert.deepEqual(await bucketViolations(), []);
   });
 });

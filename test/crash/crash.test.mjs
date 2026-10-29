@@ -369,7 +369,8 @@ describe("interruption: cleanup and forget", () => {
     assert.equal(orphanKeys.length, orphans, "crash orphans seeded");
     // The killed backup's upload lock is left; cleanup, from the same
     // machine, sweeps it on its way in rather than turning away.
-    assert.equal((await lockKeys()).length, 1);
+    const leftover = await lockKeys();
+    assert.equal(leftover.length, 1);
 
     const cleanupKilled = s3cab(["cleanup", bucket, "--force"], {
       home,
