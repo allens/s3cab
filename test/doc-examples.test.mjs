@@ -171,7 +171,7 @@ describe("documented command lines", () => {
     // Without this the check above passes just as well on an empty list.
     const lines = documentedCommands().map(({ line }) => line);
     assert.ok(lines.length > 150, `only ${lines.length} found`);
-    assert.ok(lines.includes("s3cab compare photos --since 2025-11-11T0830"));
+    assert.ok(lines.includes("s3cab compare photos --since 20251111T0830"));
     assert.ok(
       lines.some((line) => line.startsWith("s3cab restore --set photos")),
     );
@@ -268,18 +268,18 @@ const posixOnly = {
 describe("documented output", () => {
   it("guide/compare.md shows what compare prints", posixOnly, async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const command = "s3cab compare photos --since 2025-11-11T0830";
+    const command = "s3cab compare photos --since 20251111T0830";
     // The page's scenario: a photo filed into a subfolder, a note renamed, a
     // logo copied, a report edited, one new photo and one old note gone.
     const { run } = await photosSet(dir.path, {
-      "2025-11-11T0830": [
+      "20251111T0830": [
         file("2024/IMG_001.jpg", "i", 3_400_000),
         file("logo.png", "l", 41_000),
         file("notes.txt", "n", 2_100),
         file("old notes.txt", "o", 900),
         file("report.pdf", "r", 1_200_000),
       ],
-      "2025-11-12T0915": [
+      "20251112T0915": [
         file("2024/sorted/IMG_001.jpg", "i", 3_400_000),
         file("2025/new.jpg", "j", 4_000_000),
         file("brand-logo.png", "l", 41_000),
@@ -302,8 +302,8 @@ describe("documented output", () => {
       await using dir = await mkdtempDisposable(join("test", ".tmp"));
       const command = "s3cab compare photos --json";
       const { home, run } = await photosSet(dir.path, {
-        "2025-11-11T0830": [file("diary.txt", "d", 180)],
-        "2025-11-12T0915": [
+        "20251111T0830": [file("diary.txt", "d", 180)],
+        "20251112T0915": [
           file("2025/new.jpg", "j", 812_043),
           file("diary.txt", "D", 240),
         ],
