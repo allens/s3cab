@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { renderFind } from "../render.mjs";
-import { lockSeam } from "../../test/helpers/lock-seam.mjs";
+import { deleteLockSeam } from "../../test/helpers/lock-seam.mjs";
 
-/** @import { LockArgs } from "../../test/helpers/lock-seam.mjs" */
+/** @import { DeleteLockArgs } from "../../test/helpers/lock-seam.mjs" */
 
 // Offline tests for the whole of `delete` — the operand grammar and the policy
 // wrapped around it, which live in one file because the grammar is private to
@@ -15,7 +15,8 @@ import { lockSeam } from "../../test/helpers/lock-seam.mjs";
 // non-interactive gate, the preflight's reported-and-skipped missing hashes,
 // the typed-bucket-name confirmation, and — most load-bearing — the
 // record-FIRST-then-delete ordering (ADR-0089/0090). Every S3/prompt seam is
-// faked at the lib boundary (docs/design/testing.md). Module-mock ordering
+// faked at the lib boundary (docs/design/testing.md), the delete lock through
+// test/helpers/lock-seam.mjs. Module-mock ordering
 // (objects.test.mjs) applies: mocks first, dynamic import.
 //
 // The `--from-file` cases parse `renderFind`'s *real* output — the actual
@@ -76,10 +77,10 @@ mock.module("../lib/sets.mjs", {
     validateBucketName: () => {},
   },
 });
-/** @type {LockArgs[]} the delete lock's calls */
+/** @type {DeleteLockArgs[]} the delete lock's calls */
 let lockCalls = [];
 mock.module("../lib/locks.mjs", {
-  exports: lockSeam({
+  exports: deleteLockSeam({
     held: (args) => lockCalls.push(args),
     event: (name) => effects.push(name),
   }),

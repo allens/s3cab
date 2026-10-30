@@ -904,8 +904,8 @@ least once; re-open only if the stated reason no longer holds.
   - **The untested holds were proved by grep, not assumed.** `lockCalls` is written at
     upload.test.mjs:120/:129, reset at :202 and read nowhere; `ContentMismatchError` appears in
     tests only at the `putFile` level (s3.test.mjs, the integration suite) and as a constructed
-    cause (commands/upload.test.mjs:296); no test under `src/` or `test/` calls `uploadFile` or
-    runs `upload --file`.
+    cause (commands/upload.test.mjs:296); no test under `src/` or `test/` called the lib
+    `uploadFile` (commands/upload.test.mjs runs `upload --file` with it mocked).
   - **The carried list was re-verified by a sweep and then by hand.** Every candidate holds; two
     wider (the walk's classifier, surplus positionals), one dead (`preparePath`'s unread fields),
     and one claim inside **progress width** dead (the `_refreshSize` fake is a module mock now).

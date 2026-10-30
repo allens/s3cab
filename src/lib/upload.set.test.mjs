@@ -6,11 +6,11 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
-import { lockSeam } from "../../test/helpers/lock-seam.mjs";
+import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
-/** @import { LockArgs } from "../../test/helpers/lock-seam.mjs" */
+/** @import { UploadLockArgs } from "../../test/helpers/lock-seam.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { SnapshotBaseline } from "./snapshot.mjs" */
@@ -20,9 +20,9 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 // inside the snapshot write, and the manifest goes up last — all under the
 // upload lock (ADR-0112). The snapshot engine is faked (its `generateSnapshot`
 // here drains the rows it is given through the transform it is handed), the
-// lock is a passthrough that records what it was asked to hold, and the s3.mjs
-// seam records every request, so the requests the bucket sees are the
-// evidence of the order. Mocks first, then a dynamic import.
+// lock is test/helpers/lock-seam.mjs's passthrough reporting into `events`, and
+// the s3.mjs seam records every request, so the requests the bucket sees are
+// the evidence of the order. Mocks first, then a dynamic import.
 
 /** @type {string[]} every seam request and engine call, in order */
 let events = [];
@@ -40,7 +40,7 @@ let baselineCalls = [];
 let rows = [];
 /** @type {Record<string, unknown> | undefined} the options `generateSnapshot` got */
 let generateOptions;
-/** @type {LockArgs[]} what the lock was asked to hold */
+/** @type {UploadLockArgs[]} what the lock was asked to hold */
 let lockCalls = [];
 
 mock.module("./s3.mjs", {
@@ -83,7 +83,7 @@ mock.module("./set-marker.mjs", {
   },
 });
 mock.module("./locks.mjs", {
-  exports: lockSeam({
+  exports: uploadLockSeam({
     held: (args) => lockCalls.push(args),
     event: (name) => events.push(name),
   }),

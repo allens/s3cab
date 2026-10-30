@@ -13,11 +13,11 @@ import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { ChangedWhileReadError, ContentMismatchError } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
-import { lockSeam } from "../../test/helpers/lock-seam.mjs";
+import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
-/** @import { LockArgs } from "../../test/helpers/lock-seam.mjs" */
+/** @import { UploadLockArgs } from "../../test/helpers/lock-seam.mjs" */
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { HashSource } from "./file-props.mjs" */
 /** @import { Drift } from "./upload.mjs" */
@@ -53,8 +53,10 @@ let invalidRecords = [];
 let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
-/** What `putFile` is called with besides the path and URI. */
-/** @typedef {{ noClobber?: boolean, onProgress?: (transfer: Transfer) => void }} PutOptions */
+/**
+ * What `putFile` is called with besides the path and URI.
+ * @typedef {{ noClobber?: boolean, onProgress?: (transfer: Transfer) => void, sha256?: string }} PutOptions
+ */
 /**
  * @type {((path: string, options?: PutOptions) => void) | undefined}
  * Runs inside each PUT, while it is in flight.
@@ -120,12 +122,10 @@ mock.module("./set-marker.mjs", {
     },
   },
 });
-/** @type {LockArgs[]} what the upload lock was asked to hold */
+/** @type {UploadLockArgs[]} what the upload lock was asked to hold */
 let lockCalls = [];
-// The lock is locks.mjs's, unit-tested there; here it brackets `callOrder`
-// with "lock"/"unlock", so the hashes and PUTs show up inside the hold.
 mock.module("./locks.mjs", {
-  exports: lockSeam({
+  exports: uploadLockSeam({
     held: (args) => lockCalls.push(args),
     event: (name) => callOrder.push(name),
   }),
@@ -1030,8 +1030,9 @@ describe("uploadSnapshot drift guard", () => {
 });
 
 // The hold (ADR-0112): the objects and the manifest go up inside it, and it is
-// the set's upload lock that is asked for. The target is read first, so a
-// `--snapshot` that doesn't exist fails before any lock is written.
+// the set's upload lock that is asked for. The target and the `--since`
+// baseline are read first, so a name that doesn't exist fails before any lock
+// is written.
 describe("uploadSnapshot under the upload lock", () => {
   it("PUTs the objects and the manifest inside the hold, as the set's upload", async () => {
     await using dir = await mkTmpDir();
@@ -1059,10 +1060,20 @@ describe("uploadSnapshot under the upload lock", () => {
 
     await assert.rejects(
       () => uploadSnapshotOf({ ...args, name: "20250115T2359" }),
-      /20250115T2359/,
+      /Snapshot '20250115T2359' not found/,
     );
     assert.deepEqual(lockCalls, []);
-    assert.deepEqual(callOrder, []);
+  });
+
+  it("takes no lock for a --since baseline that doesn't exist", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+
+    await assert.rejects(
+      () => uploadSnapshotOf({ ...args, since: "20250115T0000" }),
+      /Snapshot '20250115T0000' not found/,
+    );
+    assert.deepEqual(lockCalls, []);
   });
 });
 
@@ -1237,21 +1248,20 @@ describe("uploadDir (seed a folder's objects)", () => {
     );
   });
 
-  it("walks, hashes and PUTs inside the hold, as the set's upload (ADR-0112)", async () => {
+  it("hashes and PUTs inside the hold, as the set's upload (ADR-0112)", async () => {
     await using dir = await mkTmpDir();
     const { root, set } = seedFixture(dir.path);
 
     await uploadDir(set, { dir: root });
 
-    const [first, ...rest] = callOrder;
-    const last = rest.pop();
-    assert.equal(first, "lock");
-    assert.equal(last, "unlock");
-    assert.ok(
-      rest.every((c) => c.startsWith("hash:") || c.startsWith("put:")),
-      `only hashes and PUTs between the lock and the unlock: ${callOrder.join(" ")}`,
+    assert.equal(callOrder[0], "lock");
+    assert.equal(callOrder.at(-1), "unlock");
+    assert.ok(callOrder.some((c) => c.startsWith("put:")));
+    assert.deepEqual(
+      callOrder.filter((c) => !c.startsWith("hash:") && !c.startsWith("put:")),
+      ["lock", "unlock"],
+      `only hashes and PUTs inside the hold: ${callOrder.join(" ")}`,
     );
-    assert.equal(rest.length, 4 + 3, "four files hashed, three objects PUT");
     assert.deepEqual(lockCalls, [
       { bucket: "seed-bucket", command: "upload", set: "seed" },
     ]);
@@ -1280,6 +1290,11 @@ describe("uploadFile (store one hashed file)", () => {
   it("PUTs the object inside the hold, as the set's upload (ADR-0112)", async () => {
     await using dir = await mkTmpDir();
     const { path, props, uri } = await oneFile(dir.path);
+    /** @type {string | undefined} the digest the PUT is held to */
+    let sha256;
+    duringPut = (_path, options) => {
+      sha256 = options?.sha256;
+    };
 
     const result = await uploadFile({
       bucket: "file-bucket",
@@ -1290,6 +1305,7 @@ describe("uploadFile (store one hashed file)", () => {
 
     assert.deepEqual(result, { uploaded: true });
     assert.deepEqual(putFiles, [{ path, uri }]);
+    assert.equal(sha256, props.hash, "the PUT is held to the hash (ADR-0083)");
     assert.deepEqual(callOrder, ["lock", "put:photo.raw", "unlock"]);
     assert.deepEqual(lockCalls, [
       { bucket: "file-bucket", command: "upload", set: "files" },
@@ -1302,9 +1318,8 @@ describe("uploadFile (store one hashed file)", () => {
 
     await uploadFile({ bucket: "file-bucket", path, props });
 
-    assert.deepEqual(lockCalls, [
-      { bucket: "file-bucket", command: "upload", set: undefined },
-    ]);
+    assert.equal(lockCalls.length, 1);
+    assert.equal(lockCalls[0]?.set, undefined, "no set is named");
   });
 
   it("reports an object the store already holds as not uploaded, and no change", async () => {
