@@ -16,16 +16,21 @@
 //   names a command rather than running it.
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
-// - **The rendered result** for the cloud transcripts (verify, restore,
-//   extract, and how forget, delete and cleanup end): the command's own
-//   renderer, given a result built to the page's scenario. A real bucket can't
-//   reproduce them — verify and cleanup read the whole shared test bucket, the
-//   figures are a real library's (48,210 objects, 12.4GB), and the restores
-//   write to `C:\Users\me` — but what drifts is the wording and layout, and
-//   that is the renderer's. The results are typed against the command's own
-//   result types, so `typecheck` catches one that no longer matches. A prompt
-//   or preview printed before the result comes from the command, not its
-//   renderer, so for those only the transcript's last lines are checked.
+// - **The printed result** for the cloud transcripts (verify, restore,
+//   extract, and how forget, delete and cleanup end): what the CLI prints for a
+//   result built to the page's scenario (the registry's own renderer for the
+//   command, or `errorReport` for an error) after the notice every cloud
+//   command opens with (`authNotice`). A real bucket can't reproduce them:
+//   verify and cleanup read the whole shared test bucket, the figures are a
+//   real library's (48,210 objects, 12.4GB), and the restores write to
+//   `C:\Users\me`. What drifts is the wording and layout, and that is the
+//   renderer's. The results are checked against the commands' own result
+//   types, so `typecheck` catches one that no longer matches. A preview or
+//   prompt a command prints between the notice and its result is its own, not
+//   the renderer's, so for those only the transcript's last lines are compared.
+//
+// Not every transcript is checked: proposals/docs-site.md lists the rest under
+// "Examples that can't drift".
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
@@ -37,21 +42,22 @@ import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
-import { errorMessage } from "../src/help.mjs";
+import { errorReport } from "../src/help.mjs";
 import { selectTargets } from "../src/lib/restore.mjs";
-import {
-  renderCleanup,
-  renderDelete,
-  renderForget,
-  renderRestore,
-  renderVerify,
-} from "../src/render.mjs";
+import { authNotice } from "../src/lib/s3.mjs";
 import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
+/** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
+/** @import { DeleteResult } from "../src/commands/delete.mjs" */
+/** @import { ForgetResult } from "../src/commands/forget.mjs" */
 /** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
 /** @import { SetReport } from "../src/lib/verify.mjs" */
+
+// A suggested command inside a message is bold when stderr is a terminal, as
+// it can be under `node --test` run by hand. The pages show it plain.
+process.env.NO_COLOR = "1";
 
 const PAGES = [
   "README.md",
@@ -220,14 +226,17 @@ describe("documented command lines", () => {
 
 /**
  * The output a page shows under `> command` in a `console` block: the lines up
- * to the next prompt or the end of the block. `nth` picks among the times a
- * page shows the same command line, counting from 0 in page order.
+ * to the next prompt or the end of the block. Where a page shows the same
+ * command line more than once, `containing` picks the one whose output
+ * includes it: by what it shows, not where it sits, so adding or moving an
+ * example can't point a check at a different one.
  * @param {string} page
  * @param {string} command
- * @param {number} [nth]
+ * @param {string} [containing]
  */
-function transcript(page, command, nth = 0) {
-  let seen = 0;
+function transcript(page, command, containing) {
+  /** @type {string[]} */
+  const shown = [];
   for (const [, lang, body = ""] of readFileSync(page, "utf8").matchAll(
     FENCE,
   )) {
@@ -236,14 +245,27 @@ function transcript(page, command, nth = 0) {
     }
     const lines = body.trimEnd().split("\n");
     for (const [at, line] of lines.entries()) {
-      if (line === `> ${command}` && seen++ === nth) {
+      if (line === `> ${command}`) {
         const rest = lines.slice(at + 1);
         const next = rest.findIndex((after) => after.startsWith("> "));
-        return (next < 0 ? rest : rest.slice(0, next)).join("\n");
+        shown.push((next < 0 ? rest : rest.slice(0, next)).join("\n"));
       }
     }
   }
-  assert.fail(`${page} no longer shows '> ${command}' (occurrence ${nth + 1})`);
+  const picked =
+    containing === undefined
+      ? shown
+      : shown.filter((output) => output.includes(containing));
+  assert.equal(
+    picked.length,
+    1,
+    `${page} shows '> ${command}' ${shown.length} time(s)` +
+      (containing === undefined
+        ? ""
+        : `, ${picked.length} with '${containing}'`) +
+      ": expected exactly one",
+  );
+  return /** @type {string} */ (picked[0]);
 }
 
 /**
@@ -369,6 +391,17 @@ const setReport = (set, referencedObjects, report = {}) => ({
 });
 
 /**
+ * A verify of `my-backups`: the page's three sets, `photos` as given. The other
+ * two are always clean and only add to the object count.
+ * @param {SetReport} photos
+ * @returns {{ bucket: string, sets: SetReport[] }}
+ */
+const verifyResult = (photos) => ({
+  bucket: "my-backups",
+  sets: [photos, setReport("documents", 6_211), setReport("music", 497)],
+});
+
+/**
  * A restore of `photos` from `my-backups`, empty unless `result` says
  * otherwise.
  * @param {Partial<RestoreResult>} result
@@ -393,52 +426,77 @@ const restoreResult = (result) => ({
   ...result,
 });
 
+/**
+ * A cleanup of `my-backups` with the page's figures, having removed `deleted`
+ * objects (0 for a dry run).
+ * @param {number} deleted
+ * @returns {CleanupResult}
+ */
+const cleanupResult = (deleted) => ({
+  bucket: "my-backups",
+  storedObjects: 48_210,
+  referencedObjects: 47_898,
+  orphanObjects: 312,
+  reclaimableBytes: 1_400_000_000,
+  missingObjects: 0,
+  deleted,
+  compactedRecordFiles: 0,
+  trimmedRecordRows: 0,
+});
+
 const PHOTOS = "C:\\Users\\me\\Photos";
 
 /**
- * What the CLI prints for an error a command throws: the dispatcher's own
- * `ERROR:` line around `errorMessage`'s text (src/s3cab.mjs).
- * @param {keyof typeof commands} name
+ * What the CLI prints as `name`'s result: the registry's own renderer for that
+ * command, so a command given a renderer of its own is checked against it.
+ * @param {string} name
+ * @param {unknown} result
+ */
+const printed = (name, result) =>
+  /** @type {Command} */ (commands[name]).render(result, { color: false });
+
+/**
+ * What the CLI prints for the error `run` throws as `name`: `errorReport`, the
+ * text the dispatcher itself prints.
+ * @param {string} name
  * @param {() => unknown} run
  */
 function printedError(name, run) {
   try {
     run();
   } catch (error) {
-    const command = /** @type {Command} */ (commands[name]);
-    return `ERROR: ${errorMessage(command, error)}`;
+    return errorReport(/** @type {Command} */ (commands[name]), name, error);
   }
   assert.fail(`'${name}' was expected to throw`);
 }
 
+// The line every cloud command prints first, on its first touch of the bucket:
+// the default one, for a set with no profile or endpoint of its own.
+const NOTICE = authNotice({});
+
 /**
- * Each cloud transcript, and what the command's renderer prints for the page's
- * scenario. `ending` marks a transcript whose earlier lines are the command's
- * own prompt or preview, so only its last lines are the rendered result.
- * @type {{ page: string, command: string, nth?: number, ending?: boolean, output: () => string }[]}
+ * Each cloud transcript a page shows, and what the CLI prints for the page's
+ * scenario after the notice. `containing` picks among the times a page shows
+ * the same command line. `ending` marks a transcript with the command's own
+ * preview or prompt between the notice and the result, so only its last lines
+ * are the printed result.
+ * @type {{ page: string, command: string, containing?: string, ending?: boolean, output: () => string }[]}
  */
-const RENDERED = [
+const CLOUD = [
   {
     page: "guide/maintenance.md",
     command: "s3cab verify my-backups",
-    output: () =>
-      renderVerify({
-        bucket: "my-backups",
-        sets: [
-          setReport("photos", 41_502),
-          setReport("documents", 6_211),
-          setReport("music", 497),
-        ],
-      }),
+    containing: "48,210 objects checked — all verified",
+    output: () => printed("verify", verifyResult(setReport("photos", 41_502))),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab verify my-backups",
-    nth: 1,
+    containing: "1 set with findings",
     output: () =>
-      renderVerify({
-        bucket: "my-backups",
-        sets: [
+      printed(
+        "verify",
+        verifyResult(
           setReport("photos", 41_502, {
             problems: [
               {
@@ -455,19 +513,17 @@ const RENDERED = [
               },
             ],
           }),
-          setReport("documents", 6_211),
-          setReport("music", 497),
-        ],
-      }),
+        ),
+      ),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab verify my-backups",
-    nth: 2,
+    containing: "files deleted from backups",
     output: () =>
-      renderVerify({
-        bucket: "my-backups",
-        sets: [
+      printed(
+        "verify",
+        verifyResult(
           setReport("photos", 41_205, {
             expectedMissing: Array.from({ length: 312 }, (_, i) => ({
               path: `${PHOTOS}\\raw-footage\\clip${i}.mov`,
@@ -475,21 +531,22 @@ const RENDERED = [
               deletedOn: "2026-07-19T10:41:07.000Z",
             })),
           }),
-          setReport("documents", 6_211),
-          setReport("music", 497),
-        ],
-      }),
+        ),
+      ),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab forget --set photos 20260501T0800",
     ending: true,
     output: () =>
-      renderForget({
-        set: "photos",
-        snapshots: ["20260501T0800"],
-        forgotten: true,
-      }),
+      printed(
+        "forget",
+        /** @satisfies {ForgetResult} */ ({
+          set: "photos",
+          snapshots: ["20260501T0800"],
+          forgotten: true,
+        }),
+      ),
   },
   {
     page: "guide/maintenance.md",
@@ -497,65 +554,51 @@ const RENDERED = [
       "s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800",
     ending: true,
     output: () =>
-      renderForget({
-        set: "photos",
-        snapshots: ["20260501T0800", "20260508T0800", "20260515T0800"],
-        forgotten: true,
-      }),
+      printed(
+        "forget",
+        /** @satisfies {ForgetResult} */ ({
+          set: "photos",
+          snapshots: ["20260501T0800", "20260508T0800", "20260515T0800"],
+          forgotten: true,
+        }),
+      ),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab delete --bucket my-backups --from-file footage.txt",
     ending: true,
     output: () =>
-      renderDelete({
-        bucket: "my-backups",
-        deletedObjects: 297,
-        deletedBytes: 48_100_000_000,
-        missing: [],
-        record: "s3://my-backups/objects.deleted-1.tsv",
-        deleted: true,
-      }),
+      printed(
+        "delete",
+        /** @satisfies {DeleteResult} */ ({
+          bucket: "my-backups",
+          deletedObjects: 297,
+          deletedBytes: 48_100_000_000,
+          missing: [],
+          record: "s3://my-backups/objects.deleted-1.tsv",
+          deleted: true,
+        }),
+      ),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab cleanup my-backups",
+    containing: "reclaimed",
     ending: true,
-    output: () =>
-      renderCleanup({
-        bucket: "my-backups",
-        storedObjects: 48_210,
-        referencedObjects: 47_898,
-        orphanObjects: 312,
-        reclaimableBytes: 1_400_000_000,
-        missingObjects: 0,
-        compactedRecordFiles: 0,
-        trimmedRecordRows: 0,
-        deleted: 312,
-      }),
+    output: () => printed("cleanup", cleanupResult(312)),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab cleanup my-backups --dry-run",
     ending: true,
-    output: () =>
-      renderCleanup({
-        bucket: "my-backups",
-        storedObjects: 48_210,
-        referencedObjects: 47_898,
-        orphanObjects: 312,
-        reclaimableBytes: 1_400_000_000,
-        missingObjects: 0,
-        compactedRecordFiles: 0,
-        trimmedRecordRows: 0,
-        deleted: 0,
-      }),
+    output: () => printed("cleanup", cleanupResult(0)),
   },
   {
     page: "guide/restore.md",
     command: `s3cab restore --set photos ${PHOTOS}\\beach.jpg`,
+    containing: "Restored 1 file",
     output: () =>
-      renderRestore(restoreResult({ restored: [`${PHOTOS}\\beach.jpg`] })),
+      printed("restore", restoreResult({ restored: [`${PHOTOS}\\beach.jpg`] })),
   },
   {
     page: "guide/restore.md",
@@ -588,7 +631,8 @@ const RENDERED = [
     page: "guide/restore.md",
     command: `s3cab restore --set photos ${PHOTOS}\\report.pdf --snapshot 20260501T0800`,
     output: () =>
-      renderRestore(
+      printed(
+        "restore",
         restoreResult({
           snapshot: "20260501T0800",
           restored: [`${PHOTOS}\\report.pdf`],
@@ -598,9 +642,10 @@ const RENDERED = [
   {
     page: "guide/restore.md",
     command: "s3cab restore --set photos --all",
-    nth: 1,
+    containing: "Skipped 1 existing file",
     output: () =>
-      renderRestore(
+      printed(
+        "restore",
         restoreResult({
           restored: [`${PHOTOS}\\beach.jpg`, `${PHOTOS}\\2024\\IMG_001.jpg`],
           skipped: [`${PHOTOS}\\report.pdf`],
@@ -609,13 +654,13 @@ const RENDERED = [
   },
   {
     page: "guide/restore.md",
-    command:
-      "s3cab extract --set photos C:\\Users\\me\\Documents\\report.pdf --snapshot 20260501T0800",
+    command: `s3cab extract --set photos ${PHOTOS}\\report.pdf --snapshot 20260501T0800`,
     output: () =>
-      renderRestore(
+      printed(
+        "extract",
         restoreResult({
           snapshot: "20260501T0800",
-          restored: ["C:\\Users\\me\\Documents\\report.pdf"],
+          restored: [`${PHOTOS}\\report.pdf`],
           to: "C:\\Users\\me\\report.pdf",
         }),
       ),
@@ -623,9 +668,10 @@ const RENDERED = [
   {
     page: "guide/restore.md",
     command: "s3cab restore --set photos --all",
-    nth: 3,
+    containing: "Could not restore 2 files",
     output: () =>
-      renderRestore(
+      printed(
+        "restore",
         restoreResult({
           restored: Array.from(
             { length: 1_238 },
@@ -635,18 +681,32 @@ const RENDERED = [
         }),
       ),
   },
+  {
+    page: "README.md",
+    command: `s3cab restore --set photos ${PHOTOS}\\beach.jpg`,
+    output: () =>
+      printed(
+        "restore",
+        restoreResult({
+          snapshot: "20251112T0915",
+          restored: [`${PHOTOS}\\beach.jpg`],
+        }),
+      ),
+  },
 ];
 
-describe("documented output, rendered", () => {
-  for (const { page, command, nth = 0, ending, output } of RENDERED) {
-    it(`${page}: '${command}'${nth ? ` (occurrence ${nth + 1})` : ""}`, () => {
-      const printed = output();
-      const shown = transcript(page, command, nth);
-      const lines = printed.split("\n").length;
+describe("documented output, cloud", () => {
+  for (const { page, command, containing, ending, output } of CLOUD) {
+    it(`${page}: '${command}'${containing ? ` (showing '${containing}')` : ""}`, () => {
+      const [first, ...rest] = transcript(page, command, containing).split(
+        "\n",
+      );
+      const result = output();
 
+      assert.equal(first, NOTICE, "the notice every cloud command opens with");
       assert.equal(
-        ending ? shown.split("\n").slice(-lines).join("\n") : shown,
-        printed,
+        (ending ? rest.slice(-result.split("\n").length) : rest).join("\n"),
+        result,
       );
     });
   }
