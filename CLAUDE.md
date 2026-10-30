@@ -36,8 +36,9 @@ undermine the no-lock-in premise.
    in an ADR (`Status: proposed`) or a design-doc banner, if a reader can't mistake it for live
    behaviour. Flag drift you notice — [proposals/](proposals/) is the running list. Partly
    automated for the user docs: [test/doc-examples.test.mjs](test/doc-examples.test.mjs) parses
-   every `s3cab …` line they show and runs the local transcripts, so a changed flag or report
-   fails `npm test` until the page changes with it.
+   every `s3cab …` line they show and checks the transcripts against the real CLI or, for the
+   cloud ones, the command's renderer, so a changed flag or report fails `npm test` until the
+   page changes with it.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable from
    the code** — never restate `package.json` scripts or build/test/lint commands.
 
