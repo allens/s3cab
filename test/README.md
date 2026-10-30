@@ -67,7 +67,8 @@ A second test file for one module qualifies with a **dotted aspect**
     fakes are built from: reads default to an empty store, unmodelled *writes* throw, and
     [ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendment says why the two sides differ).
     Its own coverage check is [s3-seam.test.mjs](s3-seam.test.mjs), up here rather than beside it
-    because the `test/*.test.mjs` glob below is deliberately shallow.
+    because the `test/*.test.mjs` glob below is deliberately shallow. Its sibling for the
+    `locks.mjs` holds is [helpers/lock-seam.mjs](helpers/lock-seam.mjs).
 
 The `test` script points the runner at explicit globs —
 `"src/**/*.test.mjs" "test/*.test.mjs" "test/model/*.test.mjs"` — rather than default

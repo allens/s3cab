@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
+import { deleteLockSeam } from "../../test/helpers/lock-seam.mjs";
 
+/** @import { DeleteLockArgs } from "../../test/helpers/lock-seam.mjs" */
 /** @import { InvalidRecord } from "../lib/deletion-record.mjs" */
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for the `cleanup` *command shell*: the bucket scan
 // (scanBucket), the S3 writes (deleteStoredObjects, compactDeletionRecords),
-// the delete lock, the top-up's second snapshot read and the prompt are faked
+// the delete lock (test/helpers/lock-seam.mjs), the top-up's second snapshot
+// read and the prompt are faked
 // at the lib seam, so these cover what the command adds around the pure plan —
 // the abort interlocks, the act-by-default / `-n` split, the non-interactive
 // `--force` gate, the TTY prompt, and the deletes (ADR-0064's
@@ -29,7 +32,7 @@ let storedObjects = [];
 let deleteCalls = [];
 /** @type {string[]} every lib effect in order: lock, top-up, delete:<hash>, compact, unlock */
 let effects = [];
-/** @type {{ bucket: string, command: string, wait?: boolean }[]} */
+/** @type {DeleteLockArgs[]} */
 let lockCalls = [];
 let promptAnswer = false;
 let promptCalls = 0;
@@ -64,20 +67,10 @@ mock.module("../lib/remote.mjs", {
   },
 });
 mock.module("../lib/locks.mjs", {
-  exports: {
-    holdDeleteLock: async (
-      /** @type {{ bucket: string, command: string, wait?: boolean }} */ args,
-      /** @type {() => Promise<unknown>} */ work,
-    ) => {
-      lockCalls.push(args);
-      effects.push("lock");
-      try {
-        return await work();
-      } finally {
-        effects.push("unlock");
-      }
-    },
-  },
+  exports: deleteLockSeam({
+    held: (args) => lockCalls.push(args),
+    event: (name) => effects.push(name),
+  }),
 });
 mock.module("../lib/objects.mjs", {
   exports: {
@@ -215,7 +208,9 @@ describe("cleanup command", () => {
 
     await cleanup("b", { force: true, wait: true });
 
-    assert.equal(lockCalls[0]?.wait, true);
+    assert.deepEqual(lockCalls, [
+      { bucket: "b", command: "cleanup", wait: true },
+    ]);
   });
 
   it("keeps the objects a backup that finished meanwhile references (the top-up)", async () => {
