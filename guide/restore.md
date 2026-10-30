@@ -10,6 +10,7 @@ everyday one to the rare backstop:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
+Contacting the cloud…
 Restored 1 file from 'photos' (snapshot 20260612T0915).
 ```
 
@@ -71,7 +72,8 @@ If nothing matches, restore stops rather than silently doing nothing:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
-No files in snapshot '20260612T0915' matched:
+Contacting the cloud…
+ERROR: No files in snapshot '20260612T0915' matched:
   C:\Users\me\Photos\nope.jpg
 
 Find how the backup spells a file, and which snapshots hold it:
@@ -90,6 +92,7 @@ prints:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+Contacting the cloud…
 Restored 1 file from 'photos' (snapshot 20260501T0800).
 ```
 
@@ -102,8 +105,9 @@ A snapshot name that doesn't exist is an error listing the real ones, so a typo 
 quietly restore the wrong thing:
 
 ```console
-> s3cab restore --set photos --snapshot 2026-05-01
-Snapshot '2026-05-01' not found for set 'photos'.
+> s3cab restore --set photos --all --snapshot 2026-05-01
+Contacting the cloud…
+ERROR: Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
   20260612T0915
   20260501T0800
@@ -115,6 +119,7 @@ By default restore **skips any file that already exists** and tells you which:
 
 ```console
 > s3cab restore --set photos --all
+Contacting the cloud…
 Restored 2 files from 'photos' (snapshot 20260612T0915).
 
 Skipped 1 existing file (rerun with --overwrite to replace):
@@ -176,7 +181,8 @@ rather than at its full path the way `restore --output` does. It's the command f
 look at last month's copy":
 
 ```console
-> s3cab extract --set photos C:\Users\me\Documents\report.pdf --snapshot 20260501T0800
+> s3cab extract --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+Contacting the cloud…
 Extracted 1 file from 'photos' (snapshot 20260501T0800) to C:\Users\me\report.pdf.
 ```
 
@@ -265,6 +271,7 @@ carries on with the rest**, then lists everything it couldn't produce:
 
 ```console
 > s3cab restore --set photos --all
+Contacting the cloud…
 Restored 1,238 files from 'photos' (snapshot 20260612T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
@@ -272,7 +279,6 @@ Could not restore 2 files — the backup no longer holds their contents:
   C:\Users\me\Photos\2019\summit.jpg
 
 The rest of the restore finished. To check the other backups in this bucket:
-
   s3cab verify my-backups
 ```
 
@@ -310,7 +316,11 @@ stick — upload it again to repair the backup's copy:
 
 ```console
 > s3cab restore --set photos --all
-No backups for set 'photos'. Back one up with: s3cab backup photos
+Contacting the cloud…
+ERROR: No backups for set 'photos'.
+
+Back one up with:
+  s3cab backup photos
 ```
 
 A set that exists locally but has never been backed up has nothing in the cloud to recover

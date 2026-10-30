@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
-import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import {
+  errorMessage,
+  errorReport,
+  helpTopics,
+  synopsis,
+  usage,
+} from "./help.mjs";
 import { MissingArgError, ParseArgsError } from "./lib/error.mjs";
 
 /** @import { Command } from "./commands.mjs" */
@@ -311,6 +317,36 @@ describe("errorMessage", () => {
     assert.match(
       errorMessage(setup, new MissingArgError("bucket")),
       /^Missing required argument: -b, --bucket — /,
+    );
+  });
+});
+
+describe("errorReport", () => {
+  const go = /** @type {Command} */ (fakeRegistry.go);
+
+  it("prints a runtime error as its one ERROR line", () => {
+    assert.equal(
+      errorReport(go, "go", new Error("The bucket is gone.")),
+      "ERROR: The bucket is gone.",
+    );
+  });
+
+  it("follows a usage error with the synopsis and a --help pointer", () => {
+    assert.equal(
+      errorReport(go, "go", new MissingArgError("fast")),
+      [
+        "ERROR: Missing required argument: -f, --fast — Do it quickly",
+        "",
+        "Usage: s3cab go [options] <target> [<extra>]",
+        "Run 's3cab go --help' for details.",
+      ].join("\n"),
+    );
+  });
+
+  it("prints the detail it is given in place of the message", () => {
+    assert.equal(
+      errorReport(go, "go", new Error("short"), "Error: short\n    at x"),
+      "ERROR: Error: short\n    at x",
     );
   });
 });
