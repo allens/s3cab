@@ -174,16 +174,35 @@ export class FakeS3 {
       if (!object) {
         throw noSuchKey(key);
       }
-      const fault = this.faults?.plan("GET-BODY", uri);
-      const bytes =
-        fault === "truncate" && object.bytes.length > 0
-          ? object.bytes.subarray(
-              0,
-              Math.max(0, Math.floor(object.bytes.length / 2)),
-            )
-          : object.bytes;
-      return Readable.from([Buffer.from(bytes)]);
+      return Readable.from([this.#body(uri, object.bytes)]);
     });
+  }
+
+  /**
+   * @param {string} uri
+   * @returns {Promise<Buffer | undefined>}
+   */
+  async getBytes(uri) {
+    const { bucket, key } = parseUri(uri);
+    return this.#apply("GET", uri, () => {
+      const object = this.#bucket(bucket).get(key);
+      return object ? this.#body(uri, object.bytes) : undefined;
+    });
+  }
+
+  /**
+   * A GET's body, cut in half when the fault plan truncates it.
+   * @param {string} uri
+   * @param {Buffer} bytes - The stored bytes
+   * @returns {Buffer}
+   */
+  #body(uri, bytes) {
+    const fault = this.faults?.plan("GET-BODY", uri);
+    return Buffer.from(
+      fault === "truncate" && bytes.length > 0
+        ? bytes.subarray(0, Math.max(0, Math.floor(bytes.length / 2)))
+        : bytes,
+    );
   }
 
   /**
@@ -323,7 +342,7 @@ export class FakeS3 {
    * @param {string} key
    * @returns {Promise<Buffer | undefined>}
    */
-  async getBytes(bucket, key) {
+  async peekBytes(bucket, key) {
     const object = this.#bucket(bucket).get(key);
     return object ? Buffer.from(object.bytes) : undefined;
   }

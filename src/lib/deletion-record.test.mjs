@@ -14,7 +14,7 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @type {{ Key?: string }[]} keys the mocked LIST yields at the bucket root */
 let listed = [];
-/** @type {Map<string, string>} uri → body for the mocked getStream */
+/** @type {Map<string, string>} uri → body for the mocked getBytes */
 let bodies = new Map();
 /**
  * Every write-side call in order — compaction's merge-before-delete promise is
@@ -29,17 +29,15 @@ let putConflict = false;
 
 // A store with just enough behaviour to hold the record: a listing, bodies, a
 // conditional PUT that can refuse, and a DELETE — the four operations the slot
-// allocator and compaction are made of. Everything else is the stencil's,
-// whose `getStream` stands in for a body that isn't there.
-const empty = s3Seam();
+// allocator and compaction are made of. Everything else is the stencil's.
 mock.module("./s3.mjs", {
   exports: s3Seam({
     listObjects: async function* () {
       yield* listed;
     },
-    getStream: async (/** @type {string} */ uri) => {
+    getBytes: async (/** @type {string} */ uri) => {
       const body = bodies.get(uri);
-      return body === undefined ? empty.getStream(uri) : bytesOf(body);
+      return body === undefined ? undefined : Buffer.from(body);
     },
     putText: async (
       /** @type {string} */ uri,
@@ -205,7 +203,17 @@ describe("parseDeletionRecord", () => {
 
   it("calls a file holding a - row invalid: a record holds no file rows", async () => {
     const { invalid } = await parse(fileOf(`-\t${HASH_A}\t1\t${T1}\t/a.txt\n`));
-    assert.match(invalid ?? "", /unknown row type '-'/);
+    assert.match(
+      invalid ?? "",
+      /^line \d+ is a snapshot's file row, which a deletion record doesn't hold$/,
+    );
+  });
+
+  it("reports the first fault in the file, a malformed row ahead of a later blank line", async () => {
+    const { invalid } = await parse(
+      fileOf(deletedRow("not-a-hash", 1, T1, "x"), "\n"),
+    );
+    assert.match(invalid ?? "", /^line \d+ is a malformed #deleted row/);
   });
 
   it("reads a first line that isn't the heading as a row, so a deleted heading costs no row", async () => {
@@ -259,7 +267,11 @@ describe("parseDeletionRecord", () => {
       assert.deepEqual(rows, [
         { hash: HASH_B, size: 7, instant: T1, by: "allen@PC" },
       ]);
-      assert.match(invalid ?? "", /a #deleted row is malformed/);
+      // Its tabs spelled out, as every message does (ADR-0100).
+      assert.match(
+        invalid ?? "",
+        /^line \d+ is a malformed #deleted row: #deleted␉/,
+      );
     });
   }
 });

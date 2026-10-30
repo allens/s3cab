@@ -3,7 +3,6 @@ import crypto from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
 import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
@@ -26,7 +25,7 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @type {string[]} every seam request and engine call, in order */
 let events = [];
-/** @type {Map<string, Buffer>} bytes `getStream` serves per URI — a miss throws NoSuchKey */
+/** @type {Map<string, Buffer>} bytes `getBytes` serves per URI — a miss reads as absent */
 let remoteFiles = new Map();
 /** @type {string[]} hashes the store LIST yields */
 let storeHashes = [];
@@ -45,15 +44,9 @@ let lockCalls = [];
 
 mock.module("./s3.mjs", {
   exports: s3Seam({
-    getStream: async (/** @type {string} */ uri) => {
+    getBytes: async (/** @type {string} */ uri) => {
       events.push(`get:${uri}`);
-      const bytes = remoteFiles.get(uri);
-      if (!bytes) {
-        throw Object.assign(new Error(`no such key: ${uri}`), {
-          name: "NoSuchKey",
-        });
-      }
-      return Readable.from([bytes]);
+      return remoteFiles.get(uri);
     },
     putFile: async (/** @type {string} */ _path, /** @type {string} */ uri) => {
       events.push(`put:${uri}`);

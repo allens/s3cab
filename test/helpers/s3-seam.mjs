@@ -15,8 +15,8 @@
 // that claims what it fakes poorly is how a suite passes against broken code* —
 // cuts differently on the two sides of the seam:
 //
-//   - **Reads default to an empty store.** Nothing is listed, no text or size
-//     comes back, and a GET stream throws `NoSuchKey`. That is not a claim, it
+//   - **Reads default to an empty store.** Nothing is listed, no text, bytes
+//     or size comes back, and a GET stream throws `NoSuchKey`. That is not a claim, it
 //     is a coherent state, and every part of it is falsifiable: a test that
 //     expected content gets none and fails. (It is also load-bearing for
 //     `backup`: with every remote snapshot absent, ADR-0084's baseline-identity
@@ -39,6 +39,7 @@
  *   typeof import("../../src/lib/s3.mjs"),
  *   | "bucketPolicy"
  *   | "deleteObject"
+ *   | "getBytes"
  *   | "getStream"
  *   | "getText"
  *   | "isObjectNotFound"
@@ -88,6 +89,7 @@ export function s3Seam(overrides = {}) {
     // An empty store: nothing stored, nothing to read.
     listObjects: async function* () {},
     getText: async () => undefined,
+    getBytes: async () => undefined,
     objectSize: async () => undefined,
     getStream: async (/** @type {string} */ uri) => {
       throw noSuchKey(uri);

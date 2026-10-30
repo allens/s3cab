@@ -1,11 +1,5 @@
 import { showControlChars } from "./format.mjs";
-import {
-  deleteObject,
-  getStream,
-  isObjectNotFound,
-  listObjects,
-  putText,
-} from "./s3.mjs";
+import { deleteObject, getBytes, listObjects, putText } from "./s3.mjs";
 import {
   formatLine,
   HEADING,
@@ -97,19 +91,20 @@ export function formatDeletionRecord(rows) {
  * not deleted, the safe direction, since a damaged record must never make
  * missing content look intentional. Every other `@` or `#` row is skipped
  * (ADR-0103).
- * @param {AsyncIterable<Uint8Array>} input - A record file's bytes
+ * @param {Iterable<Uint8Array> | AsyncIterable<Uint8Array>} input - A record file's bytes
  * @returns {Promise<{ rows: DeletionRow[], invalid?: string }>} `invalid` is the reason, for a file that isn't valid
  */
 export async function parseDeletionRecord(input) {
   /** @type {DeletionRow[]} */
   const rows = [];
-  /** @type {string | undefined} */
-  let malformed;
-  const fault = await parseS3cabFile(
+  const invalid = await parseS3cabFile(
     input,
     ([type, hash, size, instant, by], line) => {
+      if (type === "-") {
+        return "is a snapshot's file row, which a deletion record doesn't hold";
+      }
       if (type !== DELETED) {
-        return;
+        return undefined;
       }
       if (
         /^[0-9a-f]{64}$/.test(hash) &&
@@ -117,30 +112,12 @@ export async function parseDeletionRecord(input) {
         isInstant(instant)
       ) {
         rows.push({ hash, size: Number(size), instant, by });
-      } else {
-        malformed ??= `a #deleted row is malformed: ${line}`;
+        return undefined;
       }
+      return `is a malformed #deleted row: ${showControlChars(line)}`;
     },
   );
-  return { rows, invalid: fault ?? malformed };
-}
-
-/**
- * A record file's bytes, or `undefined` once a compaction has absorbed it.
- * Not `getText`: its decoding turns bytes that aren't UTF-8 into U+FFFD, and
- * the reader must see them (ADR-0101).
- * @param {string} uri
- * @returns {Promise<AsyncIterable<Uint8Array> | undefined>}
- */
-async function getRecord(uri) {
-  try {
-    return await getStream(uri);
-  } catch (error) {
-    if (isObjectNotFound(error)) {
-      return undefined;
-    }
-    throw error;
-  }
+  return { rows, invalid };
 }
 
 /**
@@ -231,7 +208,7 @@ export async function readDeletionRecords(bucket) {
   /** @type {InvalidRecord[]} */
   const invalid = [];
   for (const { uri } of await listDeletionRecordFiles(bucket)) {
-    const body = await getRecord(uri);
+    const body = await getBytes(uri);
     if (body === undefined) {
       // A compaction absorbed it after the LIST, into a merge the LIST never
       // saw, so its rows are missing here. Invalid, so no baseline vouches for
@@ -244,7 +221,7 @@ export async function readDeletionRecords(bucket) {
       });
       continue;
     }
-    const record = await parseDeletionRecord(body);
+    const record = await parseDeletionRecord([body]);
     if (record.invalid) {
       invalid.push({ uri, reason: record.invalid });
     }
@@ -303,11 +280,11 @@ export async function compactDeletionRecords(bucket, referenced) {
   /** @type {{ index: number, uri: string }[]} */
   const absorbed = [];
   for (const file of files) {
-    const body = await getRecord(file.uri);
+    const body = await getBytes(file.uri);
     if (body === undefined) {
       continue; // vanished since the LIST (a concurrent compaction absorbed it)
     }
-    const record = await parseDeletionRecord(body);
+    const record = await parseDeletionRecord([body]);
     // The merge keeps only the rows it parsed, then deletes the original, so a
     // refused row would be lost for good (ADR-0101). `cleanup` refuses before
     // this; this read is later, so it checks again.

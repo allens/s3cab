@@ -96,7 +96,7 @@ const MANIFEST_KEY = "snapshots/hostile/20260105T0000.tsv.gz";
 const manifestText = async () =>
   gunzipSync(
     /** @type {Buffer} */ (
-      await backendHolder.current.getBytes(BUCKET, MANIFEST_KEY)
+      await backendHolder.current.peekBytes(BUCKET, MANIFEST_KEY)
     ),
   ).toString("utf8");
 

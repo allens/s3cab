@@ -825,8 +825,9 @@ every kind. It is a terminator, not a row: the one line without five fields, and
 field isn't a type. It is the whole line, byte for byte: a line whose first field trims to
 `.` but holds anything more, such as `. ` or `.` and a tab, is neither the `.` nor a row, and
 refuses the file. Like every line it ends with LF, so a `.` without its LF doesn't count:
-the file was cut there. Nothing follows it, not even a blank line or a second `.`. gzip does notice a cut-short file, but only at the end: `gunzip -c`
-and Python's `gzip` module both hand over every line they can decompress *before* reporting
+the file was cut there. Nothing follows it, not even a blank line or a second `.`. gzip does
+notice a cut-short file, but only at the end: `gunzip -c` and Python's `gzip` module both
+hand over every line they can decompress *before* reporting
 the cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of
 the original, which would otherwise read as a valid, smaller snapshot. And gzip can't notice
 a snapshot whose text was cut before it was compressed: that is complete gzip, and only the
@@ -887,8 +888,9 @@ of three things:
 - **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
   end with the `.`, has anything after it, or holds a blank line or an unknown type starting
   with neither `@` nor `#`. Each means the file isn't what it claims, was cut short, or comes
-  from a newer s3cab, and restoring part of it would pass for a full restore. A deletion record is the exception: it is distrusted
-  instead (below), and its well-formed rows still count.
+  from a newer s3cab, and restoring part of it would pass for a full restore. A deletion
+  record is the exception: it is distrusted instead (below), and its well-formed rows still
+  count.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, or a
   file row whose path breaks one of the path rules above. Where a rule is about two file rows
   (one path in both, or one running through the other), **both rows are refused, so no

@@ -1020,6 +1020,26 @@ export async function getText(uri) {
 }
 
 /**
+ * Read a small S3 object's body as bytes, or `undefined` if it doesn't exist —
+ * `getText` without the decoding, for a reader that must see bytes that aren't
+ * UTF-8 rather than U+FFFD (ADR-0101), or compares bytes.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @returns {Promise<Uint8Array | undefined>}
+ */
+export async function getBytes(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  try {
+    const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));
+    return await Body?.transformToByteArray();
+  } catch (error) {
+    if (isObjectNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
  * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
  * `ListBucket` plus per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
  * so a failed multipart upload can clear its parts. **AWS-only** — the

@@ -54,7 +54,7 @@ export async function checkStore(model) {
 
   for (const { key } of all) {
     if (key.startsWith("objects/")) {
-      const bytes = await model.backend.getBytes(model.bucket, key);
+      const bytes = await model.backend.peekBytes(model.bucket, key);
       const hash = key.slice("objects/".length);
       if (bytes === undefined) {
         violations.push(`object listed but unreadable: ${key}`);

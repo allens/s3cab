@@ -117,13 +117,13 @@ decoded them as U+FFFD and read on.
   not a choice: a reader in another language would have had to decode leniently, against the
   spec's first reading rule, to agree with s3cab.
 - **No blank line anywhere, and nothing after the `.`.** s3cab never writes either, and a valid
-  file is what s3cab writes. A blank line's type is empty, so it was already an unknown type; the
-  skip that let one through, after the `.` too, goes, and with it the gap a stray second `.` fell
-  through.
+  file is what s3cab writes. Both readers skipped a blank line, after the `.` too; now one makes
+  the file invalid, and the gap a stray second `.` fell through closes with it.
 - **A deletion record's first line, when it isn't the heading row, is read as a row**, as the
   spec already said: a record whose heading was deleted keeps its first `#deleted` row.
-- **One wording per fault.** The reader names a fault in a clause both kinds use; a snapshot's
-  message is `Damaged snapshot: <clause>`, a record's `<uri> isn't valid (<clause>)`.
+- **One wording per fault.** The reader names the first fault in the file in one clause, the same
+  for both kinds and naming the line where there is one; a snapshot's message is
+  `Damaged snapshot: <clause>`, and a record's reason for being invalid is the clause itself.
 
 The `.` stays the completeness check. A checksum or row count would also catch edits, which are
 allowed, so every hand edit would break the file.

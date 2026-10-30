@@ -282,7 +282,7 @@ describe("prior-audit findings, encoded", () => {
 
     const fake = backendHolder.current;
     const key = "snapshots/trunc/20260105T0000.tsv.gz";
-    const full = /** @type {Buffer} */ (await fake.getBytes(BUCKET, key));
+    const full = /** @type {Buffer} */ (await fake.peekBytes(BUCKET, key));
 
     // The untruncated manifest must parse, or the loop below proves nothing:
     // every one of its lengths is allowed to reject, so a parser that threw
@@ -516,7 +516,7 @@ describe("prior-audit findings, encoded", () => {
     await backup("presence");
     await deleteHashes([hash], { bucket: BUCKET, force: true });
     const fake = backendHolder.current;
-    assert.equal(await fake.getBytes(BUCKET, `objects/${hash}`), undefined);
+    assert.equal(await fake.peekBytes(BUCKET, `objects/${hash}`), undefined);
 
     // Absent: the record is respected and the baseline-trusting backup
     // re-stores the object rather than publishing a reference to nothing.

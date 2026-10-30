@@ -552,7 +552,7 @@ describe("parseSnapshotStream", () => {
           Buffer.concat([Buffer.from(text), Buffer.from([0xc3])]),
         ]),
       ),
-      /closing "\." line isn't the last/,
+      /follows the closing "\." line/,
     );
   });
 

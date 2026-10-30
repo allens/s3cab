@@ -48,7 +48,7 @@ describe("under the virtual clock, every recorded instant is virtual", () => {
     writeFileSync(join(data, "a.txt"), "hello");
 
     await setup([realpathSync.native(data)], { set: "clock", bucket: BUCKET });
-    const marker = await backendHolder.current.getBytes(
+    const marker = await backendHolder.current.peekBytes(
       BUCKET,
       "snapshots/clock.info",
     );

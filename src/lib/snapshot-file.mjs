@@ -911,8 +911,10 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   };
 
   /**
-   * Read one row into the state above.
+   * Read one row into the state above. A snapshot's row faults refuse a path,
+   * never the file, so it returns none.
    * @param {Fields} fields
+   * @returns {undefined}
    */
   const parseRow = (fields) => {
     // The five columns, named for their *position* only: what each holds depends
@@ -930,9 +932,9 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
         return;
       }
       seen.add(path);
-      const fault = fileRowFault(col2, col3, col4, path);
-      if (fault) {
-        refuse(path, fault);
+      const rowFault = fileRowFault(col2, col3, col4, path);
+      if (rowFault) {
+        refuse(path, rowFault);
       } else {
         entries.set(path, { size: Number(col3), mtime: col4, hash: col2 });
       }
@@ -949,10 +951,7 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     }
   };
 
-  const fault = await parseS3cabFile(input, parseRow, {
-    fileRows: true,
-    tolerant,
-  });
+  const fault = await parseS3cabFile(input, parseRow, { tolerant });
   // An AssertionError on purpose: `isCorruptSnapshotError`
   // (lib/referenced.mjs) classifies it as snapshot damage, so verify records
   // the finding and cleanup/delete refuse.
@@ -1132,67 +1131,63 @@ export const isInstant = (text) => {
  * - Nothing follows the `.`, a blank line or a stray second `.` included, and
  *   no line between is blank (ADR-0101).
  * - A type starting with neither `@` nor `#` is one a restore might need
- *   (ADR-0103), so unknown unless it is `-` and the kind holds file rows.
+ *   (ADR-0103), so unknown unless it is `-`, which `onRow` judges: a file row
+ *   belongs in a snapshot and nowhere else.
  *
  * The last piece of the input has no LF after it, so it is never read as a
  * row: it is empty when the file ends with one, and otherwise a line cut short.
  * A tear is not detectable from the line itself — one inside a snapshot's path
  * column leaves four populated fields and a filename that stops short, which
  * would file a real hash under a prefix of a real path.
- * @param {AsyncIterable<Uint8Array>} input - The file's bytes, decompressed
- * @param {(fields: Fields, line: string) => void} onRow - Every row before the `.`
+ * @param {Iterable<Uint8Array> | AsyncIterable<Uint8Array>} input - The file's bytes, decompressed
+ * @param {(fields: Fields, line: string) => string | undefined} onRow - Every
+ *   row before the `.`; returns what is wrong with the row, if that makes the
+ *   file invalid, as a predicate of "line N" ("is a malformed …")
  * @param {object} [options]
- * @param {boolean} [options.fileRows] - The kind holds `-` rows: a snapshot does, a deletion record doesn't
  * @param {boolean} [options.tolerant] - A work file's read (ADR-0092): its run never reached a `.`, so a missing one, and a last line cut short, are no fault
- * @returns {Promise<string | undefined>} The first fault, as a clause, for a file that isn't valid
+ * @returns {Promise<string | undefined>} The first fault in the file, as a clause, for a file that isn't valid
  */
-export async function parseS3cabFile(
-  input,
-  onRow,
-  { fileRows = false, tolerant = false } = {},
-) {
+export async function parseS3cabFile(input, onRow, { tolerant = false } = {}) {
   /** @type {string | undefined} */
   let fault;
-  let headed = false;
+  let number = 0;
   let ended = false;
 
   /** @param {Buffer} bytes - One line, without its LF */
   const readLine = (bytes) => {
+    number++;
     if (!isUtf8(bytes)) {
-      fault ??= "a line isn't UTF-8 text";
-      headed = true;
+      fault ??= `line ${number} isn't UTF-8 text`;
       return;
     }
     const line = bytes.toString("utf8");
-    const fields = rowFields(line);
-    const [type] = fields;
-    if (!headed) {
-      headed = true;
+    if (number === 1) {
       if (isHeadingRow(line)) {
         return;
       }
       fault ??= "the first line isn't the @S3CAB FORMAT heading row";
     }
+    const fields = rowFields(line);
+    const [type] = fields;
     if (ended) {
-      fault ??= 'the closing "." line isn\'t the last';
+      fault ??= `line ${number} follows the closing "." line`;
     } else if (line === TERMINATOR) {
       ended = true;
     } else if (type === TERMINATOR) {
       // Not an unknown type from a newer s3cab, which is what the last branch
       // would say: the closing line has been edited.
-      fault ??= 'its closing line isn\'t exactly "."';
+      fault ??= `line ${number} is more than the closing "."`;
     } else if (line.trim() === "") {
-      fault ??= "it holds a blank line";
-    } else if (
-      type.startsWith("@") ||
-      type.startsWith("#") ||
-      (fileRows && type === FILE)
-    ) {
-      onRow(fields, line);
+      fault ??= `line ${number} is blank`;
+    } else if (type.startsWith("@") || type.startsWith("#") || type === FILE) {
+      const rowFault = onRow(fields, line);
+      if (rowFault) {
+        fault ??= `line ${number} ${rowFault}`;
+      }
     } else {
       fault ??=
-        `it holds an unknown row type '${type}', so a newer s3cab wrote it, ` +
-        `or it isn't an s3cab file`;
+        `line ${number} has an unknown row type '${type}', so a newer s3cab ` +
+        `wrote it, or it isn't an s3cab file`;
     }
   };
 
@@ -1204,9 +1199,14 @@ export async function parseS3cabFile(
     }
     held = bytes;
   }
-  // Without the `.`, a last piece is the cut the missing `.` reports.
-  if (!tolerant && ended && held?.length) {
-    fault ??= 'the closing "." line isn\'t the last';
+  if (!tolerant && held) {
+    // Without the `.`, a last piece is the cut the missing `.` reports, unless
+    // it is all there is and can't be the start of the heading row.
+    if (ended && held.length > 0) {
+      fault ??= `line ${number + 1} follows the closing "." line`;
+    } else if (number === 0 && !HEADING.startsWith(held.toString("utf8"))) {
+      fault ??= "the first line isn't the @S3CAB FORMAT heading row";
+    }
   }
   if (!ended && !tolerant) {
     fault ??= 'the closing "." line is missing, so the file was cut short';
@@ -1217,22 +1217,28 @@ export async function parseS3cabFile(
 /**
  * A byte stream's lines, split on LF alone and undecoded — a CR stays in its
  * line, where it refuses the row (ADR-0101). The last piece is whatever
- * follows the final LF: empty when the stream ends with one.
- * @param {AsyncIterable<Uint8Array>} input
+ * follows the final LF: empty when the stream ends with one. A line's pieces
+ * are joined once, at its LF, so a line spanning many chunks costs one copy.
+ * @param {Iterable<Uint8Array> | AsyncIterable<Uint8Array>} input
  * @returns {AsyncGenerator<Buffer>}
  */
 async function* byteLines(input) {
-  let rest = Buffer.alloc(0);
+  /** @type {Buffer[]} The pieces of a line no LF has ended yet */
+  let pending = [];
   for await (const chunk of input) {
-    const bytes = Buffer.concat([rest, chunk]);
+    const bytes = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     let start = 0;
     for (let lf = bytes.indexOf(10); lf !== -1; lf = bytes.indexOf(10, start)) {
-      yield bytes.subarray(start, lf);
+      const piece = bytes.subarray(start, lf);
+      yield pending.length > 0 ? Buffer.concat([...pending, piece]) : piece;
+      pending = [];
       start = lf + 1;
     }
-    rest = bytes.subarray(start);
+    if (start < bytes.length) {
+      pending.push(bytes.subarray(start));
+    }
   }
-  yield rest;
+  yield Buffer.concat(pending);
 }
 
 /**

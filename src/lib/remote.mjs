@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { writeFileAtomic } from "./atomic-file.mjs";
 import {
   deleteObject,
+  getBytes,
   getStream,
   isObjectNotFound,
   listObjects,
@@ -153,16 +154,9 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  * @returns {Promise<"identical" | "different" | "absent">}
  */
 export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
-  /** @type {Buffer} */
-  let remote;
-  try {
-    const body = await getStream(remoteSnapshotUri(bucket, set, name));
-    remote = Buffer.concat(await Array.fromAsync(body));
-  } catch (error) {
-    if (isObjectNotFound(error)) {
-      return "absent";
-    }
-    throw error;
+  const remote = await getBytes(remoteSnapshotUri(bucket, set, name));
+  if (remote === undefined) {
+    return "absent";
   }
   // Read after the fetch: both callers hold a local file (a read baseline, a
   // just-PUT manifest), so a missing one is a real fault and may throw.

@@ -63,6 +63,8 @@ mock.module("../../../src/lib/s3.mjs", {
       /** @type {{ noClobber?: boolean }} */ options,
     ) => backendHolder.current.putText(uri, content, options),
     getText: (/** @type {string} */ uri) => backendHolder.current.getText(uri),
+    getBytes: (/** @type {string} */ uri) =>
+      backendHolder.current.getBytes(uri),
     objectExists: (/** @type {string} */ uri) =>
       backendHolder.current.objectExists(uri),
     deleteObject: (/** @type {string} */ uri) =>

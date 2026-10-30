@@ -94,7 +94,7 @@ describe("model harness smoke", () => {
     }
 
     // Stored object bytes match their names — the content-address invariant.
-    const alpha = await fake.getBytes(BUCKET, `objects/${sha("alpha")}`);
+    const alpha = await fake.peekBytes(BUCKET, `objects/${sha("alpha")}`);
     assert.equal(alpha?.toString(), "alpha");
   });
 
