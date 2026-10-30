@@ -471,10 +471,17 @@ describe("prior-audit findings, encoded", () => {
       }).catch((error) => error);
     });
     process.exitCode = 0;
+    const from = fake.log.length;
     const result = await backup("unlink");
 
     assert.deepEqual(result.errors, []);
-    assert.equal(result.uploaded, 0, "every object was baseline-skipped");
+    assert.equal(result.uploaded, 0);
+    assert.ok(
+      !fake.log
+        .slice(from)
+        .some(({ op, uri }) => op === "LIST" && uri.includes("/objects/")),
+      "the baseline was trusted: no store LIST, every object baseline-skipped",
+    );
     assert.equal(process.exitCode, 0);
     assert.ok(deleteOutcome instanceof Error, "delete was refused");
     assert.match(
@@ -498,7 +505,7 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(process.exitCode, 0);
   });
 
-  it("a deletion record subtracts a hash from the trusted baseline only while its object is absent: re-uploaded once, then trusted again (presence wins, guide/format.md)", async () => {
+  it("a deletion record subtracts a hash from the trusted baseline only while its object is absent: re-uploaded once, then trusted again (2026-10-29 locks audit; presence wins, guide/format.md)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -523,16 +530,23 @@ describe("prior-audit findings, encoded", () => {
     );
 
     // Present again, row still in the record: the HEAD finds it, so the
-    // baseline keeps vouching for it and nothing is re-uploaded.
+    // baseline keeps vouching for it and nothing is re-uploaded. Only this
+    // backup's own storage ops count — the delete's preflight and the
+    // re-upload backup HEADed the same key, and a no-clobber PUT that found
+    // the object present would also leave `uploaded` at 0.
     clockHolder.current.advance(MINUTE_MS);
+    const from = fake.log.length;
     const trusted = await backup("presence");
     assert.deepEqual(trusted.errors, []);
     assert.equal(trusted.uploaded, 0, "presence wins over the record");
-    assert.ok(
-      fake.log.some(
-        ({ op, uri }) => op === "HEAD" && uri.endsWith(`objects/${hash}`),
-      ),
-      "the baseline's recorded hash was HEADed, not taken from the record",
+    const ops = fake.log
+      .slice(from)
+      .filter(({ uri }) => uri.endsWith(`objects/${hash}`))
+      .map(({ op }) => op);
+    assert.deepEqual(
+      ops,
+      ["HEAD"],
+      "the recorded hash was HEADed once and never re-PUT",
     );
 
     const model = new RepoModel(BUCKET, backendHolder.current);

@@ -169,7 +169,9 @@ semantics by Node's docs) and WSL1 (whether `/proc/self/ns/pid` exists there is 
 Pinned: `delete <hash>` mid-backup refused by the upload lock
 ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)), the twin of the
 cleanup-mid-backup pin; for that the Tier 1 fake gained a HEAD that answers a stored object's
-size.</sub>
+size, which let the review's second pin land beside it: a deletion record subtracts a hash from a
+trusted baseline only while its object is absent (presence wins), a path the stubbed HEAD had
+never let the model tier reach.</sub>
 
 **Open:** none.
 
