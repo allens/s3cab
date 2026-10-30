@@ -57,42 +57,11 @@ commands of five (**snapshot-name spelling**). The carried list holds, two entri
 anchor.
 (2) **Ordering constraints.** **One classifier in the walk** and **tree's tab-separated output** both
 edit `src/lib/walk.mjs`; **surplus positionals** and **one claim** both edit
-`src/commands/takeover.mjs`; **one reader** and **codec damage on both sides** both edit
-`src/lib/snapshot-file.mjs`'s reader. Land one of each pair before starting the other.
+`src/commands/takeover.mjs`. Land one of each pair before starting the other.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or sits
 behind a fake (`s3Seam`, `lockSeam`), and verifies with `npm test` alone; none touches
 the real S3 read/write path.
 
-- **One reader for a valid s3cab file — the deletion record re-states the reading rules the
-  snapshot reader owns, and the two disagree; run this pass.** _Strong; carried from the seventeenth
-  pass, re-anchored, divergences reproduced._ #452/#457 made
-  [deletion-record.mjs](../src/lib/deletion-record.mjs)'s `parseDeletionRecord` (:98–139) compose two
-  more of the reader's row-level pieces (`rowFields` :113, `isInstant` :125) and left all eight
-  file-level rules re-stated beside `parseSnapshotStream`
-  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):886–1092): heading (:103–105 vs :927–934), blank
-  skip (:110 vs :935), rows after `.` (:114–115 vs :939), "`.` counts only with its LF" (:116–118 vs
-  :981–1003), `.` plus junk (:119–120 vs :943–946, **new since filing**, word for word), hash and
-  size regexes (:123–124 vs `fileRowFault` :1100–1104), unknown type (:131–133 vs :972–977), missing
-  `.` (:135–137 vs :1021–1024); five error strings are the snapshot's minus its prefix. The two
-  divergences, run against the real modules: a file ending `.\n.` is **valid** to the snapshot (the
-  LF-less held `.` is skipped at :1001) and "rows follow the closing `.` line" to the record (:114);
-  a 0xFF byte in a row is refused by the snapshot (`utf8Lines` :1189–1208, fatal decoder) and parsed
-  as **valid** by the record, `by: "me@\uFFFD"`, because `getText` ([s3.mjs](../src/lib/s3.mjs):1009–1013)
-  hands it `transformToString()`'s lenient text (`@smithy/core/serde`'s `toUtf8`, a
-  `Buffer.toString("utf8")`), though ADR-0101 applies the refusal to both layouts. **Fix:** one
-  line-walker in snapshot-file.mjs owning the file-level rules over bytes (heading, blank, terminator
-  with its LF, nothing after, unknown type, UTF-8) and taking a per-type row handler, returning the
-  file-level verdict as a value, so `parseDeletionRecord` contributes only what a `#deleted` row is
-  and its own "a malformed row distrusts the record" verdict; the record's text arrives as bytes.
-  Knowledge moves *into* snapshot-file.mjs, so ADR-0028 and the codec-split rejection stand.
-  **Tests:** two hand-mirrored damage tables (snapshot-file.test.mjs:163–268;
-  deletion-record.test.mjs:199–262); the record has no CRLF or UTF-8 case, neither has `.\n.`; the
-  heading literal is hand-spelled in five test files (deletion-record.test.mjs:80,
-  bucket-scan.test.mjs:77, status.test.mjs:89, snapshot-file.test.mjs:43,
-  snapshot-file.torn-utf8.test.mjs:23) and the `HEADING + … + ".\n"` framing in three more
-  (list.test.mjs:147, compare.test.mjs:798, remote.referenced-scan.test.mjs:92);
-  test/helpers/write-snapshot.mjs:67–79 goes through `stringifySnapshot` but still no `openingRows`,
-  no `START`. The new test is one damage table through both readers.
 - **Cleanup's top-up has four homes, and its interlocks run twice.** _Worth exploring; eighteenth
   pass, read._ Understanding ADR-0112's top-up means [bucket-scan.mjs](../src/lib/bucket-scan.mjs):45–47,
   :67 (keeps `snapshotFiles` for it), [commands/cleanup.mjs](../src/commands/cleanup.mjs):103 (destructures
@@ -156,7 +125,7 @@ the real S3 read/write path.
   `found.unrepresentable` and the one throw (:332–347); a tab-named directory is descended and every
   file beneath it refused (walk.test.mjs:732–744, the comment :738–741 still half true), a non-UTF-8
   directory listed once and never descended (:776–826). The doc (:44–54) and walk.test.mjs:693–694
-  still justify the CR refusal by `crlfDelay: Infinity`; the reader is `utf8Lines` (LF-only) and
+  still justify the CR refusal by `crlfDelay: Infinity`; the reader is `byteLines` (LF-only) and
   `pathFault` (:1122–1127) refuses a CR; the export has no importer outside walk.mjs. **Fix:** the
   callback is the one classifier (type, excluded, representable) and the loop keeps only `seen`;
   rewrite the CR reason in place and un-export. **Tests:** walk.test.mjs:660–745 and :776–826 cover
@@ -229,8 +198,8 @@ the real S3 read/write path.
   ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):826–853) folds only `Z_BUF_ERROR` (:846–850) and
   rethrows `Z_DATA_ERROR` raw; `isCorruptSnapshotError` ([referenced.mjs](../src/lib/referenced.mjs):133–143)
   matches both codes plus `AssertionError`, its `Z_BUF_ERROR` arm unreachable from the reader;
-  `AssertionError` sources are `utf8Lines` :1197, the `.` check :1021–1024 and `parseLine`'s asserts
-  (:928, :939, :946, :973). referenced.test.mjs:216–245 feeds `gunzipSync` errors to the classifier;
+  `AssertionError` sources are `parseSnapshotStream`'s one `Damaged snapshot` assert, which carries
+  every fault `parseS3cabFile` names, and the `Z_BUF_ERROR` fold. referenced.test.mjs:216–245 feeds `gunzipSync` errors to the classifier;
   snapshot-file.test.mjs:710–780 cuts bytes through the reader and never calls it. The fix stands:
   the reader turns every codec failure into its own damage error, and the classifier names no codec.
 
@@ -370,7 +339,7 @@ with the format's year bound (:64–67) and restore's NTFS bound (restore.mjs:59
 separate; `pathFault`'s NUL/CR/tab/segment rules and the post-read tree pass (:1026–1084, both rows
 refused, exact comparison per guide/format.md, the root `DIR`'s bogus parent key harmless — traced
 for `/` and `C:\`); the writer sharing no predicate with the reader is by construction (the walk
-yields real files under real roots, `@SET DIR` rows are `resolveWalkRoot`; ADR-0028); `utf8Lines`'
+yields real files under real roots, `@SET DIR` rows are `resolveWalkRoot`; ADR-0028); `parseS3cabFile`'s
 held-line LF logic (#425) including the stray-lead-byte case; `rowFields` (:1235–1238) leaving
 column five untrimmed; `formatLine`'s code-point padding (#443, writer only); the reader →
 `refused` → restore (`selectTargets` :307–310) / verify (remote.mjs:367–369, verify.mjs:56–61) /
