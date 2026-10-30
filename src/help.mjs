@@ -11,6 +11,7 @@ import {
   MissingArgError,
   ParseArgsError,
   errorText,
+  isUsageError,
   missingArg,
 } from "./lib/error.mjs";
 
@@ -186,6 +187,36 @@ export function errorMessage(command, error) {
   const line = display ? missingArg(display) : message;
   const description = argDescription(command, argName);
   return description ? `${line} — ${description}` : line;
+}
+
+/**
+ * Everything the CLI prints for an error a command threw: `ERROR:` and its
+ * message, then, for a structural usage error, the one-line synopsis and a
+ * `--help` pointer rather than the full arg/option tables (ADR-0038). The
+ * dispatcher prints it, and test/doc-examples.test.mjs checks the guides' error
+ * transcripts against it, so a transcript can't be checked against a copy.
+ * @param {Command} command
+ * @param {string} commandName
+ * @param {unknown} error
+ * @param {string} [detail] - The message to print in place of `errorMessage`'s
+ *   (the dispatcher's debug mode passes the whole error, stack and all)
+ * @returns {string}
+ */
+export function errorReport(
+  command,
+  commandName,
+  error,
+  detail = errorMessage(command, error),
+) {
+  const lines = [`ERROR: ${detail}`];
+  if (isUsageError(error)) {
+    lines.push(
+      "",
+      synopsis({ [commandName]: command }, commandName),
+      `Run 's3cab ${commandName} --help' for details.`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
