@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { renderFind } from "../render.mjs";
+import { lockSeam } from "../../test/helpers/lock-seam.mjs";
+
+/** @import { LockArgs } from "../../test/helpers/lock-seam.mjs" */
 
 // Offline tests for the whole of `delete` — the operand grammar and the policy
 // wrapped around it, which live in one file because the grammar is private to
@@ -73,23 +76,13 @@ mock.module("../lib/sets.mjs", {
     validateBucketName: () => {},
   },
 });
-/** @type {{ bucket: string, command: string, wait?: boolean }[]} the delete lock's calls */
+/** @type {LockArgs[]} the delete lock's calls */
 let lockCalls = [];
 mock.module("../lib/locks.mjs", {
-  exports: {
-    holdDeleteLock: async (
-      /** @type {{ bucket: string, command: string, wait?: boolean }} */ args,
-      /** @type {() => Promise<unknown>} */ work,
-    ) => {
-      lockCalls.push(args);
-      effects.push("lock");
-      try {
-        return await work();
-      } finally {
-        effects.push("unlock");
-      }
-    },
-  },
+  exports: lockSeam({
+    held: (args) => lockCalls.push(args),
+    event: (name) => effects.push(name),
+  }),
 });
 mock.module("../lib/prompt.mjs", {
   exports: {
@@ -329,7 +322,9 @@ describe("delete command", () => {
 
   it("--wait reaches the lock", async () => {
     await deleteHashes([HASH_A], { bucket: "b", force: true, wait: true });
-    assert.equal(lockCalls[0]?.wait, true);
+    assert.deepEqual(lockCalls, [
+      { bucket: "b", command: "delete", wait: true },
+    ]);
   });
 
   it("deletes nothing — and writes no record — when no named hash is stored", async () => {

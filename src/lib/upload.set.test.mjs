@@ -6,9 +6,11 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
+import { lockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
+/** @import { LockArgs } from "../../test/helpers/lock-seam.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { SnapshotBaseline } from "./snapshot.mjs" */
@@ -38,7 +40,7 @@ let baselineCalls = [];
 let rows = [];
 /** @type {Record<string, unknown> | undefined} the options `generateSnapshot` got */
 let generateOptions;
-/** @type {Record<string, unknown>[]} what the lock was asked to hold */
+/** @type {LockArgs[]} what the lock was asked to hold */
 let lockCalls = [];
 
 mock.module("./s3.mjs", {
@@ -81,20 +83,10 @@ mock.module("./set-marker.mjs", {
   },
 });
 mock.module("./locks.mjs", {
-  exports: {
-    holdUploadLock: async (
-      /** @type {Record<string, unknown>} */ args,
-      /** @type {() => Promise<unknown>} */ work,
-    ) => {
-      lockCalls.push(args);
-      events.push("lock");
-      try {
-        return await work();
-      } finally {
-        events.push("unlock");
-      }
-    },
-  },
+  exports: lockSeam({
+    held: (args) => lockCalls.push(args),
+    event: (name) => events.push(name),
+  }),
 });
 mock.module("./snapshot.mjs", {
   exports: {
