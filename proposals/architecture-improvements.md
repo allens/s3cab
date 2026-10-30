@@ -28,215 +28,403 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-Surfaced 2026-10-15 (seventeenth pass): **17 `src/` commits since `2820adf`** (89 files,
-+5266/−2972), read at HEAD `09a082f`. Nearly all of it is two subsystems: the snapshot-format
-revision (ADR-0098–0107: five columns, `-`/`@`/`#` marks, validity, the lone `.`, `@S3CAB
-SPEC`/`@CLIENT`) and set ownership (ADR-0108: `snapshots/<set>.info`, a read-only `reattach`,
-`takeover`). Beside them the bucket and identity stacks (ADR-0105), `**/` mid-name and macOS folding
-(#399), names with no UTF-8 form (#398) and the resized progress line (#410). Three background
-sweeps (the format and ownership code, the carried list, the remainder); every claim below was
-checked by hand before it was written down, the three reader divergences by tracing, not by running.
+Surfaced 2026-10-30 (eighteenth pass): **22 `src/` commits since `09a082f`** (80 files,
++8422/−2190), read at HEAD `68da4b0`. Three subsystems: locks in the bucket (ADR-0112:
+`locks/<kind>-<instant>`, write first look second, pid liveness, `--wait`, `unlock`, the cleanup
+top-up) with basic-form names (ADR-0113); the restore rework (ADR-0109 the full path under
+`--output`, ADR-0110 paths, a list or `--all`, ADR-0111 `extract`); and the reader's validity rules
+from three clean-room sets (#425 torn UTF-8, #428 one tree as files, #439/#452–#457 the spec's
+gaps). Beside them #459's digest before completion, #460's uninspectable entries, #463's early temp.
+Four background sweeps (the locks, restore and the reader, the carried list, the remainder); every
+Strong and Worth-exploring claim below was checked by hand, and the one-reader divergences were
+**run** against the real modules this time, not traced.
 
-**Verdict: the format revision landed its writer in one module and its reader in two.** The
-deletion record composes the snapshot writer's `HEADING`/`openingRows`/`formatLine`/`TERMINATOR`
-and then re-states the reading rules in a parser of its own, which already disagrees with the
-snapshot's on three of them (**one reader for a valid s3cab file**). The same shape in miniature:
-the walk refuses a name the snapshot can't hold by two mechanisms that disagree on directories
-(**one classifier in the walk**), and `takeover` asks "is this machine the holder" twice
-(**takeover reads the holder twice**). A second shape: a rule the registry already states, which
-two commands re-check by hand while every other command ignores it (**surplus positionals**).
+**Verdict: the new modules are deep; the friction is at the joins and in what the tests don't
+say.** `locks.mjs` holds the whole rule behind two guards that take only a closure, and nothing
+outside it re-derives liveness; `extract` composes `restoreTargets` rather than carrying a loop.
+But three of the six lock sites and the `upload --file` guard #459 changed were asserted nowhere,
+though the fakes already existed (**the upload lock's untested holds**, landed with this pass — see
+the run log); the cleanup top-up is stated
+in four modules and its interlocks run twice (**cleanup's top-up**); a restore fault kind is five
+hand-enumerations (**a restore fault kind**); three destructive commands write to stdout before the
+dispatcher prints JSON (**pre-decision stdout**); a typed snapshot name is normalized in two
+commands of five (**snapshot-name spelling**). The carried list holds, two entries wider.
 
 **Picking these up cold (a later session, or another machine).**
 (1) **Line anchors rot on every landing, and so do file paths.** Two files of the same name exist in
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor.
-(2) **Ordering constraints.** **One classifier in the walk** and **tree's tab-separated output**
-both edit `src/lib/walk.mjs`; **surplus positionals** and **one claim** both edit
+(2) **Ordering constraints.** **One classifier in the walk** and **tree's tab-separated output** both
+edit `src/lib/walk.mjs`; **surplus positionals** and **one claim** both edit
 `src/commands/takeover.mjs`; **one reader** and **codec damage on both sides** both edit
 `src/lib/snapshot-file.mjs`'s reader. Land one of each pair before starting the other.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or sits
-behind the `s3.mjs` fake (**one claim** and the takeover item through `s3Seam`), and verifies with
-`npm test` alone; none touches the real S3 read/write path.
+behind a fake (`s3Seam`, `lockSeam`), and verifies with `npm test` alone; none touches
+the real S3 read/write path.
 
 - **One reader for a valid s3cab file — the deletion record re-states the reading rules the
-  snapshot reader owns, and the two already disagree.** _Strong; seventeenth pass, the divergences
-  traced by hand._ [deletion-record.mjs](../src/lib/deletion-record.mjs)'s `parseDeletionRecord`
-  composes the writer's `HEADING`, `openingRows`, `formatLine`, `TERMINATOR`,
-  `isHeadingRow` and `isInstant` from [snapshot-file.mjs](../src/lib/snapshot-file.mjs), then
-  implements ADR-0101/0106's whole-file rules a second time beside `parseSnapshotStream`:
-  the blank-line skip, "`.` counts only with its LF", rows after `.`, `.` plus junk,
-  the unknown-type rule, the hash and size regexes (`fileRowFault`'s vs the record's own), the
-  three error strings word for word. They differ on two: a file ending `.\n.` (the snapshot
-  holds the LF-less `.` back unread, so valid; the record says rows follow); and
-  UTF-8, which the snapshot refuses through `utf8Lines`' fatal decoder and the record never
-  can, because `getText` ([s3.mjs](../src/lib/s3.mjs)) hands it `transformToString()`'s
-  lenient text, though ADR-0101 applies the refusal to both layouts. **Fix:** one line-walker in
-  snapshot-file.mjs owning the file-level rules over bytes (heading, blank, terminator with its LF,
-  nothing after, unknown type, UTF-8) and taking a per-type row handler, returning the file-level
-  verdict as a value, so `parseDeletionRecord` contributes only what a `#deleted` row is and its own
-  "a malformed row distrusts the record" verdict. Knowledge moves *into* snapshot-file.mjs, so
-  ADR-0028 and the codec-split rejection stand. **Tests:** two hand-mirrored damage tables
-  (snapshot-file.test.mjs:159–254; deletion-record.test.mjs:201–240); the record has no CRLF or UTF-8
-  case, neither has `.\n.`, and five test files spell the file framing by hand
-  (deletion-record.test.mjs:79–82 the heading literal; test/helpers/write-snapshot.mjs:68–79 no
-  `openingRows`, no `START`; list.test.mjs:147; compare.test.mjs:798;
-  remote.referenced-scan.test.mjs:92). The new test is one damage table through both readers.
-- **One classifier in the walk — the walk refuses a name the snapshot can't hold by two
-  mechanisms, which disagree on a directory.** _Worth exploring; seventeenth pass, read._
-  [walk.mjs](../src/lib/walk.mjs): tab/CR/LF in the kept-files loop (:312–320,
-  `UNREPRESENTABLE_IN_TSV`, relying on the callback having dropped excluded entries); no UTF-8 form
-  in `createWalkCallbackFn` (:389–401, with its own `excludedBy` call). Both feed
-  `found.unrepresentable` and one throw (:333–348). A tab-named directory is descended and every
-  file beneath it listed (walk.test.mjs:642–654, whose comment "keeps it out of the walk callback
-  entirely" is half true since #398); a non-UTF-8 directory returns false, is listed once and never
-  descended. With it: `UNREPRESENTABLE_IN_TSV`'s doc (:44–55) and walk.test.mjs:603–604 justify
-  the CR refusal by a parser that no longer exists (`crlfDelay: Infinity`; the reader is
-  `utf8Lines`, LF-only, and `pathFault` :1071–1075 refuses a CR), and the export has no importer
-  outside walk.mjs. **Fix:** the callback is the one classifier (type, excluded, representable) and
-  the loop keeps only `seen`; rewrite the CR reason in place and un-export. **Tests:**
-  walk.test.mjs:570–736 cover both paths through the thrown message; one classifier lets a test
-  assert per-entry outcomes as data, as the exclusion-record tests (:198) do.
-- **Surplus positionals — the registry says `reattach` and `takeover` take one positional, and
-  each refuses extras by hand while every other command ignores them.** _Worth exploring;
-  seventeenth pass, read._ [commands.mjs](../src/commands.mjs):366–371 and :388–393 declare
-  `args: { set }` without `variadic`, yet `exec` (:380–381, :402–403) destructures
-  `[name, ...directories]` only so [reattach.mjs](../src/commands/reattach.mjs):52–56 and
-  [takeover.mjs](../src/commands/takeover.mjs):55–59 can refuse them, in two wordings.
-  [s3cab.mjs](../src/s3cab.mjs):115–130 hands `positionals` through with no count, and `variadic`
-  is read only by help.mjs's `displayArg` (:81–82), so `s3cab backup photos extra` drops `extra`
-  silently (`[set] = []`, commands.mjs:429) while `reattach photos extra` refuses. The same two
-  commands and `setup` share an eleven-line preamble, comment included (setup.mjs:71–84,
-  reattach.mjs:42–51, takeover.mjs:45–54). **Fix:** the dispatcher refuses a surplus positional
-  from the `args` declaration; both blocks and the `...directories` parameters go, and
-  `validateSetName` (sets.mjs:202) can take `undefined` and throw `MissingArgError` itself.
-  **Touches ADR-0011's rejected option** (a registry-driven scheme), worth reopening on two counts:
-  `variadic` is now a structured property, not a parsed display string; and a surplus positional is
-  a CLI-only fact, since a library caller can't pass one to a function with no such parameter, so
-  the guard the ADR wants on the library surface is the type. **Tests:** reattach.test.mjs:52
-  asserts the refusal for one command; a dispatcher test covers every non-variadic command.
-- **One claim — "PUT the marker and store the same text locally" is composed by hand at two
-  sites, and the lost race is untested.** _Worth exploring; seventeenth pass, read._
-  [setup.mjs](../src/commands/setup.mjs):266–273 does `freshInfo → claimRemoteSet → writeSet →
-  writeClaim`; [takeover.mjs](../src/commands/takeover.mjs):90–103 does `freshInfo(info?.created)
-  → (writeRemoteInfo | claimRemoteSet) → writeClaim`. The invariant "the claim file holds the bytes
-  written to `.info`" (asserted takeover.test.mjs:107–108) is caller discipline; ADR-0108 §5's
-  rule (a marker → overwrite, none → conditional create) lives in the command; and
-  [set-marker.mjs](../src/lib/set-marker.mjs) offers two write adapters differing only in
-  `noClobber` (:106, :128). takeover.mjs:94–101, where another machine won the conditional PUT, is
-  reached by no test (its message appears in `src/` only). **Fix:** set-marker owns the claim end
-  to end — the conditional create for `setup`, read-decide-write for `takeover` — each ending in
-  the local write, so a third writer can't forget the local half. Two callers, so the gain is
-  locality and a testable lost race at the lib seam, not leverage. **Tests:** takeover.test.mjs's
-  four cases stay; the lost race becomes testable through `s3Seam`.
-- **`held` means two things — `list` and `reattach` report a `held` field that answers different
-  questions, in the same words.** _Worth exploring; seventeenth pass, read._
-  [list.mjs](../src/commands/list.mjs):37–38 and `heldHere` (:136–146): a `claim` file exists,
-  offline, "as far as it knows"; [reattach.mjs](../src/commands/reattach.mjs):15 and set-marker's
-  `holding` (:168–175): the stored pair matches the bucket's marker, which is GLOSSARY's
-  **Holder**. [render.mjs](../src/render.mjs) says "Held by this machine" and dirs-vs-read-only
-  for both (:111–114, :426–437). **Fix:** name the offline fact for what it is (`claimed`), or
-  export the offline predicate from set-marker beside `holding` so the two definitions sit
-  together with their difference stated once; a GLOSSARY line either way. **Tests:**
-  list.test.mjs:138–156 covers no-claim; nothing asserts a stale claim (file present, marker
-  disagrees), which is exactly where the two meanings part.
+  snapshot reader owns, and the two disagree; run this pass.** _Strong; carried from the seventeenth
+  pass, re-anchored, divergences reproduced._ #452/#457 made
+  [deletion-record.mjs](../src/lib/deletion-record.mjs)'s `parseDeletionRecord` (:98–139) compose two
+  more of the reader's row-level pieces (`rowFields` :113, `isInstant` :125) and left all eight
+  file-level rules re-stated beside `parseSnapshotStream`
+  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):886–1092): heading (:103–105 vs :927–934), blank
+  skip (:110 vs :935), rows after `.` (:114–115 vs :939), "`.` counts only with its LF" (:116–118 vs
+  :981–1003), `.` plus junk (:119–120 vs :943–946, **new since filing**, word for word), hash and
+  size regexes (:123–124 vs `fileRowFault` :1100–1104), unknown type (:131–133 vs :972–977), missing
+  `.` (:135–137 vs :1021–1024); five error strings are the snapshot's minus its prefix. The two
+  divergences, run against the real modules: a file ending `.\n.` is **valid** to the snapshot (the
+  LF-less held `.` is skipped at :1001) and "rows follow the closing `.` line" to the record (:114);
+  a 0xFF byte in a row is refused by the snapshot (`utf8Lines` :1189–1208, fatal decoder) and parsed
+  as **valid** by the record, `by: "me@\uFFFD"`, because `getText` ([s3.mjs](../src/lib/s3.mjs):1009–1013)
+  hands it `transformToString()`'s lenient text (`@smithy/core/serde`'s `toUtf8`, a
+  `Buffer.toString("utf8")`), though ADR-0101 applies the refusal to both layouts. **Fix:** one
+  line-walker in snapshot-file.mjs owning the file-level rules over bytes (heading, blank, terminator
+  with its LF, nothing after, unknown type, UTF-8) and taking a per-type row handler, returning the
+  file-level verdict as a value, so `parseDeletionRecord` contributes only what a `#deleted` row is
+  and its own "a malformed row distrusts the record" verdict; the record's text arrives as bytes.
+  Knowledge moves *into* snapshot-file.mjs, so ADR-0028 and the codec-split rejection stand.
+  **Tests:** two hand-mirrored damage tables (snapshot-file.test.mjs:163–268;
+  deletion-record.test.mjs:199–262); the record has no CRLF or UTF-8 case, neither has `.\n.`; the
+  heading literal is hand-spelled in five test files (deletion-record.test.mjs:80,
+  bucket-scan.test.mjs:77, status.test.mjs:89, snapshot-file.test.mjs:43,
+  snapshot-file.torn-utf8.test.mjs:23) and the `HEADING + … + ".\n"` framing in three more
+  (list.test.mjs:147, compare.test.mjs:798, remote.referenced-scan.test.mjs:92);
+  test/helpers/write-snapshot.mjs:67–79 goes through `stringifySnapshot` but still no `openingRows`,
+  no `START`. The new test is one damage table through both readers.
+- **Cleanup's top-up has four homes, and its interlocks run twice.** _Worth exploring; eighteenth
+  pass, read._ Understanding ADR-0112's top-up means [bucket-scan.mjs](../src/lib/bucket-scan.mjs):45–47,
+  :67 (keeps `snapshotFiles` for it), [commands/cleanup.mjs](../src/commands/cleanup.mjs):103 (destructures
+  it), :116–122 (interlocks on the scan), :218 (hands it back, never read),
+  [lib/cleanup.mjs](../src/lib/cleanup.mjs):213 (`topUp`, the arithmetic) and :269–283 (`reclaim`, the
+  orchestration, the same two interlocks `unreadableSnapshots`/`invalidRowSnapshots` on the
+  additions, acknowledged at commands/cleanup.mjs:114–115), and [remote.mjs](../src/lib/remote.mjs):297
+  (`readNewSnapshots`, the key diff and the read). `CleanupPlan` (:50–59) has two producers,
+  `planCleanup` from scratch and `topUp` patched, and the patched one's `missing`/`damaged`/
+  `unreadable` describe only the scan's snapshots with nothing saying so; `reclaim` reads four of its
+  eight fields. The lib's header (:1–2, :8–11) still says "the read-only twin of `verifySet`" and
+  "the interlock *policy* is the command's", :48–49 "the command owns the wording" — true only of
+  `planCleanup`, since `reclaim` throws `unreadableSnapshotsError` :169 / `invalidRowsError` :189
+  from this file. **Fix:** state the top-up once — the scan returns what it read as one value,
+  `reclaim` re-lists and applies one interlock to scanned and added alike — and rewrite the header.
+  `planCleanup` stays pure (the tenth pass's plan/execute verdict is untouched). **Tests:**
+  commands/cleanup.test.mjs:185–280 pins the order (lock → top-up → delete → compact → unlock), the
+  kept object and the abort under lock; lib/cleanup.test.mjs:124–168 tests `topUp` alone.
+- **A restore fault kind is five hand-enumerations.** _Worth exploring; eighteenth pass, read._ The
+  twelve lists of `RestoreResult` are enumerated by hand in [restore.mjs](../src/lib/restore.mjs)'s
+  typedef (:38–55), the return (:649–665) and `hasFaults` (:681–700), and in
+  [render.mjs](../src/render.mjs)'s `renderRestore` destructure (:1327–1345) and its "anything
+  happened" condition (:1353–1363, which already omits `clamped` and `unmatched`). #466 added
+  `unmatched` to four of the five; `renderRestore`'s three newest blocks (`blocked` :1451, `clamped`
+  :1470, `unmatched` :1510) arrived by copying the six before them, so nine blocks (:1384–1562) share
+  heading-sentence / indented list / blank / fix sentence / `shellCommand`, varying only in clause
+  agreement and the entry formatter. **Fix:** one table of fault kinds — whether it exits 1, its
+  heading clause, its fix — that the result's shape, `hasFaults` and `renderRestore`'s block loop all
+  read. This is inside `renderRestore`, not the `section()` grammar pass 13 declined to fold it into;
+  ADR-0043's data/wording split is kept. **Tests:** render.test.mjs's restore cases and
+  restore.downloads.test.mjs assert per kind; a table makes "every kind that exits 1 renders a fix"
+  one assertion.
+- **Surplus positionals — the registry says which commands take one positional, and three refuse
+  extras by hand in three wordings while thirteen drop them silently.** _Worth exploring; carried,
+  wider._ [s3cab.mjs](../src/s3cab.mjs):115–130 still hands `positionals` through with no count;
+  `variadic` is read only by help.mjs's `displayArg` (:81–82). [commands.mjs](../src/commands.mjs):
+  reattach :369–384 and takeover :391–406 declare `args: { set }` and destructure
+  `[name, ...directories]` so [reattach.mjs](../src/commands/reattach.mjs):52–56 and
+  [takeover.mjs](../src/commands/takeover.mjs):55–59 can refuse; **new:** extract :494–498 declares
+  `path` single and :526 passes `paths` whole so [extract.mjs](../src/commands/extract.mjs):39–45 can
+  refuse `more` after filtering blank positionals (:39), a rule no other command has. Of 22 commands,
+  6 are variadic (find, setup, restore, forget, delete, unlock), 3 refuse, 13 drop a surplus via
+  `[x] = []` (snapshot, list, compare, status, aws, provider, backup, verify, cleanup, hashes, upload,
+  tree, prop): `s3cab backup photos extra` drops `extra`, `reattach photos extra` refuses. The
+  eleven-line preamble (setup.mjs:71–84, reattach.mjs:42–51, takeover.mjs:45–54) is unchanged.
+  **Fix:** the dispatcher refuses a surplus positional from the `args` declaration; the three blocks
+  and the `...directories` parameters go, and `validateSetName` (sets.mjs:202) can take `undefined`
+  and throw `MissingArgError` itself. **Touches ADR-0011's rejected option** (a registry-driven
+  scheme), worth reopening on two counts: `variadic` is a structured property, not a parsed display
+  string; and a surplus positional is a CLI-only fact a library caller can't produce, so the guard
+  the ADR wants on the library surface is the type. **Tests:** reattach.test.mjs:52–58 asserts the
+  refusal for one command; a dispatcher test covers every non-variadic command.
+- **One classifier in the walk — the walk refuses a name the snapshot can't hold by two mechanisms,
+  which disagree on a directory; now four pattern sites.** _Worth exploring; carried, wider._
+  [walk.mjs](../src/lib/walk.mjs): tab/CR/LF in the kept-files loop (:311–319,
+  `UNREPRESENTABLE_IN_TSV` :55); no UTF-8 form in `createWalkCallbackFn` (:391–400, its own
+  `excludedBy` :393). **New since filing:** #460's `recordUninspectable` (:439–443, matches as a
+  file) and `checkLink` (:531–535, matches with the stat'd type) are a third and fourth asking of
+  `excludedBy`, so "which type to match a pattern against" is spelled three ways (the dirent's
+  :392–393/:416–417, always-a-file :440, the stat'd :531–532). Both mechanisms feed
+  `found.unrepresentable` and the one throw (:332–347); a tab-named directory is descended and every
+  file beneath it refused (walk.test.mjs:732–744, the comment :738–741 still half true), a non-UTF-8
+  directory listed once and never descended (:776–826). The doc (:44–54) and walk.test.mjs:693–694
+  still justify the CR refusal by `crlfDelay: Infinity`; the reader is `utf8Lines` (LF-only) and
+  `pathFault` (:1122–1127) refuses a CR; the export has no importer outside walk.mjs. **Fix:** the
+  callback is the one classifier (type, excluded, representable) and the loop keeps only `seen`;
+  rewrite the CR reason in place and un-export. **Tests:** walk.test.mjs:660–745 and :776–826 cover
+  both paths through the thrown message; walk.uninspectable.test.mjs:99–132 already asserts
+  per-entry outcomes as data — the shape the fix wants.
+- **Pre-decision stdout under `--json`, thrice — three destructive commands print their preview to
+  stdout before the dispatcher prints the result, and the rule has no home.** _Worth exploring;
+  eighteenth pass, read._ [delete.mjs](../src/commands/delete.mjs):212–215,
+  [forget.mjs](../src/commands/forget.mjs):221–224 and [unlock.mjs](../src/commands/unlock.mjs):90–93
+  (new) each `console.log` a listing under the same three-line comment ("pre-decision output goes to
+  stdout here rather than through `render`"); the dispatcher strips `json` before `exec`
+  ([s3cab.mjs](../src/s3cab.mjs):129–130), so a command can't know, and under `--json` a consumer
+  gets prose then JSON on one stream. guide/output.md:41–43 says `--json` governs "a command's
+  successful result on stdout" and doesn't mention this. **Fix:** give the pre-decision preview one
+  home the dispatcher owns, so `--json` can route it — or, if the stream mix is the decision, record
+  it once in ADR-0043 and guide/output.md and point the three comments at it. **Touches ADR-0043's
+  one render layer**; worth reopening only because the guide and the code disagree and the count
+  went 2→3. **Tests:** delete.test.mjs/forget.test.mjs/unlock.test.mjs capture stdout per command;
+  nothing asserts the `--json` stream.
+- **A typed snapshot name is normalized in two commands of five.** _Worth exploring; eighteenth
+  pass, read._ `normalizeSnapshotName` ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):737, "so
+  callers taking user-supplied names never learn the extension grammar") is applied by
+  [compare.mjs](../src/lib/compare.mjs):101–118 and [commands/upload.mjs](../src/commands/upload.mjs):106–107;
+  `chooseSnapshot` ([restore.mjs](../src/lib/restore.mjs):274, for `restore` and `extract`) and
+  [forget.mjs](../src/commands/forget.mjs):161–162 compare the raw string against
+  `listRemoteSnapshots`, so `--snapshot 20260612T0915.tsv.gz` is found by two commands and "not
+  found" by three, each with its own not-found wording. **Fix:** one place where a typed snapshot
+  name meets the listing, used by all five. **Tests:** restore.downloads.test.mjs and forget.test.mjs
+  each assert their not-found error; one case per command for the `.tsv.gz` spelling.
 
-**Carried from the sixteenth pass, re-verified 2026-10-15.** All four hold; two changed shape.
-- **Suggested exclude line.** _Strong; holds._ `excludePattern`
-  ([backup.mjs](../src/commands/backup.mjs):239–247) still returns `relative(root, path)` raw;
-  `parseLines` still trims and drops `#` lines; `globSource` still has no escape. The render block
-  ([render.mjs](../src/render.mjs):1026–1038) says nothing about renaming; backup.test.mjs:295–297
-  and :312 cover plain names only. #399's case and accent folding make a suggestion match *more*
-  siblings on macOS; #398's refusal throws from the walk and never reaches `pass.errors`. The fix
-  (an inverse beside `compileExcludePatterns` in [exclude.mjs](../src/lib/exclude.mjs), or nothing
-  when the grammar has no exact spelling, and a render that says to rename or write the pattern by
-  hand) and the round-trip test stand as filed.
-- **Forget plans twice.** _Worth exploring; holds._ [forget.mjs](../src/commands/forget.mjs):193
-  (`.orphaned`) and :210 (`{ gone }`) are still two `planUnrestorable` calls around one
-  intersect-and-HEAD (:200–202); `getUndeletedHashes` ([upload.mjs](../src/lib/upload.mjs):186–205)
-  makes the same step, so a pure lib function for "the recorded hashes this forget would orphan"
-  has a second caller. `.orphaned` is read at :193 and unrestorable.test.mjs:171 only.
-- **Tree's tab-separated output.** _Worth exploring; changed, narrower._ snapshot-file.mjs no
-  longer imports `UNREPRESENTABLE_IN_TSV`; the reader refuses a tab or CR with its own checks
-  (`pathFault`, :1071–1075). Patterns holding a tab or CR are refused at walk.mjs:81–95, so
-  `entry.pattern` can't carry one; `entry.path` still can on Linux and macOS, and `renderTree`
-  ([render.mjs](../src/render.mjs):529–534) still writes `${path}\t${pattern}` raw
-  ([tree.mjs](../src/commands/tree.mjs):40 passes the raw path). The inconsistency is now the path
-  column alone: spell it out as the snapshot's `#excluded` row does, or refuse it. Lands beside
-  **one classifier in the walk**.
-- **Codec damage on both sides.** _Worth exploring; changed, wider._ `parseCompressedSnapshotStream`
-  (:818–845) still folds only `Z_BUF_ERROR` into "Truncated snapshot" and rethrows `Z_DATA_ERROR`
-  raw; `isCorruptSnapshotError` ([referenced.mjs](../src/lib/referenced.mjs):100–110) still matches
-  both codes plus `AssertionError`, so its `Z_BUF_ERROR` arm stays unreachable from the reader. New
-  since: `utf8Lines` (:1096–1104) and the `.` check (:1021–1024) are two more AssertionError
-  sources the classifier catches by name. referenced.test.mjs:174–190 feeds `gunzipSync` errors
-  straight to the classifier; snapshot-file.test.mjs:452–472 cuts bytes through the reader but
-  never calls it. Still no bad bytes → reader → classifier. The fix stands as filed: the reader
-  turns every codec failure into its own damage error, and the classifier names no codec.
+**Carried from the seventeenth pass, re-verified 2026-10-30.** All hold; unchanged files confirmed by
+`git log` with a control that printed commits for the changed ones.
+- **One claim.** _Worth exploring; holds._ [setup.mjs](../src/commands/setup.mjs):266–273 does
+  `freshInfo → claimRemoteSet → writeSet → writeClaim`; [takeover.mjs](../src/commands/takeover.mjs):90–103
+  does `freshInfo(info?.created) → (writeRemoteInfo | claimRemoteSet) → writeClaim`; the lost race
+  :94–101 is reached by no test (its message appears in `src/` only). [set-marker.mjs](../src/lib/set-marker.mjs):
+  `claimRemoteSet` :118–120, `writeRemoteInfo` :140–142, `writeClaim` :166–168, `holding` :180–187.
+  takeover.test.mjs:107–108 still asserts claim-text == marker-text; five cases, none the lost race.
+  The fix stands as filed: set-marker owns the claim end to end, each path ending in the local write.
+- **`held` means two things.** _Worth exploring; holds._ [list.mjs](../src/commands/list.mjs):37–38
+  and `heldHere` (:136–146): a `claim` file exists; [reattach.mjs](../src/commands/reattach.mjs):15 and
+  set-marker's `holding` (:180–187): the stored pair matches the marker, GLOSSARY's **Holder**.
+  [render.mjs](../src/render.mjs):113–116 and :428–439 say "Held by this machine" for both.
+  list.test.mjs:116–120 and :138–156 cover claim-present and none; nothing asserts a stale claim.
+- **Suggested exclude line.** _Strong; holds, wider input._ `excludePattern` moved to
+  [backup.mjs](../src/commands/backup.mjs):168–179; #461 keeps a folder link's trailing separator
+  (:175–178) and it still returns `relative(root, path)` raw (:177) — no escaping of `*`/`?`/`[`/`#`
+  or edge spaces; `parseLines` (read-lines.mjs:11–15) trims and drops `#`; `globSource`
+  (path-match.mjs:226–229) has no inverse. #460 widened the source: an uninspectable entry is an
+  `#error` (walk.mjs:439–449) → `pass.errors` → suggestion (backup.mjs:149–151). The render
+  ([render.mjs](../src/render.mjs):1028–1040) says nothing about renaming; backup.test.mjs:230–280
+  cover plain names. The fix (an inverse beside `compileExcludePatterns`, or nothing when the grammar
+  has no exact spelling, and a render that says so) and the round-trip test stand as filed.
+- **Forget plans twice.** _Worth exploring; holds, and the "same step" now has two policies._
+  [forget.mjs](../src/commands/forget.mjs):194 (`.orphaned`) and :212 (`{ gone }`) are still two
+  `planUnrestorable` calls around one intersect-and-HEAD (:200–211), which now pre-filters through
+  `explainingDeletions` ([referenced.mjs](../src/lib/referenced.mjs):105–119, #456) and reads only
+  `{ deleted }`, ignoring the record's `invalid`; `getUndeletedHashes`
+  ([upload.mjs](../src/lib/upload.mjs):204–223) makes the same step but refuses on `invalid`
+  (:205–208) and intersects the raw map. `.orphaned` is read at forget.mjs:194 and
+  unrestorable.test.mjs:171 only.
+- **Tree's tab-separated output.** _Worth exploring; holds, narrow form._ `renderTree`
+  ([render.mjs](../src/render.mjs):531–535) writes `${entry.path}\t${entry.pattern}` raw
+  ([tree.mjs](../src/commands/tree.mjs):40 passes the raw path). Patterns with a tab or CR are refused
+  at walk.mjs:78–96; an excluded entry is recorded (:417–420, :442, :534) before the loop's tab check
+  (:315), so `entry.path` can hold a tab on Linux and macOS (walk.test.mjs:700–716 asserts one such
+  record). Spell it out as the `#excluded` row does (snapshot-file.mjs:584–591, `showControlChars`),
+  or refuse it. Lands beside **one classifier in the walk**.
+- **Codec damage on both sides.** _Worth exploring; holds._ `parseCompressedSnapshotStream`
+  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):826–853) folds only `Z_BUF_ERROR` (:846–850) and
+  rethrows `Z_DATA_ERROR` raw; `isCorruptSnapshotError` ([referenced.mjs](../src/lib/referenced.mjs):133–143)
+  matches both codes plus `AssertionError`, its `Z_BUF_ERROR` arm unreachable from the reader;
+  `AssertionError` sources are `utf8Lines` :1197, the `.` check :1021–1024 and `parseLine`'s asserts
+  (:928, :939, :946, :973). referenced.test.mjs:216–245 feeds `gunzipSync` errors to the classifier;
+  snapshot-file.test.mjs:710–780 cuts bytes through the reader and never calls it. The fix stands:
+  the reader turns every codec failure into its own damage error, and the classifier names no codec.
 
-**Smaller items (seventeenth pass)** — verified, too small for an entry of their own; the
-sixteenth pass's items that still hold are carried here, re-anchored.
-**takeover reads the holder twice, and the early exit skips the bucket check.** _Worth exploring,
-small._ takeover.mjs:61–70 calls `holding`, then `attachSet` ([attach.mjs](../src/lib/attach.mjs):29–37)
-calls it again and returns `held`, which the command ignores: two `.info` GETs on an attached set.
-So `takeover <set> --bucket <wrong>` on a held set prints "already holds … (bucket 'right')" and
-exits 0 before attach.mjs's mismatch check (:31–35). reattach.test.mjs:90 covers the mismatch for
-reattach only; takeover.test.mjs:145–158 passes `{}`.
-**AWS template file names re-spell the stack suffixes.** _Speculative._
-[lib/aws.mjs](../src/lib/aws.mjs):96–114 names the stacks through `bare()`;
-[commands/aws.mjs](../src/commands/aws.mjs):125, :137 and :155 write `${name}-bucket`,
-`${name}-${fingerprint}` and `${name}-user` without it, and the comment at :168–171 argues only the
-prefix difference; the identity-stack pattern is a literal again at commands/aws.mjs:104 and
-commands.mjs:241. The ARN layout itself is one spelling (`identityEnvPath`).
-**Progress width read twice per frame.** _Speculative._ `terminalWidth`
-([progress.mjs](../src/lib/progress.mjs):92–101) is the one refresh point, but each fused-line
-frame calls it from `compose` (snapshot.mjs:465, tail-preserving) and again from `draw`'s backstop
-(progress.mjs:142, head cut); `clockedLine` could pass the width it just read to `compose(width)`,
-and the fused-line test would drop its own `_refreshSize` fake.
-**exclude's platform facts are import-time constants.** _Speculative._ `FOLDS_CASE`/`FOLDS_ACCENTS`
-([exclude.mjs](../src/lib/exclude.mjs):50–52) and `spell`'s `sep`, so exclude.test.mjs:88–134
-asserts per platform and skips, where the shape-keyed `foldsCase`/`preparePath` test anywhere. The
-platform-vs-shape split is argued three times (path-match.mjs:27–29, exclude.mjs:22–27,
-find.mjs:114–121); two should point at one. One production caller and CI on three OSes, so the
-gain is test locality only.
-**`formatByteValue`'s widest output restated by consumers.** _Speculative._ format.test.mjs:41 pins
-`1234.6PB` (8 chars) since #397; s3.mjs `SIZE_COL = 8` (:630–632, "999.9GB is 7 chars") and
-snapshot.mjs `BYTES_COLUMNS = 7` (:660–662, "999.9MB is the widest") each restate the width and
-disagree. Export the width beside the function.
-**Provider's switch re-spells the env keys.** _Holds._ [commands/provider.mjs](../src/commands/provider.mjs)'s
-`replacedName` (:52–61) reads the three `AWS_*` keys itself though `settingKeys`
-(lib/provider.mjs:35–41) is the home; the `--unset` ternary (:270–275) still branches on the raw
-string. Routing it through `readProviderConfig` is a behaviour change to decide: that sees no
-secret-only set.
-**A set with no bucket breaks every "which set?" listing.** _Speculative; holds._
-[sets.mjs](../src/lib/sets.mjs)'s `readSet` (:334–342) and `resolveSet` (:407–409) list every set
-through the strict `readSet`, which throws at :347–349 without `S3CAB_BUCKET`. Its message is
-actionable, so this may be acceptable fail-fast.
-**Failure-reason spellings: five, across more sites.** Inline
-`Error.isError(e) ? e.message : String(e)` at remote.mjs:309, snapshot.mjs:360, walk.mjs:459 (new,
-`checkLink`) and inside auth.mjs's `reasonFrom` (:49); `errorText` ([error.mjs](../src/lib/error.mjs):291,
-which also unwraps a message-less `AggregateError`) at find.mjs:229, help.mjs:179, s3cab.mjs:109
-and s3.mjs:343; `instanceof Error` at backup.mjs:160; a bare `String(cause).trim()` at
-auth.mjs:352. Still a consistency fix, not a defect.
-**`preparePath`'s unread fields — narrower.** `pathMatcher` (via `normalize`,
-path-match.mjs:89–92) is now a third consumer (restore's filters, the walk's link test, the
-reader's `@SET DIR` check) reading `.path` and `.foldCase`; restore.mjs:130/:159 and
-snapshot-file.mjs:1077 read `.path`; only find's basename mode (find.mjs:157) reads `.base`. No
-caller reads only `.base`, so the per-row cost claim is unmeasured and smaller than filed.
-**`hashedFiles` counts empty files.** _Holds._ file-props.mjs:139–151 returns `hashDuration` from
-the `EMPTY_DIGEST` branch; snapshot.mjs:353–356 counts on it, against its own "only on a path that
-actually hashed". Cosmetic.
-**The empty file's hash is spelled three times.** delete.mjs:20–21 a literal; file-props.mjs:34
-`EMPTY_DIGEST`, unexported, "so it cannot be mistyped"; delete.test.mjs:92 a third.
-**Debug decompression outside the codec's owner.** _Speculative; holds._ snapshot.mjs:4 imports
-`createGunzip`; :371–377 spells `.snapshot.tsv`. A debug aid with one caller.
-**Stale prose.** remote.mjs's `backup`/`status` line **landed** in #391. Still stale:
-[commands/cleanup.mjs](../src/commands/cleanup.mjs):15–16 and :103 "the read-only twin of
-`verify`", though it deletes; [compare.mjs](../src/lib/compare.mjs):393–398 "no header, so no
-instant reaches here" (a true conclusion with a stale reason: `readBaseline` parses `instant`,
-commands/snapshot.mjs:48–55 just doesn't pass it); [objects.mjs](../src/lib/objects.mjs):186 "50 at
-a time" for `REQUESTS_IN_FLIGHT`, and its header (:19) missing HEAD and DELETE; walk.mjs:44–55 and
-walk.test.mjs:603–604's `crlfDelay` reason (goes with **one classifier in the walk**).
+**Smaller items (eighteenth pass)** — verified, too small for an entry of their own; the seventeenth
+pass's items that still hold are carried here, re-anchored. **New:**
+**Failure-reason spellings: six.** [locks.mjs](../src/lib/locks.mjs):258–259 adds a local `reason`
+beside the inline form at auth.mjs:49 (`reasonFrom`), remote.mjs:360, snapshot.mjs:360, walk.mjs:446
+(`recordUninspectable`); `errorText` ([error.mjs](../src/lib/error.mjs):311–322) at s3cab.mjs:109,
+help.mjs:179, find.mjs:229, s3.mjs:342; `instanceof` at backup.mjs:85; `String(cause).trim()` at
+auth.mjs:352.
+**Two `--from-file` openers.** [restore.mjs](../src/commands/restore.mjs)'s `readPathList` (:157–182:
+file or `-`, ENOENT → ADR-0030 message) and [delete.mjs](../src/commands/delete.mjs):127–142 (file
+only, by ADR-0089's "no piping"); `parseLines` (read-lines.mjs:11) is the one grammar, with five
+callers.
+**`KEY=value`: one reader, two writers.** `infoFields` ([set-marker.mjs](../src/lib/set-marker.mjs):83)
+serves the marker and the lock (locks.mjs:119); `formatInfo` (:71) and `formatLock` (locks.mjs:92)
+each hand-join with their own optional-line handling, and the writer-side invariants (LF-terminated,
+no newline in a value, no `=` in a key) are stated nowhere.
+**`hold`'s unstated precondition.** "`work` rejects only after its requests have settled" is what
+makes "remove the lock on any failure" safe; it is written at the adapter
+([objects.mjs](../src/lib/objects.mjs):155–158, `eachInFlight`) and in ADR-0112, not at the seam
+(locks.mjs:352–359 speaks of Ctrl+C only). Every current `work` satisfies it (traced: `eachInFlight`
+for HEAD/DELETE; sequential awaits in `writeDeletionRecord`, `compactDeletionRecords`,
+`uploadSnapshotFile`; the transform's `await putObject`), pinned at objects.test.mjs:270.
+**Lock typing.** `holdUploadLock.command` is `string` (locks.mjs:405), `holdDeleteLock.command` is
+`"cleanup" | "delete"` (:439); `goalOf`'s fallback (:255) is unreachable from the six sites.
+**`Drift.cause` is a raw Error in a result.** upload.mjs:256; render.mjs:1291 and
+commands/upload.mjs:258 read `cause?.code` off it; under `--json` an fs error serializes to
+`{errno, code, syscall, path}` and a `ContentMismatchError` to `{}`.
+**Bucket-name validation splits by operand position, 6:3.** `validateBucketName` runs in every
+`--bucket`-flag command (delete.mjs:118, unlock.mjs:39, setup.mjs:83, reattach.mjs:50,
+takeover.mjs:53, aws.mjs:119) and in none of the positional-bucket ones (cleanup.mjs:77,
+verify.mjs:53, hashes.mjs:24 — `requireArg` only), so `cleanup s3://b` reaches `parseS3Uri`
+(s3.mjs:584) and gets the SDK's error instead of ADR-0030's.
+**"Absolute by shape" ×4, "segments past the root" ×3.** `!foldsCase(x) && !x.startsWith("/")` at
+extract.mjs:47, restore.mjs:209 (`reroot`), snapshot-file.mjs:1119 (`pathFault`), path-match.mjs:102
+(`isMatchableDir`, as `posix.sep`); the root cut at `namesOf` (restore.mjs:166, drops empties),
+`pathFault` (:1137–1138, keeps empties to refuse them), `isMatchableDir` (:105–106, strips trailing
+then splits). The drive-letter upper-casing is spelled in `reroot` (:215–219) and `itemName`
+(:231–239).
+**`restoreTargets`' pass-through and its agreeing pair.** It takes `selected: { targets, invalid,
+unmatched }` (restore.mjs:389) and acts only on `targets`, copying the other two into the result
+(:662–664); it takes `outDir` (:381, :391) beside a `destFor` that already encodes it (`linkedFolder`
+:808 needs the prefix), and both callers build the pair from one value (restore.mjs:88/:115,
+extract.mjs:52/:60–63/:84). `extractTo(item, to)` (:252) and `selectTargets(…, [item])`
+(extract.mjs:83–84) derive the item's depth and the filter from the same string independently
+(:244–246 is caller discipline).
+**"Transport failure first, then drift" restated at three coordinators** — upload.mjs:599–613
+(`uploadSet`), :784–792 (`uploadSnapshot`), :876–879 (`uploadDir`). Deliberate per ADR-0069's
+amendment; the lock move made the triplication adjacent.
+**`pathMatcher` vs `unmatchedFolders` on a blank folder.** `pathMatcher` drops a blank
+(path-match.mjs:147); `unmatchedFolders` doesn't (:189–191), and `pathKey("")` = `pathKey("/")` =
+`""`. Unreachable: both commands trim blanks (restore.mjs:62, extract.mjs:39) and `parseLines` drops
+them. `selectEntries`' doc (restore.mjs:139–140) describes one of the two functions `selectTargets`
+feeds.
+**`snapshotFiles` is a token the command carries** (commands/cleanup.mjs:103 → :218) — with
+**cleanup's top-up**.
+**Carried and holding.** **takeover reads the holder twice** (takeover.mjs:61–70 `holding`;
+attach.mjs:37 again, `held` ignored at :73; the early exit :64–69 precedes attach.mjs:31–35's bucket
+check; takeover.test.mjs:157/:171 pass `{}`). **AWS template file names** (lib/aws.mjs:96–114 via
+`bare()`; commands/aws.mjs:125, :137, :155 without; the literal pattern at commands/aws.mjs:104 and
+commands.mjs:244). **Progress width read twice per frame** (snapshot.mjs:465, progress.mjs:142;
+`clockedLine` :268–277) — the "`_refreshSize` fake would drop" claim is dead,
+snapshot.progress.test.mjs:77 stubs `terminalWidth` by module mock. **exclude's platform constants**
+(exclude.mjs:50–52, `spell` :69–72; argued at path-match.mjs:27–29, exclude.mjs:22–29,
+find.mjs:114–121). **`formatByteValue`'s widest output** (format.test.mjs:41 pins `1234.6PB`;
+s3.mjs:629–631 `SIZE_COL = 8` "7 chars"; snapshot.mjs:660–662 `BYTES_COLUMNS = 7`). **Provider's
+switch** (commands/provider.mjs:52–61 `replacedName`, :270–275; `settingKeys` lib/provider.mjs:35–41).
+**A set with no bucket** (sets.mjs:334–355 throws :348–355; `resolveSet` :395–410 lists via it).
+**`hashedFiles` counts empty files** (file-props.mjs:180–199; snapshot.mjs:347–356). **The empty
+file's hash spelled three times** (delete.mjs:16–17, file-props.mjs:35, delete.test.mjs:110).
+**Debug decompression** (snapshot.mjs:4, :371–377).
+**Dead.** **`preparePath`'s unread fields** — `.base` now has two production readers (find.mjs:157,
+`folderOf` snapshot-file.mjs:1042) and every field is read somewhere; path-match.mjs:59–62 states
+the per-row design and snapshot-file.mjs:1031–1034 records the DIR passes as measured.
+**Stale prose.** [lib/cleanup.mjs](../src/lib/cleanup.mjs):1–2, :8–11, :48–49 (with **cleanup's
+top-up**); [commands/cleanup.mjs](../src/commands/cleanup.mjs):30–32 "single pass — no second
+enumeration" (the top-up is a second `snapshots/` LIST plus reads), :18–19 and :108 "read-only twin
+of `verify`"; [s3.mjs](../src/lib/s3.mjs):915–919 `objectExists` names "upload.mjs's baseline-trust
+check" as a caller, which ADR-0084's `matchRemoteSnapshot` replaced (nothing outside s3.mjs imports
+it); [snapshot-file.mjs](../src/lib/snapshot-file.mjs):866 "`@SET DIR` into `dirs` (what
+`restore --output` re-roots by)" — `reroot` reads no `dirs` since #464;
+[path-match.mjs](../src/lib/path-match.mjs):3–11 omits the reader, the walk's `backupMatcher` and
+`extract`, :59–62 "called once per row" is ≥3 on read (measured at snapshot-file.mjs:1026–1034);
+[commands/restore.mjs](../src/commands/restore.mjs):89–95 "a hand-edited one would write files
+relative to the cwd" — the reader refuses a relative row now; [commands/upload.mjs](../src/commands/upload.mjs):35–36
+points the baseline-trust check at proposals/bugs.md, whose open list is empty (the decision is
+ADR-0084); docs/design/backup.md:315 "those three are the whole degrade" (eight kinds); walk.mjs:44–55
+and walk.test.mjs:693–694 (`crlfDelay`, with **one classifier**); [objects.mjs](../src/lib/objects.mjs):14–22
+header missing HEAD and DELETE, :201 "50 at a time" vs `REQUESTS_IN_FLIGHT` :130;
+[compare.mjs](../src/lib/compare.mjs):393–398 "no header, so no instant" (a true conclusion with a
+stale reason: commands/snapshot.mjs:48–55 just doesn't pass it).
+
+**Examined & left alone (eighteenth pass)** (not candidates — skip future runs). **Locks:** the
+liveness rule has one home (`liveLocks`, `processAlive`, `pidNamespace`), nothing outside re-derives
+it (grep for `process.kill|processAlive|pidNamespace|/proc/self/ns|ESRCH` hits locks.mjs and its
+test only), and it is pinned through the holds (locks.test.mjs:469–655: dead pid swept and announced,
+alive kept, EPERM alive, other OS / PIDNS / machine never judged, no PID kept). Write-first/look-second
+and finally-removal are invariants of `hold` (:366–376), not discipline: the six sites pass only a
+closure, request order is pinned (:368–373, :683–688), a LIST failure and a failed removal are
+tested (:439, :450, :830). `--wait` is one loop (:444–474), lock-free while waiting by construction,
+stepped under a timers mock (:98–109, :759–818) and run for real in the crash tier
+(test/crash/concurrency.test.mjs:313–383); the knob forwarded through `reclaim`/`deleteContent` is
+the cost of "lock inside the lib", two sites. `basicForm` (format.mjs:282) is one formatter with
+three producers, `snapshotNames` (snapshot-file.mjs:754) the one recognizer, and lock ids are never
+parsed by digits (`kindOf` by prefix, `instantOf` by first hyphen); roles-anywhere.mjs:745–748's
+`[:-]` strip is SigV4's wire format behind the ADR-0059 boundary. `infoFields` now has two production
+consumers, a deepening; cleanroom's `check-backup.mjs` reader is independent by design.
+`readNewSnapshots` diffs by key, never by name or time (remote.mjs:301–306). `scanBucket` keeping
+`snapshotFiles` is argued at bucket-scan.mjs:45–47. `unlock` composes `listLocks`/`removeLock`/
+`describeLock` and never judges liveness (:11–16). Dry run and a declined prompt take no lock
+(pinned). Record-first under the lock with the instant read under it (lib/delete.mjs:37, argued
+:22–26). `eachInFlight` settles every worker before rejecting (objects.test.mjs:270). The `hold`
+doc's Ctrl+C claim is correct via snapshot-file.mjs:348–355 and `propsRows` :1293–1295.
+`WAIT_MS`/`writeLock` exported for tests only, the `REQUESTS_IN_FLIGHT` precedent. `uploadSet`
+(upload.mjs:560): its three options are the command's bag relocated and it has one production
+caller, but what is behind it is deep (the lock, the baseline, the trust-checked skip-list, the
+splice, the failure-vs-drift judgement, the holder check and no-clobber manifest) and the
+lock-placement rule earns the seam; backup.test.mjs:78–90 fakes it, upload.set.test.mjs tests it
+with the engine faked. `describeLock`'s hand-made-lock branch and `goalOf`'s fallback are the only
+unexercised lines. `lib/delete.mjs` has no co-located test and runs for real inside
+commands/delete.test.mjs — honest "tested elsewhere". The ADR-0112 audit in proposals/bugs.md
+already covers privileged pids, versioned buckets, clock skew and `unshare --pid` inode reuse.
+**Restore and the reader:** `restoreTargets`' loop (fate-by-hash, collision by
+`realpathSync.native`, `firstMissing`/`removeMade`, `isRefusedName`/`isInTheWay` measured codes,
+`linkedFolder` memo, the mtime read-back) — one deep function behind seven named args, two
+production callers with different `destFor`; `chooseSnapshot`; `selectTargets`' all-vs-some rule
+(:315–322); `extract`'s pre-read refusal and `alreadyThereError`'s three flag-preserving commands
+(extract.test.mjs:128–160); `reroot`/`extractTo`/`placeUnder` separator-agnostic, tested on every
+shape from one OS, `reroot`'s relative branch pinned dead (restore.test.mjs:208);
+`writeFileAtomic`/`land`/`copyFileAtomic` after #463 (temp opened before any byte flows, `rm force`
+on any failure, `IntegrityError` only with `hash`) and all three callers (`getObject` objects.mjs:93
+with hash; `downloadRemoteSnapshots` remote.mjs:408 without — gzip's CRC is the check; the copy
+restore.mjs:533), with atomic-file.temp-handle.test.mjs pinning the early open by mocking both
+`open`s on purpose; `statProps` (file-props.mjs:51–56) as the one mtime rounding, three consumers,
+with the format's year bound (:64–67) and restore's NTFS bound (restore.mjs:591, :707–711) correctly
+separate; `pathFault`'s NUL/CR/tab/segment rules and the post-read tree pass (:1026–1084, both rows
+refused, exact comparison per guide/format.md, the root `DIR`'s bogus parent key harmless — traced
+for `/` and `C:\`); the writer sharing no predicate with the reader is by construction (the walk
+yields real files under real roots, `@SET DIR` rows are `resolveWalkRoot`; ADR-0028); `utf8Lines`'
+held-line LF logic (#425) including the stray-lead-byte case; `rowFields` (:1235–1238) leaving
+column five untrimmed; `formatLine`'s code-point padding (#443, writer only); the reader →
+`refused` → restore (`selectTargets` :307–310) / verify (remote.mjs:367–369, verify.mjs:56–61) /
+cleanup (`invalidRowSnapshots`) consumers; "a path that names nothing" decided in `selectTargets`
+(:311–322), policy in `hasFaults` (:689, :699), rendered once (render.mjs:1510–1527), tested
+(restore.downloads.test.mjs:453–481, :1254–1262; extract.test.mjs:276–281; path-match.test.mjs:64–116);
+`nothingNamedError` reading `dirs.txt`, not the snapshot; `readPathList`'s TTY gate;
+`recordUninspectable`'s file-only match (walk.uninspectable.test.mjs:126–131). `path-match.mjs`
+holds one shape per family: `globSource` (:226) one token compiler with two anchoring wrappers
+(exclude.mjs:60, find.mjs:143); `pathKey`/`pathMatcher`/`unmatchedFolders`/`up` one containment key
+scheme; `pathMatcher` has two production consumers (restore's `selectEntries`, the reader's
+`parseSnapshotStream` :1036), a real seam; `isMatchableDir` and `rootLength` are reader/restore
+helpers that landed there. Snapshot fixtures spelled by hand in three command tests
+(extract.test.mjs:40, restore.counts.test.mjs:35, restore.downloads.test.mjs:81–85) sit at the
+`readRemoteSnapshot` seam; `planRestore`'s injected `stat` (:98) serves its unit test while
+`restoreTargets` hard-binds `lstatSync` (:399), so restore.counts.test.mjs:41–51 mocks
+`node:fs.lstatSync` — noted, not a candidate. guide/restore.md and docs/design/backup.md §restore
+are current with ADR-0109/0110/0111 bar the line above. No last-name-layout prose survives.
+**Elsewhere:** the registry and dispatch (`--wait` is one boolean carried command → lib →
+`holdDeleteLock` by ADR-0112's design; nine commands validate their own flag combinations under
+ADR-0011, each with distinct semantics); the destructive gate ×4 (cleanup.mjs:86, delete.mjs:176,
+forget.mjs:146, unlock.mjs:53), the tenth pass's reasoning holds; `putFile` (s3.mjs:741–877) after
+#459 — the interface's three options unchanged, the promise strengthened (sent bytes hashed in a
+`Readable.from` wrapper and compared when the body ends, before lib-storage completes; mismatch →
+`ContentMismatchError` with nothing stored, abort-time error as `cause`; `noClobber` + 412 → `false`),
+the three plan-loop fakes that return `true` without hashing (upload.test.mjs:76,
+upload.set.test.mjs:56, backup.fused.test.mjs:32) kept honest by the stencil's throw-by-default,
+`test/model/harness/fake-s3.mjs:196` honouring `sha256`, loopback tests s3.test.mjs:1472–1600, real
+bucket test/integration/s3.test.mjs:99–116; `error.mjs`: every class caught by type in production,
+`ChangedWhileReadError` (:177) thrown at file-props.mjs:186 and caught at commands/upload.mjs:169 and
+upload.mjs:504; `bucket-scan.mjs` still body-ordered (:66–85), two consumers destructure and
+re-derive nothing; `remote.mjs`'s `listSnapshotFiles`/`readReferencedObjects` split with
+`referencedObjects` kept for `forget`'s snapshot-only need; the START-dating rule in two shapes
+(`explainingDeletions` referenced.mjs:104, bucket-wide, callers bucket-scan.mjs:82 and forget.mjs:201;
+`recordFor` restore.mjs:462–471, one snapshot, cross-referenced) — the verify/restore "deliberate ≠
+fault" rejection's reasoning holds, both tested (referenced.test.mjs:43–88,
+restore.downloads.test.mjs:998), and the deletion-record lookup now has four consumer shapes, two
+sharing one function; `attach.mjs` unchanged, two callers with different follow-ups; `help.mjs`,
+`command-details.mjs`, `sets.mjs`, `list.mjs`, `lib/snapshot.mjs`, `lib/verify.mjs`: no code change
+beyond doc lines; `renderUnlock` returns `""` when nothing was removed and the dispatcher's
+empty-output contract (s3cab.mjs:150) handles it; `renderRestore`'s `to` branch tested
+(render.test.mjs:1595–1614), its verb chosen by the presence of a data field for a renderer both
+registry entries share — a type-tag by proxy, noted with **a restore fault kind**; pass 13's verdict
+on folding restore's sentence-headed blocks into `section()` not revisited.
+
+---
+
+Surfaced 2026-10-15 (seventeenth pass): **17 `src/` commits since `2820adf`** (89 files,
++5266/−2972), read at HEAD `09a082f`: the snapshot-format revision (ADR-0098–0107), set ownership
+(ADR-0108), the bucket and identity stacks (ADR-0105), #398/#399/#410. The eighteenth pass
+re-verified every open entry: all five candidates and all four carried hold and are carried above,
+re-anchored (**one classifier in the walk** and **surplus positionals** wider, **suggested exclude
+line** with a wider input, **forget plans twice** with two policies), with the smaller items that
+still hold; **`preparePath`'s unread fields** is dead.
 
 **Examined & left alone (seventeenth pass)** (not candidates — skip future runs). **Ownership:**
 the holder question is derived in one module (`holding`, `assertHeld`, `readClaim`) and asked from
@@ -638,178 +826,12 @@ least once; re-open only if the stated reason no longer holds.
 ## Run log
 
 > **Capped to the last three passes.** Earlier entries (2026-06-23 first pass through the
-> 2026-10-02 fourteenth and its landing) recorded landings that are already of record in their ADRs, PRs and `git log`,
-> and re-verification notes superseded by every pass since. They live in this file's history:
+> 2026-10-04 fifteenth and its landings, PRs #366–#380, the last on 2026-10-07) recorded landings
+> that are already of record in their ADRs, PRs and `git log`, and re-verification notes superseded
+> by every pass since. They live in this file's history:
 > `git log -p --follow -- proposals/architecture-improvements.md`. Keep this section bounded —
 > a pass that lands a candidate should retire the *open* entry, not append indefinitely here.
 
-- **2026-10-04 — fifteenth pass.** Read the **19 `src/` commits since `f9bba9a`** (58 files,
-  +3246/−2143) at HEAD `7501768`: ADR-0092–0095, the restore name-refusal work (#350/#354/#365) and
-  #364's unreadable-file naming. Three background sweeps (rate-limited mid-run and resumed), then hand
-  re-verification of the carried list: **backup's figures and idle `foldsCase` dead**, **`diff`'s test-only
-  export downgraded**, **command named twice rewritten**, forget's blind preview and three
-  failure-reason spellings wider, exclude subject side, two knob tables and `preparePath`'s unread
-  fields re-anchored. **New: refused-name download and uncaught `FileChangedError` (Strong),
-  restore's early copy plan and parked lookup lifecycle (Worth exploring), and three smaller
-  items.** Top pick: **refused-name download**. Overwrote the HTML report in place.
-  - **The refused-name download was confirmed by experiment, not reading.** A scratch probe ran the real `writeFileAtomic`
-    against a refused name: on NTFS both a 300-character name and `q?.txt` failed at `rename` with
-    ENOENT and left the 100,000-byte temp; on ext4 the long name failed with ENAMETOOLONG.
-  - **Why the regression hid.** The restore refusal tests fake `getObject`, so none reaches
-    `writeFileAtomic`; and `putsColonInName`'s "measured" leftover temp was measured before #365
-    renamed the temp. A doc that says *measured* is measured as of its commit.
-  - **The rejected/parked list was re-checked.** Restore's early copy plan does not reopen pass 10's plan/execute
-    verdict, and parked lookup lifecycle does not reopen the torn work file's declined half (adoption stays explicit). The read-surface rejection's
-    caller list was stale and is corrected; its reason holds.
-- **2026-10-04 — Refused-name download landed** ([PR #366](https://github.com/allens/s3cab/pull/366), grilled in-session,
-  four decisions asked one per turn; no ADR, the rule lives in `writeFileAtomic`'s doc).
-  - **`writeFileAtomic` removes its temp on any failure**, a torn stream included, and drops the
-    cleanup's own error so it can't mask the one `restore` classifies. Only process death leaves a
-    temp. The old reason for leaving a torn stream's temp, not masking the real error, is met by
-    dropping the cleanup error instead.
-  - **A refused dedup copy no longer downloads.** `copyFile` names its source whichever side failed,
-    so restore asks whether the source still exists; only a vanished one is fetched.
-  - **Declined: refusing a fetch before it downloads.** Probing the final name would create a file at
-    the destination, which a crash would leave there empty, for a later restore to skip as present.
-    String rules in `planRestore` would duplicate each filesystem's limits and reverse #354's choice
-    of the filesystem's own answer.
-  - **Tests now reach the real landing path.** `restore.missing-object.test.mjs`'s fake `getObject`
-    writes through the real `writeFileAtomic`, and fails on the old module. Copilot caught that no test
-    made the cleanup itself fail; `atomic-file.cleanup-fails.test.mjs` mocks `rm` to reject and fails
-    with the `.catch` removed.
-  - `npm test` 1176 pass; integration 27 pass, 3 Roles Anywhere skipped; CI green on all three OSes.
-- **2026-10-04 — Uncaught `FileChangedError` landed** ([PR #367](https://github.com/allens/s3cab/pull/367), grilled in-session,
-  two decisions asked one per turn; no ADR, since error.mjs's taxonomy already decided it).
-  - **`fileChangedError` returns a plain `Error`; the class is gone.** ADR-0069's table and ADR-0083
-    now name the factory; neither decision changed.
-  - **`backup.test.mjs` asserts the factory's exact message** in place of an `instanceof` checking the
-    test's own mock. The model tier keeps its message match and drops the `error.name` check.
-  - **Declined (Copilot): asserting `name === "Error"`.** It pins construction nothing reads, and it
-    would fail a correct later subclass that arrives with a real catch site.
-  - Also fixed the pass-15 commit's broken `render.mjs` link, which failed the documentation-links
-    test on `main`.
-  - `npm test` 1176 pass; CI green on all three OSes.
-- **2026-10-04 — Restore's early copy plan landed** ([PR #368](https://github.com/allens/s3cab/pull/368), grilled in-session,
-  three decisions asked one per turn; ADR-0086 amended in place).
-  - **`planRestore` decides only skip, refuse or write; the loop owns dedupe.** One `fateByHash` map
-    (landed, absent or corrupt) replaces three sets, and `RestoreStep` is a union, so no step casts
-    its hash. #366's vanished-source check on the copy is kept.
-  - **A behaviour fix rode along.** Behind a refused or collided first holder, every later holder used
-    to download again; now the next one fetches and the rest copy from it. ADR-0086 had recorded the
-    re-download as a trade-off, so it was amended rather than overridden.
-  - **Tests.** `restore.missing-object.test.mjs` became `restore.downloads.test.mjs` (the naming half of restore and `referenced.mjs` docs)
-    with a shared-content group; both redirect tests fail on the old code. `planRestore`'s copy
-    assertions moved to the command tier.
-  - **Copilot: two wording fixes.** A name refused at the rename has already downloaded, so the docs
-    now say later paths copy "once it has landed", not that shared content downloads once.
-  - `backup.md`'s pre-#366 fallback paragraph was corrected in its own commit.
-  - `npm test` 1178 pass, 13 skipped; integration 27 pass, Roles Anywhere live 3/3; CI green on all
-    three OSes.
-- **2026-10-05 — Parked lookup lifecycle landed** ([PR #369](https://github.com/allens/s3cab/pull/369); no ADR, since
-  ADR-0094's decision 4 doesn't say where the check lives).
-  - **`readParkedLookup(snapshotDir, notBefore)` returns nothing for a stale file**, one parked by a
-    run that started before the previous snapshot. `readBaseline` passes that instant and only warns
-    when it reuses parked hashes.
-  - **The stale file stays on disk.** The read runs before the lock, so a run parking at that moment
-    could have replaced it; the next landed snapshot's delete removes it anyway.
-  - **Unchanged, as the entry asked:** `--resume`'s adopt-or-refuse and the `--rehash` early return
-    stay ahead of the read.
-  - **Tests.** Two reader tests, a millisecond either side of the boundary; the stale one fails on the
-    old reader. The command-tier test stays, as the guard on `readBaseline` passing the instant.
-  - `npm test` 1180 pass, 13 skipped; no S3 path touched. Copilot raised nothing.
-- **2026-10-05 — Forget's blind preview landed** ([PR #370](https://github.com/allens/s3cab/pull/370); ADR-0064 amended
-  in place, since it had accepted the overstatement).
-  - **`forget`'s preview leaves out content a `delete` already removed**, and the summary and report
-    header say how many files that was. `planUnrestorable` takes an optional set of hashes confirmed
-    gone and returns the orphaned hashes and that count.
-  - **Not the record alone, as the entry proposed.** Deleted content re-uploads on the next backup
-    and its row stays, so subtracting every recorded hash would hide a real loss. `forget` HEADs only
-    the recorded hashes the preview would count as lost. That settles the comment the entry disagreed with:
-    `forget` needs no objects LIST, and bucket-scan.mjs now says why.
-  - **50 HEADs in flight (Copilot).** `storedObjectSizes` replaced `storedObjectSize` for `delete`'s
-    preflight and `forget`'s preview. 50 is the SDK's socket pool, measured as the ceiling at round
-    trips of 30ms, 55ms and 580ms with `scripts/request-concurrency-bench.mjs`, kept to re-run. The
-    removers' one-at-a-time deletes are the same shape, filed as **one-at-a-time removers**.
-  - **Tests.** `storedObjectSizes` keeps the order given, holds 50 in flight and starts none after a
-    failure; `forget` stops before the prompt when the check fails.
-  - **Copilot, declined:** rewording the last-snapshot warning when everything the set alone holds
-    was already deleted. The set then keeps nothing, so "loses everything the set alone was keeping"
-    stays true, and the deleted-content note sits directly above it.
-  - `npm test` 1189 pass, 12 skipped on `main` after the merge; CI green on all three OSes, real-S3
-    job included.
-- **2026-10-06 — One-at-a-time removers landed** ([PR #371](https://github.com/allens/s3cab/pull/371); no ADR).
-  - **`deleteStoredObjects(bucket, hashes)` replaced `deleteStoredObject`**, 50 in flight, the first
-    failure rejecting with no more started. `delete` and `cleanup` each make one call; `delete`
-    still writes the record first.
-  - **One private pool, `eachInFlight`,** now serves it and `storedObjectSizes`. `HEAD_CONCURRENCY`
-    became `REQUESTS_IN_FLIGHT`.
-  - **Measured, not extrapolated.** The bench gained a DELETE mode and became
-    `scripts/request-concurrency-bench.mjs`; at a 37ms round trip the knee for DELETEs is 50, as for
-    HEADs.
-  - **Not DeleteObjects,** for the reasons the entry gave; the rejection is a comment on
-    `deleteStoredObjects`.
-  - **Tests.** `deleteStoredObjects` deletes each `objects/<hash>`, holds 50 in flight and starts
-    none after a failure.
-  - **Copilot, declined:** a separate concurrency for the bench's untimed DELETE targets (the timed
-    phase already sends up to 64), and capping the pool's workers at the hash count (an idle worker
-    costs microseconds against one round trip).
-  - `npm test` 1192 pass, 12 skipped on `main` after the merge; integration 27 pass before it; CI
-    green.
-- **2026-10-06 — Command named twice landed** ([PR #375](https://github.com/allens/s3cab/pull/375); ADR-0092 reworded
-  from "two commands" to "two remedies").
-  - **The lock-held error no longer names a command.** It says to run the same command again with
-    `--resume`; the delete stays pasteable. Nothing passes a command or a remedy string into the
-    snapshot lib any more, so there is no second naming to disagree with the first.
-  - **Two shapes built and dropped.** Carrying `command: "backup" | "snapshot"` on the baseline had
-    the lib knowing its callers. Each porcelain building the string and passing it four levels down
-    was correct, but too much plumbing for one pasteable line, and it dropped any other options the
-    user typed. The departure from ADR-0030's pasteable form is a comment on `inProgressError`.
-  - **Not taken: "`through` and `transfer` arrive together".** With the command gone, the verb and
-    the Storing line key on `transfer` alone, whether this pass is sending, and `through` alone is a
-    test hook with nothing to contradict.
-  - **Copilot**: its one comment asked to pin the verb to the command, which the final shape drops;
-    declined on the thread.
-  - `npm test` 1191 pass, 13 skipped; no S3 path touched.
-- **2026-10-06 — Unpinned retry window landed** ([PR #376](https://github.com/allens/s3cab/pull/376); no ADR).
-  - **The gap was a test, not a seam.** `formatDuration` rounds to the second, so the few real
-    milliseconds a test spends leave the full window and what is left of it both printing
-    `up to 2 minutes`; reverting the relay to `windowMs` passed everything. The new relay test fakes
-    `Date.now` so the second failure surfaces 90 s in, asserts `up to 30 seconds`, and was checked red
-    against that revert.
-  - **Not taken: the stream parameter.** Production has one stream, so it would be a seam with one
-    adapter, kept for tests, and the `process.stderr.write` patch already works. The rejection is
-    `captureStderr`'s comment in s3.test.mjs, which also drops the false "no stream to inject through
-    SDK middleware".
-  - **Copilot**: no comments.
-  - `npm test` 1192 pass, 13 skipped; no `src/` behaviour touched.
-- **2026-10-06 — Exclude subject side landed** ([PR #378](https://github.com/allens/s3cab/pull/378),
-  grilled in-session; no ADR, since the rules are the doc comment on `compileExcludePatterns`).
-  - **The whole match moved, not just the path's half.** `compileExcludePatterns(baseDir, patterns)`
-    returns `(path, isDirectory) => pattern | undefined`, and owns the join onto the root, `\` → `/`
-    on both sides, the directory's trailing `/` and first-match-wins. The walk's callback keeps the
-    type triage and the two record lists.
-  - **`isDirectory`, not the walk's `fileType` string**, so exclude.mjs never depends on the
-    `"Directory"` spelling `getFileType` owns.
-  - **One export.** The per-pattern compile is private, and the tests cross the walk's interface:
-    the old trailing-`/` *subject* test now reads `excludedBy(["build/**"], "/root/build", true)`,
-    and new ones cover a trailing-`/` pattern against a file and a directory, first-match-wins and a
-    `\`-separated path.
-  - **Not taken: the `.s3cab` skip.** It matches no pattern and records no row; moving it would
-    have made those directories show up as `#EXCLUDED`.
-  - **Left as of record:** ADR-0073, ADR-0088 and the ADR index still say `compileExclude`.
-  - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
-- **2026-10-07 — Two knob tables landed** ([PR #380](https://github.com/allens/s3cab/pull/380); no ADR).
-  - **The table moved; the gather names what it replaces.** `settingKeys` sits in lib/provider.mjs, and
-    `gatherProviderConfig` returns `replaces`: the credential modes it did not choose. The command
-    clears those instead of re-deriving them.
-  - **Returns modes, not env keys** as the entry proposed: the confirmation names each replaced mode,
-    and each mode keeps its own presence rule (`S3CAB_RA` counts only as `1`, pinned by a test that
-    caught a generic "any key set" check).
-  - **A fourth mode is now a compile error, not a silent miss.** Adding one to `CredentialMode` fails
-    `typecheck` at `settingKeys` and at the command's `replacedName` until both name it; checked by doing so.
-  - **Not taken: the endpoint's two spellings.** The write and the clear still sit apart; the
-    clear's reason is the comment on `settingKeys.endpoint`.
-  - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
 - **2026-10-09 — sixteenth pass.** Read the **22 `src/` commits since `7501768`** (66 files,
   +1810/−923) at HEAD `2820adf`: pass 15's landings, gzip snapshots (ADR-0097), #385's exclude
   suggestions and #388's line-break names. Three background sweeps, then every claim checked by
@@ -860,3 +882,37 @@ least once; re-open only if the stated reason no longer holds.
     silently.
   - **The fourteenth pass's run-log entries were retired under the three-pass cap.** Its landing is
     ADR-0093 and PR #355; `git log -p` on this file keeps the rest.
+- **2026-10-30 — eighteenth pass.** Read the **22 `src/` commits since `09a082f`** (80 files,
+  +8422/−2190) at HEAD `68da4b0`: locks in the bucket (ADR-0112) and `unlock`, basic-form names
+  (ADR-0113), the restore rework (ADR-0109–0111, `extract`), the clean-room sets' reader rules
+  (#425/#428/#439/#443/#452–#457), #459/#460/#463. Four background sweeps (the locks, restore and
+  the reader, the carried list, the remainder), then every Strong and Worth-exploring claim checked
+  by hand. **New: the upload lock's untested holds (Strong); cleanup's top-up, a restore fault
+  kind's five enumerations, pre-decision stdout under `--json` and the snapshot-name spelling
+  (Worth exploring); nine new smaller items.** Top pick **the upload lock's untested holds**, grilled
+  and landed with this pass: `uploadSnapshot`, `uploadDir` and `uploadFile` assert their holds
+  (lock → the operation's hashes and PUTs → unlock, and the lock's args) in upload.test.mjs,
+  `uploadFile` its whole interface including the `ContentMismatchError` → `change` path, and the
+  four hand-written lock fakes became `test/helpers/lock-seam.mjs`, typed from the real holds; no
+  surface test, because it deliberately covers the two holds and not the `unlock` command's reads.
+  The deepening to take next is **one reader**. Overwrote the HTML report in place.
+  - **The one-reader divergences were run, not traced.** A scratch probe imported the worktree's
+    real `deletion-record.mjs` and `snapshot-file.mjs` and fed each a file ending `.\n.` and one
+    with a 0xFF byte in a row: the record said "rows follow" and "valid" where the snapshot said
+    valid and "isn't UTF-8 text". The S3 body's `transformToString` is `@smithy/core/serde`'s
+    `toUtf8`, a lenient `Buffer.toString("utf8")`. A grilling can start from that output.
+  - **The untested holds were proved by grep, not assumed.** `lockCalls` is written at
+    upload.test.mjs:120/:129, reset at :202 and read nowhere; `ContentMismatchError` appears in
+    tests only at the `putFile` level (s3.test.mjs, the integration suite) and as a constructed
+    cause (commands/upload.test.mjs:296); no test under `src/` or `test/` calls `uploadFile` or
+    runs `upload --file`.
+  - **The carried list was re-verified by a sweep and then by hand.** Every candidate holds; two
+    wider (the walk's classifier, surplus positionals), one dead (`preparePath`'s unread fields),
+    and one claim inside **progress width** dead (the `_refreshSize` fake is a module mock now).
+  - **The rejected/parked list was re-checked and stands.** **Cleanup's top-up** keeps
+    `planCleanup` pure (pass 10's plan/execute verdict); **a restore fault kind** stays inside
+    `renderRestore`, not the `section()` grammar pass 13 declined; **pre-decision stdout** touches
+    ADR-0043 and says so on the entry; the verify/restore "deliberate ≠ fault" rejection holds, the
+    START-dating rule's two tested shapes noted beside it.
+  - **The fifteenth pass's run-log entries were retired under the three-pass cap.** Its landings
+    are PRs #366–#380; `git log -p` on this file keeps the rest.
