@@ -1,6 +1,7 @@
 import { showControlChars } from "./format.mjs";
 import { deleteObject, getBytes, listObjects, putText } from "./s3.mjs";
 import {
+  FILE,
   formatLine,
   HEADING,
   isInstant,
@@ -100,7 +101,7 @@ export async function parseDeletionRecord(input) {
   const invalid = await parseS3cabFile(
     input,
     ([type, hash, size, instant, by], line) => {
-      if (type === "-") {
+      if (type === FILE) {
         return "is a snapshot's file row, which a deletion record doesn't hold";
       }
       if (type !== DELETED) {

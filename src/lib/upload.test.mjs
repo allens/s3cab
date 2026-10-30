@@ -63,8 +63,8 @@ let putError;
 let duringPut;
 // The store this suite really models — a keyed body map on the read side, and a
 // PUT that reports whether the object was new. Everything the graph imports but
-// no test here reaches
-// (`deleteObject`, `objectSize`) is unmodelled and stays that way.
+// no test here reaches (`deleteObject`, `objectSize`) is unmodelled and stays
+// that way.
 mock.module("./s3.mjs", {
   exports: s3Seam({
     getBytes: async (/** @type {string} */ uri) => {

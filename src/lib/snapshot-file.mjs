@@ -58,7 +58,7 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // so the literal strings live in exactly one place. The first character says
 // what a row is (ADR-0103): `@` a property, `-` a file, `#` a path a restore
 // doesn't act on.
-const FILE = "-";
+export const FILE = "-";
 const EXCLUDED = "#excluded";
 const ERROR = "#error";
 const S3CAB = "@S3CAB";
@@ -1186,7 +1186,8 @@ export async function parseS3cabFile(input, onRow, { tolerant = false } = {}) {
       }
     } else {
       fault ??=
-        `line ${number} has an unknown row type '${type}', so a newer s3cab ` +
+        `line ${number} has an unknown row type ` +
+        `'${showControlChars(type)}', so a newer s3cab ` +
         `wrote it, or it isn't an s3cab file`;
     }
   };

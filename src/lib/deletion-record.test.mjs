@@ -209,6 +209,11 @@ describe("parseDeletionRecord", () => {
     );
   });
 
+  it("spells out a CR in an unknown type it quotes (ADR-0100)", async () => {
+    const { invalid } = await parse(fileOf("x\ry\tjunk\n"));
+    assert.match(invalid ?? "", /unknown row type 'x␍y'/);
+  });
+
   it("reports the first fault in the file, a malformed row ahead of a later blank line", async () => {
     const { invalid } = await parse(
       fileOf(deletedRow("not-a-hash", 1, T1, "x"), "\n"),
