@@ -11,11 +11,13 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
-import { ChangedWhileReadError } from "./error.mjs";
+import { ChangedWhileReadError, ContentMismatchError } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
+import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
+/** @import { UploadLockArgs } from "../../test/helpers/lock-seam.mjs" */
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { HashSource } from "./file-props.mjs" */
 /** @import { Drift } from "./upload.mjs" */
@@ -52,7 +54,11 @@ let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
 /**
- * @type {((path: string, options?: { onProgress?: (transfer: Transfer) => void }) => void) | undefined}
+ * What `putFile` is called with besides the path and URI.
+ * @typedef {{ noClobber?: boolean, onProgress?: (transfer: Transfer) => void, sha256?: string }} PutOptions
+ */
+/**
+ * @type {((path: string, options?: PutOptions) => void) | undefined}
  * Runs inside each PUT, while it is in flight.
  */
 let duringPut;
@@ -76,7 +82,7 @@ mock.module("./s3.mjs", {
     putFile: async (
       /** @type {string} */ path,
       /** @type {string} */ uri,
-      /** @type {{ onProgress?: (transfer: Transfer) => void } | undefined} */ options,
+      /** @type {PutOptions | undefined} */ options,
     ) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
       callOrder.push(`put:${basename(path)}`);
@@ -116,21 +122,13 @@ mock.module("./set-marker.mjs", {
     },
   },
 });
-/** @type {Record<string, unknown>[]} what the upload lock was asked to hold */
+/** @type {UploadLockArgs[]} what the upload lock was asked to hold */
 let lockCalls = [];
-// The lock is locks.mjs's, unit-tested there; here it is a passthrough that
-// records what each operation asked it to hold.
 mock.module("./locks.mjs", {
-  exports: {
-    holdUploadLock: async (
-      /** @type {Record<string, unknown>} */ args,
-      /** @type {() => Promise<unknown>} */ work,
-    ) => {
-      lockCalls.push(args);
-      callOrder.push("lock");
-      return work();
-    },
-  },
+  exports: uploadLockSeam({
+    held: (args) => lockCalls.push(args),
+    event: (name) => callOrder.push(name),
+  }),
 });
 /** @type {Set<string>} paths rewritten the instant hashing finishes. */
 let driftAfterHash = new Set();
@@ -182,6 +180,7 @@ const {
   uploadSnapshot,
   uploadSnapshotFile,
   uploadDir,
+  uploadFile,
 } = await import("./upload.mjs");
 
 beforeEach(() => {
@@ -1030,6 +1029,54 @@ describe("uploadSnapshot drift guard", () => {
   });
 });
 
+// The hold (ADR-0112): the objects and the manifest go up inside it, and it is
+// the set's upload lock that is asked for. The target and the `--since`
+// baseline are read first, so a name that doesn't exist fails before any lock
+// is written.
+describe("uploadSnapshot under the upload lock", () => {
+  it("PUTs the objects and the manifest inside the hold, as the set's upload", async () => {
+    await using dir = await mkTmpDir();
+    const { args, baselineUri } = await oneFileFixture(dir.path);
+    remoteFiles.delete(baselineUri); // distrusted → the object is planned
+
+    await uploadSnapshotOf(args);
+
+    // No `hash:` event: this path never hashes, the snapshot carries every hash.
+    assert.deepEqual(callOrder, [
+      "lock",
+      "put:photo.raw",
+      "assertHeld",
+      `put:${args.name}.tsv.gz`,
+      "unlock",
+    ]);
+    assert.deepEqual(lockCalls, [
+      { bucket: "trust-bucket", command: "upload", set: "trusty" },
+    ]);
+  });
+
+  it("takes no lock for a snapshot that doesn't exist", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+
+    await assert.rejects(
+      () => uploadSnapshotOf({ ...args, name: "20250115T2359" }),
+      /Snapshot '20250115T2359' not found/,
+    );
+    assert.deepEqual(lockCalls, []);
+  });
+
+  it("takes no lock for a --since baseline that doesn't exist", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+
+    await assert.rejects(
+      () => uploadSnapshotOf({ ...args, since: "20250115T0000" }),
+      /Snapshot '20250115T0000' not found/,
+    );
+    assert.deepEqual(lockCalls, []);
+  });
+});
+
 // The folder-seed primitive (`upload --dir`): walk a live subtree honouring the
 // set's excludes, hash each file, and conditional-PUT its object — no snapshot,
 // no baseline diff, no store LIST (the conditional PUT is the "already stored?"
@@ -1198,6 +1245,157 @@ describe("uploadDir (seed a folder's objects)", () => {
     assert.ok(
       firstPut < lastHash,
       `an object shipped before the last file was hashed: ${callOrder.join(" ")}`,
+    );
+  });
+
+  it("hashes and PUTs inside the hold, as the set's upload (ADR-0112)", async () => {
+    await using dir = await mkTmpDir();
+    const { root, set } = seedFixture(dir.path);
+
+    await uploadDir(set, { dir: root });
+
+    assert.equal(callOrder[0], "lock");
+    assert.equal(callOrder.at(-1), "unlock");
+    assert.ok(callOrder.some((c) => c.startsWith("put:")));
+    assert.deepEqual(
+      callOrder.filter((c) => !c.startsWith("hash:") && !c.startsWith("put:")),
+      ["lock", "unlock"],
+      `only hashes and PUTs inside the hold: ${callOrder.join(" ")}`,
+    );
+    assert.deepEqual(lockCalls, [
+      { bucket: "seed-bucket", command: "upload", set: "seed" },
+    ]);
+  });
+});
+
+// The one-file primitive (`upload --file`): the caller has hashed the file
+// already; under the hold the stat guard confirms it is still that file, then
+// the one conditional PUT runs, and a `--force` makes it unconditional. The
+// guard's refusals come back as a `change`, never thrown — the caller holds the
+// re-run — and so does `putFile`'s own refusal (ADR-0083), the one a rewrite
+// *during* the transfer trips. Real props from a temp file; `putFile` faked.
+describe("uploadFile (store one hashed file)", () => {
+  /**
+   * One real file and the props `upload --file` would have just taken of it.
+   * @param {string} dirPath - A temp dir to build the fixture in
+   */
+  const oneFile = async (dirPath) => {
+    const path = join(dirPath, "photo.raw");
+    writeFileSync(path, "original bytes");
+    const props = await fileProps(path);
+    return { path, props, uri: `s3://file-bucket/objects/${props.hash}` };
+  };
+  const set = { name: "files" };
+
+  it("PUTs the object inside the hold, as the set's upload (ADR-0112)", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props, uri } = await oneFile(dir.path);
+    /** @type {string | undefined} the digest the PUT is held to */
+    let sha256;
+    duringPut = (_path, options) => {
+      sha256 = options?.sha256;
+    };
+
+    const result = await uploadFile({
+      bucket: "file-bucket",
+      set,
+      path,
+      props,
+    });
+
+    assert.deepEqual(result, { uploaded: true });
+    assert.deepEqual(putFiles, [{ path, uri }]);
+    assert.equal(sha256, props.hash, "the PUT is held to the hash (ADR-0083)");
+    assert.deepEqual(callOrder, ["lock", "put:photo.raw", "unlock"]);
+    assert.deepEqual(lockCalls, [
+      { bucket: "file-bucket", command: "upload", set: "files" },
+    ]);
+  });
+
+  it("holds the lock with no set for `upload --bucket`", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props } = await oneFile(dir.path);
+
+    await uploadFile({ bucket: "file-bucket", path, props });
+
+    assert.equal(lockCalls.length, 1);
+    assert.equal(lockCalls[0]?.set, undefined, "no set is named");
+  });
+
+  it("reports an object the store already holds as not uploaded, and no change", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props, uri } = await oneFile(dir.path);
+    storedUris.add(uri);
+
+    const result = await uploadFile({
+      bucket: "file-bucket",
+      set,
+      path,
+      props,
+    });
+
+    assert.deepEqual(result, { uploaded: false });
+    assert.equal(putFiles.length, 1, "the conditional PUT was still tried");
+  });
+
+  it("PUTs conditionally by default, unconditionally under --force", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props } = await oneFile(dir.path);
+    /** @type {(boolean | undefined)[]} each PUT's `noClobber` */
+    const noClobbers = [];
+    duringPut = (_path, options) => noClobbers.push(options?.noClobber);
+
+    await uploadFile({ bucket: "file-bucket", set, path, props });
+    await uploadFile({ bucket: "file-bucket", set, path, props, force: true });
+
+    assert.deepEqual(noClobbers, [true, false]);
+  });
+
+  it("stores nothing when the file changed since it was hashed", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props } = await oneFile(dir.path);
+    writeFileSync(path, "different, longer bytes"); // size drifts
+
+    const result = await uploadFile({
+      bucket: "file-bucket",
+      set,
+      path,
+      props,
+    });
+
+    assert.deepEqual(result, {
+      uploaded: false,
+      change: { reason: "changed" },
+    });
+    assert.deepEqual(putFiles, []);
+  });
+
+  it("reports a rewrite during the transfer as a change, with putFile's refusal as the cause", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props } = await oneFile(dir.path);
+    putError = new ContentMismatchError("streamed as another digest");
+
+    const result = await uploadFile({
+      bucket: "file-bucket",
+      set,
+      path,
+      props,
+    });
+
+    assert.deepEqual(result, {
+      uploaded: false,
+      change: { reason: "changed", cause: putError },
+    });
+  });
+
+  it("still throws when the transfer itself fails", async () => {
+    await using dir = await mkTmpDir();
+    const { path, props } = await oneFile(dir.path);
+    putError = new Error("connection reset");
+
+    await assert.rejects(
+      () => uploadFile({ bucket: "file-bucket", set, path, props }),
+      /connection reset/,
     );
   });
 });
