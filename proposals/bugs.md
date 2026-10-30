@@ -132,6 +132,47 @@ unreleased v2, after which Node must also drop its cast. Until both ship,
 [guide/backup.md](../guide/backup.md) says such a date is backed up wrong, and restore's
 read-back skips these times on Windows (`readableOnWindows`, `src/lib/restore.mjs`).</sub>
 
+<sub>An **adversarial audit of the bucket locks and the basic-form names** (2026-10-29, Claude
+Fable 5.1, reading `9bb5b53`; brief: the 2026-08-12 one plus *a cleanup or delete that removes
+content a snapshot still needs*) **contributed no entry.** Attacked by reading:
+[ADR-0112](../docs/adr/0112-bucket-locks.md)'s write-first/look-second with the 412 read-back
+(own bytes = own lock, so a lost PUT response is never taken for someone else's lock); the lock
+held until every in-flight DELETE has settled (`eachInFlight` rejects only after the batch, so
+`finally` never removes the lock under a delete still on the wire); `finally` removal on every
+exit the process survives, with the `unlock` command printed when the removal fails; Ctrl+C
+parked only inside the snapshot write, and every prompt (`cleanup`, `delete`, `forget`) outside
+a lock; clock skew, which only orders the key names — nothing keys on a lock's instant and locks
+never expire; a versioned bucket, where a removed lock is a delete marker, LIST hides it and a
+no-overwrite PUT over it succeeds; a lock whose `PID` is privileged, which `process.kill(pid, 0)`
+answers with EPERM and reads as alive (measured on both systems: EPERM for pid 4 on Windows and
+pid 1 on Linux, ESRCH for a pid nobody has); cleanup's top-up read of new snapshot keys under its
+lock, and `forget` taking no lock because it deletes manifests, never objects; compaction's merge
+PUT before the absorbed records' deletes; and [ADR-0113](../docs/adr/0113-names-in-iso-basic-form.md)'s
+one parse point (`snapshotNames`'s fixed-width regex, so lexical order is chronological order
+and a forget audit's seconds-wide name can never read as a snapshot). Attacked by **running**,
+Windows and WSL2 on one PC against one bucket (a path-style mock S3 both sides' SDKs talked to),
+where `BY` is the same `allen@balmain` on both and only `OS`/`PIDNS` tell them apart: a dead lock
+from either side is kept by the other and by a fresh pid namespace, and swept only by its own
+system; a holder killed with `kill -9` (WSL) or `Stop-Process -Force` (Windows) is refused
+everywhere while alive and, once dead, still refused everywhere but its own system, which sweeps
+it; a pid live on the other system is never consulted, since `OS` differs first; a pid reused
+inside one system reads as alive — a refusal, the ADR's accepted gap — and `unlock --dry-run`
+from either side lists both locks with their system. One measurement refines the ADR's
+*container or WSL restart* line: `unshare --pid` gives a fresh namespace the **same** inode a
+dead one had (`pid:[4026532224]` twice over), so a lock from a dead namespace can be judged in a
+new one, where its `PID` 1 is the judge itself and reads alive — again a refusal, never a live
+lock removed; a container running s3cab as pid 1 therefore can't clear its own predecessor's lock
+without `unlock`. Two bare-metal Linux machines sharing one `user@machine` share the initial
+namespace's constant inode too, so they judge each other's locks — the ADR's accepted two-machines
+case, unchanged. **From reading only, not a run:** macOS (`darwin`, no `PIDNS`, the same `kill 0`
+semantics by Node's docs) and WSL1 (whether `/proc/self/ns/pid` exists there is unverified).
+Pinned: `delete <hash>` mid-backup refused by the upload lock
+([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)), the twin of the
+cleanup-mid-backup pin; for that the Tier 1 fake gained a HEAD that answers a stored object's
+size, which let the review's second pin land beside it: a deletion record subtracts a hash from a
+trusted baseline only while its object is absent (presence wins), a path the stubbed HEAD had
+never let the model tier reach.</sub>
+
 **Open:** none.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
