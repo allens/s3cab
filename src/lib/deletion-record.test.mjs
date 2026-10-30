@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
@@ -13,7 +14,7 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @type {{ Key?: string }[]} keys the mocked LIST yields at the bucket root */
 let listed = [];
-/** @type {Map<string, string | undefined>} uri → body for the mocked getText */
+/** @type {Map<string, string>} uri → body for the mocked getStream */
 let bodies = new Map();
 /**
  * Every write-side call in order — compaction's merge-before-delete promise is
@@ -28,13 +29,18 @@ let putConflict = false;
 
 // A store with just enough behaviour to hold the record: a listing, bodies, a
 // conditional PUT that can refuse, and a DELETE — the four operations the slot
-// allocator and compaction are made of. Everything else is the stencil's.
+// allocator and compaction are made of. Everything else is the stencil's,
+// whose `getStream` stands in for a body that isn't there.
+const empty = s3Seam();
 mock.module("./s3.mjs", {
   exports: s3Seam({
     listObjects: async function* () {
       yield* listed;
     },
-    getText: async (/** @type {string} */ uri) => bodies.get(uri),
+    getStream: async (/** @type {string} */ uri) => {
+      const body = bodies.get(uri);
+      return body === undefined ? empty.getStream(uri) : bytesOf(body);
+    },
     putText: async (
       /** @type {string} */ uri,
       /** @type {string} */ content,
@@ -56,6 +62,15 @@ const {
   readDeletionRecords,
   writeDeletionRecord,
 } = await import("./deletion-record.mjs");
+
+/** A record body as the bytes a GET streams. */
+function bytesOf(/** @type {string | Buffer} */ body) {
+  return Readable.from([Buffer.from(body)]);
+}
+
+/** Parse a record body given as text or bytes. */
+const parse = (/** @type {string | Buffer} */ body) =>
+  parseDeletionRecord(bytesOf(body));
 
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
@@ -129,41 +144,46 @@ describe("formatDeletionRecord", () => {
     assert.equal(lines.length, 9);
   });
 
-  it("sorts rows by instant then hash, so a compacted file reads chronologically", () => {
-    const order = parseDeletionRecord(
+  it("sorts rows by instant then hash, so a compacted file reads chronologically", async () => {
+    const { rows } = await parse(
       formatDeletionRecord([
         { hash: HASH_B, size: 1, instant: T2, by: "x" },
         { hash: HASH_C, size: 1, instant: T1, by: "x" },
         { hash: HASH_A, size: 1, instant: T2, by: "x" },
       ]),
-    ).rows.map((row) => row.hash);
-    assert.deepEqual(order, [HASH_C, HASH_A, HASH_B]);
+    );
+    assert.deepEqual(
+      rows.map((row) => row.hash),
+      [HASH_C, HASH_A, HASH_B],
+    );
   });
 
-  it("spells out a tab or line ending in who deleted it", () => {
-    const [row] = parseDeletionRecord(
+  it("spells out a tab or line ending in who deleted it", async () => {
+    const { rows } = await parse(
       formatDeletionRecord([
         { hash: HASH_A, size: 1, instant: T1, by: "odd\tuser@PC" },
       ]),
-    ).rows;
-    assert.equal(row?.by, "odd␉user@PC");
+    );
+    assert.equal(rows[0]?.by, "odd␉user@PC");
   });
 });
 
+// The file-level rules a record shares with a snapshot are pinned for both at
+// once, in snapshot-file.damage.test.mjs; these are the record's own.
 describe("parseDeletionRecord", () => {
-  it("round-trips what formatDeletionRecord writes, as a valid file", () => {
+  it("round-trips what formatDeletionRecord writes, as a valid file", async () => {
     const rows = [
       { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
       { hash: HASH_B, size: 892, instant: T2, by: "allen@LAPTOP" },
     ];
-    assert.deepEqual(parseDeletionRecord(formatDeletionRecord(rows)), {
+    assert.deepEqual(await parse(formatDeletionRecord(rows)), {
       rows,
       invalid: undefined,
     });
   });
 
-  it("skips the @ and # rows it doesn't know", () => {
-    const { rows, invalid } = parseDeletionRecord(
+  it("skips the @ and # rows it doesn't know", async () => {
+    const { rows, invalid } = await parse(
       fileOf(
         `@S3CAB\tNEWS\t\t\tsomething\n#future\tthing\n`,
         deletedRow(HASH_C, 1, T1, "x"),
@@ -176,22 +196,45 @@ describe("parseDeletionRecord", () => {
     assert.equal(invalid, undefined);
   });
 
-  it("takes who deleted it as the rest of the line after the fourth tab", () => {
-    const [row] = parseDeletionRecord(
+  it("takes who deleted it as the rest of the line after the fourth tab", async () => {
+    const { rows } = await parse(
       fileOf(`#deleted\t${HASH_A}\t1\t${T1}\tme\tpc\n`),
-    ).rows;
-    assert.equal(row?.by, "me\tpc");
+    );
+    assert.equal(rows[0]?.by, "me\tpc");
   });
 
-  it("skips a line holding only what the trim removes, as a snapshot does, after the . too", () => {
-    const { rows, invalid } = parseDeletionRecord(
-      fileOf(" \t\n", deletedRow(HASH_C, 1, T1, "x")) + "  \n",
+  it("calls a file holding a - row invalid: a record holds no file rows", async () => {
+    const { invalid } = await parse(fileOf(`-\t${HASH_A}\t1\t${T1}\t/a.txt\n`));
+    assert.match(invalid ?? "", /unknown row type '-'/);
+  });
+
+  it("reads a first line that isn't the heading as a row, so a deleted heading costs no row", async () => {
+    const { rows, invalid } = await parse(
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/^[^\n]*\n/, ""),
     );
     assert.deepEqual(
       rows.map((row) => row.hash),
-      [HASH_C],
+      [HASH_A],
     );
-    assert.equal(invalid, undefined);
+    assert.match(invalid ?? "", /heading/);
+  });
+
+  it("refuses a line that isn't UTF-8, and still counts the rest", async () => {
+    // Bad bytes in who deleted it, which no reader checks, cost the row all
+    // the same: its object then reads as not deleted, the safe direction.
+    const { rows, invalid } = await parse(
+      Buffer.concat([
+        Buffer.from(fileOf(deletedRow(HASH_A, 1, T1, "x"))).subarray(0, -2),
+        Buffer.from(`#deleted\t${HASH_B}\t1\t${T1}\tjos`),
+        Buffer.from([0xe9]),
+        Buffer.from("@PC\n.\n"),
+      ]),
+    );
+    assert.deepEqual(
+      rows.map((row) => row.hash),
+      [HASH_A],
+    );
+    assert.match(invalid ?? "", /isn't UTF-8/);
   });
 
   // A refused row must never explain away a missing object: its content counts
@@ -209,55 +252,14 @@ describe("parseDeletionRecord", () => {
       deletedRow(HASH_A, 1, "2026-02-30T12:00:00.000Z", "x"),
     ],
   ]) {
-    it(`refuses a #deleted row with ${name}, and the file is invalid`, () => {
-      const { rows, invalid } = parseDeletionRecord(
+    it(`refuses a #deleted row with ${name}, and the file is invalid`, async () => {
+      const { rows, invalid } = await parse(
         fileOf(String(row), deletedRow(HASH_B, 7, T1, "allen@PC")),
       );
       assert.deepEqual(rows, [
         { hash: HASH_B, size: 7, instant: T1, by: "allen@PC" },
       ]);
       assert.match(invalid ?? "", /a #deleted row is malformed/);
-    });
-  }
-
-  for (const [
-    name,
-    text,
-    reason,
-  ] of /** @type {[string, string, RegExp][]} */ ([
-    [
-      "doesn't open with the heading",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/^[^\n]*\n/, ""),
-      /heading/,
-    ],
-    [
-      "has no closing .",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/\.\n$/, ""),
-      /closing "\." line is missing/,
-    ],
-    [
-      "ends in a . with no LF, as a PUT cut just after it",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).slice(0, -1),
-      /closing "\." line is missing/,
-    ],
-    [
-      "ends in a line that is more than .",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/\.\n$/, ". \n"),
-      /closing line isn't exactly "\."/,
-    ],
-    [
-      "has rows after the closing .",
-      fileOf() + deletedRow(HASH_A, 1, T1, "x"),
-      /rows follow/,
-    ],
-    [
-      "holds a type starting with neither @ nor #",
-      fileOf(`-\t${HASH_A}\t1\t${T1}\t/a.txt\n`),
-      /unknown row type '-'/,
-    ],
-  ])) {
-    it(`calls a file that ${name} invalid`, () => {
-      assert.match(parseDeletionRecord(text).invalid ?? "", reason);
     });
   }
 });
@@ -336,7 +338,7 @@ describe("readDeletionRecords", () => {
     assert.deepEqual(invalid, [
       {
         uri: "s3://b/objects.deleted-2.tsv",
-        reason: 'the closing "." line is missing',
+        reason: 'the closing "." line is missing, so the file was cut short',
       },
     ]);
   });

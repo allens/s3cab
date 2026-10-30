@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
-
-/** @import { Readable } from "node:stream" */
 
 // The scan's one job is the *order* of its three reads (see the module header),
 // so that is what this pins — through the real remote.mjs / objects.mjs /
@@ -49,8 +48,12 @@ mock.module("./s3.mjs", {
       }
       yield* keysByPrefix[prefix] ?? [];
     },
-    getStream: (/** @type {string} */ uri) => onGetStream(uri),
-    getText: async (/** @type {string} */ uri) => textByUri[uri],
+    getStream: async (/** @type {string} */ uri) => {
+      const text = textByUri[uri];
+      return text === undefined
+        ? onGetStream(uri)
+        : Readable.from([Buffer.from(text)]);
+    },
   }),
 });
 const { scanBucket } = await import("./bucket-scan.mjs");

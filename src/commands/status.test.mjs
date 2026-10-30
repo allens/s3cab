@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createReadStream } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
@@ -31,9 +32,13 @@ mock.module("../lib/s3.mjs", {
         .filter((key) => key.startsWith(prefix))
         .map((Key) => ({ Key }));
     },
-    getText: async (/** @type {string} */ uri) => textByUri[uri],
     objectSize: async (/** @type {string} */ uri) => sizeByUri[uri],
-    getStream: async () => createReadStream(remoteSnapshotPath),
+    getStream: async (/** @type {string} */ uri) => {
+      const text = textByUri[uri];
+      return text === undefined
+        ? createReadStream(remoteSnapshotPath)
+        : Readable.from([Buffer.from(text)]);
+    },
   }),
 });
 

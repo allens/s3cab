@@ -350,7 +350,7 @@ describe("prior-audit findings, encoded", () => {
     mkdirSync(out, { recursive: true });
     await assert.rejects(
       restore([], { all: true, set: "trunc", output: out }),
-      /Truncated snapshot/,
+      /Damaged snapshot: .*cut short/,
     );
   });
 
