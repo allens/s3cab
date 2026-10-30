@@ -71,7 +71,7 @@ If nothing matches, restore stops rather than silently doing nothing:
 
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
-No files in snapshot '20260612T0915' matched:
+ERROR: No files in snapshot '20260612T0915' matched:
   C:\Users\me\Photos\nope.jpg
 
 Find how the backup spells a file, and which snapshots hold it:
@@ -103,7 +103,7 @@ quietly restore the wrong thing:
 
 ```console
 > s3cab restore --set photos --snapshot 2026-05-01
-Snapshot '2026-05-01' not found for set 'photos'.
+ERROR: Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
   20260612T0915
   20260501T0800
@@ -272,7 +272,6 @@ Could not restore 2 files — the backup no longer holds their contents:
   C:\Users\me\Photos\2019\summit.jpg
 
 The rest of the restore finished. To check the other backups in this bucket:
-
   s3cab verify my-backups
 ```
 
@@ -310,7 +309,10 @@ stick — upload it again to repair the backup's copy:
 
 ```console
 > s3cab restore --set photos --all
-No backups for set 'photos'. Back one up with: s3cab backup photos
+ERROR: No backups for set 'photos'.
+
+Back one up with:
+  s3cab backup photos
 ```
 
 A set that exists locally but has never been backed up has nothing in the cloud to recover

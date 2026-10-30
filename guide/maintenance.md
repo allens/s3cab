@@ -321,11 +321,10 @@ as it runs, and refuses to start while the other kind's lock is there:
 
 ```console
 > s3cab cleanup my-backups
-Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
+ERROR: Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
   backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
 
-Try again once it has finished, or let this run wait for it:
-  s3cab cleanup my-backups --wait
+Try again once it has finished, or run the same command again with --wait to let this run wait for it.
 If it was stopped without finishing and left its lock behind, remove the lock with:
   s3cab unlock --bucket my-backups
 ```
