@@ -1,6 +1,6 @@
 # The s3cab format spec — repository & snapshot files
 
-This is the spec of 2026-10-29.
+This is the spec of 2026-10-30.
 
 s3cab's core promise is **no lock-in**: everything it stores in your bucket is plain,
 self-evident files you can read and act on without s3cab. In principle you could recover
@@ -289,7 +289,7 @@ object, and [the `.` line](#the-last-line) last:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-29
+@S3CAB    SPEC                                                        2026-10-30
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -405,7 +405,7 @@ in a bucket:
 
 ```
 @S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@S3CAB    SPEC                                                        2026-10-29
+@S3CAB    SPEC                                                        2026-10-30
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
@@ -825,8 +825,9 @@ every kind. It is a terminator, not a row: the one line without five fields, and
 field isn't a type. It is the whole line, byte for byte: a line whose first field trims to
 `.` but holds anything more, such as `. ` or `.` and a tab, is neither the `.` nor a row, and
 refuses the file. Like every line it ends with LF, so a `.` without its LF doesn't count:
-the file was cut there. gzip does notice a cut-short file, but only at the end: `gunzip -c`
-and Python's `gzip` module both hand over every line they can decompress *before* reporting
+the file was cut there. Nothing follows it, not even a blank line or a second `.`. gzip does
+notice a cut-short file, but only at the end: `gunzip -c` and Python's `gzip` module both
+hand over every line they can decompress *before* reporting
 the cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of
 the original, which would otherwise read as a valid, smaller snapshot. And gzip can't notice
 a snapshot whose text was cut before it was compressed: that is complete gzip, and only the
@@ -861,7 +862,7 @@ perfectly legal: an empty backup set, not a damaged file.
 A valid file is what s3cab writes, and that goes for a [deletion record](#the-deletion-record)
 as much as a snapshot:
 
-- UTF-8 with LF endings, the heading row first and the `.` last;
+- UTF-8 with LF endings, the heading row first, the `.` last, and no blank line;
 - only types this version knows, other than `@` and `#` ones;
 - every per-path row's path absolute, with no tab, CR or LF, and a file row's with no NUL
   (U+0000) either, which no filesystem allows in a name;
@@ -882,14 +883,14 @@ as much as a snapshot:
   instant in the 24-character form, and the same for a `#deleted` row.
 
 A reader meets files that aren't, since these are text files anyone can edit, and does one
-of four things:
+of three things:
 
 - **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
-  end with the `.`, has rows after the `.`, or holds an unknown type starting with neither `@`
-  nor `#`. Each means the file isn't what it claims, was cut short, or comes from a newer
-  s3cab, and restoring part of it would pass for a full restore. A deletion record is the
-  exception: it is distrusted instead (below), and its well-formed rows still count. One
-  that isn't UTF-8 is read line by line (below).
+  end with the `.`, has anything after it, or holds a blank line or an unknown type starting
+  with neither `@` nor `#`. Each means the file isn't what it claims, was cut short, or comes
+  from a newer s3cab, and restoring part of it would pass for a full restore. A deletion
+  record is the exception: it is distrusted instead (below), and its well-formed rows still
+  count.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, or a
   file row whose path breaks one of the path rules above. Where a rule is about two file rows
   (one path in both, or one running through the other), **both rows are refused, so no
@@ -907,9 +908,6 @@ of four things:
   check for it. This is the same ["restore everything you can, then report"](#reading) that
   governs a missing object: a bad row costs its own path, or the two paths in conflict, and
   nothing else.
-- **Skip** a blank line, empty or holding only what the trim removes, anywhere after the
-  heading row, after the `.` included. A blank line is no row, so it neither breaks the
-  file nor follows the `.`. The heading row is always the first line.
 - **Ignore** an unknown `@` or `#` type or property, and a people-only row that's wrong, such as
   `FILES` disagreeing with the row count, or an `@S3CAB SPEC`, `@CLIENT NAME` or
   `@CLIENT VERSION` row missing or repeated. s3cab doesn't count an `@` or `#` row's fields:
@@ -924,17 +922,11 @@ names would look unused and be deleted.
 `#deleted` row is refused, so its object counts as not deleted, and its absence is reported
 as unexplained damage with a nonzero exit. That is the safe direction: a damaged record can
 never make missing content look intentional. The well-formed rows of an invalid record
-still explain an absence, even in one with no heading row or no `.`. A record listed but
-gone by the time it is read is invalid too, and explains nothing.
-
-A record that isn't UTF-8 isn't distrusted for that alone. Read it with U+FFFD in place of
-the bad bytes, and judge each line as it then reads:
-
-- one in the heading row, in the closing `.` line, at the start of a line, or in a
-  `#deleted` row's hash, size or instant, makes that line wrong and the record invalid;
-- one in a last field, or in a row a reader skips, changes nothing;
-- no line is lost or joined to another, since an LF byte is never part of another
-  character.
+still explain an absence, even in one with no heading row or no `.`; a first line that
+isn't the heading row is read as a row. Decode each line on its own: an LF byte is never
+part of another character, so a line that isn't UTF-8 is one wrong line, wherever the bad
+bytes sit, and the lines around it still read. A record listed but gone by the time it is
+read is invalid too, and explains nothing.
 
 While any record file is invalid, `backup` and `status` check
 what the bucket actually holds rather than trust an earlier snapshot's word, and `cleanup`
@@ -1402,7 +1394,8 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   one object (`s3cab upload <file> --force`).
 - Never upload a snapshot a reader would [refuse whole](#valid-and-invalid-files): one that
   isn't UTF-8 once decompressed, doesn't start with the heading row, doesn't end with the
-  `.`, has rows after the `.`, or holds an unknown type starting with neither `@` nor `#`.
+  `.`, has anything after it, or holds a blank line or an unknown type starting with neither
+  `@` nor `#`.
 - Upload a snapshot whose rows a reader refuses one path at a time like any other, with no
   object for those rows. Its other rows still restore, and the reader reports the rest.
 - Upload a snapshot byte for byte to `snapshots/<set>/<name>.tsv.gz`, where `<set>` is the

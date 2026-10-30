@@ -84,7 +84,7 @@ export class RealS3 {
    * @param {string} key
    * @returns {Promise<Buffer | undefined>} undefined when the key is absent
    */
-  async getBytes(bucketName, key) {
+  async peekBytes(bucketName, key) {
     try {
       const response = await client.send(
         new GetObjectCommand({ Bucket: bucketName, Key: key }),

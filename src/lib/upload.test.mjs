@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { ChangedWhileReadError, ContentMismatchError } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
@@ -33,9 +32,9 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 // imported dynamically below — there is deliberately no static import of it.
 // The runner needs `--experimental-test-module-mocks`.
 
-/** @type {Map<string, Buffer>} bytes `getStream` serves per URI — a miss throws NoSuchKey. */
+/** @type {Map<string, Buffer>} bytes `getBytes` serves per URI — a miss reads as absent. */
 let remoteFiles = new Map();
-/** @type {string[]} URIs fetched via `getStream`. */
+/** @type {string[]} URIs fetched via `getBytes`. */
 let gotUris = [];
 /** @type {{ path: string, uri: string }[]} PUTs, in call order. */
 let putFiles = [];
@@ -63,21 +62,14 @@ let putError;
  */
 let duringPut;
 // The store this suite really models — a keyed body map on the read side, and a
-// PUT that reports whether the object was new. `isObjectNotFound` is left to the
-// stencil's default, the real name-based predicate, which the `getStream` below
-// throws to match. Everything the graph imports but no test here reaches
-// (`deleteObject`, `objectSize`) is unmodelled and stays that way.
+// PUT that reports whether the object was new. Everything the graph imports but
+// no test here reaches (`deleteObject`, `objectSize`) is unmodelled and stays
+// that way.
 mock.module("./s3.mjs", {
   exports: s3Seam({
-    getStream: async (/** @type {string} */ uri) => {
+    getBytes: async (/** @type {string} */ uri) => {
       gotUris.push(uri);
-      const bytes = remoteFiles.get(uri);
-      if (!bytes) {
-        throw Object.assign(new Error(`no such key: ${uri}`), {
-          name: "NoSuchKey",
-        });
-      }
-      return Readable.from([bytes]);
+      return remoteFiles.get(uri);
     },
     putFile: async (
       /** @type {string} */ path,
@@ -243,7 +235,7 @@ const assertRewritten = (path) =>
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /**
- * Publish a local snapshot's bytes at its remote URI, so the mocked `getStream`
+ * Publish a local snapshot's bytes at its remote URI, so the mocked `getBytes`
  * serves exactly the copy the byte-identity check should trust (ADR-0084).
  * @param {string} snapshotDir - Local dir holding `<name>.tsv.gz`
  * @param {string} bucket - The fixture's bucket
@@ -879,7 +871,7 @@ describe("uploadSnapshotFile manifest idempotence", () => {
     const { args } = await oneFileFixture(dir.path);
     const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`;
     storedUris.add(manifestUri); // the PUT 412s…
-    // …and `remoteFiles` has nothing under it, so the read is a NoSuchKey.
+    // …and `remoteFiles` has nothing under it, so the read finds nothing.
 
     await assert.rejects(
       () => uploadSnapshotFile(args),

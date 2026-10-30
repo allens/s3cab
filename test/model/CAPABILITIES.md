@@ -69,7 +69,7 @@ path that cannot occur; testing the relay itself needs real throttling
 ### `inspection`
 
 The harness can enumerate keys and read raw bytes out-of-band (`listAll`,
-`getBytes`, `putBytes`, `deleteKey`) to check store invariants and craft
+`peekBytes`, `putBytes`, `deleteKey`) to check store invariants and craft
 hostile store states. The fake implements it in-memory; the Tier 2 backend
 implements the same surface over the SDK.
 

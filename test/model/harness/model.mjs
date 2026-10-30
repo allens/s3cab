@@ -9,7 +9,7 @@ import { gunzipSync } from "node:zlib";
  * backend-as-parameter seam; see CAPABILITIES.md, "inspection").
  * @typedef {{
  *   listAll(bucket: string): Promise<{ key: string, size: number }[]>,
- *   getBytes(bucket: string, key: string): Promise<Buffer | undefined>,
+ *   peekBytes(bucket: string, key: string): Promise<Buffer | undefined>,
  * }} InspectionBackend
  */
 
@@ -339,7 +339,7 @@ export class RepoModel {
     /** @type {ParsedManifest[]} */
     const parsed = [];
     for (const { key } of await this.listManifests()) {
-      const bytes = await this.backend.getBytes(this.bucket, key);
+      const bytes = await this.backend.peekBytes(this.bucket, key);
       if (bytes) {
         parsed.push(parseManifest(key, bytes));
       }
@@ -357,7 +357,7 @@ export class RepoModel {
     const deleted = new Set();
     for (const { key } of await this.backend.listAll(this.bucket)) {
       if (/^objects\.deleted-[1-9][0-9]*\.tsv$/.test(key)) {
-        const bytes = await this.backend.getBytes(this.bucket, key);
+        const bytes = await this.backend.peekBytes(this.bucket, key);
         if (bytes) {
           for (const hash of parseDeletionRecord(bytes)) {
             deleted.add(hash);

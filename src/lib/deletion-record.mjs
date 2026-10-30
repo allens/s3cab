@@ -1,12 +1,12 @@
 import { showControlChars } from "./format.mjs";
-import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
+import { deleteObject, getBytes, listObjects, putText } from "./s3.mjs";
 import {
+  FILE,
   formatLine,
   HEADING,
-  isHeadingRow,
   isInstant,
   openingRows,
-  rowFields,
+  parseS3cabFile,
   TERMINATOR,
 } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
@@ -86,55 +86,38 @@ export function formatDeletionRecord(rows) {
 
 /**
  * Parse one record file (ADR-0101): its well-formed `#deleted` rows, and why
- * the file can't be trusted whole, if it can't. A malformed row is refused —
- * its object counts as not deleted, the safe direction, since a damaged record
- * must never make missing content look intentional. The file is invalid when a
- * row was refused, or it doesn't open with the heading row, doesn't end with
- * `.` and its LF, or holds a type starting with neither `@` nor `#`: a reader
- * can't know what it lost. Every other `@` or `#` row is skipped (ADR-0103).
- * @param {string} text - A record file's body
- * @returns {{ rows: DeletionRow[], invalid?: string }} `invalid` is the reason, for a file that isn't valid
+ * the file can't be trusted whole, if it can't. The file is invalid for any
+ * fault {@link parseS3cabFile} finds, or when a row was refused: a reader
+ * can't know what it lost. A malformed row is refused — its object counts as
+ * not deleted, the safe direction, since a damaged record must never make
+ * missing content look intentional. Every other `@` or `#` row is skipped
+ * (ADR-0103).
+ * @param {Iterable<Uint8Array> | AsyncIterable<Uint8Array>} input - A record file's bytes
+ * @returns {Promise<{ rows: DeletionRow[], invalid?: string }>} `invalid` is the reason, for a file that isn't valid
  */
-export function parseDeletionRecord(text) {
+export async function parseDeletionRecord(input) {
   /** @type {DeletionRow[]} */
   const rows = [];
-  const [heading = "", ...lines] = text.split("\n");
-  /** @type {string | undefined} */
-  let invalid = isHeadingRow(heading)
-    ? undefined
-    : "the first line isn't the @S3CAB FORMAT heading row";
-  let ended = false;
-  for (const [index, line] of lines.entries()) {
-    // Skipped like a snapshot's blank line: one holding only trimmed
-    // characters is no row, so it neither breaks the file nor follows the `.`.
-    if (line.trim() === "") {
-      continue;
-    }
-    const [type, hash, size, instant, by] = rowFields(line);
-    if (ended) {
-      invalid ??= 'rows follow the closing "." line';
-    } else if (line === TERMINATOR) {
-      // Only its LF proves it whole, and the last piece of the split has none.
-      ended = index < lines.length - 1;
-    } else if (type === TERMINATOR) {
-      invalid ??= `its closing line isn't exactly "."`;
-    } else if (type === DELETED) {
+  const invalid = await parseS3cabFile(
+    input,
+    ([type, hash, size, instant, by], line) => {
+      if (type === FILE) {
+        return "is a snapshot's file row, which a deletion record doesn't hold";
+      }
+      if (type !== DELETED) {
+        return undefined;
+      }
       if (
         /^[0-9a-f]{64}$/.test(hash) &&
         /^[0-9]+$/.test(size) &&
         isInstant(instant)
       ) {
         rows.push({ hash, size: Number(size), instant, by });
-      } else {
-        invalid ??= `a #deleted row is malformed: ${line}`;
+        return undefined;
       }
-    } else if (!type.startsWith("@") && !type.startsWith("#")) {
-      invalid ??= `it holds an unknown row type '${type}'`;
-    }
-  }
-  if (!ended) {
-    invalid ??= 'the closing "." line is missing';
-  }
+      return `is a malformed #deleted row: ${showControlChars(line)}`;
+    },
+  );
   return { rows, invalid };
 }
 
@@ -226,8 +209,8 @@ export async function readDeletionRecords(bucket) {
   /** @type {InvalidRecord[]} */
   const invalid = [];
   for (const { uri } of await listDeletionRecordFiles(bucket)) {
-    const text = await getText(uri);
-    if (text === undefined) {
+    const body = await getBytes(uri);
+    if (body === undefined) {
       // A compaction absorbed it after the LIST, into a merge the LIST never
       // saw, so its rows are missing here. Invalid, so no baseline vouches for
       // a hash it may have listed; restore reads only `deleted`, where a
@@ -239,7 +222,7 @@ export async function readDeletionRecords(bucket) {
       });
       continue;
     }
-    const record = parseDeletionRecord(text);
+    const record = await parseDeletionRecord([body]);
     if (record.invalid) {
       invalid.push({ uri, reason: record.invalid });
     }
@@ -298,11 +281,11 @@ export async function compactDeletionRecords(bucket, referenced) {
   /** @type {{ index: number, uri: string }[]} */
   const absorbed = [];
   for (const file of files) {
-    const text = await getText(file.uri);
-    if (text === undefined) {
+    const body = await getBytes(file.uri);
+    if (body === undefined) {
       continue; // vanished since the LIST (a concurrent compaction absorbed it)
     }
-    const record = parseDeletionRecord(text);
+    const record = await parseDeletionRecord([body]);
     // The merge keeps only the rows it parsed, then deletes the original, so a
     // refused row would be lost for good (ADR-0101). `cleanup` refuses before
     // this; this read is later, so it checks again.

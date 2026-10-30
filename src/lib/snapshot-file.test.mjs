@@ -142,131 +142,6 @@ describe("parseSnapshotStream", () => {
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
   });
 
-  it("skips blank lines after the heading, the closing . included", async () => {
-    const { entries } = await parse(
-      [
-        HEADING,
-        DIR,
-        "",
-        fileRow(hashA, 5, "/home/me/a.txt"),
-        " \t ",
-        fileRow(hashB, 7, "/home/me/b.txt"),
-        TERMINATOR,
-        "",
-        "  ",
-        "",
-      ].join("\n"),
-    );
-    assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
-  });
-
-  describe("refuses the whole file (ADR-0101)", () => {
-    /**
-     * @param {string | Buffer} text
-     * @param {RegExp} message
-     */
-    const refuses = (text, message) =>
-      assert.rejects(parseSnapshotStream(Readable.from([Buffer.from(text)])), {
-        name: "AssertionError",
-        message,
-      });
-
-    it("when it doesn't open with the heading row", async () => {
-      await refuses(
-        [DIR, fileRow(hashA, 12, "/home/me/a.txt"), TERMINATOR].join("\n"),
-        /first line isn't the @S3CAB FORMAT heading row/,
-      );
-      // Not even after a blank line: the heading is the first line.
-      await refuses(
-        `\n${snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))}`,
-        /heading row/,
-      );
-    });
-
-    it("when its line endings are CRLF", async () => {
-      // The heading's URL then ends in a CR, so the file isn't what s3cab writes.
-      await refuses(
-        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replaceAll(
-          "\n",
-          "\r\n",
-        ),
-        /heading row/,
-      );
-    });
-
-    it("when it isn't UTF-8", async () => {
-      const bytes = Buffer.concat([
-        Buffer.from(snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))),
-        Buffer.from([0xff, 0xfe]),
-      ]);
-      await refuses(bytes, /isn't UTF-8/);
-    });
-
-    it("when it ends without the closing ., as truncated", async () => {
-      // ADR-0082: this parser takes an already-decompressed stream, so it has no
-      // gzip trailer to lean on — for an uncompressed `.tsv` there is none, and
-      // the `.` is the only thing standing between a destroyed manifest and a
-      // clean parse. An AssertionError on purpose — isCorruptSnapshotError
-      // classifies it as snapshot damage, so verify records the finding instead
-      // of vouching for the wreck.
-      await refuses(
-        [HEADING, DIR, START, fileRow(hashA, 12, "/home/me/a.txt")].join("\n"),
-        /Truncated snapshot/,
-      );
-    });
-
-    it("when rows follow the closing ., which then no longer proves it whole", async () => {
-      await refuses(
-        `${snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))}\n${fileRow(hashB, 7, "/home/me/b.txt")}`,
-        /rows follow the closing "\." line/,
-      );
-    });
-
-    it("when the closing . has no LF, as a write cut just after it", async () => {
-      await refuses(
-        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).slice(0, -1),
-        /Truncated snapshot/,
-      );
-    });
-
-    it("when the closing line is more than ., saying so rather than blaming a newer s3cab", async () => {
-      await refuses(
-        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
-          /\.\n$/,
-          ". \n",
-        ),
-        /its closing line isn't exactly "\."/,
-      );
-    });
-
-    it("when it holds a type starting with neither @ nor #, which may be content a restore would miss", async () => {
-      await refuses(
-        snapshotOf("xattr\tuser.tag\t\t\t/home/me/a.txt"),
-        /Unknown row type 'xattr'/,
-      );
-    });
-
-    it("when the heading row's column 2 isn't FORMAT", async () => {
-      await refuses(
-        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
-          "\tFORMAT\t",
-          "\t\t",
-        ),
-        /heading row/,
-      );
-    });
-
-    it("when the heading row has a field after its URL, which is then part of it", async () => {
-      await refuses(
-        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
-          "guide/format",
-          "guide/format\textra",
-        ),
-        /heading row/,
-      );
-    });
-  });
-
   describe("refuses one path and reads the rest (ADR-0101)", () => {
     for (const [what, row, path, reason] of [
       [
@@ -663,7 +538,7 @@ describe("parseSnapshotStream", () => {
   it("refuses a snapshot cut inside a character as truncated, not as non-UTF-8", async () => {
     await assert.rejects(
       parseSnapshotStream(Readable.from([cutInsideCharacter])),
-      /Truncated snapshot/,
+      /closing "\." line is missing/,
     );
   });
 
@@ -677,7 +552,7 @@ describe("parseSnapshotStream", () => {
           Buffer.concat([Buffer.from(text), Buffer.from([0xc3])]),
         ]),
       ),
-      /rows follow the closing/,
+      /follows the closing "\." line/,
     );
   });
 
@@ -742,7 +617,7 @@ describe("parseCompressedSnapshotStream", () => {
           parseCompressedSnapshotStream(
             Readable.from([compressed.subarray(0, length)]),
           ),
-          { name: "AssertionError", message: /^Truncated snapshot/ },
+          { name: "AssertionError", message: /^Damaged snapshot: .*cut short/ },
           `a cut at byte ${length} of ${compressed.length}`,
         );
       }

@@ -1,6 +1,6 @@
 # Valid and invalid files: refuse the file, refuse one path, or ignore the row
 
-**Status:** accepted & implemented (proposed 2026-10-11), amended 2026-10-17; partly superseded by
+**Status:** accepted & implemented (proposed 2026-10-11), amended 2026-10-17 and 2026-10-30; partly superseded by
 [0103](0103-row-marks-and-unrecorded-links.md): the type names, and an unknown `@` or `#` type is
 skipped while any other refuses the file; and by [0106](0106-a-lone-dot-ends-every-file.md): a
 valid file ends with a lone `.` line where it ended with `END`. Supersedes
@@ -101,3 +101,29 @@ then guesses at it.
 folder of the path should be or a folder where the file should be, reported `blocked`. The rules
 above can't see the destination: two spellings of one name, or a file already there before the
 restore, still meet there.
+
+## Amendment (2026-10-30): one reader, and nothing in a file s3cab wouldn't write
+
+The rules a snapshot and a deletion record share are stated once, in `parseS3cabFile`
+(`src/lib/snapshot-file.mjs`), and both readers take them from there. They had been stated twice,
+and disagreed: a file ending in a second `.` with no LF was valid to the snapshot's reader and
+invalid to the record's, and bytes that aren't UTF-8 refused a snapshot while the record's reader
+decoded them as U+FFFD and read on.
+
+- **Strict UTF-8 in every s3cab file, a deletion record included.** Each line is decoded on its
+  own, so in a record a line that isn't UTF-8 is one wrong line: the record is invalid, that line's
+  row doesn't count, and its other rows still do. This reverses the spec's reading of a record
+  with U+FFFD in place of bad bytes, which had written down what a lenient fetch happened to do,
+  not a choice: a reader in another language would have had to decode leniently, against the
+  spec's first reading rule, to agree with s3cab.
+- **No blank line anywhere, and nothing after the `.`.** s3cab never writes either, and a valid
+  file is what s3cab writes. Both readers skipped a blank line, after the `.` too; now one makes
+  the file invalid, and the gap a stray second `.` fell through closes with it.
+- **A deletion record's first line, when it isn't the heading row, is read as a row**, as the
+  spec already said: a record whose heading was deleted keeps its first `#deleted` row.
+- **One wording per fault.** The reader names the first fault in the file in one clause, the same
+  for both kinds and naming the line where there is one; a snapshot's message is
+  `Damaged snapshot: <clause>`, and a record's reason for being invalid is the clause itself.
+
+The `.` stays the completeness check. A checksum or row count would also catch edits, which are
+allowed, so every hand edit would break the file.

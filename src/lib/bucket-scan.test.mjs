@@ -50,7 +50,10 @@ mock.module("./s3.mjs", {
       yield* keysByPrefix[prefix] ?? [];
     },
     getStream: (/** @type {string} */ uri) => onGetStream(uri),
-    getText: async (/** @type {string} */ uri) => textByUri[uri],
+    getBytes: async (/** @type {string} */ uri) => {
+      const text = textByUri[uri];
+      return text === undefined ? undefined : Buffer.from(text);
+    },
   }),
 });
 const { scanBucket } = await import("./bucket-scan.mjs");

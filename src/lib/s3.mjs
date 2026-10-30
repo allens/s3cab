@@ -1007,10 +1007,25 @@ export async function putText(uri, content, { noClobber = false } = {}) {
  * @returns {Promise<string | undefined>}
  */
 export async function getText(uri) {
+  const bytes = await getBytes(uri);
+  // Lenient, and keeping a BOM: bytes that aren't UTF-8 read as U+FFFD.
+  return bytes && new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+}
+
+/**
+ * Read a small S3 object's body as bytes, or `undefined` if it doesn't exist —
+ * `getText` without the decoding, for a reader that must see bytes that aren't
+ * UTF-8 rather than U+FFFD (ADR-0101), or compares bytes.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @returns {Promise<Uint8Array | undefined>}
+ */
+export async function getBytes(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));
-    return await Body?.transformToString();
+    // Not `Body?.`: a missing body would read as a missing object.
+    assert(Body, `S3 GetObject returned no body for ${uri}`);
+    return await Body.transformToByteArray();
   } catch (error) {
     if (isObjectNotFound(error)) {
       return undefined;

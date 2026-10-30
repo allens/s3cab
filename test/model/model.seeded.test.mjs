@@ -332,7 +332,7 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           const { bucket, key } = parseUri(uri);
           if (stored && /^snapshots\/.+\.tsv\.gz$/.test(key)) {
             const bytes = /** @type {Buffer} */ (
-              await this.getBytes(bucket, key)
+              await this.peekBytes(bucket, key)
             );
             const text = gunzipSync(bytes).toString("utf8");
             const mangled = text.split("\n").map(mangleRow).join("\n");

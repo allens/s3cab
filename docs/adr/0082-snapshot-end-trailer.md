@@ -41,7 +41,7 @@ every s3cab file, and `COMPLETE`/`PARTIAL` goes) and [0101](0101-valid-and-inval
 > `isCorruptSnapshotError` did not recognise. On 26.10 a truncated or empty snapshot therefore
 > crashed `find` and `verify` instead of becoming an unreadable finding, and `restore` refused it
 > as "unexpected end of file". `parseCompressedSnapshotStream` now turns that error into the
-> parser's own `Truncated snapshot` AssertionError, so a truncation reads the same on every Node
+> parser's own `Damaged snapshot:` AssertionError, so a truncation reads the same on every Node
 > and point 2 still holds. The trailer stays, because the floor still needs it. The first
 > Consequence holds only at the floor: on newer Node, a cut that only shaves framing is rejected
 > too. That reports a manifest whose rows were all there as unreadable, which errs the safe way.

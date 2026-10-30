@@ -31,7 +31,10 @@ mock.module("../lib/s3.mjs", {
         .filter((key) => key.startsWith(prefix))
         .map((Key) => ({ Key }));
     },
-    getText: async (/** @type {string} */ uri) => textByUri[uri],
+    getBytes: async (/** @type {string} */ uri) => {
+      const text = textByUri[uri];
+      return text === undefined ? undefined : Buffer.from(text);
+    },
     objectSize: async (/** @type {string} */ uri) => sizeByUri[uri],
     getStream: async () => createReadStream(remoteSnapshotPath),
   }),

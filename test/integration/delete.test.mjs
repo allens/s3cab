@@ -18,6 +18,7 @@ import {
 import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
 import {
   deleteObject,
+  getStream,
   getText,
   listObjects,
   objectExists,
@@ -147,7 +148,7 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
         /\n#deleted\t[^\n]*\n\.\n$/,
         "complete — its #deleted rows, then the closing .",
       );
-      const { rows, invalid } = parseDeletionRecord(text);
+      const { rows, invalid } = await parseDeletionRecord(await getStream(uri));
       assert.equal(invalid, undefined, "the record it wrote is valid");
       assert.deepEqual(
         rows
