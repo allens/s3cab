@@ -13,6 +13,7 @@ when you want to know they're sound, or when the bill starts to matter.
 
 ```console
 > s3cab verify my-backups
+Contacting the cloud…
 my-backups: 3 sets, 48,210 objects checked — all verified ✓
 ```
 
@@ -33,6 +34,7 @@ is one listing of the whole store either way. Findings are still reported per se
 
 ```console
 > s3cab verify my-backups
+Contacting the cloud…
 my-backups: 3 sets, 48,210 objects checked — 1 set with findings ✗
 
   photos   2 files with problems
@@ -61,6 +63,7 @@ made on purpose shouldn't ring the alarm forever:
 
 ```console
 > s3cab verify my-backups
+Contacting the cloud…
 my-backups: 3 sets, 47,913 objects checked — all verified ✓
 
   photos   312 files deleted from backups (s3cab delete — deleted 2026-07-19; expected, not damage)
@@ -72,6 +75,7 @@ A snapshot is a point in time. When you don't want to keep one any more:
 
 ```console
 > s3cab forget --set photos 20260501T0800
+Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot            files    size
@@ -105,6 +109,7 @@ preview covers the whole selection:
 
 ```console
 > s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800
+Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot                   files     size
@@ -193,6 +198,7 @@ review that file, cut anything you want to keep, and hand it back:
 ```console
 > s3cab find raw-footage\ > footage.txt
 > s3cab delete --bucket my-backups --from-file footage.txt
+Contacting the cloud…
 Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
 
 This permanently removes the content above from every backup in 'my-backups'.
@@ -257,6 +263,7 @@ them:
 
 ```console
 > s3cab cleanup my-backups
+Contacting the cloud…
 Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
 my-backups: deleted 312 orphaned objects, reclaimed 1.4GB.
 ```
@@ -268,6 +275,7 @@ without touching anything, `-n` (`--dry-run`) reports and stops:
 
 ```console
 > s3cab cleanup my-backups --dry-run
+Contacting the cloud…
 Dry run — nothing deleted. Re-run without --dry-run to reclaim (add --force when there's no terminal).
 my-backups: 48,210 objects stored, 312 orphaned (1.4GB reclaimable)
 ```
@@ -317,15 +325,18 @@ Everything it deletes is an orphan — content some live snapshot needs is never
 
 A backup or upload and a `cleanup` or `delete` never run at the same time, on any of the
 machines sharing a bucket. Each holds a small file under `locks/` in the bucket for as long
-as it runs, and refuses to start while the other kind's lock is there:
+as it runs, and refuses to go ahead while the other kind's lock is there. A `cleanup` or
+`delete` checks just before it deletes anything, after its scan and after you confirm, so at
+a terminal the refusal comes after the question:
 
 ```console
 > s3cab cleanup my-backups
-Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
+Contacting the cloud…
+Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
+ERROR: Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
   backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
 
-Try again once it has finished, or let this run wait for it:
-  s3cab cleanup my-backups --wait
+Try again once it has finished, or run the same command again with --wait to let this run wait for it.
 If it was stopped without finishing and left its lock behind, remove the lock with:
   s3cab unlock --bucket my-backups
 ```

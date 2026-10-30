@@ -2,17 +2,12 @@
 
 import pkg from "../package.json" with { type: "json" };
 
-import { parseArgs } from "node:util";
+import { inspect, parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
-import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import { errorReport, helpTopics, usage } from "./help.mjs";
 import { isCredentialProviderError } from "./lib/auth.mjs";
-import {
-  InterruptedError,
-  errorText,
-  exitCodeFor,
-  isUsageError,
-} from "./lib/error.mjs";
+import { InterruptedError, errorText, exitCodeFor } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 import { statusLine } from "./lib/progress.mjs";
 import { bold, styleEnabled } from "./lib/style.mjs";
@@ -168,19 +163,19 @@ try {
   if (error instanceof InterruptedError) {
     console.error(error.message);
   } else {
-    // print the usage help only for a structural usage error (see lib/error.mjs
-    // for the exit-code axis). (Success is 0; an unknown command exits 127
-    // above, the shell's "command not found".) `errorMessage` owns the text —
-    // a missing argument is spelled from the registry (ADR-0038); debug prints
-    // the error object whole instead, stack and all.
-    console.error("ERROR:", debug ? error : errorMessage(command, error));
-    // A usage error prints the one-line synopsis + a --help pointer, not the full
-    // arg/option tables (those live behind --help) — ADR-0038.
-    if (isUsageError(error)) {
-      console.error();
-      console.error(synopsis(commands, commandName));
-      console.error(`Run 's3cab ${commandName} --help' for details.`);
-    }
+    // `errorReport` owns the text: the message (a missing argument spelled
+    // from the registry, ADR-0038), and the usage help only for a structural
+    // usage error (see lib/error.mjs for the exit-code axis). (Success is 0;
+    // an unknown command exits 127 above, the shell's "command not found".)
+    // Debug prints the error object whole instead, stack and all.
+    console.error(
+      errorReport(
+        command,
+        commandName,
+        error,
+        debug ? inspect(error) : undefined,
+      ),
+    );
   }
   process.exitCode = exitCodeFor(error);
 } finally {
