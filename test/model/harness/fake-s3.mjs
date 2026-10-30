@@ -276,6 +276,19 @@ export class FakeS3 {
 
   /**
    * @param {string} uri
+   * @returns {Promise<number | undefined>} the stored size, or undefined when absent
+   */
+  async objectSize(uri) {
+    const { bucket, key } = parseUri(uri);
+    return this.#apply(
+      "HEAD",
+      uri,
+      () => this.#bucket(bucket).get(key)?.bytes.length,
+    );
+  }
+
+  /**
+   * @param {string} uri
    * @returns {Promise<void>}
    */
   async deleteObject(uri) {
