@@ -19,23 +19,13 @@ import { readFileSync } from "node:fs";
 import { posix } from "node:path";
 import { defineConfig } from "vitepress";
 import { checkLinks } from "./check-links.mjs";
+import { slugify } from "./slugify.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
 /** @import MarkdownIt from "markdown-it" */
 
 const repo = "https://github.com/allens/s3cab";
-
-/**
- * GitHub's heading anchor: lower-case, drop punctuation and symbols, one `-`
- * per space — no collapsing, so `` `--x` — y `` keeps its `--x--y`.
- * @param {string} text
- */
-const slugify = (text) =>
-  text
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "")
-    .replace(/ /g, "-");
+const site = "https://s3cab.plantegral.com";
 
 /**
  * Where a site page's markdown lives in the repo: `index.md` includes the
@@ -48,13 +38,18 @@ const sourceOf = (relativePath) =>
     : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
 
 /**
- * A link as the site should serve it: resolved against the page's real place
- * in the repo, it stays as written if it lands on a site page, becomes `/` for
- * the README, and becomes a GitHub link for any other repo file.
+ * A link as the site should serve it: one to the site's own domain becomes a
+ * path on it, so the build checks it and a preview stays on the preview.
+ * Otherwise, resolved against the page's real place in the repo, it stays as
+ * written if it lands on a site page, becomes `/` for the README, and becomes a
+ * GitHub link for any other repo file.
  * @param {string} href
  * @param {string} relativePath - The site page the link is on
  */
 function siteHref(href, relativePath) {
+  if (href.startsWith(`${site}/`)) {
+    return href.slice(site.length);
+  }
   if (/^([a-z][a-z+.-]*:|#|\/)/i.test(href)) {
     return href;
   }
