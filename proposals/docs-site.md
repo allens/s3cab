@@ -15,7 +15,10 @@ read).
 
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
-  says what it checks and how. **Still open:** every transcript it doesn't name.
+  says what it checks and how. **Still open:** every transcript it doesn't name, and in the
+  ones it does, the middle of `guide/getting-started.md`'s `setup --keys` transcript — the two
+  key prompts and the starter-exclude notice, derived from `setup.mjs` and `sets.mjs` and
+  never produced by a run.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).
@@ -29,11 +32,6 @@ read).
 - **Slim the README** to pitch + install + quick start + links (~150 lines). Its "How it
   works", "Cloud repositories" and "Authentication" sections (~200 lines) restate
   `guide/format.md` and `guide/auth.md` — two homes for every format change.
-- **A tutorial and a by-situation front door.** Today the only walkthrough is the README quick
-  start and `guide/README.md` sends newcomers back to it. Landing entries by situation: *I
-  deleted a file*, *I need last month's version*, *my laptop died*, *is my backup OK?*, *the
-  bill is too high*. (`setup`, `list`, `status` have no `guide` link yet — the tutorial is
-  their natural home.)
 - **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
   visible inconsistency. Needs a markdown construct that still reads acceptably raw.
 - **Error index.** ADR-0030 messages are already constructive; give each a page anchor so

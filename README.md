@@ -137,7 +137,9 @@ back. To pull an _older_ version, add `--snapshot <name>`; to recover everything
 disaster-recovery case), run `restore --all`. By default `restore` leaves files that
 still exist untouched — your accidental deletions come back while everything else stays put —
 so pass `--overwrite` when you actually want to replace what's there.
-[guide/restore.md](guide/restore.md) covers all of it.
+[guide/restore.md](guide/restore.md) covers all of it, and
+[guide/getting-started.md](guide/getting-started.md) walks through this loop on a folder
+that doesn't matter, with what each step did and why.
 
 Step 1 also drops a starter `exclude.txt` beside the set and lists what it will skip by
 default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
