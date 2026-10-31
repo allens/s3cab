@@ -26,7 +26,8 @@
 //   and that is the renderer's. Each result is typed as its command's own, so
 //   `typecheck` catches one that no longer matches.
 //
-// Not checked, so kept right by hand:
+// Only the transcripts the tests below name are checked; every other one is
+// kept right by hand. Two kinds can't be checked this way:
 //
 // - What forget, delete and cleanup print between the notice and their
 //   result: the preview, the prompt, and the lines after the answer (forget's
@@ -58,8 +59,12 @@ import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
-/** @import { DeleteResult } from "../src/commands/delete.mjs" */
-/** @import { ForgetResult } from "../src/commands/forget.mjs" */
+/** @import { deleteHashes } from "../src/commands/delete.mjs" */
+/** @import { extract } from "../src/commands/extract.mjs" */
+/** @import { forget } from "../src/commands/forget.mjs" */
+/** @import { restore } from "../src/commands/restore.mjs" */
+/** @import { cleanup } from "../src/commands/cleanup.mjs" */
+/** @import { verify } from "../src/commands/verify.mjs" */
 /** @import { VerifyResult } from "../src/commands/verify.mjs" */
 /** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
@@ -459,8 +464,12 @@ const PHOTOS = "C:\\Users\\me\\Photos";
 /**
  * The result each checked command returns, by name.
  * @typedef {{
- *   verify: VerifyResult, restore: RestoreResult, extract: RestoreResult,
- *   forget: ForgetResult, delete: DeleteResult, cleanup: CleanupResult,
+ *   verify: Awaited<ReturnType<typeof verify>>,
+ *   restore: Awaited<ReturnType<typeof restore>>,
+ *   extract: Awaited<ReturnType<typeof extract>>,
+ *   forget: Awaited<ReturnType<typeof forget>>,
+ *   delete: Awaited<ReturnType<typeof deleteHashes>>,
+ *   cleanup: Awaited<ReturnType<typeof cleanup>>,
  * }} Results
  */
 
@@ -477,7 +486,7 @@ const printed = (name, result) =>
 /**
  * What the CLI prints for the error `run` throws as `name`: `errorReport`, the
  * text the dispatcher itself prints.
- * @param {string} name
+ * @param {keyof Results} name
  * @param {() => unknown} run
  */
 function printedError(name, run) {

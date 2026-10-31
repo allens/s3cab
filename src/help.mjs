@@ -191,7 +191,9 @@ export function errorMessage(command, error) {
 /**
  * Everything the CLI prints for an error a command threw: `ERROR:` and its
  * message, then, for a structural usage error, the one-line synopsis and a
- * `--help` pointer rather than the full arg/option tables (ADR-0038).
+ * `--help` pointer rather than the full arg/option tables (ADR-0038). The
+ * guides' error transcripts are checked against this, so the dispatcher must
+ * print it, never a copy (test/doc-examples.test.mjs).
  * @param {string} commandName
  * @param {Command} command
  * @param {unknown} error
