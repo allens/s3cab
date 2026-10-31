@@ -159,6 +159,33 @@ describe("compileExcludePatterns escapes (ADR-0114)", () => {
   );
 
   it(
+    "reads the member directory as a path, not a pattern",
+    { skip: !ESCAPES && "no name holds \\, * or ? through Win32" },
+    () => {
+      for (const root of [
+        "/home/me/odd\\dir",
+        "/home/me/a*b",
+        "/home/me/a?b",
+      ]) {
+        const match = compileExcludePatterns(root, ["*.tmp"]);
+        assert.equal(match(`${root}/x.tmp`, false), "*.tmp", root);
+      }
+      const star = compileExcludePatterns("/home/me/a*b", ["*.tmp"]);
+      assert.equal(star("/home/me/axyb/x.tmp", false), undefined);
+    },
+  );
+
+  it(
+    "never matches a stray \\ as text, should one get past the walk's refusal",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    () => {
+      // Normalizing the path turns `dir\/.` into `dir\`, which once matched
+      // `dirundefined`.
+      assert.throws(() => excludedBy(["dir\\/."], "/root/dirundefined"));
+    },
+  );
+
+  it(
     "takes \\ as a separator on Windows",
     { skip: ESCAPES && "\\ escapes off Windows" },
     () => {
@@ -170,7 +197,8 @@ describe("compileExcludePatterns escapes (ADR-0114)", () => {
 
 describe("parseExclude", () => {
   it("reads lines as parseLines does", () => {
-    const text = "# header\n**/node_modules/\r\n\n  # indented\n  **/.git/  \n";
+    const text =
+      "# header\n**/node_modules/\r\n\n  # indented\n\t# tabbed\n  **/.git/  \n";
     assert.deepEqual(parseExclude(text), ["**/node_modules/", "**/.git/"]);
   });
 
@@ -224,11 +252,20 @@ describe("exactPattern", () => {
     assert.equal(exactPattern(" lead"), "\\ lead");
   });
 
+  it("has no line for a name holding a tab, CR or LF, which no line can hold", () => {
+    for (const rel of ["a\tb", "a\rb", "a\nb"]) {
+      assert.equal(exactPattern(rel), undefined, JSON.stringify(rel));
+    }
+  });
+
   it(
-    "has no line for a name ending in a space on Windows",
+    "has no line on Windows for a name ending in a space, or holding * or ?",
     { skip: ESCAPES && "\\ escapes off Windows" },
     () => {
-      assert.equal(exactPattern("trail "), undefined);
+      // Win32 refuses `*` and `?`, but a share or WSL can make such a name.
+      for (const rel of ["trail ", "a*b", "a?b"]) {
+        assert.equal(exactPattern(rel), undefined, JSON.stringify(rel));
+      }
     },
   );
 });

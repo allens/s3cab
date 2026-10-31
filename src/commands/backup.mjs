@@ -130,12 +130,20 @@ export async function backup(setName, options = {}) {
   // Compared exactly, separator and all, not without it: a folder link whose
   // target is sometimes unreachable fails two different ways (`Share` can't
   // be resolved, `Share\` is outside the backup), and each is its own failure.
-  const failedAgain = pass.errors
-    .map(({ path }) => path)
-    .filter((path) => previousErrors.has(path));
-  const patterns = failedAgain.map((path) =>
-    exactPattern(excludePattern(pass.roots, path)),
-  );
+  /** @type {string[]} */
+  const excludeSuggestions = [];
+  /** @type {string[]} */
+  const unexcludable = [];
+  for (const { path } of pass.errors) {
+    if (previousErrors.has(path)) {
+      const pattern = exactPattern(excludePattern(pass.roots, path));
+      if (pattern === undefined) {
+        unexcludable.push(path);
+      } else {
+        excludeSuggestions.push(pattern);
+      }
+    }
+  }
 
   return {
     set: set.name,
@@ -155,8 +163,8 @@ export async function backup(setName, options = {}) {
     uploadedBytes,
     uploadMs: sendingMs,
     errors: pass.errors,
-    excludeSuggestions: patterns.filter((pattern) => pattern !== undefined),
-    unexcludable: failedAgain.filter((_, i) => patterns[i] === undefined),
+    excludeSuggestions,
+    unexcludable,
     excludePath: set.excludePath,
     comparison,
   };

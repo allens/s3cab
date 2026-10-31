@@ -1214,6 +1214,12 @@ describe("renderBackup", () => {
     assert.doesNotMatch(text, /\n {2}f11\n/);
   });
 
+  it("shows a control character in a file no exclude line can name", () => {
+    const path = under("odd\tname.pst");
+    const text = renderBackup(run({ errors: failed(1), unexcludable: [path] }));
+    assert.match(text, /odd\\x09name\.pst$/);
+  });
+
   it("says which files that failed last time too no exclude line can name", () => {
     const errors = failed(1);
     const path = under("locked-1.pst");

@@ -495,23 +495,37 @@ describe("readExcludePatterns (ADR-0100)", () => {
   );
 
   it(
-    "refuses a pattern ending in a \\ with nothing to escape (ADR-0114)",
+    "refuses a \\ that escapes nothing, offering / as the separator (ADR-0114)",
     { skip: !ESCAPES && "\\ is a separator on Windows" },
     async () => {
       await using dir = await mkTmpDir();
       const excludePath = join(dir.path, "exclude.txt");
-      // The CR of a CRLF line is not what the backslash escapes.
-      writeFileSync(excludePath, "*.tmp\nodd\\\r\nfine\\\\\n");
+      // The CR of a CRLF line is not what the backslash escapes. The second
+      // line is the shape a Windows-written exclude.txt brings with it.
+      writeFileSync(
+        excludePath,
+        "*.tmp\nodd\\\r\n**\\node_modules\\\nfine\\\\\nsub\\/x\n",
+      );
       assert.throws(
         () => readExcludePatterns(excludePath),
         (error) =>
           error instanceof Error &&
-          error.message.includes("because this pattern ends in a \\") &&
+          error.message.includes("because these patterns have a \\") &&
           error.message.includes("\n  odd\\\n") &&
+          error.message.includes("\n  sub\\/x\n") &&
+          error.message.includes("\n  **/node_modules/\n") &&
+          error.message.includes("\n  sub//x\n") &&
           !error.message.includes("fine"),
       );
     },
   );
+
+  it("shows a tab in a pattern before any other refusal", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "a\tb\\\n");
+    assert.throws(() => readExcludePatterns(excludePath), /a␉b/);
+  });
 });
 
 describe("walkSet dirs guard (ADR-0054)", () => {

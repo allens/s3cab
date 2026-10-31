@@ -1050,7 +1050,9 @@ export function renderBackup(result, { color = false } = {}) {
   if (unexcludable.length) {
     const lines = [
       `No exclude line names only these, so to skip them, rename them or exclude the folder holding them:`,
-      ...unexcludable.slice(0, ERRORS_SHOWN).map((p) => `  ${p}`),
+      ...unexcludable
+        .slice(0, ERRORS_SHOWN)
+        .map((p) => `  ${withVisibleControls(p)}`),
     ];
     if (unexcludable.length > ERRORS_SHOWN) {
       lines.push(

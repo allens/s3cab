@@ -215,12 +215,24 @@ export function unmatchedFolders(folders, paths) {
 export const ESCAPES = process.platform !== "win32";
 
 /**
- * Whether `pattern` ends in a `\` with nothing after it to escape.
+ * Whether `pattern` holds a `\` that escapes nothing: at the end, or before a
+ * `/`, which no name holds. Refused rather than read, because normalizing the
+ * path would turn `dir\/.` into a `dir\` with nothing left to escape.
  * @param {string} pattern
  * @returns {boolean} Always false where `\` doesn't escape
  */
-export const danglingEscape = (pattern) =>
-  ESCAPES && /(?<!\\)(?:\\\\)*\\$/.test(pattern);
+export const strayEscape = (pattern) =>
+  ESCAPES && /(?<!\\)(?:\\\\)*\\(?:\/|$)/.test(pattern);
+
+/**
+ * `text` matching only itself as a pattern: on Linux and macOS each `\`, `*`
+ * and `?` escaped. Windows has no escape, and no name there holds `*` or `?`
+ * through Win32.
+ * @param {string} text
+ * @returns {string}
+ */
+export const literalPattern = (text) =>
+  ESCAPES ? text.replaceAll(/[\\*?]/g, "\\$&") : text;
 
 /**
  * Compile a glob's *tokens* into regular-expression source, **unanchored** — the
@@ -237,7 +249,7 @@ export const danglingEscape = (pattern) =>
  * slash anywhere in this file — that sequence ends a block comment.)
  * @param {string} pattern - A `/`-separated glob; converting the platform's own
  *   separator is the caller's job, because the per-segment tokens need one
- *   canonical separator to define a segment by. Never `danglingEscape`: the
+ *   canonical separator to define a segment by. Never `strayEscape`: the
  *   callers refuse that with their own wording
  * @returns {string} Regex source carrying no `^`/`$` of its own, for compiling
  *   with the `u` flag: without it `?` matches half of an emoji
@@ -253,6 +265,11 @@ export function globSource(pattern) {
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
     if (ESCAPES && char === "\\") {
+      if (i + 1 === pattern.length) {
+        throw new Error(
+          `A pattern ending in a stray \\ reached globSource: ${pattern}`,
+        );
+      }
       literal += pattern[++i];
     } else if (char === "*" && pattern[i + 1] === "*") {
       // **/ matches zero or more segments, where it starts one. Stuck to a name

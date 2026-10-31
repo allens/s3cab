@@ -14,7 +14,7 @@ import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns, parseExclude } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { danglingEscape, preparePath } from "./path-match.mjs";
+import { preparePath, strayEscape } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 
@@ -79,15 +79,6 @@ export function readExcludePatterns(excludePath) {
   const patterns = existsSync(excludePath)
     ? parseExclude(readFileSync(excludePath, "utf8"))
     : [];
-  const dangling = patterns.filter(danglingEscape);
-  if (dangling.length) {
-    throw new Error(
-      `Can't use the set's exclude file, because ${dangling.length === 1 ? "this pattern ends" : "these patterns end"} ` +
-        `in a \\ with nothing after it to escape (${tildeify(excludePath)}):\n` +
-        dangling.map((pattern) => `  ${pattern}`).join("\n") +
-        `\nWrite \\\\ for a backslash itself.`,
-    );
-  }
   // ADR-0100. After the trim, so a CRLF file's line endings never get here.
   const unusable = patterns.filter((pattern) => /[\t\r]/.test(pattern));
   if (unusable.length) {
@@ -103,6 +94,24 @@ export function readExcludePatterns(excludePath) {
         unusable
           .map((pattern) => `  ${pattern.replaceAll(/[\t\r]+/g, "*")}`)
           .join("\n"),
+    );
+  }
+  // ADR-0114. The likeliest cause is a file written on Windows, where `\`
+  // separates folders, so that is the fix offered first.
+  const stray = patterns.filter(strayEscape);
+  if (stray.length) {
+    const these =
+      stray.length === 1 ? "this pattern has" : "these patterns have";
+    throw new Error(
+      `Can't use the set's exclude file, because ${these} a \\ that escapes ` +
+        `nothing, at the end or before a / (${tildeify(excludePath)}):\n` +
+        stray.map((pattern) => `  ${pattern}`).join("\n") +
+        `\nHere / separates folders, and a \\ makes the next character match ` +
+        `only itself. If the \\ separates folders, write:\n` +
+        stray
+          .map((pattern) => `  ${pattern.replaceAll("\\", "/")}`)
+          .join("\n") +
+        `\nFor a backslash in a name, write \\\\.`,
     );
   }
   if (patterns.length) {

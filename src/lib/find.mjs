@@ -2,7 +2,7 @@ import { posix, sep } from "node:path";
 import { stderr } from "node:process";
 
 import { ValidationError, errorText } from "./error.mjs";
-import { danglingEscape, globSource, preparePath } from "./path-match.mjs";
+import { globSource, preparePath, strayEscape } from "./path-match.mjs";
 import { countedPass } from "./progress.mjs";
 import { isCorruptSnapshotError } from "./referenced.mjs";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
@@ -122,13 +122,18 @@ import { shellCommand } from "./style.mjs";
  * @param {string} pattern - As the user typed it
  * @returns {FindMatcher}
  * @throws {ValidationError} On a pattern with nothing in it to match, or one
- *   ending in a `\` with nothing to escape
+ *   with a `\` that escapes nothing
  */
 export function compileFindPattern(pattern) {
-  if (danglingEscape(pattern)) {
+  if (strayEscape(pattern)) {
+    const doubled = pattern.replaceAll(
+      /(?<!\\)((?:\\\\)*)\\(?=\/|$)/g,
+      "$1\\\\",
+    );
     throw new ValidationError(
-      `The pattern '${pattern}' ends in a \\ with nothing after it to ` +
-        `escape. Write \\\\ for a backslash itself.`,
+      `The pattern '${pattern}' has a \\ that escapes nothing, at the end or ` +
+        `before a /. For a backslash in a name, write \\\\:\n\n` +
+        `  ${shellCommand(`s3cab find '${doubled}'`)}`,
     );
   }
 

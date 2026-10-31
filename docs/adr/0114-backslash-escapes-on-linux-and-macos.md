@@ -26,20 +26,26 @@ either, nor a Linux file with a literal backslash.
 
 **On Linux and macOS, `\` escapes the character after it, in `exclude.txt` and in `find`.**
 `\*`, `\?`, `\#`, `\ ` and `\\` each match that one character. `\` isn't a separator there, and
-it is the escape a shell user and a `.gitignore` user already know. A trailing escaped space
-survives the trim: `notes\ ` names `notes `. A `\` with nothing after it is refused, as a
-pattern holding a tab is.
+it is the escape a shell user and a `.gitignore` user already know. An escaped space, or other
+whitespace, at the end of a line survives the trim: `notes\ ` names `notes `. A `\` that escapes
+nothing, at the end or before a `/` (which no name holds), is refused: normalizing the path would
+otherwise leave it with nothing to escape. A member directory's own path is matched as text, so
+a `\`, `*` or `?` in it matches only itself.
 
 **On Windows, nothing changes.** `\` and `/` are both separators, and a pattern is a path as a
-Windows user knows it (user, 2026-10-31). Nothing there needs an escape. A Windows name can't
-hold `*` or `?`, and a leading `#` or space is written after a leading separator, which already
+Windows user knows it (user, 2026-10-31). Nothing there needs an escape. Win32 refuses `*` and
+`?` in a name, and a leading `#` or space is written after a leading separator, which already
 changes nothing: `\#notes` names `#notes`, and `\ lead` names ` lead` (measured).
 
 **`\#notes` and `\ lead` therefore work on every system**, as a separator on Windows and an
 escape elsewhere. `backup`'s suggestion writes a leading `#` or space that way everywhere, and
 on Linux and macOS escapes `*`, `?`, `\` and a trailing space. A name with no exact line gets
-none, and the report lists it: on Windows a name ending in a space, and anywhere a name holding
-a newline, which s3cab refuses to back up in any case.
+none, and the report lists it: on Windows a name ending in a space or holding `*` or `?` (a share
+can hold them), and anywhere a name holding a tab, CR or LF, which only an `#error` row can carry.
+
+An exclude file is read by the rules of the system reading it: the crossing between systems is
+the boundary [0051](0051-native-separator-in-user-path-files.md) left for later. One written on
+Windows and read on Linux, `**\node_modules\` say, is refused with the same line in `/` offered.
 
 Comments stay `#`. `dirs.txt` is untouched: it takes no globs, and no absolute path starts with
 `#`.
