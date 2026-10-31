@@ -1,4 +1,4 @@
-import { join, posix, sep } from "node:path";
+import { posix, win32 } from "node:path";
 
 import { globSource } from "./path-match.mjs";
 
@@ -27,15 +27,40 @@ import { globSource } from "./path-match.mjs";
  * table, which joins a few rare letters NTFS keeps apart (the Kelvin sign and
  * `k`): not the `i` flag alone, which matched NTFS on those, because only `u`
  * makes `?` match a whole emoji.
+ *
+ * `platform` is this machine's everywhere but the docs site's playground
+ * (site/.vitepress/exclude-playground.mjs), which matches like any of them.
  * @param {string} baseDir - The member directory the patterns are relative to
  * @param {string[]} patterns - Root-relative exclude globs, as the user wrote them
+ * @param {NodeJS.Platform} [platform] - Whose filesystem to compare names like
  * @returns {(path: string, isDirectory: boolean) => string | undefined} The
  *   first pattern matching `path`, or `undefined` to keep it
  */
-export function compileExcludePatterns(baseDir, patterns) {
+export function compileExcludePatterns(
+  baseDir,
+  patterns,
+  platform = process.platform,
+) {
+  // Node's own choice of `node:path` flavour, made from `platform`.
+  const { join, sep } = platform === "win32" ? win32 : posix;
+  const foldsAccents = platform === "darwin";
+  const flags = platform === "win32" || foldsAccents ? "iu" : "u";
+
+  /**
+   * A path or pattern with `/` separators, and on macOS in one accent spelling.
+   * @param {string} path
+   */
+  const spell = (path) => {
+    const slashed = path.split(sep).join(posix.sep);
+    return foldsAccents ? slashed.normalize("NFC") : slashed;
+  };
+
   const matchers = patterns.map((pattern) => ({
     pattern,
-    regex: compile(join(baseDir, pattern)),
+    regex: new RegExp(
+      `^${globSource(posix.normalize(spell(join(baseDir, pattern))))}$`,
+      flags,
+    ),
   }));
 
   return (path, isDirectory) => {
@@ -45,28 +70,4 @@ export function compileExcludePatterns(baseDir, patterns) {
     }
     return matchers.find(({ regex }) => regex.test(subject))?.pattern;
   };
-}
-
-const FOLDS_CASE =
-  process.platform === "win32" || process.platform === "darwin";
-const FOLDS_ACCENTS = process.platform === "darwin";
-
-/**
- * @param {string} pattern - Absolute exclude glob
- * @returns {RegExp}
- */
-function compile(pattern) {
-  return new RegExp(
-    `^${globSource(posix.normalize(spell(pattern)))}$`,
-    FOLDS_CASE ? "iu" : "u",
-  );
-}
-
-/**
- * A path or pattern with `/` separators, and on macOS in one accent spelling.
- * @param {string} path
- */
-function spell(path) {
-  const slashed = path.split(sep).join(posix.sep);
-  return FOLDS_ACCENTS ? slashed.normalize("NFC") : slashed;
 }
