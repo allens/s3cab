@@ -157,7 +157,12 @@ export async function writeLock(bucket, { kind, command, set }) {
     if (existing === body) {
       return { id, kind, command, set, by, os, pidns, pid, started };
     }
-    await sleep(1);
+    // Not a single sleep(1): a 1ms timer can fire before the clock's
+    // millisecond moves (libuv times it from the loop's cached clock), and
+    // would mint the instant that just lost.
+    do {
+      await sleep(1);
+    } while (freshLockId(kind).id === id);
   }
 }
 
