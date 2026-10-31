@@ -1,63 +1,15 @@
 # Documentation site & docs UX
 
-Epic: turn `guide/` from markdown behind a redirect into a docs site that is professional,
-pleasant to use, and a bit of fun — without giving up what the docs already do well (honest,
-plain-language, example-led prose). From a docs deep dive on 2026-10-09; the quick fixes it found
-(help links via the registry `guide` field, `find` in the README table, future-dated examples,
-ADR links in user pages, `package.json` `homepage`) are done.
+Epic: make the docs site professional, pleasant to use, and a bit of fun — without giving up
+what the docs already do well (honest, plain-language, example-led prose). From a docs deep dive
+on 2026-10-09. The site itself is built and live at https://s3cab.plantegral.com: how it is built
+and served, and who owns what, is [ADR-0114](../docs/adr/0114-docs-site-cloudflare-pages.md).
 
 **Constraints any of this must keep** (CLAUDE.md): `/guide/<topic>` URLs are frozen into shipped
 binaries, so `guide/*.md` keep their names and the site serves exactly those paths; `guide/` ships
 in the npm tarball, so every page must stay readable as raw GitHub-flavoured markdown; the
 help-vs-guide placement doctrine stands (terminal help is mid-task, the site is the sit-down
 read).
-
-## Hosting: Cloudflare, infrastructure in Terraform (settled 2026-10-09)
-
-The domain already lives in Cloudflare, managed by Terraform outside this repo. Weighed against
-GitHub Pages (meta-refresh stubs only, no real redirects, no PR previews) and S3 + CloudFront
-(clean URLs and redirects need a hand-written CloudFront Function; previews are DIY). An R2
-bucket alone is not a web host — no index or `.html` resolution. What decided it is the frozen
-URLs: on Cloudflare a moved page is a reviewed line in `_redirects`, forever.
-
-**Split ownership so Terraform and deploys never fight over the same thing:**
-
-- **Terraform (infra repo)** owns everything that changes rarely: the Pages project with its
-  GitHub source and build settings, and the `s3cab.plantegral.com` custom domain + DNS. It never
-  owns the site's *content* — if it did, every deploy would show up as drift.
-- **This repo** owns what changes with the docs: the VitePress build, `_redirects` (in the
-  build's `public/`, reviewed like code), and a CI job that only builds, so a broken page fails
-  the PR.
-
-**Cloudflare builds and deploys, through Pages' own GitHub connection** — production from
-`main`, a preview URL per branch. Not `wrangler pages deploy` from Actions: a Cloudflare API
-token can't be scoped to one Pages project (*Cloudflare Pages Edit* is account-wide), so a deploy
-secret in GitHub could edit every Pages project in the account. With the Git connection GitHub
-holds no Cloudflare credential at all. The build image runs any Node version via `NODE_VERSION`.
-
-What the Pages project needs: source `allens/s3cab`, production branch `main`, build command
-`npm run docs:build`, output directory `site/.vitepress/dist`, and `NODE_VERSION=26.10.0` (the
-engines floor, as in `ci.yml`; the image defaults to 22). The Cloudflare GitHub app
-must be installed on the repo first — a one-time click Terraform can't make.
-
-Pages rather than Workers static assets, though Cloudflare now steers new sites to Workers: Pages
-gives per-branch previews out of the box, and its Terraform resource carries the Git source and
-build settings in one place. Moving later changes the deploy target, not the content.
-
-**Progress (2026-10-31).** The Pages project `s3cab` exists in platform's Terraform
-(`terraform/site-s3cab-plantegral-com.tf`, platform commit `1c35764`), building from `main` with
-a preview per branch, at https://s3cab.pages.dev. `s3cab.plantegral.com` is unchanged: the
-cutover below is next, in platform.
-
-**Cutover — the order matters.** Today `/guide/<topic>` is redirected, by two redirect rules on
-the hostname in platform's Terraform; a hostname redirect rule runs *before* the Pages origin, so the
-site would never see traffic while it exists. So: deploy to the `*.pages.dev` URL and check every
-`/guide/<topic>` the registry names (plus `/`, which the CLI prints as "Full documentation");
-then, in **one** apply, attach the custom domain and delete both rules; re-check every topic on
-the real domain. Afterwards, a nightly job fetching each registry topic's live URL guards what
-`help.test.mjs` can't (it proves the page exists in `guide/`, not that the URL resolves).
-
-When built, this section becomes an ADR (the frozen-URL constraint now depends on it).
 
 ## Ordered by payoff
 
@@ -82,6 +34,10 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).
+- **Check the frozen URLs live.** A scheduled job fetching `/`, `/guide/` and each
+  `/guide/<topic>` on https://s3cab.plantegral.com and failing on anything but a 200.
+  `help.test.mjs` proves each topic has a page in `guide/`, not that the URL answers, and a
+  hosting change in the platform repo is invisible from here.
 - **Generated command reference.** One page per command from the `commands.mjs` registry +
   `command-details.mjs` — the same source as `--help`. The README's hand-kept command table
   (which drifted: `find` was missing) could be generated by the same script or shrunk to a link.
