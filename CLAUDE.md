@@ -277,6 +277,11 @@ Four layout notes the README and code don't carry:
   a dead `#anchor`, and on one trap worth knowing by name: **no line may start with `<`**, not
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
+  **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
+  GitHub app, so this repo holds no deploy job and no Cloudflare secret. The build command
+  (`docs:build`), the output folder (`site/.vitepress/dist`) and the Node version are also set
+  in the platform repo's Terraform, which owns the project, domain and DNS: change one, change
+  the other.
 
 **Vendored skills.** [`cli-design`](.claude/skills/cli-design/),
 [`over-engineering`](.claude/skills/over-engineering/) and
