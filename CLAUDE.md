@@ -223,9 +223,10 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   extension-less (`/guide/<topic>`), since `.md` would weld the URL to the file format. A shipped
   binary freezes its URLs and `setup` writes one into a starter `exclude.txt` s3cab never
   rewrites, so a printed URL can never be corrected after install; blob URLs can't redirect, a
-  domain we own always can. Two commitments follow: **don't rename `guide/*.md`** (the redirect
-  maps `/guide/<topic>` → `guide/<topic>.md`), and the domain must keep resolving — it is
-  load-bearing for released software.
+  domain we own always can. Two commitments follow: **don't rename `guide/*.md`** (the site
+  serves `/guide/<topic>` from `guide/<topic>.md`; a page that must move gets a `_redirects`
+  line), and the domain must keep resolving — it is load-bearing for released software
+  ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)).
 - **Shape our own errors by the taxonomy in [src/lib/error.mjs](src/lib/error.mjs)'s header**
   (*shape*; ADR-0030 is *wording*). Caught by type to branch behaviour → an Error subclass, else a
   plain `Error`; message heavy, actionable or reused → a named factory (`noCredentialsError`),
@@ -278,7 +279,8 @@ Four layout notes the README and code don't carry:
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
   **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
-  GitHub app, so this repo holds no deploy job and no Cloudflare secret. The build command
+  GitHub app, so this repo holds no deploy job and no Cloudflare secret
+  ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)). The build command
   (`docs:build`), the output folder (`site/.vitepress/dist`) and the Node version are also set
   in the platform repo's Terraform, which owns the project, domain and DNS: change one, change
   the other.

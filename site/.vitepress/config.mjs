@@ -1,4 +1,4 @@
-// The docs site at https://s3cab.plantegral.com (proposals/docs-site.md). It
+// The docs site at https://s3cab.plantegral.com (ADR-0114). It
 // renders README.md and guide/*.md in place rather than copying them, so this
 // config's job is to make pages written for GitHub read the same here:
 //
