@@ -144,9 +144,9 @@ describe("usage", () => {
   });
 
   it("links every real command's guide to a page that exists", () => {
-    // The URL is frozen into each shipped binary and redirects to
-    // guide/<topic>.md, so a typo'd or renamed page is a dead link nobody can
-    // fix after release.
+    // The URL is frozen into each shipped binary and the site serves it from
+    // guide/<topic>.md (ADR-0114), so a typo'd or renamed page is a dead link
+    // nobody can fix after release.
     const guides = Object.entries(commands).flatMap(([name, { guide }]) =>
       guide ? [[name, guide]] : [],
     );
