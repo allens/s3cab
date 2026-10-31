@@ -206,7 +206,7 @@ An **upload** (a backup, or any tool storing objects) and a **delete** (a clean-
 tool removing objects) never run at the same time. Under objects first, snapshot last, what
 an upload has stored, or found already stored and skipped, is referenced by nothing until its
 snapshot lands, so a delete running beside it would take that content for an orphan. Each
-kind of run holds a lock in the bucket while it runs, and refuses to start while the other
+kind of run holds a lock in the bucket while it runs, and refuses to go ahead while the other
 kind's lock is there.
 
 - A lock is a key `locks/<kind>-<instant>`: the kind, `upload` or `delete`, then the instant

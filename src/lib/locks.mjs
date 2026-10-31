@@ -287,7 +287,7 @@ const deleteRunningError = (bucket, command, deletes) =>
  * @param {Lock[]} uploads - The upload locks seen
  * @returns {Error}
  */
-const uploadRunningError = (bucket, command, uploads) =>
+export const uploadRunningError = (bucket, command, uploads) =>
   new Error(
     `Can't ${goalOf(command).cant} right now — a backup or upload is running ` +
       `on bucket '${bucket}', and ${goalOf(command).doing} while it runs ` +

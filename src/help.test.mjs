@@ -205,14 +205,14 @@ describe("usage", () => {
 describe("synopsis", () => {
   it("renders required and optional positionals from their metadata", () => {
     assert.equal(
-      synopsis(fakeRegistry, "go"),
+      synopsis("go", /** @type {Command} */ (fakeRegistry.go)),
       "Usage: s3cab go [options] <target> [<extra>]",
     );
   });
 
   it("is just the command + [options] when it declares no args", () => {
     assert.equal(
-      synopsis(fakeRegistry, "later"),
+      synopsis("later", /** @type {Command} */ (fakeRegistry.later)),
       "Usage: s3cab later [options]",
     );
   });
@@ -221,7 +221,7 @@ describe("synopsis", () => {
     // Guards the real setup shape (ADR-0062): the directories are the bulk
     // operand and are required, so `<directory>...` — the set moved to --set.
     assert.equal(
-      synopsis(commands, "setup"),
+      synopsis("setup", /** @type {Command} */ (commands.setup)),
       "Usage: s3cab setup [options] <directory>...",
     );
   });
@@ -230,7 +230,7 @@ describe("synopsis", () => {
     // The real restore shape: paths are the bulk operand but optional (none =
     // restore everything), so they bracket.
     assert.equal(
-      synopsis(commands, "restore"),
+      synopsis("restore", /** @type {Command} */ (commands.restore)),
       "Usage: s3cab restore [options] [<path>...]",
     );
   });
@@ -326,14 +326,14 @@ describe("errorReport", () => {
 
   it("prints a runtime error as its one ERROR line", () => {
     assert.equal(
-      errorReport(go, "go", new Error("The bucket is gone.")),
+      errorReport("go", go, new Error("The bucket is gone.")),
       "ERROR: The bucket is gone.",
     );
   });
 
   it("follows a usage error with the synopsis and a --help pointer", () => {
     assert.equal(
-      errorReport(go, "go", new MissingArgError("fast")),
+      errorReport("go", go, new MissingArgError("fast")),
       [
         "ERROR: Missing required argument: -f, --fast — Do it quickly",
         "",
@@ -345,7 +345,7 @@ describe("errorReport", () => {
 
   it("prints the detail it is given in place of the message", () => {
     assert.equal(
-      errorReport(go, "go", new Error("short"), "Error: short\n    at x"),
+      errorReport("go", go, new Error("short"), "Error: short\n    at x"),
       "ERROR: Error: short\n    at x",
     );
   });
