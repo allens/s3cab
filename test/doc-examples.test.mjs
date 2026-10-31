@@ -4,7 +4,6 @@
 // output under it has to be what the reader will see. Neither is checked by
 // anything else — a renamed flag leaves every guide that spells the old one
 // quietly wrong, and a renderer change leaves every transcript stale.
-// (proposals/docs-site.md, "Examples that can't drift".)
 //
 // Three checks, by what each can reach:
 //
@@ -20,17 +19,22 @@
 //   extract, and how forget, delete and cleanup end): what the CLI prints for a
 //   result built to the page's scenario (the registry's own renderer for the
 //   command, or `errorReport` for an error) after the notice every cloud
-//   command opens with (`authNotice`). A real bucket can't reproduce them:
-//   verify and cleanup read the whole shared test bucket, the figures are a
-//   real library's (48,210 objects, 12.4GB), and the restores write to
-//   `C:\Users\me`. What drifts is the wording and layout, and that is the
-//   renderer's. The results are checked against the commands' own result
-//   types, so `typecheck` catches one that no longer matches. A preview or
-//   prompt a command prints between the notice and its result is its own, not
-//   the renderer's, so for those only the transcript's last lines are compared.
+//   command opens with (`authNotice`). Not a run against a real bucket, which
+//   can't reproduce them: verify and cleanup read the whole shared test
+//   bucket, the figures are a real library's (48,210 objects), and the
+//   restores write to `C:\Users\me`. What drifts is the wording and layout,
+//   and that is the renderer's. Each result is typed as its command's own, so
+//   `typecheck` catches one that no longer matches.
 //
-// Not every transcript is checked: proposals/docs-site.md lists the rest under
-// "Examples that can't drift".
+// Not checked, so kept right by hand:
+//
+// - What forget, delete and cleanup print between the notice and their
+//   result: the preview, the prompt, and the lines after the answer (forget's
+//   cleanup pointer and record path, delete's record notice). For those only
+//   the transcript's last lines are compared (`ending`).
+// - README's quick start `setup` and `backup`: `setup --keys` prompts, and
+//   prints the starter exclude notice, in an order only a real run would
+//   settle; `backup` carries timings.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
@@ -39,11 +43,16 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
 import { errorReport } from "../src/help.mjs";
-import { selectTargets } from "../src/lib/restore.mjs";
+import { uploadRunningError } from "../src/lib/locks.mjs";
+import {
+  noBackupsError,
+  selectTargets,
+  snapshotNotFoundError,
+} from "../src/lib/restore.mjs";
 import { authNotice } from "../src/lib/s3.mjs";
 import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 
@@ -51,6 +60,7 @@ import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
 /** @import { DeleteResult } from "../src/commands/delete.mjs" */
 /** @import { ForgetResult } from "../src/commands/forget.mjs" */
+/** @import { VerifyResult } from "../src/commands/verify.mjs" */
 /** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
 /** @import { SetReport } from "../src/lib/verify.mjs" */
@@ -394,7 +404,7 @@ const setReport = (set, referencedObjects, report = {}) => ({
  * A verify of `my-backups`: the page's three sets, `photos` as given. The other
  * two are always clean and only add to the object count.
  * @param {SetReport} photos
- * @returns {{ bucket: string, sets: SetReport[] }}
+ * @returns {VerifyResult}
  */
 const verifyResult = (photos) => ({
   bucket: "my-backups",
@@ -447,10 +457,19 @@ const cleanupResult = (deleted) => ({
 const PHOTOS = "C:\\Users\\me\\Photos";
 
 /**
+ * The result each checked command returns, by name.
+ * @typedef {{
+ *   verify: VerifyResult, restore: RestoreResult, extract: RestoreResult,
+ *   forget: ForgetResult, delete: DeleteResult, cleanup: CleanupResult,
+ * }} Results
+ */
+
+/**
  * What the CLI prints as `name`'s result: the registry's own renderer for that
  * command, so a command given a renderer of its own is checked against it.
- * @param {string} name
- * @param {unknown} result
+ * @template {keyof Results} N
+ * @param {N} name
+ * @param {Results[N]} result
  */
 const printed = (name, result) =>
   /** @type {Command} */ (commands[name]).render(result, { color: false });
@@ -465,7 +484,7 @@ function printedError(name, run) {
   try {
     run();
   } catch (error) {
-    return errorReport(/** @type {Command} */ (commands[name]), name, error);
+    return errorReport(name, /** @type {Command} */ (commands[name]), error);
   }
   assert.fail(`'${name}' was expected to throw`);
 }
@@ -539,14 +558,11 @@ const CLOUD = [
     command: "s3cab forget --set photos 20260501T0800",
     ending: true,
     output: () =>
-      printed(
-        "forget",
-        /** @satisfies {ForgetResult} */ ({
-          set: "photos",
-          snapshots: ["20260501T0800"],
-          forgotten: true,
-        }),
-      ),
+      printed("forget", {
+        set: "photos",
+        snapshots: ["20260501T0800"],
+        forgotten: true,
+      }),
   },
   {
     page: "guide/maintenance.md",
@@ -554,31 +570,25 @@ const CLOUD = [
       "s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800",
     ending: true,
     output: () =>
-      printed(
-        "forget",
-        /** @satisfies {ForgetResult} */ ({
-          set: "photos",
-          snapshots: ["20260501T0800", "20260508T0800", "20260515T0800"],
-          forgotten: true,
-        }),
-      ),
+      printed("forget", {
+        set: "photos",
+        snapshots: ["20260501T0800", "20260508T0800", "20260515T0800"],
+        forgotten: true,
+      }),
   },
   {
     page: "guide/maintenance.md",
     command: "s3cab delete --bucket my-backups --from-file footage.txt",
     ending: true,
     output: () =>
-      printed(
-        "delete",
-        /** @satisfies {DeleteResult} */ ({
-          bucket: "my-backups",
-          deletedObjects: 297,
-          deletedBytes: 48_100_000_000,
-          missing: [],
-          record: "s3://my-backups/objects.deleted-1.tsv",
-          deleted: true,
-        }),
-      ),
+      printed("delete", {
+        bucket: "my-backups",
+        deletedObjects: 297,
+        deletedBytes: 48_100_000_000,
+        missing: [],
+        record: "s3://my-backups/objects.deleted-1.tsv",
+        deleted: true,
+      }),
   },
   {
     page: "guide/maintenance.md",
@@ -592,6 +602,36 @@ const CLOUD = [
     command: "s3cab cleanup my-backups --dry-run",
     ending: true,
     output: () => printed("cleanup", cleanupResult(0)),
+  },
+  {
+    page: "guide/maintenance.md",
+    command: "s3cab cleanup my-backups",
+    containing: "Can't clean up right now",
+    ending: true,
+    output: () => {
+      // The lock's age is reckoned from now, so now is the page's.
+      const now = mock.method(Temporal.Now, "instant", () =>
+        Temporal.Instant.from("2026-10-27T14:05:17.123Z"),
+      );
+      try {
+        return printedError("cleanup", () => {
+          throw uploadRunningError("my-backups", "cleanup", [
+            {
+              id: "upload-20261027T140205.123Z",
+              kind: "upload",
+              command: "backup",
+              set: "photos",
+              by: "me@LAPTOP",
+              os: "win32",
+              pid: 18204,
+              started: "2026-10-27T14:02:05.123Z",
+            },
+          ]);
+        });
+      } finally {
+        now.mock.restore();
+      }
+    },
   },
   {
     page: "guide/restore.md",
@@ -626,6 +666,26 @@ const CLOUD = [
           [`${PHOTOS}\\nope.jpg`],
         ),
       ),
+  },
+  {
+    page: "guide/restore.md",
+    command: "s3cab restore --set photos --all --snapshot 2026-05-01",
+    output: () =>
+      printedError("restore", () => {
+        throw snapshotNotFoundError("photos", "2026-05-01", [
+          "20260612T0915",
+          "20260501T0800",
+        ]);
+      }),
+  },
+  {
+    page: "guide/restore.md",
+    command: "s3cab restore --set photos --all",
+    containing: "No backups for set",
+    output: () =>
+      printedError("restore", () => {
+        throw noBackupsError("photos");
+      }),
   },
   {
     page: "guide/restore.md",

@@ -255,6 +255,31 @@ export function extractTo(item, to) {
 }
 
 /**
+ * A restore with nothing in the cloud to read: the set was never backed up.
+ * @param {string} set
+ * @returns {Error}
+ */
+export const noBackupsError = (set) =>
+  new Error(
+    `No backups for set '${set}'.\n\n` +
+      `Back one up with:\n` +
+      `  ${shellCommand(`s3cab backup ${set}`)}`,
+  );
+
+/**
+ * A `--snapshot` naming none of the set's snapshots, with the ones it has.
+ * @param {string} set
+ * @param {string} wanted
+ * @param {string[]} names - The set's snapshots, newest first
+ * @returns {Error}
+ */
+export const snapshotNotFoundError = (set, wanted, names) =>
+  new Error(
+    `Snapshot '${wanted}' not found for set '${set}'.\n` +
+      `Available snapshots (newest first):\n  ${names.join("\n  ")}`,
+  );
+
+/**
  * The snapshot a restore reads: `wanted`, or the latest. One listing picks it
  * and checks `wanted` against what's really there (newest first), so a bad name
  * errors with the choices rather than failing later on a 404 mid-fetch.
@@ -265,17 +290,10 @@ export function extractTo(item, to) {
 export async function chooseSnapshot(set, wanted) {
   const names = await listRemoteSnapshots(set.bucket, set.name);
   if (names.length === 0) {
-    throw new Error(
-      `No backups for set '${set.name}'.\n\n` +
-        `Back one up with:\n` +
-        `  ${shellCommand(`s3cab backup ${set.name}`)}`,
-    );
+    throw noBackupsError(set.name);
   }
   if (wanted && !names.includes(wanted)) {
-    throw new Error(
-      `Snapshot '${wanted}' not found for set '${set.name}'.\n` +
-        `Available snapshots (newest first):\n  ${names.join("\n  ")}`,
-    );
+    throw snapshotNotFoundError(set.name, wanted, names);
   }
   // names is non-empty (guarded above), so the latest is defined.
   const name = wanted ?? /** @type {string} */ (names[0]);
