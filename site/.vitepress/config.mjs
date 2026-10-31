@@ -16,8 +16,9 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { defineConfig } from "vitepress";
+import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
@@ -145,7 +146,10 @@ export default defineConfig({
     languageAlias: { console: "text" },
     config: repoLinks,
   },
-  buildEnd: ({ outDir }) => checkLinks(outDir),
+  buildEnd: async ({ outDir }) => {
+    checkLinks(outDir);
+    await writeChallengeBucket(join(outDir, "challenge", "bucket"));
+  },
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },

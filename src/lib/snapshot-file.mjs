@@ -1357,12 +1357,13 @@ function propsRows(getProps, signal) {
  * @param {string} options.start - The run's `@SNAPSHOT START` instant, which `FINISH`'s duration counts from
  * @param {string} [options.preamble] - Rows that go before the objects, already formatted
  * @param {AbortSignal} [options.signal] - The park-on-interrupt signal; aborted means this file stops part-way
+ * @param {string} [options.finish] - `FINISH`'s instant, in place of the clock's: the docs site's demo bucket, which a rebuild must not change
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */
 export async function* stringifySnapshot(
   snapshot,
-  { start, preamble = "", signal },
+  { start, preamble = "", signal, finish },
 ) {
   yield HEADING + preamble;
   let files = 0;
@@ -1379,14 +1380,14 @@ export async function* stringifySnapshot(
   if (signal?.aborted) {
     return;
   }
-  const finish = completionInstant();
+  const end = finish ?? completionInstant();
   yield property(SNAPSHOT, "FILES", String(files)) +
     property(SNAPSHOT, "SIZE", `${size} (${formatByteValue(size)})`) +
     property(
       SNAPSHOT,
       "FINISH",
-      shortDuration(Date.parse(finish) - Date.parse(start)),
-      finish,
+      shortDuration(Date.parse(end) - Date.parse(start)),
+      end,
     ) +
     `${TERMINATOR}\n`;
 }
