@@ -2,7 +2,7 @@ import { posix, sep } from "node:path";
 import { stderr } from "node:process";
 
 import { ValidationError, errorText } from "./error.mjs";
-import { globSource, preparePath } from "./path-match.mjs";
+import { danglingEscape, globSource, preparePath } from "./path-match.mjs";
 import { countedPass } from "./progress.mjs";
 import { isCorruptSnapshotError } from "./referenced.mjs";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
@@ -116,14 +116,22 @@ import { shellCommand } from "./style.mjs";
  * different right answers: the pattern was typed at this machine's shell, so a
  * Windows user typing `secretsdir\secret1` means a separator; the path came out
  * of a snapshot that may have been taken on another OS entirely, so only its own
- * shape can say how it is spelled (`preparePath`). The consequence is a POSIX
- * filename containing a literal backslash can't be named by a pattern — a wart
- * worth the two rules being independently correct.
+ * shape can say how it is spelled (`preparePath`). So a Windows pattern can't
+ * name a POSIX filename containing a backslash; on Linux and macOS `\` escapes,
+ * and `\\` names one (ADR-0114).
  * @param {string} pattern - As the user typed it
  * @returns {FindMatcher}
- * @throws {ValidationError} On a pattern with nothing in it to match
+ * @throws {ValidationError} On a pattern with nothing in it to match, or one
+ *   ending in a `\` with nothing to escape
  */
 export function compileFindPattern(pattern) {
+  if (danglingEscape(pattern)) {
+    throw new ValidationError(
+      `The pattern '${pattern}' ends in a \\ with nothing after it to ` +
+        `escape. Write \\\\ for a backslash itself.`,
+    );
+  }
+
   const slashed = pattern.split(sep).join(posix.sep);
   const directory = slashed.endsWith(posix.sep);
   const body = directory ? slashed.slice(0, -1) : slashed;

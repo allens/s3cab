@@ -206,6 +206,23 @@ export function unmatchedFolders(folders, paths) {
 }
 
 /**
+ * Whether `\` escapes the next character in a pattern
+ * ([ADR-0114](../../docs/adr/0114-backslash-escapes-on-linux-and-macos.md)):
+ * on Linux and macOS, where it isn't a separator. On Windows it is one, and no
+ * name there holds `*` or `?`. The platform, not the path's shape, because a
+ * pattern is typed on this machine.
+ */
+export const ESCAPES = process.platform !== "win32";
+
+/**
+ * Whether `pattern` ends in a `\` with nothing after it to escape.
+ * @param {string} pattern
+ * @returns {boolean} Always false where `\` doesn't escape
+ */
+export const danglingEscape = (pattern) =>
+  ESCAPES && /(?<!\\)(?:\\\\)*\\$/.test(pattern);
+
+/**
  * Compile a glob's *tokens* into regular-expression source, **unanchored** — the
  * shared half of s3cab's two path matchers, which each wrap their own anchoring
  * around it ([ADR-0088](../../docs/adr/0088-find-matches-like-posix-find.md)):
@@ -215,33 +232,50 @@ export function unmatchedFolders(folders, paths) {
  * Tokens (guide/exclude.md, guide/find.md): a `**` path segment matches zero or
  * more whole segments; a `**` *not* followed by a separator matches anything at
  * all, separators included; `*` matches one or more characters within a single
- * segment; `?` matches one character. (The first can't be written with its
- * trailing slash anywhere in this file — that sequence ends a block comment.)
+ * segment; `?` matches one character; where `ESCAPES`, `\` makes the character
+ * after it match only itself. (The first can't be written with its trailing
+ * slash anywhere in this file — that sequence ends a block comment.)
  * @param {string} pattern - A `/`-separated glob; converting the platform's own
  *   separator is the caller's job, because the per-segment tokens need one
- *   canonical separator to define a segment by
+ *   canonical separator to define a segment by. Never `danglingEscape`: the
+ *   callers refuse that with their own wording
  * @returns {string} Regex source carrying no `^`/`$` of its own, for compiling
  *   with the `u` flag: without it `?` matches half of an emoji
  */
 export function globSource(pattern) {
-  // @ts-ignore - RegExp.escape exists in Node 24+
-  return (
-    RegExp.escape(pattern)
+  let source = "";
+  let literal = "";
+  const token = (/** @type {string} */ regex) => {
+    // @ts-ignore - RegExp.escape exists in Node 24+
+    source += RegExp.escape(literal) + regex;
+    literal = "";
+  };
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    if (ESCAPES && char === "\\") {
+      literal += pattern[++i];
+    } else if (char === "*" && pattern[i + 1] === "*") {
       // **/ matches zero or more segments, where it starts one. Stuck to a name
-      // (`photos**/raw`) it is left to the next rule, so it can't join `photos`
-      // to `raw` as `photosraw`. A lookbehind, not a captured separator: that
-      // would consume the `/` a second `**/` in a row needs.
-      .replace(/(?<=^|\\\/)\\\*\\\*\\\//g, "(.*\\/)?")
-      // Any ** left over has no separator after it (`build/**`, a bare `**`,
-      // `**.log`) or doesn't start a segment (`photos**/raw`). It spans segments
-      // like its `**/` sibling: without this rule it fell through to the
-      // single-`*` case *twice*, quietly compiling to two [^/]+ runs — "two or
-      // more characters, in one segment" — which is nobody's reading of `**`.
-      // Must run before that rule, which would otherwise consume the halves.
-      .replace(/\\\*\\\*/g, ".*")
-      // * matches one or more chars in one segment
-      .replace(/\\\*/g, "[^/]+")
-      // ? matches one char
-      .replace(/\\\?/g, "[^/]")
-  );
+      // (`photos**/raw`) it is a plain `**`, so it can't join `photos` to `raw`
+      // as `photosraw`. Any other ** (`build/**`, a bare `**`, `**.log`) spans
+      // segments too: read as two `*`s it was "two or more characters, in one
+      // segment", which is nobody's reading of `**`.
+      const startsSegment = i === 0 || pattern[i - 1] === "/";
+      if (startsSegment && pattern[i + 2] === "/") {
+        token("(.*\\/)?");
+        i += 2;
+      } else {
+        token(".*");
+        i += 1;
+      }
+    } else if (char === "*") {
+      token("[^/]+");
+    } else if (char === "?") {
+      token("[^/]");
+    } else {
+      literal += char;
+    }
+  }
+  token("");
+  return source;
 }

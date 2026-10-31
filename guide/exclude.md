@@ -3,10 +3,10 @@
 Files and directories to skip are listed in a backup set's exclude file,
 `~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
 `#` are comments, even indented; blank lines are ignored. Each line is trimmed of
-the whitespace around it, so a pattern can't start or end with a space: tab, VT,
-FF, CR, LF, every Unicode space (category Zs), U+2028, U+2029 and a byte-order
-mark, but not U+0085. So CRLF line endings, or a missing newline at the end, are
-fine.
+the whitespace around it: tab, VT, FF, CR, LF, every Unicode space (category Zs),
+U+2028, U+2029 and a byte-order mark, but not U+0085. So CRLF line endings, or a
+missing newline at the end, are fine. To match a name that starts with `#` or a
+space anyway, see **Names with special characters** below.
 
 A new set starts with a ready-made exclude file: it skips regenerable
 dependency trees (`node_modules`), `.git` directories, and operating-system
@@ -63,6 +63,23 @@ to every directory in the set.
   counts as one more.
 - If you know `.gitignore`, two things differ: there, `**` inside a name acts like
   a single `*` and stays within one directory, and `*` can match nothing at all.
+
+**Names with special characters**
+
+- On Linux and macOS, `\` makes the character after it match only itself: `\*`,
+  `\?`, `\#`, `\ ` (a space), and `\\` for a backslash.
+- So `what\?.txt` matches only `what?.txt`, and `notes\ ` the name `notes `,
+  with its space kept at the end of the line.
+- A `\` at the end of a line, with nothing after it, stops s3cab, which names the
+  pattern.
+- On Windows `\` separates directories, as everywhere else in Windows. No escape
+  is needed there, since a Windows name can't hold `*` or `?`.
+- On every system, a name starting with `#` or a space goes after a `\`: `\#notes`
+  matches `#notes`, and `\ draft` matches ` draft`. On Windows this works because
+  a separator at the start changes nothing.
+- On Windows, a name that ends in a space can't be matched on its own. Windows
+  programs normally remove such a space, so the name only turns up on files from
+  elsewhere.
 
 **Directories and links**
 

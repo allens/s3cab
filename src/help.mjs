@@ -51,6 +51,10 @@ member directories. Write / between directories; on Windows \\ works too.
   **   anything at all, across directories
   ?    exactly one character
 
+On Linux and macOS, \\ makes the next character match only itself: \\*, \\?,
+and \\\\ for a backslash. A name starting with # or a space goes after a \\ on
+every system: \\#notes.
+
 A pattern ending in / matches a directory and everything inside it, or a link
 to a directory.
 Case doesn't matter on Windows or macOS, and does on Linux.

@@ -2,6 +2,7 @@ import { isAbsolute, relative, sep } from "node:path";
 
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
+import { exactPattern } from "../lib/exclude.mjs";
 import { assertHeld, pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { uploadSet } from "../lib/upload.mjs";
@@ -40,6 +41,7 @@ import { uploadSet } from "../lib/upload.mjs";
  * @property {number} uploadMs - Milliseconds spent sending them
  * @property {CompareError[]} errors - Files that couldn't be read to be backed up, each with the OS's reason
  * @property {string[]} excludeSuggestions - An exclude pattern for each failed file the baseline had failed on too: trying again hasn't fixed it, so the report offers leaving it out instead
+ * @property {string[]} unexcludable - Those failed files no exclude line names exactly, so none is suggested
  * @property {string} excludePath - The set's exclude file, where those patterns would go
  * @property {CompareResult | null} comparison - What changed since the baseline; `null` on a first backup, which runs no comparison at all (ADR-0078 §7)
  *
@@ -122,6 +124,19 @@ export async function backup(setName, options = {}) {
     process.exitCode = 1;
   }
 
+  // Recurrence, not the error code, is the signal: EBUSY is both a sync
+  // client's lock file nobody wants and an Outlook .pst that only needs Outlook
+  // closed — suggesting an exclude for the second loses someone's mail.
+  // Compared exactly, separator and all, not without it: a folder link whose
+  // target is sometimes unreachable fails two different ways (`Share` can't
+  // be resolved, `Share\` is outside the backup), and each is its own failure.
+  const failedAgain = pass.errors
+    .map(({ path }) => path)
+    .filter((path) => previousErrors.has(path));
+  const patterns = failedAgain.map((path) =>
+    exactPattern(excludePattern(pass.roots, path)),
+  );
+
   return {
     set: set.name,
     bucket: set.bucket,
@@ -140,15 +155,8 @@ export async function backup(setName, options = {}) {
     uploadedBytes,
     uploadMs: sendingMs,
     errors: pass.errors,
-    // Recurrence, not the error code, is the signal: EBUSY is both a sync
-    // client's lock file nobody wants and an Outlook .pst that only needs Outlook
-    // closed — suggesting an exclude for the second loses someone's mail.
-    // Compared exactly, separator and all, not without it: a folder link whose
-    // target is sometimes unreachable fails two different ways (`Share` can't
-    // be resolved, `Share\` is outside the backup), and each is its own failure.
-    excludeSuggestions: pass.errors
-      .filter(({ path }) => previousErrors.has(path))
-      .map(({ path }) => excludePattern(pass.roots, path)),
+    excludeSuggestions: patterns.filter((pattern) => pattern !== undefined),
+    unexcludable: failedAgain.filter((_, i) => patterns[i] === undefined),
     excludePath: set.excludePath,
     comparison,
   };

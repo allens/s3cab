@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { ValidationError } from "./error.mjs";
 import { compileFindPattern, findInSnapshots } from "./find.mjs";
-import { preparePath } from "./path-match.mjs";
+import { ESCAPES, preparePath } from "./path-match.mjs";
 import { writeSet } from "./sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -180,6 +180,20 @@ describe("compileFindPattern", () => {
     assert.throws(() => compileFindPattern(""), ValidationError);
     assert.throws(() => compileFindPattern("/"), ValidationError);
   });
+
+  it(
+    "makes the character after a \\ match only itself (ADR-0114)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    () => {
+      assert.equal(matches("what\\?.txt", "/docs/what?.txt"), true);
+      assert.equal(matches("what\\?.txt", "/docs/whatX.txt"), false);
+      assert.equal(matches("a\\*", "/docs/a*"), true);
+      assert.equal(matches("a\\*", "/docs/ab"), false);
+      assert.equal(matches("back\\\\slash", "/docs/back\\slash"), true);
+      assert.throws(() => compileFindPattern("odd\\"), ValidationError);
+      assert.equal(matches("odd\\\\", "/docs/odd\\"), true);
+    },
+  );
 });
 
 describe("findInSnapshots", () => {

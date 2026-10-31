@@ -10,6 +10,7 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
+import { ESCAPES } from "./path-match.mjs";
 import {
   backupMatcher,
   readExcludePatterns,
@@ -478,6 +479,39 @@ describe("readExcludePatterns (ADR-0100)", () => {
       "cache/",
     ]);
   });
+
+  it(
+    "keeps an escaped space at a line's end, CRLF or not (ADR-0114)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const excludePath = join(dir.path, "exclude.txt");
+      writeFileSync(excludePath, "notes\\ \r\nold\\  \n");
+      assert.deepStrictEqual(readExcludePatterns(excludePath), [
+        "notes\\ ",
+        "old\\ ",
+      ]);
+    },
+  );
+
+  it(
+    "refuses a pattern ending in a \\ with nothing to escape (ADR-0114)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const excludePath = join(dir.path, "exclude.txt");
+      // The CR of a CRLF line is not what the backslash escapes.
+      writeFileSync(excludePath, "*.tmp\nodd\\\r\nfine\\\\\n");
+      assert.throws(
+        () => readExcludePatterns(excludePath),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes("because this pattern ends in a \\") &&
+          error.message.includes("\n  odd\\\n") &&
+          !error.message.includes("fine"),
+      );
+    },
+  );
 });
 
 describe("walkSet dirs guard (ADR-0054)", () => {

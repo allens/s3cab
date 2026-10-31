@@ -1,6 +1,7 @@
 import {
   existsSync,
   lstatSync,
+  readFileSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -10,13 +11,12 @@ import { isUtf8 } from "node:buffer";
 import { isAbsolute, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
-import { compileExcludePatterns } from "./exclude.mjs";
+import { compileExcludePatterns, parseExclude } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { preparePath } from "./path-match.mjs";
+import { danglingEscape, preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
-import { readLines } from "./read-lines.mjs";
 
 /**
  * @import { Dirent, Stats } from "node:fs"
@@ -76,8 +76,19 @@ export function walkSet(set) {
  * @returns {string[]} The exclude glob patterns (guide/exclude.md)
  */
 export function readExcludePatterns(excludePath) {
-  const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
-  // ADR-0100. After `readLines`' trim, so a CRLF file's line endings never get here.
+  const patterns = existsSync(excludePath)
+    ? parseExclude(readFileSync(excludePath, "utf8"))
+    : [];
+  const dangling = patterns.filter(danglingEscape);
+  if (dangling.length) {
+    throw new Error(
+      `Can't use the set's exclude file, because ${dangling.length === 1 ? "this pattern ends" : "these patterns end"} ` +
+        `in a \\ with nothing after it to escape (${tildeify(excludePath)}):\n` +
+        dangling.map((pattern) => `  ${pattern}`).join("\n") +
+        `\nWrite \\\\ for a backslash itself.`,
+    );
+  }
+  // ADR-0100. After the trim, so a CRLF file's line endings never get here.
   const unusable = patterns.filter((pattern) => /[\t\r]/.test(pattern));
   if (unusable.length) {
     const these =

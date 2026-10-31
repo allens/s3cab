@@ -1,6 +1,6 @@
 import { join, posix, sep } from "node:path";
 
-import { globSource } from "./path-match.mjs";
+import { ESCAPES, danglingEscape, globSource } from "./path-match.mjs";
 
 /**
  * Compile a set's exclude patterns for one member directory into a matcher that
@@ -13,7 +13,8 @@ import { globSource } from "./path-match.mjs";
  *   always describes a whole path beneath its root and `*`/`**` can't escape it —
  *   which is where `find` deliberately parts company (ADR-0088).
  * - **Either separator works, in patterns and paths alike**: `/` everywhere, `\`
- *   too on Windows. Both are converted to `/` before matching.
+ *   too on Windows. Both are converted to `/` before matching. Elsewhere `\`
+ *   escapes (ADR-0114).
  * - **A directory is matched with a trailing `/`**, so `build/` names only the
  *   directory and `build` only a file — a `**` reaches either.
  * - **The first matching pattern wins**, and is what the walk records as the
@@ -45,6 +46,48 @@ export function compileExcludePatterns(baseDir, patterns) {
     }
     return matchers.find(({ regex }) => regex.test(subject))?.pattern;
   };
+}
+
+/**
+ * Parse exclude.txt text into its patterns: `parseLines`' rules, but a space
+ * escaped at the end of a line is part of the pattern (ADR-0114).
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function parseExclude(text) {
+  return text
+    .split("\n")
+    .map((line) => {
+      // A CRLF line's CR goes first, so it is never the escaped character.
+      const start = line.replace(/\r$/, "").trimStart();
+      const trimmed = start.trimEnd();
+      return danglingEscape(trimmed)
+        ? start.slice(0, trimmed.length + 1)
+        : trimmed;
+    })
+    .filter((line) => !line.startsWith("#") && line.length > 0);
+}
+
+/**
+ * The line that names exactly `rel` when exclude.txt is read back, or
+ * `undefined` when there is none (ADR-0114). A leading `#` or space is written
+ * after a `\`, which escapes it on Linux and macOS and on Windows is a leading
+ * separator, which changes nothing. Windows has no escape, so a name ending in
+ * a space there has no line; it can't hold `*` or `?` at all.
+ * @param {string} rel - A path relative to a member directory
+ * @returns {string | undefined}
+ */
+export function exactPattern(rel) {
+  let pattern = ESCAPES ? rel.replaceAll(/[\\*?]/g, "\\$&") : rel;
+  if (pattern.trimEnd() !== pattern) {
+    if (!ESCAPES) {
+      return undefined;
+    }
+    pattern = `${pattern.slice(0, -1)}\\${pattern.slice(-1)}`;
+  }
+  return pattern.startsWith("#") || pattern.trimStart() !== pattern
+    ? `\\${pattern}`
+    : pattern;
 }
 
 const FOLDS_CASE =

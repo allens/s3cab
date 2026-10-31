@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { sep } from "node:path";
 import { describe, it } from "node:test";
-import { compileExcludePatterns } from "./exclude.mjs";
+import {
+  compileExcludePatterns,
+  exactPattern,
+  parseExclude,
+} from "./exclude.mjs";
+import { ESCAPES } from "./path-match.mjs";
 
 // The whole match — patterns joined to a root, the glob → RegExp translation and
 // the path's side of it — tested directly on strings, no files on disk. Walk
@@ -130,6 +135,100 @@ describe("compileExcludePatterns", () => {
         matcher(path("base", "sub", "deep", "drop.tmp"), false),
         undefined,
       );
+    },
+  );
+});
+
+describe("compileExcludePatterns escapes (ADR-0114)", () => {
+  it(
+    "makes the character after a \\ match only itself",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    () => {
+      assert.equal(excludedBy(["a\\*b"], "/root/a*b"), "a\\*b");
+      assert.equal(excludedBy(["a\\*b"], "/root/axyb"), undefined);
+      assert.equal(excludedBy(["a\\?b"], "/root/a?b"), "a\\?b");
+      assert.equal(excludedBy(["a\\?b"], "/root/axb"), undefined);
+      assert.equal(
+        excludedBy(["back\\\\slash"], "/root/back\\slash"),
+        "back\\\\slash",
+      );
+      // An escaped `*` is a name, so it can't start a `**/`.
+      assert.equal(excludedBy(["\\**/x"], "/root/a/x"), undefined);
+      assert.equal(excludedBy(["\\**/x"], "/root/*a/x"), "\\**/x");
+    },
+  );
+
+  it(
+    "takes \\ as a separator on Windows",
+    { skip: ESCAPES && "\\ escapes off Windows" },
+    () => {
+      assert.equal(excludedBy(["sub\\a.txt"], "/root/sub/a.txt"), "sub\\a.txt");
+      assert.equal(excludedBy(["\\#notes"], "/root/#notes"), "\\#notes");
+    },
+  );
+});
+
+describe("parseExclude", () => {
+  it("reads lines as parseLines does", () => {
+    const text = "# header\n**/node_modules/\r\n\n  # indented\n  **/.git/  \n";
+    assert.deepEqual(parseExclude(text), ["**/node_modules/", "**/.git/"]);
+  });
+
+  it(
+    "keeps a space escaped at the end of a line",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    () => {
+      assert.deepEqual(parseExclude("notes\\ \nold\\  \r\n"), [
+        "notes\\ ",
+        "old\\ ",
+      ]);
+    },
+  );
+});
+
+describe("exactPattern", () => {
+  // Each name, and one its line must not match.
+  const names = /** @type {[string, string][]} */ ([
+    ["a b.txt", "ab.txt"],
+    ["[draft] {v2}!.txt", "d"],
+    ["notes#1.txt", "notes"],
+    ["#notes", "notes"],
+    [" lead", "lead"],
+    ["  two", " two"],
+    ["sub/#notes", "sub/notes"],
+    ...(ESCAPES
+      ? [
+          ["a*b", "axyb"],
+          ["a?b", "axb"],
+          ["**", "a"],
+          ["back\\slash", "back/slash"],
+          ["trail ", "trail"],
+          [" both ", "both"],
+          ["two  ", "two "],
+        ]
+      : []),
+  ]);
+
+  it("spells a path so exclude.txt reads it back as a line naming only it", () => {
+    for (const [rel, other] of names) {
+      const pattern = /** @type {string} */ (exactPattern(rel));
+      const lines = parseExclude(`${pattern}\n`);
+      assert.deepEqual(lines, [pattern], JSON.stringify(rel));
+      assert.equal(excludedBy(lines, `/root/${rel}`), pattern, rel);
+      assert.equal(excludedBy(lines, `/root/${other}`), undefined, rel);
+    }
+  });
+
+  it("writes a leading # or space after a \\ on every system", () => {
+    assert.equal(exactPattern("#notes"), "\\#notes");
+    assert.equal(exactPattern(" lead"), "\\ lead");
+  });
+
+  it(
+    "has no line for a name ending in a space on Windows",
+    { skip: ESCAPES && "\\ escapes off Windows" },
+    () => {
+      assert.equal(exactPattern("trail "), undefined);
     },
   );
 });
