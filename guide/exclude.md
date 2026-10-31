@@ -140,3 +140,8 @@ To find out why one particular file isn't being backed up, search that listing
 for it — `s3cab tree --excluded | findstr beach.jpg` on Windows, or
 `s3cab tree --excluded | grep beach.jpg` elsewhere. The plain `s3cab tree` is the
 other half of the same question: everything that *would* be backed up.
+
+To try a pattern before you have a set, or against paths you only type out, the
+docs site has an
+[exclude-pattern playground](https://s3cab.plantegral.com/tools/exclude): the
+same matcher, in your browser.

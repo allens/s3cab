@@ -17,6 +17,7 @@
 
 import { readFileSync } from "node:fs";
 import { posix } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { checkLinks } from "./check-links.mjs";
 
@@ -39,18 +40,21 @@ const slugify = (text) =>
 
 /**
  * Where a site page's markdown lives in the repo: `index.md` includes the
- * README; `guide/<topic>.md` is rendered from `guide/`.
+ * README; `guide/<topic>.md` is rendered from `guide/`; any other page is the
+ * site's own, under `site/`.
  * @param {string} relativePath
  */
 const sourceOf = (relativePath) =>
   relativePath === "index.md"
     ? "README.md"
-    : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
+    : relativePath.startsWith("guide/")
+      ? relativePath.replace(/^guide\/index\.md$/, "guide/README.md")
+      : `site/${relativePath}`;
 
 /**
  * A link as the site should serve it: resolved against the page's real place
- * in the repo, it stays as written if it lands on a site page, becomes `/` for
- * the README, and becomes a GitHub link for any other repo file.
+ * in the repo, it becomes the page's site path if it lands on a guide page, `/`
+ * for the README, and a GitHub link for any other repo file.
  * @param {string} href
  * @param {string} relativePath - The site page the link is on
  */
@@ -71,7 +75,7 @@ function siteHref(href, relativePath) {
     return `/guide/${hash}`;
   }
   if (/^guide\/[^/]+\.md$/.test(target)) {
-    return href;
+    return `/${target}${hash}`;
   }
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
@@ -146,6 +150,22 @@ export default defineConfig({
     config: repoLinks,
   },
   buildEnd: ({ outDir }) => checkLinks(outDir),
+  vite: {
+    plugins: [
+      {
+        // The exclude playground runs s3cab's own matcher in the browser,
+        // which has no `node:path`; the server-side render keeps Node's. The
+        // build's "node:fs has been externalized" warning is read-lines.mjs,
+        // whose `parseLines`, all the playground uses, never touches it.
+        name: "s3cab-browser-node-path",
+        enforce: "pre",
+        resolveId: (id, _importer, options) =>
+          id === "node:path" && !options?.ssr
+            ? fileURLToPath(new URL("node-path.mjs", import.meta.url))
+            : undefined,
+      },
+    ],
+  },
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
@@ -157,12 +177,17 @@ export default defineConfig({
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
     // filePath is the route template, `guide/[topic].md`; its topic is a param.
+    // Any other page (tools/) is its own file under site/.
     editLink: {
       pattern: ({ filePath, params }) => {
         const topic = params?.topic === "index" ? "README" : params?.topic;
         return (
           "https://github.com/allens/s3cab/edit/main/" +
-          (filePath === "index.md" ? "README.md" : `guide/${topic}.md`)
+          (filePath === "index.md"
+            ? "README.md"
+            : topic
+              ? `guide/${topic}.md`
+              : `site/${filePath}`)
         );
       },
       text: "Edit this page on GitHub",
