@@ -92,6 +92,24 @@ function repoLinks(md) {
 }
 
 /**
+ * The page local search indexes. VitePress reads it from the page's file under
+ * site/, and a guide page has none — /guide/<topic> is a dynamic route — so
+ * without this no guide page is searchable. Runs only at build; the copy
+ * serialized into the browser with the rest of themeConfig is never called.
+ * @type {NonNullable<DefaultTheme.LocalSearchOptions["_render"]>}
+ */
+const searchedPage = (src, env, md) =>
+  md.renderAsync(
+    env.relativePath.startsWith("guide/")
+      ? readFileSync(
+          new URL(`../../${sourceOf(env.relativePath)}`, import.meta.url),
+          "utf8",
+        )
+      : src,
+    env,
+  );
+
+/**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
  * bold link that opens each bullet under them, so the guide index stays the
  * one list.
@@ -152,7 +170,20 @@ export default defineConfig({
       { text: "Format spec", link: "/guide/format" },
     ],
     sidebar: guideSidebar(),
-    search: { provider: "local" },
+    search: {
+      provider: "local",
+      options: {
+        _render: searchedPage,
+        // A pasted error line is long, so with the default title boost (4) its
+        // words matched across a long section, such as the format spec's
+        // "Reading", outranked the guide/errors.md heading that spells it. At
+        // 8 nearly every heading ranks first for its own pasted line, and
+        // searches for a word or two rank as before.
+        miniSearch: {
+          searchOptions: { boost: { title: 8, text: 2, titles: 1 } },
+        },
+      },
+    },
     outline: { level: [2, 3] },
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
