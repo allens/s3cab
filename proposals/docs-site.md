@@ -44,11 +44,16 @@ Pages rather than Workers static assets, though Cloudflare now steers new sites 
 gives per-branch previews out of the box, and its Terraform resource carries the Git source and
 build settings in one place. Moving later changes the deploy target, not the content.
 
-**Cutover — the order matters.** Today `/guide/<topic>` is redirected, presumably by a
-Terraform-managed redirect rule; a hostname redirect rule runs *before* the Pages origin, so the
+**Progress (2026-10-31).** The Pages project `s3cab` exists in platform's Terraform
+(`terraform/site-s3cab-plantegral-com.tf`, platform commit `1c35764`), building from `main` with
+a preview per branch, at https://s3cab.pages.dev. `s3cab.plantegral.com` is unchanged: the
+cutover below is next, in platform.
+
+**Cutover — the order matters.** Today `/guide/<topic>` is redirected, by two redirect rules on
+the hostname in platform's Terraform; a hostname redirect rule runs *before* the Pages origin, so the
 site would never see traffic while it exists. So: deploy to the `*.pages.dev` URL and check every
 `/guide/<topic>` the registry names (plus `/`, which the CLI prints as "Full documentation");
-then, in **one** apply, attach the custom domain and delete the rule; re-check every topic on
+then, in **one** apply, attach the custom domain and delete both rules; re-check every topic on
 the real domain. Afterwards, a nightly job fetching each registry topic's live URL guards what
 `help.test.mjs` can't (it proves the page exists in `guide/`, not that the URL resolves).
 
@@ -57,23 +62,8 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 ## Ordered by payoff
 
 - **Examples that can't drift — mostly built** in
-  [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`. Every
-  `s3cab …` command line in README.md, `guide/` and the registry's `--help` examples (~220) goes
-  through the dispatcher's own `parseArgs`. The two local transcripts (`compare.md`'s report,
-  `output.md`'s `--json`) run the real CLI on snapshots built to the page's scenario. The cloud
-  transcripts (`verify`, `restore`, `extract`, README's `restore`, and how `forget`, `delete` and
-  `cleanup` end) are the notice every cloud command opens with, then what the registry's
-  renderer, or `errorReport` for an error, prints for a result built to the page's scenario —
-  not a nightly real-bucket run, as first planned: `verify` and `cleanup` read the whole shared
-  test bucket, the figures are a real library's (48,210 objects, 12.4GB) and the restores write
-  to `C:\Users\me`, while what drifts is wording and layout, which is the renderer's.
-  **Still open — these transcripts are fixed by hand and unchecked:**
-  - `restore`'s unknown-snapshot and no-backups errors, and `cleanup`'s lock refusal: their
-    builders sit past a bucket read (`chooseSnapshot`) or are private (`uploadRunningError`).
-  - The preview and prompt lines `forget`, `delete` and `cleanup` print before their result.
-  - README's quick start `setup` and `backup`. `setup --keys` also prompts for the key and
-    secret and prints the starter exclude notice, which the transcript leaves out, in an order
-    only a real run would settle; `backup` carries timings and needs a frozen clock.
+  [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
+  says what it checks and how. **Still open:** every transcript it doesn't name.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).

@@ -51,6 +51,7 @@ import {
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
+/** @import { VerifyResult } from "./commands/verify.mjs" */
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
 /** @import { RestoreResult } from "./lib/restore.mjs" */
@@ -767,7 +768,7 @@ export function renderStatus({ set, snapshot, backedUp, toUpload }) {
  * spans many sets with different roots and no single common base, so there is
  * nothing to shorten against, and re-canonicalizing per path is exactly what the
  * compare renderer is warned off (CLAUDE.md).
- * @param {{ bucket: string, sets: SetReport[] }} result
+ * @param {VerifyResult} result
  * @param {RenderContext} [context]
  * @returns {string}
  */

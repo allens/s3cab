@@ -81,7 +81,7 @@ On a terminal you confirm by typing the bucket name; scripts must pass
 --force (the prompt is never required).`;
 
 export const unlockDetails = `While a backup or upload runs, it holds a lock in the bucket's locks/
-folder, and so does a cleanup or delete; each refuses to start while the
+folder, and so does a cleanup or delete; each refuses to go ahead while the
 other kind's lock is there. A lock is removed when its command finishes,
 even when it fails, and when a backup is stopped with Ctrl+C while it reads
 and uploads files. A crash, a lost machine, a killed process, or Ctrl+C at

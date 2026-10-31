@@ -170,10 +170,12 @@ try {
     // Debug prints the error object whole instead, stack and all.
     console.error(
       errorReport(
-        command,
         commandName,
+        command,
         error,
-        debug ? inspect(error) : undefined,
+        debug
+          ? inspect(error, { colors: styleEnabled(process.stderr) })
+          : undefined,
       ),
     );
   }

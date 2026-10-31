@@ -36,9 +36,9 @@ undermine the no-lock-in premise.
    in an ADR (`Status: proposed`) or a design-doc banner, if a reader can't mistake it for live
    behaviour. Flag drift you notice — [proposals/](proposals/) is the running list. Partly
    automated for the user docs: [test/doc-examples.test.mjs](test/doc-examples.test.mjs) parses
-   every `s3cab …` line they show and checks most of their transcripts against what s3cab
-   prints, so a changed flag, report or error fails `npm test` until the page changes with it.
-   Not all of them: [proposals/docs-site.md](proposals/docs-site.md) lists the ones it can't.
+   every `s3cab …` line they show and checks the transcripts it names against what s3cab
+   prints, so a changed flag, or a changed report or error it checks, fails `npm test` until
+   the page changes with it. Every other transcript is kept right by hand.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable from
    the code** — never restate `package.json` scripts or build/test/lint commands.
 
@@ -277,6 +277,11 @@ Four layout notes the README and code don't carry:
   a dead `#anchor`, and on one trap worth knowing by name: **no line may start with `<`**, not
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
+  **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
+  GitHub app, so this repo holds no deploy job and no Cloudflare secret. The build command
+  (`docs:build`), the output folder (`site/.vitepress/dist`) and the Node version are also set
+  in the platform repo's Terraform, which owns the project, domain and DNS: change one, change
+  the other.
 
 **Vendored skills.** [`cli-design`](.claude/skills/cli-design/),
 [`over-engineering`](.claude/skills/over-engineering/) and
