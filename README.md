@@ -124,6 +124,7 @@ Contacting the cloud…
 Backed up 'photos' → snapshot 20251112T0915
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
+
 First backup — every file is new.
 
 # 3. Deleted a file by accident? Get just that one back:
