@@ -179,6 +179,7 @@ ADR as a live constraint.
 - [0021](0021-lf-line-endings-prettier-code-only.md) — LF line endings; Prettier code only
 - [0046](0046-test-layout-colocated-tier-suffix.md) — Test layout: co-located; integration is a `*.integration.test.mjs` suffix; e2e is the subprocess suite in `test/` *(integration placement + skip flag superseded by 0049; unit co-location stands)*
 - [0049](0049-centralize-cross-cutting-test-tiers.md) — Centralize the cross-cutting test tiers (integration in `test/integration/`, e2e as its file); co-locate only unit; drop the skip flag for a hard-fail; per-platform real-S3 round-trip at release
+- [0114](0114-docs-site-cloudflare-pages.md) — The docs site renders `guide/` in place (VitePress, `/guide/<topic>` from `guide/<topic>.md`) and Cloudflare Pages serves it at s3cab.plantegral.com, built from `main` through its GitHub app, no deploy job or Cloudflare credential here. Platform's Terraform owns the project, build settings, domain and DNS; this repo owns the build and `_redirects`. No redirect rule may match the hostname; a moved page gets a `_redirects` line *(accepted & implemented)*
 
 ## Map from old "design principle #N" references
 
