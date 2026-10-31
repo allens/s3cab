@@ -43,6 +43,17 @@ blob in the test tree this README says must never be a sandbox.
 node scripts/dd.mjs <path> [sizeMB]   # sizeMB defaults to 100
 ```
 
+## docs-urls.mjs
+
+Fetches every docs-site URL s3cab may have printed from the live site and exits 1
+if one doesn't answer 200 without a redirect, or if `/guide/nope` isn't a 404.
+The `docs-urls` workflow runs it daily; why is in
+[ADR-0114](../docs/adr/0114-docs-site-cloudflare-pages.md).
+
+```sh
+node scripts/docs-urls.mjs
+```
+
 ## multipart-bench.mjs
 
 The experiment behind [ADR-0060](../docs/adr/0060-multipart-tuning-in-flight-bytes.md),

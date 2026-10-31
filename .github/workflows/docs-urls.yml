@@ -1,0 +1,29 @@
+# The frozen docs URLs, fetched from the live site (ADR-0114): every URL
+# s3cab may have printed must answer 200 with no redirect, and /guide/nope
+# must 404. The list and the check are scripts/docs-urls.mjs.
+#
+# Scheduled rather than on push: the hosting is the platform repo's
+# Terraform, so what breaks a URL usually never touches this repo. A failed
+# run is the alert; GitHub mails the repo owner.
+
+name: docs-urls
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Match ci.yml: the engines floor.
+          node-version: "26.10.0"
+      - run: node scripts/docs-urls.mjs
