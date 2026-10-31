@@ -102,12 +102,11 @@ const displayOption = (name, { short }) =>
  * those that declare none). Split out of usage() so a usage *error* prints just
  * this line plus a --help pointer, while --help prints the full arg/option tables
  * (ADR-0038).
- * @param {Record<string, Command>} commands
  * @param {string} commandName
+ * @param {Command} command
  * @returns {string}
  */
-export function synopsis(commands, commandName) {
-  const args = commands[commandName]?.args;
+export function synopsis(commandName, { args }) {
   const positionals = args
     ? Object.entries(args).map(([name, arg]) => displayArg(name, arg))
     : [];
@@ -192,19 +191,17 @@ export function errorMessage(command, error) {
 /**
  * Everything the CLI prints for an error a command threw: `ERROR:` and its
  * message, then, for a structural usage error, the one-line synopsis and a
- * `--help` pointer rather than the full arg/option tables (ADR-0038). The
- * dispatcher prints it, and test/doc-examples.test.mjs checks the guides' error
- * transcripts against it, so a transcript can't be checked against a copy.
- * @param {Command} command
+ * `--help` pointer rather than the full arg/option tables (ADR-0038).
  * @param {string} commandName
+ * @param {Command} command
  * @param {unknown} error
  * @param {string} [detail] - The message to print in place of `errorMessage`'s
  *   (the dispatcher's debug mode passes the whole error, stack and all)
  * @returns {string}
  */
 export function errorReport(
-  command,
   commandName,
+  command,
   error,
   detail = errorMessage(command, error),
 ) {
@@ -212,7 +209,7 @@ export function errorReport(
   if (isUsageError(error)) {
     lines.push(
       "",
-      synopsis({ [commandName]: command }, commandName),
+      synopsis(commandName, command),
       `Run 's3cab ${commandName} --help' for details.`,
     );
   }
@@ -242,7 +239,7 @@ export function usage(commands, commandName, style) {
   if (command && commandName) {
     const { args, options, summary, details, guide, examples } = command;
 
-    lines.push(synopsis(commands, commandName), "");
+    lines.push(synopsis(commandName, command), "");
 
     if (summary) {
       lines.push(summary, "");
