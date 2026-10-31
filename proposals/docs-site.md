@@ -63,7 +63,7 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
-  says what it checks and how. **Still open:** the transcripts its header lists as not checked.
+  says what it checks and how. **Still open:** every transcript it doesn't name.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).
