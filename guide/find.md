@@ -4,12 +4,24 @@
 It reads the snapshots already on this computer — no network, no S3 calls — and
 searches **every set attached here** unless `--set` narrows it to one.
 
-```console
+```console windows
 > s3cab find aws-keys.txt
 # s3cab find · 1 pattern · 1 file · 1 object
 # searched myset → s3://my-backups (943 snapshots) — local history
 #
 # C:\Users\me\secretsdir\aws-keys.txt
+#   892 bytes   modified 2019-03-28 14:02Z
+#   myset  20190328T0812 … 20260814T0930   (943 snapshots)
+#   ⚠ also backs 3 other paths — deleting this removes all of them
+5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93
+```
+
+```console posix
+> s3cab find aws-keys.txt
+# s3cab find · 1 pattern · 1 file · 1 object
+# searched myset → s3://my-backups (943 snapshots) — local history
+#
+# /home/me/secretsdir/aws-keys.txt
 #   892 bytes   modified 2019-03-28 14:02Z
 #   myset  20190328T0812 … 20260814T0930   (943 snapshots)
 #   ⚠ also backs 3 other paths — deleting this removes all of them

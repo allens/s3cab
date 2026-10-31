@@ -278,6 +278,10 @@ Four layout notes the README and code don't carry:
   a dead `#anchor`, and on one trap worth knowing by name: **no line may start with `<`**, not
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
+  **An example whose paths depend on the OS is two adjacent fences**, ```` ```console windows ````
+  then ```` ```console posix ````, in the one example world each (`C:\Users\me\Photos` or
+  `/home/me/Pictures`, set `photos`, bucket `my-backups`): the site makes them tabs, GitHub
+  shows both, and each variant needs its own entry in doc-examples.
   **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
   GitHub app, so this repo holds no deploy job and no Cloudflare secret
   ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)). The build command

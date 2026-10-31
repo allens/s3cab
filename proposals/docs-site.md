@@ -15,10 +15,10 @@ read).
 
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
-  says what it checks and how. **Still open:** every transcript it doesn't name.
+  says what it checks and how. **Still open:** every transcript it doesn't name — among them,
+  both OS variants of README's `snapshot` (it prints timings) and of `find.md`'s first example.
 
-  Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
-  Windows paths in some pages, POSIX in others).
+  Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11).
 - **Check the frozen URLs live.** A scheduled job fetching `/`, `/guide/` and each
   `/guide/<topic>` on https://s3cab.plantegral.com and failing on anything but a 200.
   `help.test.mjs` proves each topic has a page in `guide/`, not that the URL answers, and a
@@ -34,8 +34,10 @@ read).
   deleted a file*, *I need last month's version*, *my laptop died*, *is my backup OK?*, *the
   bill is too high*. (`setup`, `list`, `status` have no `guide` link yet — the tutorial is
   their natural home.)
-- **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
-  visible inconsistency. Needs a markdown construct that still reads acceptably raw.
+- **OS switcher on the last three examples.** The switcher is built (`osVariants` in
+  `site/.vitepress/config.mjs`) and covers 18 examples on six pages. Still one OS, 3 examples:
+  `auth.md`'s two `provider` transcripts and `aws.md`'s deploy recipe, which show `~/.s3cab/…`
+  where Windows prints `~\.s3cab\…`.
 - **Error index.** ADR-0030 messages are already constructive; give each a page anchor so
   pasting an error into search lands on its fix.
 - **Exclude-pattern playground.** `src/lib/exclude.mjs` imports only `node:path` and

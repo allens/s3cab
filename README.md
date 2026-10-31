@@ -109,7 +109,7 @@ First you need the bucket: on AWS, `s3cab aws my-backups` prints a ready-to-depl
 recipe (walkthrough in [guide/aws.md](guide/aws.md)); for Cloudflare R2, Backblaze B2,
 Wasabi and the like, run `s3cab help provider`. With a bucket in hand:
 
-```console
+```console windows
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.
 #    --keys prompts for your access key + secret (never passed as flags).
 > s3cab setup --set photos --bucket my-backups --keys C:\Users\me\Photos
@@ -132,6 +132,29 @@ Contacting the cloud…
 Restored 1 file from 'photos' (snapshot 20251112T0915).
 ```
 
+```console posix
+# 1. Create a backup set — a name, its directories, and the bucket to back up to.
+#    --keys prompts for your access key + secret (never passed as flags).
+> s3cab setup --set photos --bucket my-backups --keys /home/me/Pictures
+Contacting the cloud…
+Set 'photos' → bucket 'my-backups'
+dirs (/home/me/.s3cab/sets/photos/dirs.txt):
+  /home/me/Pictures
+
+# 2. Back it up to the cloud. With one set, you can leave its name out.
+> s3cab backup
+Contacting the cloud…
+Backed up 'photos' → snapshot 20251112T0915
+Scanned 1,312 files (4.2GB) in 2m 41s
+Uploaded 1,240 objects (4.2GB) in 6m 08s
+First backup — every file is new.
+
+# 3. Deleted a file by accident? Get just that one back:
+> s3cab restore --set photos /home/me/Pictures/beach.jpg
+Contacting the cloud…
+Restored 1 file from 'photos' (snapshot 20251112T0915).
+```
+
 That's the whole loop: set up once, `backup` whenever, `restore` when you need something
 back. To pull an _older_ version, add `--snapshot <name>`; to recover everything (the
 disaster-recovery case), run `restore --all`. By default `restore` leaves files that
@@ -149,9 +172,9 @@ default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to 
 snapshot. Because it matches on content, a moved or renamed file is recognised as the _same_
 file, not a delete plus an add:
 
-```console
+```console windows
 > s3cab snapshot
-Using s3cab home 'C:\Users\you\.s3cab'
+Using s3cab home 'C:\Users\me\.s3cab'
 Reading previous snapshot '~\.s3cab\sets\photos\snapshots\20251111T0830.tsv.gz'
 Snapshotting 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
 Finding files in '~\Photos'… 1,204 in 3 sec
@@ -163,6 +186,24 @@ Added (1)
 
 Moved (1)
   2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
+
+1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812.0kB changed
+```
+
+```console posix
+> s3cab snapshot
+Using s3cab home '/home/me/.s3cab'
+Reading previous snapshot '~/.s3cab/sets/photos/snapshots/20251111T0830.tsv.gz'
+Snapshotting 'photos/20251112T0915' ('~/.s3cab/sets/photos/snapshots/20251112T0915.tsv.gz'):
+Finding files in '~/Pictures'… 1,204 in 3 sec
+Comparing '20251111T0830' → '20251112T0915'
+photos: ~/Pictures  20251111T0830 → 20251112T0915
+
+Added (1)
+  2025/new.jpg
+
+Moved (1)
+  2024/IMG_001.jpg → 2024/sorted/IMG_001.jpg
 
 1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812.0kB changed
 ```
@@ -415,9 +456,16 @@ upload **a whole snapshot's** objects and then its snapshot file. Content alread
 store is skipped automatically — identical bytes always map to the same key — unless you
 `--force` a single-file re-upload:
 
-```console
+```console windows
 > s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
 > s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's objects, no snapshot
+> s3cab upload photos --snapshot 20260612T0915              # that snapshot's objects, snapshot file last
+> s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
+```
+
+```console posix
+> s3cab upload photos --file /home/me/Pictures/beach.jpg    # one object into the set's bucket
+> s3cab upload photos --dir /home/me/Pictures/2026          # a folder's objects, no snapshot
 > s3cab upload photos --snapshot 20260612T0915              # that snapshot's objects, snapshot file last
 > s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
 ```

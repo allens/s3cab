@@ -8,7 +8,24 @@ person at a terminal.
 For scripting, pass the global **`--json`** flag to get the same result as a
 structured JSON value instead:
 
-```console
+```console windows
+> s3cab compare photos --json
+{
+  "setName": "photos",
+  "dirs": ["C:\\Users\\me\\Photos"],
+  "since": "20251111T0830",
+  "until": "20251112T0915",
+  "added": [
+    { "path": "C:\\Users\\me\\Photos\\2025\\new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
+  ],
+  "moved": [],
+  "modified": [{ "path": "C:\\Users\\me\\Photos\\diary.txt", "size": 240 }],
+  "deleted": [],
+  "errors": []
+}
+```
+
+```console posix
 > s3cab compare photos --json
 {
   "setName": "photos",
