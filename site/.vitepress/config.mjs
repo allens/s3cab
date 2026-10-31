@@ -16,7 +16,8 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { posix } from "node:path";
+import { isAbsolute, posix, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { checkLinks } from "./check-links.mjs";
 
@@ -24,6 +25,9 @@ import { checkLinks } from "./check-links.mjs";
 /** @import MarkdownIt from "markdown-it" */
 
 const repo = "https://github.com/allens/s3cab";
+
+const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
+const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
 
 /**
  * GitHub's heading anchor: lower-case, drop punctuation and symbols, one `-`
@@ -39,18 +43,22 @@ const slugify = (text) =>
 
 /**
  * Where a site page's markdown lives in the repo: `index.md` includes the
- * README; `guide/<topic>.md` is rendered from `guide/`.
+ * README; `guide/<topic>.md` is rendered from `guide/`; any other page is the
+ * site's own, in `site/`.
  * @param {string} relativePath
  */
 const sourceOf = (relativePath) =>
   relativePath === "index.md"
     ? "README.md"
-    : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
+    : relativePath.startsWith("guide/")
+      ? relativePath.replace(/^guide\/index\.md$/, "guide/README.md")
+      : `site/${relativePath}`;
 
 /**
  * A link as the site should serve it: resolved against the page's real place
- * in the repo, it stays as written if it lands on a site page, becomes `/` for
- * the README, and becomes a GitHub link for any other repo file.
+ * in the repo, it becomes relative to the page's place on the site if it lands
+ * on a guide page, `/` for the README, and a GitHub link for any other repo
+ * file.
  * @param {string} href
  * @param {string} relativePath - The site page the link is on
  */
@@ -71,7 +79,7 @@ function siteHref(href, relativePath) {
     return `/guide/${hash}`;
   }
   if (/^guide\/[^/]+\.md$/.test(target)) {
-    return href;
+    return posix.relative(posix.dirname(relativePath), target) + hash;
   }
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
@@ -146,6 +154,38 @@ export default defineConfig({
     config: repoLinks,
   },
   buildEnd: ({ outDir }) => checkLinks(outDir),
+  // The pattern playground bundles s3cab's own matcher for the browser, so
+  // within src/lib/ `node:path` and `node:util` resolve to node-shim.mjs. Any
+  // other builtin is an error: Vite would only warn and swap in an empty
+  // module, and the page would break when it ran.
+  vite: {
+    plugins: [
+      {
+        name: "s3cab-node-shim",
+        enforce: "pre",
+        resolveId(id, importer) {
+          const within = relative(srcLib, importer ?? "/");
+          if (
+            !id.startsWith("node:") ||
+            within.startsWith("..") ||
+            isAbsolute(within)
+          ) {
+            return null;
+          }
+          if (id === "node:path" || id === "node:util") {
+            return nodeShim;
+          }
+          this.error(
+            `src/lib/${within} imports ${id}, which the pattern playground ` +
+              `can't run in a browser`,
+          );
+        },
+      },
+    ],
+    // style.mjs reads `process.stderr.isTTY` to decide whether to bold a
+    // suggested command; a page has no stderr, so it reads as no terminal.
+    define: { "process.stderr": "{}" },
+  },
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
@@ -162,7 +202,11 @@ export default defineConfig({
         const topic = params?.topic === "index" ? "README" : params?.topic;
         return (
           "https://github.com/allens/s3cab/edit/main/" +
-          (filePath === "index.md" ? "README.md" : `guide/${topic}.md`)
+          (filePath === "index.md"
+            ? "README.md"
+            : filePath.startsWith("guide/")
+              ? `guide/${topic}.md`
+              : `site/${filePath}`)
         );
       },
       text: "Edit this page on GitHub",
