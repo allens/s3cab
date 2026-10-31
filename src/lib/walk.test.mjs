@@ -481,7 +481,7 @@ describe("readExcludePatterns (ADR-0100)", () => {
   });
 
   it(
-    "keeps an escaped space at a line's end, CRLF or not (ADR-0114)",
+    "keeps an escaped space at a line's end, CRLF or not (ADR-0115)",
     { skip: !ESCAPES && "\\ is a separator on Windows" },
     async () => {
       await using dir = await mkTmpDir();
@@ -495,7 +495,7 @@ describe("readExcludePatterns (ADR-0100)", () => {
   );
 
   it(
-    "refuses a \\ that escapes nothing, offering / as the separator (ADR-0114)",
+    "refuses a \\ that escapes nothing, offering / as the separator (ADR-0115)",
     { skip: !ESCAPES && "\\ is a separator on Windows" },
     async () => {
       await using dir = await mkTmpDir();

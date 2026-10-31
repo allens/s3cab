@@ -207,7 +207,7 @@ export function unmatchedFolders(folders, paths) {
 
 /**
  * Whether `\` escapes the next character in a pattern
- * ([ADR-0114](../../docs/adr/0114-backslash-escapes-on-linux-and-macos.md)):
+ * ([ADR-0115](../../docs/adr/0115-backslash-escapes-on-linux-and-macos.md)):
  * on Linux and macOS, where it isn't a separator. On Windows it is one, and no
  * name there holds `*` or `?`. The platform, not the path's shape, because a
  * pattern is typed on this machine.

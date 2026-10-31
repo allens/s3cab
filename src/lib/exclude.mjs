@@ -15,7 +15,7 @@ import { activeLines } from "./read-lines.mjs";
  *   which is where `find` deliberately parts company (ADR-0088).
  * - **Either separator works, in patterns and paths alike**: `/` everywhere, `\`
  *   too on Windows. Both are converted to `/` before matching. Elsewhere `\`
- *   escapes (ADR-0114).
+ *   escapes (ADR-0115).
  * - **A directory is matched with a trailing `/`**, so `build/` names only the
  *   directory and `build` only a file — a `**` reaches either.
  * - **The first matching pattern wins**, and is what the walk records as the
@@ -58,7 +58,7 @@ const ENDS_IN_ESCAPE = /(?<!\\)(?:\\\\)*\\$/;
 /**
  * Parse exclude.txt text into its patterns: `parseLines`' rules, but the
  * whitespace character after a `\` at the end of a line is part of the
- * pattern (ADR-0114).
+ * pattern (ADR-0115).
  * @param {string} text
  * @returns {string[]}
  */
@@ -77,7 +77,7 @@ export function parseExclude(text) {
 
 /**
  * The line that names exactly `rel` when exclude.txt is read back, or
- * `undefined` when there is none (ADR-0114). A leading `#` or space is written
+ * `undefined` when there is none (ADR-0115). A leading `#` or space is written
  * after a `\`, which escapes it on Linux and macOS and on Windows is a leading
  * separator, which changes nothing. Windows has no escape, so a name there
  * ending in a space, or holding a `*` or `?` (a share can), has no line; nor

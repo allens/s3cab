@@ -139,7 +139,7 @@ describe("compileExcludePatterns", () => {
   );
 });
 
-describe("compileExcludePatterns escapes (ADR-0114)", () => {
+describe("compileExcludePatterns escapes (ADR-0115)", () => {
   it(
     "makes the character after a \\ match only itself",
     { skip: !ESCAPES && "\\ is a separator on Windows" },

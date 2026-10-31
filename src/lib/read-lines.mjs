@@ -3,7 +3,7 @@
  * (even indented) and blank lines dropped. The shape a set's `dirs.txt` and a
  * `--from-file` list are read as; also used to list the *active* patterns of
  * the in-memory `starterExclude` (setup.mjs). A set's `exclude.txt` is read by
- * `parseExclude`, which trims differently (ADR-0114) and keeps the rest.
+ * `parseExclude`, which trims differently (ADR-0115) and keeps the rest.
  * @param {string} text
  */
 export function parseLines(text) {

@@ -118,7 +118,7 @@ import { shellCommand } from "./style.mjs";
  * of a snapshot that may have been taken on another OS entirely, so only its own
  * shape can say how it is spelled (`preparePath`). So a Windows pattern can't
  * name a POSIX filename containing a backslash; on Linux and macOS `\` escapes,
- * and `\\` names one (ADR-0114).
+ * and `\\` names one (ADR-0115).
  * @param {string} pattern - As the user typed it
  * @returns {FindMatcher}
  * @throws {ValidationError} On a pattern with nothing in it to match, or one

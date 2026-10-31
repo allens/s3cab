@@ -281,7 +281,7 @@ describe("backup", () => {
     assert.deepEqual(result.excludeSuggestions, ["a.pst"]);
   });
 
-  it("suggests the line exclude.txt reads back as the file (ADR-0114)", async () => {
+  it("suggests the line exclude.txt reads back as the file (ADR-0115)", async () => {
     // A line is trimmed, so `notes ` as written would name `notes`. Windows
     // has no escape for the space, so there the file gets no line at all.
     const root = resolve("data", "docs");

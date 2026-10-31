@@ -96,7 +96,7 @@ export function readExcludePatterns(excludePath) {
           .join("\n"),
     );
   }
-  // ADR-0114. The likeliest cause is a file written on Windows, where `\`
+  // ADR-0115. The likeliest cause is a file written on Windows, where `\`
   // separates folders, so that is the fix offered first.
   const stray = patterns.filter(strayEscape);
   if (stray.length) {

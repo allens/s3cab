@@ -182,7 +182,7 @@ describe("compileFindPattern", () => {
   });
 
   it(
-    "makes the character after a \\ match only itself (ADR-0114)",
+    "makes the character after a \\ match only itself (ADR-0115)",
     { skip: !ESCAPES && "\\ is a separator on Windows" },
     () => {
       assert.equal(matches("what\\?.txt", "/docs/what?.txt"), true);
