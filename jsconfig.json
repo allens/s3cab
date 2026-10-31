@@ -28,6 +28,11 @@
   // is a full checkout of this repo, and eslint ignores it for the same reason).
   // The docs site's config sits in `.vitepress/` for the same reason; only its
   // own modules, not the build output or cache beside them.
-  "include": ["**/*", ".claude/skills/**/*", "site/.vitepress/*.mjs"],
+  "include": [
+    "**/*",
+    ".claude/skills/**/*",
+    "site/.vitepress/*.mjs",
+    "site/.vitepress/theme/*.mjs"
+  ],
   "exclude": ["node_modules", "dist", ".claude/worktrees"]
 }

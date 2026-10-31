@@ -92,6 +92,79 @@ function repoLinks(md) {
 }
 
 /**
+ * The tab label for each OS tag a fence can carry after its language.
+ * @type {Record<string, string>}
+ */
+const OS_LABELS = { windows: "Windows", posix: "macOS / Linux" };
+
+/**
+ * Adjacent fences tagged with an OS after their language (`console windows`,
+ * then `console posix`) become one example with a tab per OS. GitHub shows the
+ * fences one after the other, so the pages read fine there. Which
+ * tab shows is the `data-os` on `<html>`, set by `osChoice` below and by
+ * theme/os-switch.mjs; without it every variant shows, under its label.
+ * @param {MarkdownIt} md
+ */
+function osVariants(md) {
+  md.core.ruler.push("s3cab-os-variants", (state) => {
+    /** @param {string} content */
+    const html = (content) =>
+      Object.assign(new state.Token("html_block", "", 0), { content });
+    /** @type {typeof state.tokens} */
+    const tokens = [];
+    /** @type {[string, (typeof state.tokens)[number]][]} */
+    let group = [];
+    const flush = () => {
+      if (!group.length) {
+        return;
+      }
+      const tabs = group.map(
+        ([os]) =>
+          `<button type="button" role="tab" data-os="${os}">${OS_LABELS[os]}</button>`,
+      );
+      tokens.push(
+        html(
+          `<div class="os-switch"><div class="os-tabs" role="tablist" aria-label="Operating system">${tabs.join("")}</div>\n`,
+        ),
+      );
+      for (const [os, fence] of group) {
+        tokens.push(
+          html(
+            `<div class="os-variant" data-os="${os}"><p class="os-label">${OS_LABELS[os]}</p>\n`,
+          ),
+          fence,
+          html("</div>\n"),
+        );
+      }
+      tokens.push(html("</div>\n"));
+      group = [];
+    };
+    for (const token of state.tokens) {
+      const [, lang, os] =
+        (token.type === "fence" &&
+          /^(\S+) +(windows|posix)$/.exec(token.info.trim())) ||
+        [];
+      if (lang && os) {
+        token.info = lang;
+        group.push([os, token]);
+      } else {
+        flush();
+        tokens.push(token);
+      }
+    }
+    flush();
+    state.tokens = tokens;
+  });
+}
+
+/**
+ * Sets `data-os` before the page paints, so the chosen variant shows from the
+ * first frame: the stored choice, else the visitor's platform. The key is
+ * theme/os-switch.mjs's `KEY`.
+ */
+const osChoice = `{let os;try{os=localStorage.getItem("s3cab-os")}catch{}document.documentElement.dataset.os=os==="windows"||os==="posix"?os:/^win/i.test(navigator.userAgentData?.platform??navigator.platform)?"windows":"posix"}`;
+
+/**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
  * bold link that opens each bullet under them, so the guide index stays the
  * one list.
@@ -143,8 +216,11 @@ export default defineConfig({
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
     // the shell grammar colours as escapes (`C:\Users` → `\U`); shown plain.
     languageAlias: { console: "text" },
-    config: repoLinks,
+    config: (md) => {
+      md.use(repoLinks).use(osVariants);
+    },
   },
+  head: [["script", {}, osChoice]],
   buildEnd: ({ outDir }) => checkLinks(outDir),
   themeConfig: {
     nav: [
