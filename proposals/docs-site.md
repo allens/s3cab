@@ -44,11 +44,16 @@ Pages rather than Workers static assets, though Cloudflare now steers new sites 
 gives per-branch previews out of the box, and its Terraform resource carries the Git source and
 build settings in one place. Moving later changes the deploy target, not the content.
 
-**Cutover — the order matters.** Today `/guide/<topic>` is redirected, presumably by a
-Terraform-managed redirect rule; a hostname redirect rule runs *before* the Pages origin, so the
+**Progress (2026-10-31).** The Pages project `s3cab` exists in platform's Terraform
+(`terraform/site-s3cab-plantegral-com.tf`, platform commit `1c35764`), building from `main` with
+a preview per branch, at https://s3cab.pages.dev. `s3cab.plantegral.com` is unchanged: the
+cutover below is next, in platform.
+
+**Cutover — the order matters.** Today `/guide/<topic>` is redirected, by two redirect rules on
+the hostname in platform's Terraform; a hostname redirect rule runs *before* the Pages origin, so the
 site would never see traffic while it exists. So: deploy to the `*.pages.dev` URL and check every
 `/guide/<topic>` the registry names (plus `/`, which the CLI prints as "Full documentation");
-then, in **one** apply, attach the custom domain and delete the rule; re-check every topic on
+then, in **one** apply, attach the custom domain and delete both rules; re-check every topic on
 the real domain. Afterwards, a nightly job fetching each registry topic's live URL guards what
 `help.test.mjs` can't (it proves the page exists in `guide/`, not that the URL resolves).
 
