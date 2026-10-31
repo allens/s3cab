@@ -305,9 +305,10 @@ hedged:
 - **It never runs beside a backup.** A backup stores content *before* the snapshot that
   references it, so mid-backup that content looks exactly like an orphan. Every backup and
   upload, from any machine, holds a lock in the bucket while it runs, and `cleanup` refuses to
-  start while one is there — naming the run, its set and its machine. `--wait` makes it wait
-  instead, looking again every half minute until the last one has finished. The locks are
-  explained [below](#locks-backups-and-clean-ups-take-turns).
+  go ahead while one is there — checked just before it deletes anything, and naming the run,
+  its set and its machine. `--wait` makes it wait instead, looking again every half minute
+  until the last one has finished. The locks are explained
+  [below](#locks-backups-and-clean-ups-take-turns).
 - **A backup that finishes while it plans is safe too.** Once `cleanup` holds its lock, it
   reads any snapshot that landed since it counted, and takes that snapshot's objects off the
   list before deleting anything. It tells you when that kept something.
@@ -334,7 +335,7 @@ a terminal the refusal comes after the question:
 Contacting the cloud…
 Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
 ERROR: Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
-  backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m ago) — upload-20261027T140205.123Z
+  backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m 12s ago) — upload-20261027T140205.123Z
 
 Try again once it has finished, or run the same command again with --wait to let this run wait for it.
 If it was stopped without finishing and left its lock behind, remove the lock with:
