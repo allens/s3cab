@@ -40,10 +40,9 @@
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
@@ -55,7 +54,7 @@ import {
   snapshotNotFoundError,
 } from "../src/lib/restore.mjs";
 import { authNotice } from "../src/lib/s3.mjs";
-import { writeSnapshot } from "./helpers/write-snapshot.mjs";
+import { file, photosSet, restoreResult } from "./helpers/photos-set.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
@@ -66,7 +65,6 @@ import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 /** @import { cleanup } from "../src/commands/cleanup.mjs" */
 /** @import { verify } from "../src/commands/verify.mjs" */
 /** @import { VerifyResult } from "../src/commands/verify.mjs" */
-/** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
 /** @import { SetReport } from "../src/lib/verify.mjs" */
 
@@ -283,48 +281,6 @@ function transcript(page, command, containing) {
   return /** @type {string} */ (picked[0]);
 }
 
-/**
- * A `photos` set over `~/Pictures` in a temp home, with a snapshot per entry of
- * `snapshots` (name → files, paths relative to the set's directory), and a way
- * to run the CLI there. Paths are written as the snapshot would hold them, so
- * the report shortens them against the home exactly as on a real machine.
- * @param {string} root
- * @param {Record<string, File[]>} snapshots
- */
-async function photosSet(root, snapshots) {
-  // Absolute, as `setup` writes it: the snapshot rows are absolute paths.
-  const home = resolve(root, "home");
-  const pictures = join(home, "Pictures");
-  const set = join(home, ".s3cab", "sets", "photos");
-  mkdirSync(join(set, "snapshots"), { recursive: true });
-  writeFileSync(join(set, "dirs.txt"), `${pictures}\n`);
-  writeFileSync(join(set, "env"), "S3CAB_BUCKET=my-backups\n");
-  for (const [name, files] of Object.entries(snapshots)) {
-    await writeSnapshot(join(set, "snapshots"), name, files, pictures);
-  }
-  return {
-    home,
-    /** @param {...string} args */
-    run: (...args) =>
-      spawnSync(process.execPath, ["src/s3cab.mjs", ...args], {
-        encoding: "utf8",
-        env: { ...process.env, HOME: home, USERPROFILE: home },
-      }),
-  };
-}
-
-/**
- * A file of `size` bytes, its content fixed by `fill` — the same `fill` and
- * size is the same content, which is what makes a move or a duplicate.
- * @param {string} name
- * @param {string} fill
- * @param {number} size
- */
-const file = (name, fill, size) =>
-  new File([new Uint8Array(size).fill(fill.charCodeAt(0))], name, {
-    lastModified: Date.UTC(2025, 9, 1),
-  });
-
 // The transcripts are POSIX ones (`~/Pictures`, `/home/me/…`); a Windows run
 // would print the same report with `\`.
 const posixOnly = {
@@ -414,31 +370,6 @@ const setReport = (set, referencedObjects, report = {}) => ({
 const verifyResult = (photos) => ({
   bucket: "my-backups",
   sets: [photos, setReport("documents", 6_211), setReport("music", 497)],
-});
-
-/**
- * A restore of `photos` from `my-backups`, empty unless `result` says
- * otherwise.
- * @param {Partial<RestoreResult>} result
- * @returns {RestoreResult}
- */
-const restoreResult = (result) => ({
-  set: "photos",
-  bucket: "my-backups",
-  snapshot: "20260612T0915",
-  restored: [],
-  skipped: [],
-  collided: [],
-  missing: [],
-  corrupt: [],
-  refused: [],
-  blocked: [],
-  clamped: [],
-  coarseTimes: 0,
-  invalid: [],
-  deleted: [],
-  unmatched: [],
-  ...result,
 });
 
 /**
