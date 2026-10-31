@@ -61,9 +61,11 @@ function documents(
 // The target of a Markdown inline link: whatever sits between the brackets and
 // the closing paren. Absolute URLs and bare anchors are somebody else's problem
 // — the first can't be checked offline, the second names a heading, not a file.
+// So is a `/`-leading link: a docs-site URL on a site-only page
+// (site/challenge.md), which the site's build checks, page and anchor.
 const LINK = /\]\(([^)\s]+)\)/g;
 const external = (/** @type {string} */ target) =>
-  /^(https?:|mailto:|#)/.test(target);
+  /^(https?:|mailto:|#|\/)/.test(target);
 
 // In a `.mjs` file the links live in comments — mostly the JSDoc header naming
 // the decision that governs the module. Code below can spell the same shape
