@@ -38,10 +38,10 @@ read).
   visible inconsistency. Needs a markdown construct that still reads acceptably raw.
 - **Error index.** ADR-0030 messages are already constructive; give each a page anchor so
   pasting an error into search lands on its fix.
-- **Exclude-pattern playground.** `src/lib/exclude.mjs` imports only `node:path` and
-  `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
-  patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
-  with it. A `find` pattern twin is the same idea.
+- **A `find` pattern playground**, twin of the exclude one at `/tools/exclude`: type `find`
+  patterns and snapshot paths, see which match. `compileFindPattern` sits in `src/lib/find.mjs`
+  beside the snapshot reading (`node:process`, `snapshot-file.mjs`), so it has to move out
+  before the browser can bundle it.
 - **Annotated snapshot anatomy** — hover a column of a real snapshot line for its meaning.
 
 ## Fun, with a point
