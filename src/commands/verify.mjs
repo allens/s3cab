@@ -44,10 +44,13 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * [docs/design/backup.md](../../docs/design/backup.md)). verify's result
  * is therefore just `{ bucket, sets }`.
  *
+ * @typedef {Object} VerifyResult
+ * @property {string} bucket
+ * @property {SetReport[]} sets - Per-set reports (the flat per-path `problems`
+ *   list plus any unreadable snapshots), sorted by set name
+ *
  * @param {string} [bucket] - The repository's S3 bucket to check
- * @returns {Promise<{ bucket: string, sets: SetReport[] }>}
- *   Per-set reports (the flat per-path `problems` list plus any unreadable
- *   snapshots), sorted by set name.
+ * @returns {Promise<VerifyResult>}
  */
 export async function verify(bucket) {
   requireArg(bucket, "bucket");
