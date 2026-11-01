@@ -135,8 +135,8 @@ function parseLock(id, kind, text) {
  * Write a lock of `kind` with a no-overwrite PUT and return it. A 412 is read
  * back: the same bytes are this run's own earlier write, retried after a lost
  * response, so the lock is ours; anything else means another run took that
- * instant, and a fresh one is tried a millisecond on. The pid in the body is
- * what tells two runs of one command on one machine apart.
+ * instant, and a fresh one is tried once the clock has moved. The pid in the
+ * body is what tells two runs of one command on one machine apart.
  * @param {string} bucket
  * @param {{ kind: LockKind, command: string, set?: string }} args
  * @returns {Promise<Lock>}
@@ -146,8 +146,8 @@ export async function writeLock(bucket, { kind, command, set }) {
   const os = process.platform;
   const pidns = pidNamespace();
   const pid = process.pid;
+  let { id, started } = freshLockId(kind);
   for (;;) {
-    const { id, started } = freshLockId(kind);
     const body = formatLock({ command, set, by, os, pidns, pid, started });
     const wrote = await putText(lockUri(bucket, id), body, { noClobber: true });
     if (wrote) {
@@ -157,7 +157,14 @@ export async function writeLock(bucket, { kind, command, set }) {
     if (existing === body) {
       return { id, kind, command, set, by, os, pidns, pid, started };
     }
-    await sleep(1);
+    // Not a single sleep(1): a 1ms timer can fire before the clock's
+    // millisecond moves (libuv times it from the loop's cached clock), and
+    // would mint the instant that just lost.
+    const lost = id;
+    do {
+      await sleep(1);
+      ({ id, started } = freshLockId(kind));
+    } while (id === lost);
   }
 }
 
