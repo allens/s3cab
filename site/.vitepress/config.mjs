@@ -141,9 +141,13 @@ export default defineConfig({
     languageAlias: { console: "text" },
     config: repoLinks,
   },
+  // The challenge's bucket is written once the pages are, too late for
+  // VitePress's own check, so links into it are left to check-links.mjs, run
+  // after it.
+  ignoreDeadLinks: [/^\/challenge\/bucket\//],
   buildEnd: async ({ outDir }) => {
-    checkLinks(outDir);
     await writeChallengeBucket(join(outDir, "challenge", "bucket"));
+    checkLinks(outDir);
   },
   themeConfig: {
     nav: [
