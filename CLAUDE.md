@@ -38,7 +38,8 @@ undermine the no-lock-in premise.
    automated for the user docs: [test/doc-examples.test.mjs](test/doc-examples.test.mjs) parses
    every `s3cab …` line they show and checks the transcripts it names against what s3cab
    prints, so a changed flag, or a changed report or error it checks, fails `npm test` until
-   the page changes with it. Every other transcript is kept right by hand.
+   the page changes with it. Every other transcript is kept right by hand. Every example
+   tells one story, defined in [test/helpers/story.mjs](test/helpers/story.mjs).
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable from
    the code** — never restate `package.json` scripts or build/test/lint commands.
 
