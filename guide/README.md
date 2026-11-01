@@ -9,8 +9,9 @@ pages are the sit-down read.
 
 ## Everyday
 
-- **[Backing up](backup.md)** — how s3cab decides a file hasn't changed, the rare edits
-  that fool it, and when to re-read everything with `--rehash`.
+- **[Backing up](backup.md)** — what a set backs up and where its files live, how s3cab
+  decides a file hasn't changed, the rare edits that fool it, and when to re-read everything
+  with `--rehash`.
 - **[Getting files back](restore.md)** — recovering a deleted file, an older version, or
   everything onto a fresh machine. The job the backup exists for.
 - **[Reading a compare report](compare.md)** — what added / renamed / moved / modified /
@@ -20,8 +21,9 @@ pages are the sit-down read.
 - **[Exclude rules](exclude.md)** — the glob patterns that keep files out of a backup set.
   (Quick reference: `s3cab help exclude`.)
 - **[Looking after a backup](maintenance.md)** — checking backups are still restorable
-  (`verify`), dropping snapshots (`forget`), reclaiming storage (`cleanup`), and why bucket
-  versioning makes all of it safe to get wrong.
+  (`verify`), dropping snapshots (`forget`), reclaiming storage (`cleanup`), why bucket
+  versioning makes all of it safe to get wrong, and the `hashes` and `upload` building blocks
+  underneath.
 
 ## Setting up
 
