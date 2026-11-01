@@ -310,7 +310,7 @@ reveals. If an unchanged copy of a damaged file survives anywhere — another ma
 stick — upload it again to repair the backup's copy:
 
 ```console
-> s3cab upload photos --file D:\old-laptop\Photos\2025\new.jpg --force
+> s3cab upload photos --file E:\Photos\2024\IMG_001.jpg --force
 ```
 
 ## If there's nothing to restore

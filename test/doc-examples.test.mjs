@@ -51,7 +51,7 @@ import { join, resolve } from "node:path";
 import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
-import { errorReport } from "../src/help.mjs";
+import { errorReport, helpTopics } from "../src/help.mjs";
 import { uploadRunningError } from "../src/lib/locks.mjs";
 import {
   noBackupsError,
@@ -100,39 +100,55 @@ const PAGES = [
 
 const FENCE = /^ *```([^\n]*)\n([\s\S]*?)^ *```/gm;
 // A fence that holds commands: a `console` transcript (commands follow its
-// `> ` prompt, and the output can suggest more on lines of their own), or an
-// untagged or shell block of bare commands. `text`, `json`, … hold output and
-// data, never commands.
+// `> ` prompt, and the output can suggest more, indented on lines of their
+// own), or an untagged or shell block of bare commands. `text`, `json`, … hold
+// output and data, never commands.
 const SHELL = new Set(["", "sh", "bash", "powershell"]);
 
 /**
- * Every `s3cab …` command line a page shows. Inline code is marked: there a
- * trailing flag can be a mention of the flag rather than half an invocation
+ * A page's code, never its prose: its fenced blocks and inline spans, and the
+ * `s3cab …` command lines among them. Inline code is marked: there a trailing
+ * flag can be a mention of the flag rather than half an invocation
  * (`s3cab upload --dir`).
  * @param {string} text
- * @returns {{ line: string, inline: boolean }[]}
  */
-function commandsIn(text) {
-  const found = [];
+function codeOf(text) {
+  const code = [];
+  /** @type {{ line: string, inline: boolean }[]} */
+  const lines = [];
   for (const [, lang = "", body = ""] of text.matchAll(FENCE)) {
-    for (const raw of body.split("\n")) {
-      const line = raw.trim();
+    code.push(body);
+    const tag = lang.trim();
+    const rows = body.split("\n").filter((row) => row.trim());
+    const indent = (/** @type {string} */ row) =>
+      row.length - row.trimStart().length;
+    // A fence inside a list item is indented as a whole.
+    const margin = Math.min(...rows.map(indent));
+    for (const row of rows) {
+      const line = row.trim();
+      const bare = /^s3cab\s/.test(line) ? line : undefined;
       const command =
-        lang.trim() === "console"
-          ? /^(?:> )?(s3cab\s.*)/.exec(line)?.[1]
-          : SHELL.has(lang.trim()) && /^s3cab\s/.test(line)
-            ? line
+        tag === "console"
+          ? (/^> (s3cab\s.*)/.exec(line)?.[1] ??
+            (indent(row) > margin ? bare : undefined))
+          : SHELL.has(tag)
+            ? bare
             : undefined;
       if (command) {
-        found.push({ line: command, inline: false });
+        lines.push({ line: command, inline: false });
       }
     }
   }
-  const prose = text.replace(FENCE, "");
-  for (const [, , span = ""] of prose.matchAll(/(`+)(s3cab\s[\s\S]*?)\1/g)) {
-    found.push({ line: span.replace(/\s+/g, " "), inline: true });
+  for (const [, , raw = ""] of text
+    .replace(FENCE, "")
+    .matchAll(/(`+)([\s\S]*?)\1/g)) {
+    const span = raw.replace(/\s+/g, " ");
+    code.push(span);
+    if (/^s3cab\s/.test(span)) {
+      lines.push({ line: span, inline: true });
+    }
   }
-  return found;
+  return { code: code.join("\n"), lines };
 }
 
 /** The registry's own `examples`, each with the command it is under. */
@@ -146,7 +162,7 @@ const helpExamples = Object.entries(commands).flatMap(
  */
 const documentedCommands = () => [
   ...PAGES.flatMap((page) =>
-    commandsIn(readFileSync(page, "utf8")).map((found) => ({
+    codeOf(readFileSync(page, "utf8")).lines.map((found) => ({
       where: page,
       ...found,
     })),
@@ -404,18 +420,20 @@ const MAY = timeline.flatMap(({ name, forgotten }) =>
 );
 
 /**
- * The bucket's snapshots of `photos`, oldest first, that hold the content
- * `path` has in June, under any name.
+ * The bucket's snapshots of `photos`, oldest first, where `path` holds the
+ * content it has in June: verify reports an object per path.
  * @param {string} path
  */
 const holding = (path) => {
-  const { fill, size } = filesAt(JUNE).get(path) ?? {};
+  const june = filesAt(JUNE).get(path);
+  if (!june) {
+    throw new Error(`the story has no '${path}' in ${JUNE}`);
+  }
   return backedUp(JUNE)
-    .filter((name) =>
-      [...filesAt(name).values()].some(
-        (content) => content.fill === fill && content.size === size,
-      ),
-    )
+    .filter((name) => {
+      const content = filesAt(name).get(path);
+      return content?.fill === june.fill && content.size === june.size;
+    })
     .reverse();
 };
 
@@ -815,20 +833,19 @@ const NOT_SNAPSHOTS = new Set(["20261345T9999", "20990101T0000"]);
 /** @param {string} name - A name standing for any value: `<set>`, `…` */
 const placeholder = (name) => /^(?:[<[{…]|\.\.\.$|$)/.test(name);
 
-/** @typedef {{ kind: "set" | "bucket" | "snapshot" | "home", name: string }} StoryName */
+/** @typedef {"set" | "bucket" | "snapshot" | "home" | "identity"} Kind */
 
 /**
- * Every name some code gives a set, a bucket, a snapshot or a home folder, and
- * the set or bucket each of its command lines names. A home folder is named
- * `user/folder`.
+ * Every name some code gives a set, a bucket, a snapshot, a home folder or a
+ * `user@machine`, and the set or bucket each of its command lines names. A
+ * home folder is named `user/folder`.
  * @param {string} code
- * @param {string[]} lines - Its `s3cab …` command lines
  */
-function storyNames(code, lines) {
-  /** @type {StoryName[]} */
+function storyNames(code) {
+  /** @type {{ kind: Kind, name: string }[]} */
   const names = [];
   /**
-   * @param {"set" | "bucket" | "snapshot" | "home"} kind
+   * @param {Kind} kind
    * @param {RegExp} pattern
    */
   const add = (kind, pattern) => {
@@ -849,8 +866,10 @@ function storyNames(code, lines) {
   add("home", /(?<![\w.\\:])\/home\/([^/\s`'"]+)\/?([^/\s`'")]*)/g);
   add("home", /(?<![\w.\\:])\/(Users)\/([^/\s`'"]+)/g);
   add("home", /(?<![\w])~()[\\/]([^\\/\s`'")]+)/g);
-  // The command lines, read as s3cab reads them.
-  for (const line of lines) {
+  add("identity", /(?<![\w.@-])([\w.-]+@[A-Za-z][\w-]*)(?![\w.@-])/g);
+  // Every line that reads as a command, in any block: more than `codeOf`
+  // takes, since a line that names no command is skipped here.
+  for (const [, line = ""] of code.matchAll(/^\s*(?:> )?(s3cab\s.*)$/gm)) {
     const [, name = "", ...args] = argv(line);
     const command = commands[name];
     if (!command) {
@@ -878,25 +897,8 @@ function storyNames(code, lines) {
 }
 
 /**
- * The names on a page: in its fenced blocks and inline code, never its prose.
- * @param {string} text
- */
-function pageNames(text) {
-  const code = [
-    ...[...text.matchAll(FENCE)].map(([, , body = ""]) => body),
-    ...[...text.replace(FENCE, "").matchAll(/(`+)([\s\S]*?)\1/g)].map(
-      ([, , span = ""]) => span,
-    ),
-  ].join("\n");
-  return storyNames(
-    code,
-    commandsIn(text).map(({ line }) => line),
-  );
-}
-
-/**
  * The names the story doesn't have, as `kind 'name'`.
- * @param {StoryName[]} names
+ * @param {ReturnType<typeof storyNames>} names
  */
 function strangers(names) {
   const known = {
@@ -917,6 +919,10 @@ function strangers(names) {
           /^[^.].*\.\w+$/.test(folder))
       );
     },
+    // `user@machine` is format.md's name for the form itself.
+    identity: (/** @type {string} */ name) =>
+      name === "user@machine" ||
+      Object.values(sets).some(({ by }) => by === name),
   };
   return names.flatMap(({ kind, name }) =>
     placeholder(name) || known[kind](name) ? [] : [`${kind} '${name}'`],
@@ -926,13 +932,18 @@ function strangers(names) {
 describe("the story", () => {
   for (const page of PAGES) {
     it(`${page} names only what the story has`, () => {
-      assert.deepEqual(strangers(pageNames(readFileSync(page, "utf8"))), []);
+      const { code } = codeOf(readFileSync(page, "utf8"));
+      assert.deepEqual(strangers(storyNames(code)), []);
     });
   }
 
-  it("the --help examples name only what the story has", () => {
-    const lines = helpExamples.map(({ line }) => line);
-    assert.deepEqual(strangers(storyNames(lines.join("\n"), lines)), []);
+  it("the built-in help names only what the story has", () => {
+    const help = [
+      ...helpExamples.map(({ line }) => line),
+      ...Object.values(commands).map(({ details = "" }) => details),
+      ...Object.values(helpTopics),
+    ].join("\n");
+    assert.deepEqual(strangers(storyNames(help)), []);
   });
 
   it("catches a name outside the story, and not a placeholder", () => {
@@ -946,17 +957,26 @@ describe("the story", () => {
       "photos: ~/Pictures  /Users/me/Photos  /home/me/Pictures  s3://other",
       "Can't reach bucket 'elsewhere': set 'travel' is locked.",
       "  s3cab cleanup spare",
+      "s3cab 0.14.0",
       "> s3cab backup <set>",
       "> s3cab cleanup <bucket> --dry-run",
       "```",
       "```text",
       "@SET NAME videos",
+      "OWNER=allen@DESKTOP",
+      "s3cab provider --keys garden",
       "```",
       "`~/.s3cab/sets/<set>/env`, `~/.s3cab/sets/work/env` and",
       "`s3cab list photos`",
     ].join("\n");
+    const { code, lines } = codeOf(page);
 
-    assert.deepEqual(strangers(pageNames(page)), [
+    assert.ok(lines.some(({ line }) => line === "s3cab cleanup spare"));
+    assert.ok(
+      !lines.some(({ line }) => line === "s3cab 0.14.0"),
+      "output that only starts with the tool's name is no command",
+    );
+    assert.deepEqual(strangers(storyNames(code)), [
       "snapshot '20250101T0000'",
       "set 'travel'",
       "set 'videos'",
@@ -967,18 +987,20 @@ describe("the story", () => {
       "home 'me/Pictures'",
       "home 'Users/me'",
       "home '/Pictures'",
+      "identity 'allen@DESKTOP'",
       "set 'holiday'",
       "bucket 'my-bucket'",
       "bucket 'spare'",
+      "set 'garden'",
     ]);
   });
 
   it("finds the names it is meant to be checking", () => {
     // Without this the checks above pass just as well on a pattern that
     // matches nothing.
-    const found = pageNames(readFileSync("README.md", "utf8")).map(
-      ({ kind, name }) => `${kind} '${name}'`,
-    );
+    const found = storyNames(
+      codeOf(readFileSync("README.md", "utf8")).code,
+    ).map(({ kind, name }) => `${kind} '${name}'`);
     for (const name of [
       "snapshot '20251110T2104'",
       "set 'photos'",

@@ -148,9 +148,9 @@ interleave their trees, so the latest snapshot could be either machine's. The se
 `snapshots/<set>.info` names the holder, one `KEY=value` line each:
 
 ```
-OWNER=allen@DESKTOP
-CLAIMED=2026-10-14T08:15:32.000Z
-CREATED=2026-06-12T08:15:32.000Z
+OWNER=me@LAPTOP
+CLAIMED=2025-11-10T21:03:48.000Z
+CREATED=2025-11-10T21:03:48.000Z
 ```
 
 - `OWNER` is the holder, as `user@machine`.
