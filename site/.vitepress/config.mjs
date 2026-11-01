@@ -17,7 +17,7 @@
 
 import { readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
-import { isAbsolute, join, posix, relative } from "node:path";
+import { isAbsolute, join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
@@ -180,6 +180,9 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
+  // Not `lastUpdated`: it dates a page from git history, and whether Cloudflare
+  // Pages clones that in full is unchecked. A shallow clone would date every
+  // page by the build's own commit.
   // The pages are the repo's own files where they live: README.md is the home
   // page, guide/*.md the guide, and site/ holds the pages only the site has.
   srcDir: "..",
@@ -201,8 +204,6 @@ export default defineConfig({
       ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
     ],
   ],
-  // Not `lastUpdated`: if Cloudflare Pages clones shallow, every page would be
-  // dated by the build's own commit.
   markdown: {
     anchor: { slugify },
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
@@ -224,6 +225,13 @@ export default defineConfig({
   // after it.
   ignoreDeadLinks: [/^\/challenge\/bucket\//],
   buildEnd: async ({ outDir }) => {
+    // Without it, searchedPage indexes no command page and the build passes:
+    // VitePress catches a page's indexing error and only warns.
+    if (!resolved()) {
+      throw new Error(
+        "globalThis.VITEPRESS_CONFIG is unset, so search indexed no command page",
+      );
+    }
     await writeChallengeBucket(join(outDir, "challenge", "bucket"));
     checkLinks(outDir);
   },
@@ -262,7 +270,7 @@ export default defineConfig({
     // path has `.claude/` in it, so that ignores every file.
     server: {
       watch: {
-        ignored: [(file) => relative(root, file).startsWith(".claude")],
+        ignored: [(file) => relative(root, file).split(sep)[0] === ".claude"],
       },
     },
   },
