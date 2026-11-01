@@ -25,6 +25,8 @@ const transcript = textOf(events.length);
 // the server-rendered page and a reduced-motion reader see the whole session.
 const shown = ref(events.length);
 const playing = ref(false);
+// The button works only once the page is hydrated, so it isn't shown before.
+const mounted = ref(false);
 const text = computed(() => textOf(shown.value));
 const label = computed(() =>
   playing.value ? "Pause" : shown.value < events.length ? "Play" : "Replay",
@@ -45,13 +47,18 @@ function next() {
     shown.value += 1;
     // A terminal keeps its newest line in view.
     requestAnimationFrame(() => {
-      screen.value.scrollTop = screen.value.scrollHeight;
+      // Null if a route change unmounted the player in the meantime.
+      if (screen.value) {
+        screen.value.scrollTop = screen.value.scrollHeight;
+      }
     });
     next();
   }, delay * 1000);
 }
 
 function play() {
+  // One timer chain at a time, or a second play() would double the speed.
+  clearTimeout(timer);
   if (shown.value >= events.length) {
     shown.value = 0;
   }
@@ -65,6 +72,7 @@ function pause() {
 }
 
 onMounted(() => {
+  mounted.value = true;
   screen.value.scrollTop = screen.value.scrollHeight;
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
     return;
@@ -88,14 +96,17 @@ onBeforeUnmount(() => {
 <template>
   <figure ref="figure" class="recording">
     <figcaption>{{ title }}</figcaption>
-    <!-- The transcript below is the same text, for a screen reader. -->
+    <!-- The transcript below is the same text, for a screen reader. A
+    scrolling box is focusable, so tabindex keeps the hidden one out of the
+    tab order. -->
     <pre
       ref="screen"
       class="screen"
       :style="{ height: `${header.height}lh` }"
       aria-hidden="true"
+      tabindex="-1"
       >{{ text }}</pre>
-    <button type="button" @click="playing ? pause() : play()">
+    <button v-if="mounted" type="button" @click="playing ? pause() : play()">
       {{ label }}
     </button>
     <details>
