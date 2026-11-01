@@ -282,6 +282,10 @@ Four layout notes the README and code don't carry:
   then ```` ```console posix ````, in the one example world each (`C:\Users\me\Photos` or
   `/home/me/Pictures`, set `photos`, bucket `my-backups`): the site makes them tabs, GitHub
   shows both, and each variant needs its own entry in doc-examples.
+  **The command reference (`/commands/<name>`) and the README's command tables are generated
+  from the registry** by `site/.vitepress/command-pages.mjs`: edit `src/commands.mjs` (or the
+  `src/command-details.mjs` text it names), never a page, and paste the tables `npm test`
+  prints when the README falls out of step.
   **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
   GitHub app, so this repo holds no deploy job and no Cloudflare secret
   ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)). The build command
