@@ -181,6 +181,18 @@ describe("excludeReport", () => {
     );
   });
 
+  it("shows the walk's refusal of a tab, before a stray \\, everywhere", () => {
+    for (const platform of /** @type {Platform[]} */ ([
+      "win32",
+      "darwin",
+      "linux",
+    ])) {
+      const { refusal, verdicts } = excludeReport("a\tb\\", "a b", platform);
+      assert.deepEqual(verdicts, []);
+      assert.match(refusal ?? "", /contains a tab or a carriage return/);
+    }
+  });
+
   it("ignores how an accent is spelled on macOS only", () => {
     const pattern = "café.txt".normalize("NFC");
     const path = "café.txt".normalize("NFD");

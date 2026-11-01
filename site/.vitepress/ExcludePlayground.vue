@@ -84,7 +84,7 @@ const leftOut = computed(
         <textarea
           id="exclude-playground-patterns"
           v-model="patterns"
-          aria-describedby="exclude-playground-refused"
+          aria-describedby="exclude-playground-summary"
           rows="16"
           wrap="off"
           spellcheck="false"
@@ -108,15 +108,17 @@ const leftOut = computed(
       </div>
     </div>
 
-    <p id="exclude-playground-refused" class="refused" aria-live="polite">
-      <template v-if="report.refusal">
-        <strong>Refused, so nothing is backed up:</strong> {{ report.refusal }}
+    <p
+      id="exclude-playground-summary"
+      class="summary"
+      :class="{ refused: report.refusal }"
+      aria-live="polite"
+    >
+      <template v-if="report.refusal">{{ report.refusal }}</template>
+      <template v-else>
+        {{ leftOut }} of {{ verdicts.length }}
+        {{ verdicts.length === 1 ? "path" : "paths" }} left out.
       </template>
-    </p>
-
-    <p v-if="!report.refusal" class="summary" aria-live="polite">
-      {{ leftOut }} of {{ verdicts.length }}
-      {{ verdicts.length === 1 ? "path" : "paths" }} left out.
     </p>
 
     <table v-if="verdicts.length">
@@ -202,11 +204,10 @@ textarea:focus-visible,
 .summary {
   font-weight: 600;
 }
-.refused {
+.summary.refused {
+  font-weight: normal;
   white-space: pre-wrap;
-}
-.refused:empty {
-  display: none;
+  overflow-wrap: anywhere;
 }
 tr.out td:nth-child(2) {
   color: var(--vp-c-danger-1);

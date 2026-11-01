@@ -5,7 +5,7 @@
 import {
   compileExcludePatterns,
   parseExclude,
-  strayEscapeRefusal,
+  unusableExcludeError,
 } from "../../src/lib/exclude.mjs";
 // Not `node:path`: config.mjs shims that only within src/lib/.
 import { posix } from "./node-shim.mjs";
@@ -45,9 +45,9 @@ export function excludeReport(patternsText, pathsText, platform) {
   const member = MEMBER[platform];
   const escapes = platform !== "win32";
   const patterns = parseExclude(patternsText, escapes);
-  const refusal = strayEscapeRefusal(patterns, "exclude.txt", escapes);
-  if (refusal) {
-    return { refusal, verdicts: [] };
+  const unusable = unusableExcludeError(patterns, "exclude.txt", escapes);
+  if (unusable) {
+    return { refusal: unusable.message, verdicts: [] };
   }
   const excludedBy = compileExcludePatterns(member, patterns, platform);
 

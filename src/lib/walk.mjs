@@ -14,7 +14,7 @@ import { isENOENT } from "./error.mjs";
 import {
   compileExcludePatterns,
   parseExclude,
-  strayEscapeRefusal,
+  unusableExcludeError,
 } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
@@ -83,26 +83,9 @@ export function readExcludePatterns(excludePath) {
   const patterns = existsSync(excludePath)
     ? parseExclude(readFileSync(excludePath, "utf8"))
     : [];
-  // ADR-0100. After the trim, so a CRLF file's line endings never get here.
-  const unusable = patterns.filter((pattern) => /[\t\r]/.test(pattern));
-  if (unusable.length) {
-    const these =
-      unusable.length === 1
-        ? "this pattern contains"
-        : "these patterns contain";
-    throw new Error(
-      `Can't use the set's exclude file, because ${these} a tab or a carriage ` +
-        `return (${tildeify(excludePath)}):\n` +
-        unusable.map((pattern) => `  ${showControlChars(pattern)}`).join("\n") +
-        `\nWrite * in place of the character, which still matches it:\n` +
-        unusable
-          .map((pattern) => `  ${pattern.replaceAll(/[\t\r]+/g, "*")}`)
-          .join("\n"),
-    );
-  }
-  const refusal = strayEscapeRefusal(patterns, tildeify(excludePath));
-  if (refusal) {
-    throw new Error(refusal);
+  const unusable = unusableExcludeError(patterns, tildeify(excludePath));
+  if (unusable) {
+    throw unusable;
   }
   if (patterns.length) {
     console.warn("Using exclude file", `'${tildeify(excludePath)}'`);

@@ -33,6 +33,7 @@ const site = "https://s3cab.plantegral.com";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
 const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
+const assertShim = fileURLToPath(new URL("assert-shim.mjs", import.meta.url));
 
 /**
  * The config VitePress resolved, which it keeps on globalThis while it runs —
@@ -236,9 +237,10 @@ export default defineConfig({
     checkLinks(outDir);
   },
   // The pattern playgrounds bundle s3cab's own matchers for the browser, so
-  // within src/lib/ `path`, `util` and `fs`, with or without `node:`, resolve
-  // to node-shim.mjs. Any other builtin is an error: Vite would only warn and
-  // swap in an empty module, and the page would break when it ran.
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs, and `assert` to assert-shim.mjs. Any other builtin is an
+  // error: Vite would only warn and swap in an empty module, and the page
+  // would break when it ran.
   vite: {
     plugins: [
       {
@@ -249,8 +251,12 @@ export default defineConfig({
           if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
             return null;
           }
-          if (["path", "util"].includes(id.replace(/^node:/, ""))) {
+          const name = id.replace(/^node:/, "");
+          if (name === "path" || name === "util") {
             return nodeShim;
+          }
+          if (name === "assert") {
+            return assertShim;
           }
           this.error(
             `src/lib/${within} imports ${id}, which the pattern playground ` +

@@ -5,8 +5,9 @@ import {
   compileExcludePatterns,
   exactPattern,
   parseExclude,
+  unusableExcludeError,
 } from "./exclude.mjs";
-import { ESCAPES } from "./path-match.mjs";
+import { ESCAPE_RULE, ESCAPES } from "./path-match.mjs";
 
 // The whole match — patterns joined to a root, the glob → RegExp translation and
 // the path's side of it — tested directly on strings, no files on disk. Walk
@@ -241,6 +242,53 @@ describe("parseExclude", () => {
       ]);
     },
   );
+});
+
+describe("unusableExcludeError", () => {
+  it("accepts patterns with neither a tab, a CR nor a stray \\", () => {
+    assert.equal(
+      unusableExcludeError(["*.tmp", "a\\*b", "back\\\\slash"], "x", true),
+      undefined,
+    );
+  });
+
+  it("names a tab or CR first, offering * in its place", () => {
+    const error = unusableExcludeError(["a\tb", "odd\\"], "x.txt", true);
+    assert.equal(
+      error?.message,
+      "Can't use the set's exclude file, because this pattern contains a " +
+        "tab or a carriage return (x.txt):\n  a␉b\n" +
+        "Write * in place of the character, which still matches it:\n  a*b",
+    );
+  });
+
+  it("names each stray \\, offering it as a separator where that leaves a pattern", () => {
+    const error = unusableExcludeError(
+      ["*.tmp", "**\\Thumbs.db", "\\"],
+      "x.txt",
+      true,
+    );
+    assert.equal(
+      error?.message,
+      "Can't use the set's exclude file, because these patterns have a \\ " +
+        "that escapes nothing (x.txt):\n  **\\Thumbs.db\n  \\\n" +
+        `${ESCAPE_RULE} If the \\ separates folders, write:\n` +
+        "  **/Thumbs.db\nFor a backslash in a name, write \\\\.",
+    );
+    assert.equal(
+      unusableExcludeError(["\\"], "x.txt", true)?.message,
+      "Can't use the set's exclude file, because this pattern has a \\ that " +
+        `escapes nothing (x.txt):\n  \\\n${ESCAPE_RULE}\n` +
+        "For a backslash in a name, write \\\\.",
+    );
+  });
+
+  it("finds no stray \\ where \\ separates folders", () => {
+    assert.equal(
+      unusableExcludeError(["**\\Thumbs.db"], "x", false),
+      undefined,
+    );
+  });
 });
 
 describe("exactPattern", () => {
