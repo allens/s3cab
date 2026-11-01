@@ -6,8 +6,9 @@
 // with the story, never past it.
 //
 // The library exists in two worlds, the same names under a Windows home and a
-// POSIX one. A page uses one: Windows, unless a check runs the real CLI on it,
-// which only POSIX can reproduce (compare.md, output.md).
+// POSIX one. An example whose paths depend on the OS shows both, as a
+// `console windows` and a `console posix` fence; any other is in the Windows
+// one.
 
 export const user = "me";
 
