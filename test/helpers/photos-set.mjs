@@ -10,17 +10,19 @@ import { writeSnapshot } from "./write-snapshot.mjs";
 const CLI = fileURLToPath(new URL("../../src/s3cab.mjs", import.meta.url));
 
 /**
- * A `photos` set over `~/Pictures` in a temp home, with a snapshot per entry of
- * `snapshots` (name → files, paths relative to the set's directory), and a way
- * to run the CLI there. Paths are written as the snapshot would hold them, so
- * the report shortens them against the home exactly as on a real machine.
+ * A `photos` set over one folder of a temp home — `~/Pictures`, or the one
+ * named — with a snapshot per entry of `snapshots` (name → files, paths
+ * relative to the set's directory), and a way to run the CLI there. Paths are
+ * written as the snapshot would hold them, so the report shortens them against
+ * the home exactly as on a real machine.
  * @param {string} root
  * @param {Record<string, File[]>} snapshots
+ * @param {string} [folder]
  */
-export async function photosSet(root, snapshots) {
+export async function photosSet(root, snapshots, folder = "Pictures") {
   // Absolute, as `setup` writes it: the snapshot rows are absolute paths.
   const home = resolve(root, "home");
-  const pictures = join(home, "Pictures");
+  const pictures = join(home, folder);
   const set = join(home, ".s3cab", "sets", "photos");
   mkdirSync(join(set, "snapshots"), { recursive: true });
   writeFileSync(join(set, "dirs.txt"), `${pictures}\n`);

@@ -16,7 +16,8 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { join, posix, relative } from "node:path";
+import { isBuiltin } from "node:module";
+import { isAbsolute, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
@@ -31,17 +32,20 @@ import commandRoute from "../commands/[name].paths.mjs";
 const repo = "https://github.com/allens/s3cab";
 const site = "https://s3cab.plantegral.com";
 const root = fileURLToPath(new URL("../../", import.meta.url));
+const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
+const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
 
 /**
  * A link as the site should serve it: one to the site's own domain becomes a
  * path on it, so the build checks it and a preview stays on the preview.
- * Otherwise, resolved against the page's file in the repo, it stays as written
- * if it lands on a guide page, becomes `/` or `/guide/` for a README, and
- * becomes a GitHub link for any other repo file.
+ * Otherwise, resolved against the page's file in the repo, it becomes relative
+ * to the page's place on the site if it lands on a guide page, `/` or `/guide/`
+ * for a README, and a GitHub link for any other repo file.
  * @param {string} href
  * @param {string} file - The page's file, relative to the repo
+ * @param {string} relativePath - The page's place on the site
  */
-function siteHref(href, file) {
+function siteHref(href, file, relativePath) {
   if (href.startsWith(`${site}/`)) {
     return href.slice(site.length);
   }
@@ -59,7 +63,7 @@ function siteHref(href, file) {
     return `/guide/${hash}`;
   }
   if (/^guide\/[^/]+\.md$/.test(target)) {
-    return href;
+    return posix.relative(posix.dirname(relativePath), target) + hash;
   }
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
@@ -74,7 +78,10 @@ function repoLinks(md) {
       for (const child of token.children ?? []) {
         const href = child.type === "link_open" && child.attrGet("href");
         if (href) {
-          child.attrSet("href", siteHref(href, file));
+          child.attrSet(
+            "href",
+            siteHref(href, file, state.env.relativePath ?? ""),
+          );
         }
       }
     }
@@ -112,7 +119,9 @@ function homeRecording(md) {
 /**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
  * bold link that opens each bullet under them, so the guide index stays the
- * one list.
+ * one list. A section with no such bullet — the by-situation list, whose
+ * bullets lead with the situation and link a section of a page — is prose for
+ * the index page, not a sidebar group.
  * @returns {DefaultTheme.SidebarItem[]}
  */
 function guideSidebar() {
@@ -145,7 +154,7 @@ function guideSidebar() {
         { text: "Command reference", link: "/commands/" },
       ],
     },
-    ...sections,
+    ...sections.filter((section) => section.items.length > 0),
   ];
 }
 
@@ -166,8 +175,16 @@ export default defineConfig({
     "guide/README.md": "guide/index.md",
     "site/:page*": ":page*",
   },
-  // VitePress looks for it in srcDir, which would make it a top-level public/.
-  vite: { publicDir: "site/public" },
+  // The theme makes every image a block with a 1rem margin, so the README's
+  // badges, a row on GitHub, would stack one per line on the home page, or
+  // wrap at phone width with a gap between the rows.
+  head: [
+    [
+      "style",
+      {},
+      ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
+    ],
+  ],
   markdown: {
     anchor: { slugify },
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
@@ -176,6 +193,12 @@ export default defineConfig({
     config: (md) => {
       repoLinks(md);
       homeRecording(md);
+      // A line break renders as a newline, which Vue's template compiler
+      // (`whitespace: "condense"`) drops between two elements, so a line ending
+      // in a link or code span would run into the next one's: `code`link, and
+      // the badges touching. A space it keeps. Not `whitespace: "preserve"`:
+      // that recompiles the theme's own components too, and shifts some.
+      md.renderer.rules.softbreak = () => " ";
     },
   },
   // The challenge's bucket is written once the pages are, too late for
@@ -185,6 +208,36 @@ export default defineConfig({
   buildEnd: async ({ outDir }) => {
     await writeChallengeBucket(join(outDir, "challenge", "bucket"));
     checkLinks(outDir);
+  },
+  // The pattern playground bundles s3cab's own matcher for the browser, so
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
+  // in an empty module, and the page would break when it ran.
+  vite: {
+    plugins: [
+      {
+        name: "s3cab-node-shim",
+        enforce: "pre",
+        resolveId(id, importer) {
+          const within = relative(srcLib, importer ?? "/");
+          if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
+            return null;
+          }
+          if (["path", "util"].includes(id.replace(/^node:/, ""))) {
+            return nodeShim;
+          }
+          this.error(
+            `src/lib/${within} imports ${id}, which the pattern playground ` +
+              `can't run in a browser`,
+          );
+        },
+      },
+    ],
+    // style.mjs reads `process.stderr.isTTY` to decide whether to bold a
+    // suggested command; a page has no stderr, so it reads as no terminal.
+    define: { "process.stderr": "{}" },
+    // VitePress looks for it in srcDir, which would make it a top-level public/.
+    publicDir: "site/public",
   },
   themeConfig: {
     nav: [

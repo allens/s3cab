@@ -15,21 +15,26 @@ read).
 
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
-  says what it checks and how. **Still open:** every transcript it doesn't name.
+  says what it checks and how. **Still open:** every transcript it doesn't name, and in the
+  ones it does, the lines a command prints around its result: `setup --keys`'s two key prompts
+  and starter-exclude notice (README and `guide/getting-started.md`) and the README `backup`'s
+  home and progress lines, last confirmed by hand against a real run on 2026-11-01; and the
+  tutorial's `Compare now? [y/N] y` line, typed into the test rather than read from
+  `promptYesNo`. **Known drift:** every set command opens with `Using s3cab home '…'`
+  (`loadSet`), and `backup` prints progress lines before its report. Most set-command
+  transcripts leave the home line out (the tutorial's, `restore`, `extract`, `forget`), and the
+  tutorial's `backup` leaves out both.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).
-- **A tutorial and a by-situation front door.** Today the only walkthrough is the README quick
-  start and `guide/README.md` sends newcomers back to it. Landing entries by situation: *I
-  deleted a file*, *I need last month's version*, *my laptop died*, *is my backup OK?*, *the
-  bill is too high*. (`setup`, `list`, `status` have no `guide` link yet — the tutorial is
-  their natural home.)
 - **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
   visible inconsistency. Needs a markdown construct that still reads acceptably raw.
 - **Exclude-pattern playground.** `src/lib/exclude.mjs` imports only `node:path` and
   `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
   patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
-  with it. A `find` pattern twin is the same idea.
+  with it. Put it on `/pattern-playground` beside the `find` one, with the same pasted paths
+  under both, so a pattern that means one thing in an exclude file and another to `find` shows
+  it.
 
 ## Fun, with a point
 
