@@ -1,12 +1,13 @@
 // Each heading in guide/errors.md is still a message s3cab builds.
 //
 // A heading is an error's first line with `…` where the message interpolates
-// a value. The literal pieces between the `…`s have to appear, in order, in one
-// string the source builds, so a message reworded or removed in src/ fails
-// here until its entry changes with it.
+// a value. The literal pieces between the `…`s have to appear, in order, on the
+// first line of one string the source builds, the first piece at its start
+// unless the heading opens with `…`. So a message reworded, removed or pushed
+// down a line in src/ fails here until its entry changes with it.
 //
-// "One string the source builds" is a string literal, a template, or a `+`
-// chain of them, read from the parsed source rather than by running anything:
+// "One string the source builds" is a string literal, a template, or a whole
+// `+` chain of them, read from the parsed source rather than by running anything:
 // most of these messages are thrown from inside a command, with no export to
 // call. Whatever isn't literal text (a `${…}`, a variable) is a hole a piece
 // can't span, and a `? :` between two strings counts as both messages, so a
@@ -66,7 +67,10 @@ function sourceStrings() {
   /** @type {Rule.RuleModule} */
   const collect = {
     create: () => ({
-      "Literal, TemplateLiteral, BinaryExpression"(
+      // Not a part of a `+` chain: the whole chain is collected, and a later
+      // operand on its own would let a heading match the message's second
+      // line as if it were the first.
+      ":not(BinaryExpression[operator='+']) > :matches(Literal, TemplateLiteral, BinaryExpression)"(
         /** @type {Rule.Node} */ node,
       ) {
         for (const text of texts(node)) {
@@ -84,16 +88,16 @@ function sourceStrings() {
       readFileSync(file, "utf8"),
       {
         languageOptions: { ecmaVersion: "latest", sourceType: "module" },
+        // src/'s own eslint-disable comments name rules not run here.
+        linterOptions: { reportUnusedDisableDirectives: "off" },
         plugins: { index: { rules: { collect } } },
         rules: { "index/collect": "error" },
       },
       file,
     );
-    assert.deepEqual(
-      problems.filter(({ fatal }) => fatal),
-      [],
-      `${file} didn't parse`,
-    );
+    // Not only the fatal ones: "No matching configuration found" is a warning,
+    // and would skip the file without a word. The rule itself reports nothing.
+    assert.deepEqual(problems, [], `${file} wasn't read`);
   }
   return [...found];
 }
@@ -101,8 +105,9 @@ function sourceStrings() {
 const STRINGS = sourceStrings();
 
 /**
- * Whether some string the source builds holds the heading's literal pieces, in
- * order.
+ * Whether some string the source builds opens with the heading: its literal
+ * pieces in order on the first line, the first at the start unless the heading
+ * opens with `…`.
  * @param {string} heading
  */
 function built(heading) {
@@ -110,11 +115,13 @@ function built(heading) {
     .split("…")
     .map((piece) => piece.trim())
     .filter(Boolean);
+  const anchored = !heading.startsWith("…");
   return STRINGS.some((text) => {
+    const [line = ""] = text.split("\n");
     let at = 0;
-    for (const piece of pieces) {
-      const found = text.indexOf(piece, at);
-      if (found < 0) {
+    for (const [i, piece] of pieces.entries()) {
+      const found = line.indexOf(piece, at);
+      if (found < 0 || (i === 0 && anchored && found > 0)) {
         return false;
       }
       at = found + piece.length;
@@ -151,5 +158,12 @@ describe("guide/errors.md", () => {
     assert.ok(built("Snapshots … are not backed up for set '…'."));
     assert.equal(built("No backup for set '…'."), false);
     assert.equal(built("Snapshot '…' isn't backed up for set '…'."), false);
+  });
+
+  it("matches only a message's first line, from its start", () => {
+    assert.ok(built("Snapshot '…' not found for set '…'."));
+    // The same message's second line, and its first without its opening.
+    assert.equal(built("Available snapshots (newest first):"), false);
+    assert.equal(built("not found for set '…'."), false);
   });
 });
