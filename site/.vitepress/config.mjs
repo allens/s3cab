@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { posix } from "node:path";
 import { defineConfig } from "vitepress";
 import { checkLinks } from "./check-links.mjs";
+import { commandSidebar } from "./command-pages.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
 /** @import MarkdownIt from "markdown-it" */
@@ -124,6 +125,7 @@ function guideSidebar() {
       items: [
         { text: "What s3cab is", link: "/" },
         { text: "All guides", link: "/guide/" },
+        { text: "Command reference", link: "/commands/" },
       ],
     },
     ...sections,
@@ -149,20 +151,26 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
+      { text: "Commands", link: "/commands/" },
       { text: "Format spec", link: "/guide/format" },
     ],
-    sidebar: guideSidebar(),
+    sidebar: { "/commands/": commandSidebar(), "/": guideSidebar() },
     search: { provider: "local" },
     outline: { level: [2, 3] },
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
     // filePath is the route template, `guide/[topic].md`; its topic is a param.
+    // A command page is generated, so its source is the registry.
     editLink: {
       pattern: ({ filePath, params }) => {
         const topic = params?.topic === "index" ? "README" : params?.topic;
         return (
           "https://github.com/allens/s3cab/edit/main/" +
-          (filePath === "index.md" ? "README.md" : `guide/${topic}.md`)
+          (filePath === "index.md"
+            ? "README.md"
+            : filePath.startsWith("commands/")
+              ? "src/commands.mjs"
+              : `guide/${topic}.md`)
         );
       },
       text: "Edit this page on GitHub",
