@@ -201,8 +201,7 @@ Run once: a bucket to back up to, credentials to reach it, and the set itself.
 
 ### Backup & restore
 
-The cloud round trip, plus the maintenance that keeps a repository healthy
-([guide](guide/maintenance.md)).
+The cloud round trip, plus the maintenance that keeps a repository healthy.
 
 | Command                                                          | What it does |
 | ---------------------------------------------------------------- | ------------ |

@@ -5,6 +5,15 @@ import { commands } from "../../src/commands.mjs";
 import { argRows, commandGroups, optionRows, usage } from "../../src/help.mjs";
 import { commandIndex, commandPage, commandTable } from "./command-pages.mjs";
 
+/**
+ * The text under a markdown heading, up to the next heading of its level.
+ * @param {string} text
+ * @param {string} heading - With its `#`s: `## Options`
+ */
+const under = (text, heading) =>
+  text.split(`\n${heading}\n`)[1]?.split(`\n${heading.split(" ")[0]} `)[0] ??
+  "";
+
 describe("command pages", () => {
   it("each shows its command's --help usage line and examples", () => {
     for (const [name, command] of Object.entries(commands)) {
@@ -26,15 +35,36 @@ describe("command pages", () => {
     }
   });
 
-  it("each has a row for every argument and option, and links its guide", () => {
+  it("each lists its arguments and options, in their own tables, as --help does", () => {
     for (const [name, command] of Object.entries(commands)) {
       const page = commandPage(name, command);
 
-      for (const [display] of [...argRows(command), ...optionRows(command)]) {
-        assert.ok(page.includes(`| \`${display}\``), `${name}: ${display}`);
+      for (const [heading, rows] of /** @type {const} */ ([
+        ["Arguments", argRows(command)],
+        ["Options", optionRows(command)],
+      ])) {
+        const shown = [
+          ...under(page, `## ${heading}`).matchAll(
+            /^\| `(.+?)` *\| (.*) \|$/gm,
+          ),
+        ].map(([, display, text = ""]) => [
+          display,
+          text.replace(/\\(.)/g, "$1"),
+        ]);
+        assert.deepEqual(shown, rows, `${name}: ${heading}`);
       }
+    }
+  });
+
+  it("each links its guide by the guide's own title", () => {
+    for (const [name, command] of Object.entries(commands)) {
       if (command.guide) {
-        assert.ok(page.includes(`](/guide/${command.guide})`), name);
+        const title = readFileSync(`guide/${command.guide}.md`, "utf8")
+          .split("\n")
+          .find((line) => line.startsWith("# "))
+          ?.slice(2);
+        const link = `Full guide: [${title}](/guide/${command.guide})`;
+        assert.ok(commandPage(name, command).includes(link), name);
       }
     }
   });
@@ -61,21 +91,21 @@ describe("command pages", () => {
 
 describe("README.md's command tables", () => {
   it("are the registry's groups, commands and summaries", () => {
-    const readme = readFileSync("README.md", "utf8");
-    const reference =
-      readme.split("\n## Command reference\n")[1]?.split("\n## ")[0] ?? "";
-    for (const { group, entries } of commandGroups(commands)) {
+    const reference = under(
+      readFileSync("README.md", "utf8"),
+      "## Command reference",
+    );
+    const groups = commandGroups(commands);
+
+    assert.deepEqual(
+      [...reference.matchAll(/^### (.+)$/gm)].map(([, heading]) => heading),
+      [...groups.map(({ group }) => group), "Global options"],
+      "the groups under README.md's \"## Command reference\" are the registry's, then Global options",
+    );
+    for (const { group, entries } of groups) {
       const expected = commandTable(entries, { readme: true });
-      const section = reference.split(`\n### ${group}\n`)[1] ?? "";
-      const lines = section.split("\n");
-      const first = lines.findIndex((line) => line.startsWith("|"));
-      const end = lines.findIndex(
-        (line, i) => i > first && !line.startsWith("|"),
-      );
       const shown =
-        first < 0
-          ? ""
-          : lines.slice(first, end < 0 ? undefined : end).join("\n");
+        /^\|.*(?:\n\|.*)*/m.exec(under(reference, `### ${group}`))?.[0] ?? "";
 
       assert.equal(
         shown,
