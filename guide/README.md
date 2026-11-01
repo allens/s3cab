@@ -41,3 +41,5 @@ pages are the sit-down read.
   recovering by hand with no s3cab at all. The stored format is a promise, and this is it
   written down.
 - **[Output formats](output.md)** — human-readable text by default, `--json` for scripts.
+- **[Error messages](errors.md)** — the errors you're most likely to meet, why each happens,
+  and where to read more.
