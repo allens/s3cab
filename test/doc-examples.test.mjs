@@ -15,7 +15,7 @@
 //   names a command rather than running it.
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
-// - **The printed result** for the cloud transcripts (verify, restore,
+// - **The printed result** for the cloud transcripts (backup, verify, restore,
 //   extract, and how forget, delete and cleanup end): what the CLI prints for a
 //   result built to the page's scenario (the registry's own renderer for the
 //   command, or `errorReport` for an error) after the notice every cloud
@@ -33,9 +33,8 @@
 //   result: the preview, the prompt, and the lines after the answer (forget's
 //   cleanup pointer and record path, delete's record notice). For those only
 //   the transcript's last lines are compared (`ending`).
-// - README's quick start `setup` and `backup`: `setup --keys` prompts, and
-//   prints the starter exclude notice, in an order only a real run would
-//   settle; `backup` carries timings.
+// - README's quick start `setup`: `setup --keys` prompts, and prints the
+//   starter exclude notice, in an order only a real run would settle.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
@@ -54,9 +53,15 @@ import {
   snapshotNotFoundError,
 } from "../src/lib/restore.mjs";
 import { authNotice } from "../src/lib/s3.mjs";
-import { file, photosSet, restoreResult } from "./helpers/photos-set.mjs";
+import {
+  file,
+  firstBackup,
+  photosSet,
+  restoreResult,
+} from "./helpers/photos-set.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
+/** @import { backup } from "../src/commands/backup.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
 /** @import { deleteHashes } from "../src/commands/delete.mjs" */
 /** @import { extract } from "../src/commands/extract.mjs" */
@@ -261,7 +266,13 @@ function transcript(page, command, containing) {
       if (line === `> ${command}`) {
         const rest = lines.slice(at + 1);
         const next = rest.findIndex((after) => after.startsWith("> "));
-        shown.push((next < 0 ? rest : rest.slice(0, next)).join("\n"));
+        const output = next < 0 ? rest : rest.slice(0, next);
+        // Not the page's own `# ` note introducing the next command (the
+        // README quick start's numbered steps), nor the blank line before it.
+        while (/^(#.*)?$/.test(output.at(-1) ?? "x")) {
+          output.pop();
+        }
+        shown.push(output.join("\n"));
       }
     }
   }
@@ -395,6 +406,7 @@ const PHOTOS = "C:\\Users\\me\\Photos";
 /**
  * The result each checked command returns, by name.
  * @typedef {{
+ *   backup: Awaited<ReturnType<typeof backup>>,
  *   verify: Awaited<ReturnType<typeof verify>>,
  *   restore: Awaited<ReturnType<typeof restore>>,
  *   extract: Awaited<ReturnType<typeof extract>>,
@@ -680,6 +692,11 @@ const CLOUD = [
           missing: [`${PHOTOS}\\2019\\hike.jpg`, `${PHOTOS}\\2019\\summit.jpg`],
         }),
       ),
+  },
+  {
+    page: "README.md",
+    command: "s3cab backup",
+    output: () => printed("backup", firstBackup),
   },
   {
     page: "README.md",

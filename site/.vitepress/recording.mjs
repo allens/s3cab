@@ -15,6 +15,7 @@ import { commands } from "../../src/commands.mjs";
 import { authNotice } from "../../src/lib/s3.mjs";
 import {
   file,
+  firstBackup,
   photosSet,
   restoreResult,
 } from "../../test/helpers/photos-set.mjs";
@@ -35,26 +36,6 @@ const cloud = (command, name, result) => ({
   command,
   output: `${authNotice({})}\n${/** @type {Command} */ (commands[name]).render(result, { color: false })}\n`,
 });
-
-/** @type {BackupResult} */
-const firstBackup = {
-  set: "photos",
-  bucket: "my-backups",
-  snapshot: "20251112T0915",
-  files: 1_312,
-  bytes: 4_200_000_000,
-  hashedFiles: 1_312,
-  hashedBytes: 4_200_000_000,
-  scanMs: 161_000,
-  candidates: 1_240,
-  uploaded: 1_240,
-  uploadedBytes: 4_200_000_000,
-  uploadMs: 368_000,
-  errors: [],
-  excludeSuggestions: [],
-  excludePath: "",
-  comparison: null,
-};
 
 /** The recording's steps. */
 export async function recording() {

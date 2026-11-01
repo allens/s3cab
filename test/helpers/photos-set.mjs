@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeSnapshot } from "./write-snapshot.mjs";
 
+/** @import { BackupResult } from "../../src/commands/backup.mjs" */
 /** @import { RestoreResult } from "../../src/lib/restore.mjs" */
 
 const CLI = fileURLToPath(new URL("../../src/s3cab.mjs", import.meta.url));
@@ -33,7 +34,13 @@ export async function photosSet(root, snapshots) {
     run: (...args) =>
       spawnSync(process.execPath, [CLI, ...args], {
         encoding: "utf8",
-        env: { ...process.env, HOME: home, USERPROFILE: home },
+        // An exported S3CAB_HOME would beat HOME; undefined leaves it out.
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          S3CAB_HOME: undefined,
+        },
       }),
   };
 }
@@ -49,6 +56,29 @@ export const file = (name, fill, size) =>
   new File([new Uint8Array(size).fill(fill.charCodeAt(0))], name, {
     lastModified: Date.UTC(2025, 9, 1),
   });
+
+/**
+ * The README quick start's first backup of `photos` to `my-backups`.
+ * @type {BackupResult}
+ */
+export const firstBackup = {
+  set: "photos",
+  bucket: "my-backups",
+  snapshot: "20251112T0915",
+  files: 1_312,
+  bytes: 4_200_000_000,
+  hashedFiles: 1_312,
+  hashedBytes: 4_200_000_000,
+  scanMs: 161_000,
+  candidates: 1_240,
+  uploaded: 1_240,
+  uploadedBytes: 4_200_000_000,
+  uploadMs: 368_000,
+  errors: [],
+  excludeSuggestions: [],
+  excludePath: "",
+  comparison: null,
+};
 
 /**
  * A restore of `photos` from `my-backups`, empty unless `result` says
