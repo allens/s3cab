@@ -94,8 +94,9 @@ function repoLinks(md) {
 /**
  * The page local search indexes. VitePress reads it from the page's file under
  * site/, and a guide page has none — /guide/<topic> is a dynamic route — so
- * without this no guide page is searchable. Runs only at build; the copy
- * serialized into the browser with the rest of themeConfig is never called.
+ * without this no guide page is searchable. Runs only in Node: VitePress drops
+ * `_`-prefixed options before themeConfig goes to the browser. `docs:dev`
+ * doesn't re-index a guide page you edit; restart it to see search change.
  * @type {NonNullable<DefaultTheme.LocalSearchOptions["_render"]>}
  */
 const searchedPage = (src, env, md) =>
