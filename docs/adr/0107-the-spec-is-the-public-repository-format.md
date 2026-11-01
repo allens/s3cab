@@ -23,10 +23,11 @@ spec-adherent.
 1. **format.md holds the public repository format and nothing else**: the bucket layout, the
    snapshot and the deletion record, and the reading, writing, uploading and deleting rules.
    s3cab's own files move to the page for their topic:
-   - the README: the `~/.s3cab/` layout and `S3CAB_HOME`, the bucket's `.s3cab/` folder, what
-     `@CLIENT HOME` means, and which settings s3cab writes into `@SET BUCKET` and `ENDPOINT`;
    - backup.md: what a set backs up (`dirs.txt`, overlapping member directories, a linked member
-     directory recorded as its real path, `.s3cab` folders skipped, `@CLIENT EXCLUDE`);
+     directory recorded as its real path, `.s3cab` folders skipped, `@CLIENT EXCLUDE`), and
+     where a set lives (the `~/.s3cab/` layout and `S3CAB_HOME`, the bucket's `.s3cab/` folder,
+     what `@CLIENT HOME` means, and which settings s3cab writes into `@SET BUCKET` and
+     `ENDPOINT`);
    - exclude.md: the pattern syntax only, gaining `exclude.txt`'s trim set and the matching
      details (simple case folding, `ẞ`/`ß`, Turkish `ı`/`İ`, U+FFFD);
    - auth.md and aws.md, which already hold `env` and `roles-anywhere/`.

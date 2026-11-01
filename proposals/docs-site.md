@@ -23,9 +23,6 @@ read).
   `/guide/<topic>` on https://s3cab.plantegral.com and failing on anything but a 200.
   `help.test.mjs` proves each topic has a page in `guide/`, not that the URL answers, and a
   hosting change in the platform repo is invisible from here.
-- **Slim the README** to pitch + install + quick start + links (~150 lines). Its "How it
-  works", "Cloud repositories" and "Authentication" sections (~200 lines) restate
-  `guide/format.md` and `guide/auth.md` — two homes for every format change.
 - **A tutorial and a by-situation front door.** Today the only walkthrough is the README quick
   start and `guide/README.md` sends newcomers back to it. Landing entries by situation: *I
   deleted a file*, *I need last month's version*, *my laptop died*, *is my backup OK?*, *the
@@ -39,7 +36,6 @@ read).
   `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
   patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
   with it. A `find` pattern twin is the same idea.
-- **Annotated snapshot anatomy** — hover a column of a real snapshot line for its meaning.
 
 ## Fun, with a point
 
