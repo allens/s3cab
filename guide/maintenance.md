@@ -504,10 +504,10 @@ from a folder, or uploads everything a snapshot references and then the snapshot
 ```
 
 ```console posix
-> s3cab upload photos --file /home/me/Photos/beach.jpg   # one file into the set's bucket
-> s3cab upload photos --dir /home/me/Photos/2026         # a folder's files, no snapshot
-> s3cab upload photos --snapshot 20260612T0915              # that snapshot's files, its snapshot file last
-> s3cab upload --bucket my-backups --file beach.jpg         # a bucket that isn't one of your sets
+> s3cab upload photos --file /home/me/Photos/beach.jpg  # one file into the set's bucket
+> s3cab upload photos --dir /home/me/Photos/2026        # a folder's files, no snapshot
+> s3cab upload photos --snapshot 20260612T0915          # that snapshot's files, its snapshot file last
+> s3cab upload --bucket my-backups --file beach.jpg     # a bucket that isn't one of your sets
 ```
 
 - **Content already stored is skipped**, since identical bytes always land at the same key.

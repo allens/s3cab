@@ -281,7 +281,7 @@ Four layout notes the README and code don't carry:
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
   **An example whose paths depend on the OS is two adjacent fences**, ```` ```console windows ````
   then ```` ```console posix ````, each in its own world of the story: the site makes them
-  tabs, GitHub shows both, and doc-examples checks each variant on its own.
+  tabs, GitHub shows both, and each variant needs its own entry in doc-examples.
   **The command reference (`/commands/<name>`) and the README's command tables are generated
   from the registry** by `site/.vitepress/command-pages.mjs`: edit `src/commands.mjs` (or the
   `src/command-details.mjs` text it names), never a page, and paste the tables `npm test`

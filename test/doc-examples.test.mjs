@@ -697,7 +697,7 @@ function printedError(name, run) {
 const NOTICE = authNotice({});
 
 // The tutorial's world, and the one the shared entries spell paths in.
-const at = (/** @type {string} */ path) => photo("windows", path);
+const atWindows = (/** @type {string} */ path) => photo("windows", path);
 
 /**
  * Each cloud transcript a page shows, and what the CLI prints for the page's
@@ -727,11 +727,11 @@ const CLOUD = [
   },
   {
     page: TUTORIAL,
-    command: `s3cab restore --set photos ${at("beach.jpg")}`,
+    command: `s3cab restore --set photos ${atWindows("beach.jpg")}`,
     output: () =>
       printed(
         "restore",
-        restoreResult({ snapshot: FIRST, restored: [at("beach.jpg")] }),
+        restoreResult({ snapshot: FIRST, restored: [atWindows("beach.jpg")] }),
       ),
   },
   {
@@ -866,7 +866,7 @@ const CLOUD = [
             expectedMissing: Array.from(
               { length: scale.footage.files },
               (_, i) => ({
-                path: at(
+                path: atWindows(
                   `raw-footage/clip${String(i + 1).padStart(3, "0")}.mov`,
                 ),
                 snapshots: [JUNE],

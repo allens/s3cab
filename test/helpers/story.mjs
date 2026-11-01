@@ -7,8 +7,8 @@
 //
 // The library exists in two worlds, the same names under a Windows home and a
 // POSIX one. An example whose paths depend on the OS shows both, as a
-// `console windows` and a `console posix` fence; any other is in the Windows
-// one.
+// `console windows` and a `console posix` fence; any other shows one of the
+// two.
 
 export const user = "me";
 
