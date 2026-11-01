@@ -20,10 +20,16 @@ import { join } from "node:path";
 
 export const ORIGIN = "https://s3cab.plantegral.com";
 
+// A `${…}`, `#anchor` or `?query` stays in the match, so the URL can't pass
+// for the frozen page it starts with.
+const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}#?=&]*/g;
+
 /**
- * Every URL a release may have printed: the home page, the guide index, and
- * one page per `guide/<topic>.md`. Built from `guide/` rather than kept by
- * hand; it covers every release only because no guide page is ever renamed.
+ * Every URL a release may have printed or linked: the home page, the guide
+ * index, one page per `guide/<topic>.md`, and each site page README.md links
+ * (the command reference), since the README ships in every tarball. Built from
+ * `guide/` and the README rather than kept by hand; it covers every release
+ * only because no such page is ever renamed without a redirect (ADR-0114).
  * @param {string} root - The repo checkout
  * @returns {string[]}
  */
@@ -32,12 +38,17 @@ export function frozenUrls(root) {
     .filter((file) => file.endsWith(".md"))
     .map((file) => (file === "README.md" ? "" : file.slice(0, -3)))
     .sort();
-  return [`${ORIGIN}/`, ...topics.map((topic) => `${ORIGIN}/guide/${topic}`)];
+  const linked = [
+    ...readFileSync(join(root, "README.md"), "utf8").matchAll(SITE_URL),
+  ].map(([url]) => url.replace(/\.+$/, ""));
+  return [
+    ...new Set([
+      `${ORIGIN}/`,
+      ...topics.map((topic) => `${ORIGIN}/guide/${topic}`),
+      ...linked,
+    ]),
+  ];
 }
-
-// A `${…}`, `#anchor` or `?query` stays in the match, so the URL can't pass
-// for the frozen page it starts with.
-const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}#?=&]*/g;
 
 /**
  * Every docs-site URL spelled in a shipped `src/` module, as written; the bare

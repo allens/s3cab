@@ -31,6 +31,14 @@ describe("frozenUrls", () => {
     assert.ok(urls.includes(`${ORIGIN}/guide/exclude`));
     assert.ok(!urls.some((url) => url.endsWith(".md")));
   });
+
+  it("includes the site pages README.md links: the command reference", () => {
+    const urls = frozenUrls(ROOT);
+
+    assert.ok(urls.includes(`${ORIGIN}/commands/`));
+    assert.ok(urls.includes(`${ORIGIN}/commands/restore`));
+    assert.equal(new Set(urls).size, urls.length, "each URL once");
+  });
 });
 
 describe("printed URLs", () => {
@@ -58,6 +66,7 @@ describe("printed URLs", () => {
     await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-urls-"));
     mkdirSync(join(dir.path, "guide"));
     writeFileSync(join(dir.path, "guide", "exclude.md"), "");
+    writeFileSync(join(dir.path, "README.md"), "");
     mkdirSync(join(dir.path, "src", "lib"), { recursive: true });
     writeFileSync(
       join(dir.path, "src", "lib", "x.mjs"),
