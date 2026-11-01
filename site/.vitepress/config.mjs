@@ -17,9 +17,10 @@
 
 import { readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
-import { isAbsolute, posix, relative } from "node:path";
+import { isAbsolute, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
+import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
 import { slugify } from "./slugify.mjs";
 
@@ -148,7 +149,14 @@ export default defineConfig({
     languageAlias: { console: "text" },
     config: repoLinks,
   },
-  buildEnd: ({ outDir }) => checkLinks(outDir),
+  // The challenge's bucket is written once the pages are, too late for
+  // VitePress's own check, so links into it are left to check-links.mjs, run
+  // after it.
+  ignoreDeadLinks: [/^\/challenge\/bucket\//],
+  buildEnd: async ({ outDir }) => {
+    await writeChallengeBucket(join(outDir, "challenge", "bucket"));
+    checkLinks(outDir);
+  },
   // The pattern playground bundles s3cab's own matcher for the browser, so
   // within src/lib/ `path` and `util`, with or without `node:`, resolve to
   // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
