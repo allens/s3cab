@@ -32,12 +32,32 @@ describe("frozenUrls", () => {
     assert.ok(!urls.some((url) => url.endsWith(".md")));
   });
 
-  it("includes the site pages README.md links: the command reference", () => {
+  it("includes the site pages the shipped markdown links", () => {
     const urls = frozenUrls(ROOT);
 
-    assert.ok(urls.includes(`${ORIGIN}/commands/`));
-    assert.ok(urls.includes(`${ORIGIN}/commands/restore`));
-    assert.equal(new Set(urls).size, urls.length, "each URL once");
+    assert.ok(urls.includes(`${ORIGIN}/commands/restore`), "README.md's");
+    assert.ok(urls.includes(`${ORIGIN}/pattern-playground`), "guide/'s");
+  });
+
+  it("takes each linked page once, without its anchor, query or full stop", async () => {
+    await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-urls-"));
+    mkdirSync(join(dir.path, "guide"));
+    writeFileSync(
+      join(dir.path, "README.md"),
+      `[x](${ORIGIN}/commands/foo). See ${ORIGIN}/commands/foo#flags, ` +
+        `and ${ORIGIN}.\n`,
+    );
+    writeFileSync(
+      join(dir.path, "guide", "exclude.md"),
+      `Try ${ORIGIN}/tools/bar?x=1.\n`,
+    );
+
+    assert.deepEqual(frozenUrls(dir.path), [
+      `${ORIGIN}/`,
+      `${ORIGIN}/guide/exclude`,
+      `${ORIGIN}/commands/foo`,
+      `${ORIGIN}/tools/bar`,
+    ]);
   });
 });
 
