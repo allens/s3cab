@@ -15,8 +15,8 @@
 //   names a command rather than running it.
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
-// - **The printed result** for the cloud transcripts (verify, restore,
-//   extract, and how forget, delete and cleanup end): what the CLI prints for a
+// - **The printed result** for the cloud transcripts (backup, verify, restore,
+//   extract, and how setup, forget, delete and cleanup end): what the CLI prints for a
 //   result built to the page's scenario (the registry's own renderer for the
 //   command, or `errorReport` for an error) after the notice every cloud
 //   command opens with (`authNotice`). Not a run against a real bucket, which
@@ -24,9 +24,8 @@
 //   bucket, the figures are a real library's (48,210 objects), and the
 //   restores write to `C:\Users\me`. What drifts is the wording and layout,
 //   and that is the renderer's. Each result is typed as its command's own, so
-//   `typecheck` catches one that no longer matches. README's quick start
-//   `setup` and `backup` are checked the same way, timings included: they are
-//   values in backup's result.
+//   `typecheck` catches one that no longer matches. Backup's timings are
+//   values in its result, so they are checked too.
 //
 // Only the transcripts the tests below name are checked; every other one is
 // kept right by hand. What a command prints itself, before or around its
@@ -36,17 +35,19 @@
 // - What forget, delete and cleanup print between the notice and their
 //   result: the preview, the prompt, and the lines after the answer (forget's
 //   cleanup pointer and record path, delete's record notice).
-// - Everything above setup's and backup's result in the quick start: setup's
-//   key prompts, the notice and the starter exclude notice; backup's home
-//   line, the notice and its progress lines. Those are copied from a real run.
+// - What `setup --keys` prints around the notice: the key prompts before it
+//   (`before`), and the starter exclude notice after it (its patterns are
+//   spelled with the platform's separator).
+// - What README's quick start `backup` prints around the notice: the
+//   `Using s3cab home` line before it, and the progress lines after it.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
@@ -58,20 +59,27 @@ import {
   snapshotNotFoundError,
 } from "../src/lib/restore.mjs";
 import { authNotice } from "../src/lib/s3.mjs";
-import { writeSnapshot } from "./helpers/write-snapshot.mjs";
+import { freshInfo, writeClaim } from "../src/lib/set-marker.mjs";
+import {
+  file,
+  firstBackup,
+  photosSet,
+  restoreResult,
+} from "./helpers/photos-set.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
-/** @import { backup } from "../src/commands/backup.mjs" */
+/** @import { backup, BackupResult } from "../src/commands/backup.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
+/** @import { compare } from "../src/commands/compare.mjs" */
 /** @import { deleteHashes } from "../src/commands/delete.mjs" */
 /** @import { extract } from "../src/commands/extract.mjs" */
 /** @import { forget } from "../src/commands/forget.mjs" */
 /** @import { restore } from "../src/commands/restore.mjs" */
 /** @import { setup } from "../src/commands/setup.mjs" */
+/** @import { status } from "../src/commands/status.mjs" */
 /** @import { cleanup } from "../src/commands/cleanup.mjs" */
 /** @import { verify } from "../src/commands/verify.mjs" */
 /** @import { VerifyResult } from "../src/commands/verify.mjs" */
-/** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
 /** @import { SetReport } from "../src/lib/verify.mjs" */
 
@@ -269,10 +277,12 @@ function transcript(page, command, containing) {
         const rest = lines.slice(at + 1);
         const next = rest.findIndex((after) => after.startsWith("> "));
         const output = next < 0 ? rest : rest.slice(0, next);
-        // A `#` line introduces the next command, and the blank before it
-        // separates them: the page's, not the output's.
-        const end = output.findLastIndex((after) => !/^(#.*)?$/.test(after));
-        shown.push(output.slice(0, end + 1).join("\n"));
+        // Not the page's own `# ` note introducing the next command (the
+        // README quick start's numbered steps), nor the blank line before it.
+        while (/^(#.*)?$/.test(output.at(-1) ?? "x")) {
+          output.pop();
+        }
+        shown.push(output.join("\n"));
       }
     }
   }
@@ -292,53 +302,23 @@ function transcript(page, command, containing) {
   return /** @type {string} */ (picked[0]);
 }
 
-/**
- * A `photos` set over `~/Pictures` in a temp home, with a snapshot per entry of
- * `snapshots` (name → files, paths relative to the set's directory), and a way
- * to run the CLI there. Paths are written as the snapshot would hold them, so
- * the report shortens them against the home exactly as on a real machine.
- * @param {string} root
- * @param {Record<string, File[]>} snapshots
- */
-async function photosSet(root, snapshots) {
-  // Absolute, as `setup` writes it: the snapshot rows are absolute paths.
-  const home = resolve(root, "home");
-  const pictures = join(home, "Pictures");
-  const set = join(home, ".s3cab", "sets", "photos");
-  mkdirSync(join(set, "snapshots"), { recursive: true });
-  writeFileSync(join(set, "dirs.txt"), `${pictures}\n`);
-  writeFileSync(join(set, "env"), "S3CAB_BUCKET=my-backups\n");
-  for (const [name, files] of Object.entries(snapshots)) {
-    await writeSnapshot(join(set, "snapshots"), name, files, pictures);
-  }
-  return {
-    home,
-    /** @param {...string} args */
-    run: (...args) =>
-      spawnSync(process.execPath, ["src/s3cab.mjs", ...args], {
-        encoding: "utf8",
-        env: { ...process.env, HOME: home, USERPROFILE: home },
-      }),
-  };
-}
-
-/**
- * A file of `size` bytes, its content fixed by `fill` — the same `fill` and
- * size is the same content, which is what makes a move or a duplicate.
- * @param {string} name
- * @param {string} fill
- * @param {number} size
- */
-const file = (name, fill, size) =>
-  new File([new Uint8Array(size).fill(fill.charCodeAt(0))], name, {
-    lastModified: Date.UTC(2025, 9, 1),
-  });
-
 // The transcripts are POSIX ones (`~/Pictures`, `/home/me/…`); a Windows run
-// would print the same report with `\`.
+// would print the same report with `\`. The tutorial's are Windows ones
+// (`C:\Users\me\Photos`), and the converse holds.
 const posixOnly = {
   skip: process.platform === "win32" && "the page shows a POSIX transcript",
 };
+const windowsOnly = {
+  skip: process.platform !== "win32" && "the page shows a Windows transcript",
+};
+
+// The tutorial's example world (guide/getting-started.md): the README's set
+// over `C:\Users\me\Photos`, created with `--keys`. AWS's own documentation
+// example key, so it can't be anyone's.
+const HOME = "C:\\Users\\me";
+const PHOTOS = `${HOME}\\Photos`;
+const KEY_ID = "AKIAIOSFODNN7EXAMPLE";
+const TUTORIAL = "guide/getting-started.md";
 
 describe("documented output", () => {
   it("guide/compare.md shows what compare prints", posixOnly, async () => {
@@ -395,6 +375,64 @@ describe("documented output", () => {
       );
     },
   );
+
+  /**
+   * The tutorial's set after its two backups: the README's `beach.jpg`, a
+   * photo filed into a subfolder, and a new one. As `setup --keys` leaves a
+   * set: held by this machine, with its access key on it, which is what `list`
+   * shows of a set.
+   * @param {string} root
+   */
+  const tutorialSet = async (root) => {
+    const made = await photosSet(
+      root,
+      {
+        "20251112T0915": [
+          file("2024/IMG_001.jpg", "i", 3_400_000),
+          file("beach.jpg", "b", 4_915_200),
+        ],
+        "20251113T0902": [
+          file("2024/sorted/IMG_001.jpg", "i", 3_400_000),
+          file("2025/new.jpg", "j", 4_100_000),
+          file("beach.jpg", "b", 4_915_200),
+        ],
+      },
+      "Photos",
+    );
+    const set = join(made.home, ".s3cab", "sets", "photos");
+    writeFileSync(
+      join(set, "env"),
+      `S3CAB_BUCKET=my-backups\nAWS_ACCESS_KEY_ID=${KEY_ID}\nAWS_SECRET_ACCESS_KEY=not-a-secret\n`,
+    );
+    writeClaim(join(set, "claim"), freshInfo());
+    return made;
+  };
+
+  it(`${TUTORIAL} shows what list prints`, async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const command = "s3cab list";
+    const { run } = await tutorialSet(dir.path);
+
+    const { status, stdout, stderr } = run(...argv(command).slice(1));
+
+    assert.equal(status, 0, stderr);
+    assert.equal(stdout.trimEnd(), transcript(TUTORIAL, command));
+  });
+
+  it(`${TUTORIAL} shows what list prints of a set`, windowsOnly, async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const command = "s3cab list photos";
+    const { home, run } = await tutorialSet(dir.path);
+
+    const { status, stdout, stderr } = run(...argv(command).slice(1));
+
+    // The set's files are under the temp home; the page's are under its.
+    assert.equal(status, 0, stderr);
+    assert.equal(
+      stdout.trimEnd().replaceAll(home, HOME),
+      transcript(TUTORIAL, command),
+    );
+  });
 });
 
 /**
@@ -426,31 +464,6 @@ const verifyResult = (photos) => ({
 });
 
 /**
- * A restore of `photos` from `my-backups`, empty unless `result` says
- * otherwise.
- * @param {Partial<RestoreResult>} result
- * @returns {RestoreResult}
- */
-const restoreResult = (result) => ({
-  set: "photos",
-  bucket: "my-backups",
-  snapshot: "20260612T0915",
-  restored: [],
-  skipped: [],
-  collided: [],
-  missing: [],
-  corrupt: [],
-  refused: [],
-  blocked: [],
-  clamped: [],
-  coarseTimes: 0,
-  invalid: [],
-  deleted: [],
-  unmatched: [],
-  ...result,
-});
-
-/**
  * A cleanup of `my-backups` with the page's figures, having removed `deleted`
  * objects (0 for a dry run).
  * @param {number} deleted
@@ -468,11 +481,10 @@ const cleanupResult = (deleted) => ({
   trimmedRecordRows: 0,
 });
 
-const PHOTOS = "C:\\Users\\me\\Photos";
-
 /**
  * The result each checked command returns, by name.
  * @typedef {{
+ *   backup: Awaited<ReturnType<typeof backup>>,
  *   verify: Awaited<ReturnType<typeof verify>>,
  *   restore: Awaited<ReturnType<typeof restore>>,
  *   extract: Awaited<ReturnType<typeof extract>>,
@@ -480,9 +492,87 @@ const PHOTOS = "C:\\Users\\me\\Photos";
  *   delete: Awaited<ReturnType<typeof deleteHashes>>,
  *   cleanup: Awaited<ReturnType<typeof cleanup>>,
  *   setup: Awaited<ReturnType<typeof setup>>,
- *   backup: Awaited<ReturnType<typeof backup>>,
+ *   compare: Awaited<ReturnType<typeof compare>>,
+ *   status: Awaited<ReturnType<typeof status>>,
  * }} Results
  */
+
+/**
+ * The tutorial's set as `setup` returns it, every path under its home.
+ * @type {BackupSet}
+ */
+const TUTORIAL_SET = {
+  name: "photos",
+  dirs: [PHOTOS],
+  bucket: "my-backups",
+  dir: `${HOME}\\.s3cab\\sets\\photos`,
+  snapshotsDir: `${HOME}\\.s3cab\\sets\\photos\\snapshots`,
+  dirsPath: `${HOME}\\.s3cab\\sets\\photos\\dirs.txt`,
+  excludePath: `${HOME}\\.s3cab\\sets\\photos\\exclude.txt`,
+  envPath: `${HOME}\\.s3cab\\sets\\photos\\env`,
+  claimPath: `${HOME}\\.s3cab\\sets\\photos\\claim`,
+};
+
+/**
+ * A backup of the tutorial's set with the page's figures: the first one, of
+ * every file, unless `result` says otherwise.
+ * @param {Partial<BackupResult>} result
+ * @returns {BackupResult}
+ */
+const backupResult = (result) => ({
+  set: "photos",
+  bucket: "my-backups",
+  snapshot: "20251112T0915",
+  files: 212,
+  bytes: 1_130_000_000,
+  hashedFiles: 212,
+  hashedBytes: 1_130_000_000,
+  scanMs: 6_000,
+  candidates: 212,
+  uploaded: 212,
+  uploadedBytes: 1_130_000_000,
+  uploadMs: 136_000,
+  errors: [],
+  excludeSuggestions: [],
+  excludePath: TUTORIAL_SET.excludePath,
+  comparison: null,
+  ...result,
+});
+
+// The compare report shortens paths against the set's folder and spells that
+// folder from the home (`~\Photos`), so the folder has to sit under this
+// machine's own home for the renderer to print the page's header.
+const MY_PHOTOS = join(homedir(), "Photos");
+
+/**
+ * What the tutorial's second backup found: one photo filed into a subfolder,
+ * one new one.
+ * @type {Results["compare"]}
+ */
+const TUTORIAL_CHANGES = {
+  setName: "photos",
+  dirs: [MY_PHOTOS],
+  since: "20251112T0915",
+  until: "20251113T0902",
+  added: [
+    {
+      path: join(MY_PHOTOS, "2025", "new.jpg"),
+      size: 4_100_000,
+      duplicates: [],
+      wasUnreadable: false,
+    },
+  ],
+  moved: [
+    {
+      path: join(MY_PHOTOS, "2024", "IMG_001.jpg"),
+      size: 3_400_000,
+      to: join(MY_PHOTOS, "2024", "sorted", "IMG_001.jpg"),
+    },
+  ],
+  modified: [],
+  deleted: [],
+  errors: [],
+};
 
 /**
  * What the CLI prints as `name`'s result: the registry's own renderer for that
@@ -518,10 +608,78 @@ const NOTICE = authNotice({});
  * scenario after the notice. `containing` picks among the times a page shows
  * the same command line. `ending` marks a transcript with the command's own
  * preview or prompt between the notice and the result, so only its last lines
- * are the printed result.
- * @type {{ page: string, command: string, containing?: string, ending?: boolean, output: () => string }[]}
+ * are the printed result. `before` counts the lines a command prints before
+ * its first cloud touch (`setup --keys` asks for the key and the secret first,
+ * and a set command can open with `Using s3cab home`). `skip` is
+ * `windowsOnly`'s, for a result whose rendering spells paths the platform's way.
+ * @type {{ page: string, command: string, containing?: string, ending?: boolean, before?: number, skip?: string | false, output: () => string }[]}
  */
 const CLOUD = [
+  {
+    page: TUTORIAL,
+    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
+    before: 2,
+    ending: true,
+    output: () => printed("setup", TUTORIAL_SET),
+  },
+  {
+    page: TUTORIAL,
+    command: "s3cab backup",
+    containing: "First backup",
+    output: () => printed("backup", backupResult({})),
+  },
+  {
+    page: TUTORIAL,
+    command: `s3cab restore --set photos ${PHOTOS}\\beach.jpg`,
+    output: () =>
+      printed(
+        "restore",
+        restoreResult({
+          snapshot: "20251112T0915",
+          restored: [`${PHOTOS}\\beach.jpg`],
+        }),
+      ),
+  },
+  {
+    page: TUTORIAL,
+    command: "s3cab backup",
+    containing: "Changes since",
+    ...windowsOnly,
+    // At a terminal the report ends by offering the full comparison, and a
+    // yes prints it through `compare`'s own renderer (ADR-0078 §5).
+    output: () =>
+      [
+        printed(
+          "backup",
+          backupResult({
+            snapshot: "20251113T0902",
+            files: 213,
+            bytes: 1_134_100_000,
+            hashedFiles: 2,
+            hashedBytes: 7_500_000,
+            scanMs: 1_000,
+            candidates: 1,
+            uploaded: 1,
+            uploadedBytes: 4_100_000,
+            uploadMs: 2_000,
+            comparison: TUTORIAL_CHANGES,
+          }),
+        ),
+        "Compare now? [y/N] y",
+        printed("compare", TUTORIAL_CHANGES),
+      ].join("\n"),
+  },
+  {
+    page: TUTORIAL,
+    command: "s3cab status",
+    output: () =>
+      printed("status", {
+        set: "photos",
+        snapshot: "20251113T0902",
+        backedUp: "20251113T0902",
+        toUpload: 0,
+      }),
+  },
   {
     page: "guide/maintenance.md",
     command: "s3cab verify my-backups",
@@ -763,6 +921,20 @@ const CLOUD = [
   },
   {
     page: "README.md",
+    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
+    before: 2,
+    ending: true,
+    output: () => printed("setup", TUTORIAL_SET),
+  },
+  {
+    page: "README.md",
+    command: "s3cab backup",
+    before: 1,
+    ending: true,
+    output: () => printed("backup", firstBackup),
+  },
+  {
+    page: "README.md",
     command: `s3cab restore --set photos ${PHOTOS}\\beach.jpg`,
     output: () =>
       printed(
@@ -776,11 +948,20 @@ const CLOUD = [
 ];
 
 describe("documented output, cloud", () => {
-  for (const { page, command, containing, ending, output } of CLOUD) {
-    it(`${page}: '${command}'${containing ? ` (showing '${containing}')` : ""}`, () => {
-      const [first, ...rest] = transcript(page, command, containing).split(
-        "\n",
-      );
+  for (const {
+    page,
+    command,
+    containing,
+    ending,
+    before = 0,
+    skip = false,
+    output,
+  } of CLOUD) {
+    const title = `${page}: '${command}'${containing ? ` (showing '${containing}')` : ""}`;
+    it(title, { skip }, () => {
+      const [first, ...rest] = transcript(page, command, containing)
+        .split("\n")
+        .slice(before);
       const result = output();
 
       assert.equal(first, NOTICE, "the notice every cloud command opens with");
@@ -788,63 +969,6 @@ describe("documented output, cloud", () => {
         (ending ? rest.slice(-result.split("\n").length) : rest).join("\n"),
         result,
       );
-    });
-  }
-});
-
-const SET_DIR = "C:\\Users\\me\\.s3cab\\sets\\photos";
-
-/**
- * README's quick start, by command line: what setup and backup print as their
- * result, for the page's set. Both print lines of their own above it, so only
- * the transcript's ending is compared.
- * @type {{ command: string, output: () => string }[]}
- */
-const QUICK_START = [
-  {
-    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
-    output: () =>
-      printed(
-        "setup",
-        /** @type {BackupSet} */ ({
-          name: "photos",
-          bucket: "my-backups",
-          dirs: [PHOTOS],
-          dirsPath: `${SET_DIR}\\dirs.txt`,
-        }),
-      ),
-  },
-  {
-    command: "s3cab backup",
-    output: () =>
-      printed("backup", {
-        set: "photos",
-        bucket: "my-backups",
-        snapshot: "20251112T0915",
-        files: 1_312,
-        bytes: 4_200_000_000,
-        hashedFiles: 1_312,
-        hashedBytes: 4_200_000_000,
-        scanMs: 161_000,
-        candidates: 1_240,
-        uploaded: 1_240,
-        uploadedBytes: 4_180_000_000,
-        uploadMs: 368_000,
-        errors: [],
-        excludeSuggestions: [],
-        excludePath: `${SET_DIR}\\exclude.txt`,
-        comparison: null,
-      }),
-  },
-];
-
-describe("documented output, README quick start", () => {
-  for (const { command, output } of QUICK_START) {
-    it(`'${command}' ends with its result`, () => {
-      const shown = transcript("README.md", command).split("\n");
-      const result = output();
-
-      assert.equal(shown.slice(-result.split("\n").length).join("\n"), result);
     });
   }
 });
