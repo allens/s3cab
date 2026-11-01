@@ -139,7 +139,7 @@ export default defineConfig({
     [
       "style",
       {},
-      ".vp-doc img[src^='https://img.shields.io/'] { display: inline-block; vertical-align: middle; margin: 0; }",
+      ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
     ],
   ],
   // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
