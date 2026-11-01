@@ -16,8 +16,9 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { defineConfig } from "vitepress";
+import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
 import { commandSidebar } from "./command-pages.mjs";
 import { slugify } from "./slugify.mjs";
@@ -142,7 +143,14 @@ export default defineConfig({
     languageAlias: { console: "text" },
     config: repoLinks,
   },
-  buildEnd: ({ outDir }) => checkLinks(outDir),
+  // The challenge's bucket is written once the pages are, too late for
+  // VitePress's own check, so links into it are left to check-links.mjs, run
+  // after it.
+  ignoreDeadLinks: [/^\/challenge\/bucket\//],
+  buildEnd: async ({ outDir }) => {
+    await writeChallengeBucket(join(outDir, "challenge", "bucket"));
+    checkLinks(outDir);
+  },
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
