@@ -119,7 +119,7 @@ it.
 
 `s3cab reattach` pulls a set's **entire** snapshot history down when you attach
 it, so what is on disk is what is in the bucket. That is why `find`, like
-`compare`, `list` and `restore`, has no `--remote`: there would be nothing extra
+`compare` and `restore`, has no `--remote`: there would be nothing extra
 to fetch. If a set is backed up from another computer, `s3cab reattach <set>`
 here pulls the snapshots it has taken since.
 

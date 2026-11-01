@@ -1,7 +1,7 @@
 # s3cab
 
 [![npm](https://img.shields.io/npm/v/s3cab)](https://www.npmjs.com/package/s3cab)
-[![status: WIP · pre-release](https://img.shields.io/badge/status-WIP%20%C2%B7%20pre--release-orange)](#status)
+![status: WIP · pre-release](https://img.shields.io/badge/status-WIP%20%C2%B7%20pre--release-orange)
 [![license: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![node: ≥26.10.0](https://img.shields.io/badge/node-%E2%89%A526.10.0-brightgreen)](package.json)
 
@@ -87,6 +87,10 @@ Pick whichever suits you — all three run the same tool. Then head to the
   > node src/s3cab.mjs --help
   ```
 
+The test suite runs on Windows, Linux and macOS on every change, and no binary ships until it
+has backed up and restored real files through a real S3 bucket **on its own platform** — that
+round trip is a release gate, not a nightly.
+
 ### macOS note
 
 The prebuilt macOS binary on the [Releases](https://github.com/allens/s3cab/releases) page
@@ -124,6 +128,7 @@ Contacting the cloud…
 Backed up 'photos' → snapshot 20251112T0915
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
+
 First backup — every file is new.
 
 # 3. Deleted a file by accident? Get just that one back:
@@ -145,34 +150,20 @@ Step 1 also drops a starter `exclude.txt` beside the set and lists what it will 
 default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
 ([guide/exclude.md](guide/exclude.md), or `s3cab help exclude`).
 
-### Watching what changes between backups
+### Seeing what changed
 
-`snapshot` records the current state of a set and shows what changed since the previous
-snapshot. Because it matches on content, a moved or renamed file is recognised as the _same_
-file, not a delete plus an add:
+`s3cab snapshot` records the state of a set without touching the cloud, then shows what
+changed since the previous snapshot. It matches on content, so a moved or renamed file reads
+as the _same_ file, not a delete plus an add. `list` shows your sets and their snapshots, and
+`compare` diffs any two; [guide/compare.md](guide/compare.md) shows the report and how to
+read it. Add `--json` to any command for machine-readable output
+([guide/output.md](guide/output.md)).
 
-```console
-> s3cab snapshot
-Using s3cab home 'C:\Users\you\.s3cab'
-Reading previous snapshot '~\.s3cab\sets\photos\snapshots\20251111T0830.tsv.gz'
-Snapshotting 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
-Finding files in '~\Photos'… 1,204 in 3 sec
-Comparing '20251111T0830' → '20251112T0915'
-photos: ~\Photos  20251111T0830 → 20251112T0915
-
-Added (1)
-  2025\new.jpg
-
-Moved (1)
-  2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
-
-1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812.0kB changed
-```
-
-`list` shows your sets and their snapshots; `compare` diffs any two (`--since` picks an
-older one). How to read the report — the sections and the `(duplicate of …)` note — is in
-[guide/compare.md](guide/compare.md). Add `--json` to any command for machine-readable
-output ([guide/output.md](guide/output.md)).
+Going further: the [guides](guide/) cover backing up, getting files back, looking after a
+backup over the years, and signing in to your storage, and
+[guide/format.md](guide/format.md) is the format spec — your backup as it sits in the bucket,
+written down so you can read it without s3cab. The files s3cab keeps on your own machine are
+in [guide/backup.md](guide/backup.md#where-a-set-lives).
 
 ## Command reference
 
@@ -232,8 +223,8 @@ never run these directly.
 
 | Command                 | What it does |
 | ----------------------- | ------------ |
-| `s3cab hashes <bucket>` | List a repository's stored object hashes, one per line — the same enumeration `verify` and `cleanup` diff, ready to pipe into ordinary shell tools ([below](#cloud-repositories)). |
-| `s3cab upload [<set>]`  | Put objects into a set's store directly: `--file` for a single file, `--dir` to seed from a folder, `-s`/`--snapshot` for everything a snapshot references. `--bucket` targets a raw bucket with no set ([below](#cloud-repositories)). |
+| `s3cab hashes <bucket>` | List a repository's stored object hashes, one per line — the same enumeration `verify` and `cleanup` diff, ready to pipe into ordinary shell tools ([guide](guide/maintenance.md#the-building-blocks-hashes-and-upload)). |
+| `s3cab upload [<set>]`  | Put objects into a set's store directly: `--file` for a single file, `--dir` to seed from a folder, `-s`/`--snapshot` for everything a snapshot references. `--bucket` targets a raw bucket with no set ([guide](guide/maintenance.md#the-building-blocks-hashes-and-upload)). |
 | `s3cab tree [<set>]`    | List the files a snapshot of the set would include, honouring exclude rules; `--excluded` lists what the patterns dropped instead, each with the pattern that matched it ([guide](guide/exclude.md)). |
 | `s3cab prop <file>`     | Show the hash, size, and modified time of a single file. |
 
@@ -249,229 +240,6 @@ These work on every command, and on `s3cab` itself:
 
 `s3cab help exclude` prints the exclude-pattern reference without leaving the terminal, and
 setting the `S3CAB_DEBUG` environment variable turns on verbose debug output.
-
-## Status
-
-s3cab records and compares the state of your files, organised into **backup sets** (a
-named list of directories that snapshot as one unit), **backs them up to S3**, and **restores
-them back**. You create a set once, then the commands above act on it; a set's configuration
-is plain files you can open and edit (`~/.s3cab/sets/<set>/`).
-
-The everyday use is **getting specific files back**: pass `paths…` to restore just part of a
-set, and `--snapshot <name>` to pull an _older_ version instead of the latest. `--all`
-restores the **whole set** — the disaster-recovery backstop. Files go back to the
-locations they were backed up from; pass `--output <dir>` to recover under a directory you
-choose instead (each file lands at its full original path beneath it, as
-`<dir>/C/Users/me/…`), which is how you restore a backup whose original paths don't fit this
-machine — a different drive layout, or another OS. To recover onto a **fresh machine**, attach
-it to the existing backup — `s3cab reattach <set> --bucket <bucket>` — then `restore --all`;
-to back the set up from there
-too, `s3cab takeover <set>`. The full walkthrough is in [guide/restore.md](guide/restore.md).
-
-### Coming next
-
-The full command set now works — snapshot, compare, backup, restore, verify, forget, delete,
-and cleanup (see the [Command reference](#command-reference)). What's next is
-**retention-policy automation** (keep-last / daily / weekly / monthly rules, built on top of
-the `forget` and `cleanup` primitives) — the shape will be designed once real usage shows what
-people need.
-
-(`compare` is local-only by design — attaching a set on a new machine pulls its snapshot
-history down with it, so a plain local `compare` covers the cloud copy too.)
-
-## How it works
-
-Running `snapshot` walks every directory in the set and writes one immutable snapshot file into
-the set's own directory under your home directory — never inside your backed-up files:
-
-```
-~/.s3cab/sets/photos/
-  claim                          # present while this machine holds the set (see below)
-  dirs.txt                       # the directories that make up the set — yours to edit
-  env                            # S3CAB_BUCKET=… plus how this set signs in
-  exclude.txt                    # glob patterns for files to skip — yours to edit
-  snapshots/
-    20251110T2104.tsv.gz         # one snapshot per run (gzip-compressed TSV)
-    20251111T0830.tsv.gz
-```
-
-Editing a set _is_ editing these files, and deleting the directory deletes the set. Only
-`env` is unrecoverable: `s3cab reattach` pulls the snapshots back down from the bucket, and
-`s3cab takeover` the directory list and exclude rules too.
-
-`~/.s3cab` is the s3cab home on every OS. Set `S3CAB_HOME` to move the whole tree; every path
-s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
-keyless identity if you set one up ([guide/auth.md](guide/auth.md)), and the CloudFormation
-templates `s3cab aws` writes ([guide/aws.md](guide/aws.md)).
-
-Each snapshot records a few of these settings for whoever reads it later. Its `@CLIENT HOME`
-row is the home it was taken from, so the set's directory and the snapshot's own path follow
-from it and the names. `@SET BUCKET` is the set's `S3CAB_BUCKET`, and `@SET ENDPOINT` its
-endpoint, when it has one (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`).
-
-Each snapshot file is a tab-separated table with one `-` row per file — its `hash`,
-`size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with
-the variable-length (and platform-native, absolute) path last. It opens with rows naming
-the set, its member directories and when the snapshot was taken — so a snapshot file is
-self-describing even found on its own — and closes with a lone `.` line, so a truncated one
-can be told from a whole one:
-
-```
-@S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
-@SET      NAME                                                        photos
-@SET      DIR                                                         C:\Users\me\Photos\
-@SNAPSHOT START                             2025-11-11T08:30:12.418Z  Europe/London
--         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
--         e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
-@SNAPSHOT FILES                                                       2
-@SNAPSHOT FINISH                            2025-11-11T08:30:13.004Z  1s
-.
-```
-
-Every line but that `.` has the same five columns, the first saying what kind of row it is, the rest
-space-padded, all separated by tabs, so it reads as a table in an editor, parses as clean TSV in a
-script, and filters and sums in a spreadsheet. (The example shortens the hashes and leaves
-out some rows.)
-
-To inspect a compressed snapshot by hand, decompress it with any gzip tool
-(`gunzip snapshot.tsv.gz`) and open the resulting `.tsv`. That's the whole recovery
-story — no s3cab required. (The complete stored format is specified in
-[guide/format.md](guide/format.md).)
-
-Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
-set's directories; run `s3cab help exclude` for a quick reference, or see
-[guide/exclude.md](guide/exclude.md) for the full guide.
-
-> The test suite runs on Windows, Linux and macOS on every change, and no binary ships until
-> it has backed up and restored real files through a real S3 bucket **on its own platform** —
-> that round trip is a release gate, not a nightly. Snapshot paths are absolute and use the
-> native OS path style — `restore --output` is what carries a backup across the divide.
-
-## Cloud repositories
-
-A cloud **repository** lives in its own S3 bucket — _one repository is one bucket_, not a
-directory inside a shared one. Inside, the structure is fixed and well-known, so anything
-(s3cab, another tool, or you by hand) can find everything by convention:
-
-```
-s3://my-backup-bucket/
-  objects/<sha256>                 # your files, each stored once under its content hash
-  snapshots/<set>/<name>.tsv.gz    # the snapshot files saying which objects make up each backup
-  snapshots/<set>.info             # the machine that backs each set up, and since when
-  objects.deleted-<n>.tsv          # what `s3cab delete` removed on purpose (absent until it runs)
-  .s3cab/sets/<set>/               # s3cab's copy of each set's config
-    dirs.txt                         # its member directories
-    exclude.txt                      # its exclude patterns, if it has any
-```
-
-One bucket can hold **many backup sets** — your own, and other people's or machines' — all
-sharing `objects/`, so duplicate content is stored once across everything in the bucket. Each
-set keeps its own snapshot files under its own prefix, `snapshots/<set>/`, beside a
-`<set>.info` file naming the one machine that backs it up: its **holder**. A set name is
-first-come: `setup` claims it, and refuses a name the bucket already has. Any machine can
-`reattach` a set to browse and restore it; `takeover` makes that machine the holder, and the
-old holder's backups are refused from then on. Two machines backing up one set would
-interleave their files, so the latest snapshot could be either machine's.
-
-s3cab keeps its copy of each set's config in its own folder, `.s3cab/sets/<set>/`, so a
-machine taking the set over gets its directories and exclude rules back: `exclude.txt` as a
-byte-for-byte copy of yours, `dirs.txt` as the list s3cab read from yours, one directory per
-line, without its comments and blank lines. Another tool leaves `.s3cab/` alone, as s3cab
-leaves any other `.`-named folder alone. The set's local `env` file is never uploaded: it can
-hold credentials.
-
-A snapshot file only ever appears in `snapshots/` after every file it references is safely in
-`objects/`, so any snapshot file you find is complete and restorable. Snapshots are never
-rewritten either — which is why `delete` records what it removed in `objects.deleted-<n>.tsv`
-instead of editing history, so a later `verify` reads a deliberate gap as intended rather than
-as damage.
-
-That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
-look up its hash in a snapshot and download `objects/<that-hash>`. The full contract —
-the repository layout, the snapshot-file grammar, and a recover-by-hand walkthrough — is
-written down in [guide/format.md](guide/format.md), **the format spec**.
-
-**Turn on bucket versioning** — it is your ransomware and fat-finger backstop. With versioning
-on, `s3cab forget` (drop a snapshot) and `s3cab cleanup` (reclaim unreferenced objects) issue
-only _soft_ deletes: they write a delete marker and the bytes live on as a recoverable
-noncurrent version, so a mistake — or a leaked key — can add to your backup but can never
-permanently destroy its history. `s3cab aws` turns versioning on for you; if you set a bucket
-up by hand, enable it yourself. The trade-off is that reclaimed space frees only once a
-lifecycle rule expires those noncurrent versions — [guide/aws.md](guide/aws.md) walks through
-the full model, and [guide/maintenance.md](guide/maintenance.md) covers keeping a repository
-healthy over time (`verify` / `forget` / `cleanup`).
-
-The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
-advanced/diagnostic command — most people never run it directly; its real job is composition:
-the flat hash-per-line stream pipes into ordinary shell tools, so you can reproduce s3cab's
-own maintenance by hand (it's the same enumeration `verify`/`cleanup` diff):
-
-```console
-> s3cab hashes my-backup-bucket               # one sha256 per line, to stdout
-> s3cab hashes my-backup-bucket > have.txt    # …or redirect to a file
-```
-
-Its write counterpart, `upload`, is set-scoped and does the jobs `backup` composes: put **a
-single file** into the store at `objects/<sha256>`, seed the store from **a folder**, or
-upload **a whole snapshot's** objects and then its snapshot file. Content already in the
-store is skipped automatically — identical bytes always map to the same key — unless you
-`--force` a single-file re-upload:
-
-```console
-> s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
-> s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's objects, no snapshot
-> s3cab upload photos --snapshot 20260612T0915              # that snapshot's objects, snapshot file last
-> s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
-```
-
-(Like `hashes`, `upload` is plumbing: a lower-level building block beside the snapshot-driven
-`backup`, which is just `snapshot` + `upload`. A set supplies its own bucket; `--bucket` is the
-raw escape hatch for seeding a file into a bucket that isn't one of your sets.)
-
-## Authentication
-
-s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
-edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
-
-1. the active backup **set's env file**, `~/.s3cab/sets/<set>/env`, if present (handy for
-   `AWS_*` keys, a profile, or an endpoint — including some S3-compatible providers). It's the
-   one s3cab config layer — where `s3cab setup` records the set's bucket, and where its auth
-   lives — applied over your shell (a file value always beats the shell). s3cab does **not**
-   read a `.env` from the current directory, and there is no per-user s3cab file: your
-   machine-wide default is your ordinary AWS setup (step 2). The **`provider`** command writes a
-   set's file for you: `s3cab provider --profile <name>` for an AWS profile,
-   `--endpoint <url> --region <r>` for an S3-compatible provider, and `--keys` for an access
-   key + secret (prompted or piped — never flags). `s3cab setup` takes the **same** knobs, so a
-   new set can be pointed at its provider in one command. A set signs in **one** way — a profile,
-   access keys, *or* keyless Roles Anywhere (below), not several — so setting one clears the
-   others. Long-lived provider keys needn't sit in plaintext — the
-   [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
-   them from a secret manager through a `credential_process` profile.
-2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
-   sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
-
-If neither is configured, s3cab stops and tells you what to do. s3cab has no sign-in flow of
-its own: AWS IAM Identity Center (SSO) users sign in with the AWS CLI's `aws sso login`, and
-s3cab picks the session up automatically through the standard chain. The only credentials it
-ever writes are the ones you hand it with `--keys`, and those go in the set's own `env` file
-where you can read or delete them. The full picture — the four sign-in modes, where s3cab
-looks, and what to do when the server rejects your credentials — is in
-[guide/auth.md](guide/auth.md); `s3cab help provider` has the same material in the terminal.
-
-**Keyless access with IAM Roles Anywhere (AWS, advanced).** Instead of a long-lived
-access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
-session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
-certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and
-writes CloudFormation templates for the bucket and for this machine's identity; after deploying
-them and capturing the ARNs (`--save --from-stack`), point a set at it with
-`s3cab setup --set … --roles-anywhere` or `s3cab provider --roles-anywhere <set>`. Each machine
-gets its own identity, so a second machine or a second bucket is the same steps again. The
-durable secret never travels, only a ~1-hour token flows to AWS, and the trust anchor gives you
-central revocation. It's a best-effort win, not a
-vault: a leaked `0600` key file is about as exposed as a leaked access key against file theft —
-the real backstop is the soft-delete-only policy, so even a stolen identity can't destroy backup
-history. The [cloud-bucket guide](guide/aws.md#--roles-anywhere--keyless-certificate-based-access)
-has the full model.
 
 ## License
 
