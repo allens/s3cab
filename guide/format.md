@@ -292,8 +292,8 @@ object, and [the `.` line](#the-last-line) last:
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
-#deleted  a3f9…c60d              161906688  2026-07-19T10:41:07.412Z  me@LAPTOP
-#deleted  5e21…ac93              158334976  2026-07-19T10:41:07.412Z  me@LAPTOP
+#deleted  6a60…5318              161906688  2026-07-19T10:41:07.412Z  me@LAPTOP
+#deleted  d7c6…6d92              158334976  2026-07-19T10:41:07.412Z  me@LAPTOP
 .
 ```
 

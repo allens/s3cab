@@ -9,20 +9,24 @@ For scripting, pass the global **`--json`** flag to get the same result as a
 structured JSON value instead:
 
 ```console
-> s3cab compare photos --json
+> s3cab compare photos --until 20251111T0830 --json
 {
   "setName": "photos",
   "dirs": ["/home/me/Photos"],
-  "since": "20251111T0830",
-  "until": "20251112T0915",
+  "since": "20251110T2104",
+  "until": "20251111T0830",
   "added": [
-    { "path": "/home/me/Photos/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
+    { "path": "/home/me/Photos/brand-logo.png", "size": 41000, "duplicates": ["/home/me/Photos/logo.png"], "wasUnreadable": false }
   ],
   "moved": [
-    { "path": "/home/me/Photos/2024/IMG_001.jpg", "to": "/home/me/Photos/2024/sorted/IMG_001.jpg", "size": 3400000 }
+    { "path": "/home/me/Photos/notes.txt", "size": 2100, "to": "/home/me/Photos/diary.txt" }
   ],
-  "modified": [],
-  "deleted": [],
+  "modified": [
+    { "path": "/home/me/Photos/report.pdf", "size": 1250000 }
+  ],
+  "deleted": [
+    { "path": "/home/me/Photos/old notes.txt", "size": 900 }
+  ],
   "errors": []
 }
 ```

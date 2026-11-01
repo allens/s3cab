@@ -13,8 +13,8 @@ export const user = "me";
 
 /** The home in each world. */
 export const worlds = {
-  windows: { home: "C:\\Users\\me", sep: "\\" },
-  posix: { home: "/home/me", sep: "/" },
+  windows: { home: `C:\\Users\\${user}`, sep: "\\" },
+  posix: { home: `/home/${user}`, sep: "/" },
 };
 
 /** @typedef {keyof typeof worlds} World */
@@ -26,12 +26,13 @@ export const bucket = "my-backups";
 
 /**
  * The sets in the bucket, each with the folder it backs up and the machine
- * that holds it. `photos` is the one the story follows; the other two only
- * share the bucket.
+ * that holds it. `photos` is the one the story follows, and the only set on
+ * LAPTOP, so a command there may leave its name out and `find` searches it
+ * alone. The other two only share the bucket.
  */
 export const sets = {
   photos: { folder: "Photos", by: "me@LAPTOP", os: "win32" },
-  documents: { folder: "Documents", by: "me@LAPTOP", os: "win32" },
+  documents: { folder: "Documents", by: "me@DESKTOP", os: "linux" },
   music: { folder: "Music", by: "me@DESKTOP", os: "linux" },
 };
 
@@ -55,7 +56,8 @@ const logo = { fill: "l", size: 41_000, mtime: "2025-03-14T09:00:00.000Z" };
 
 /**
  * What changed at one snapshot, in the files the pages name. `move` is a
- * rename or a move, old path to new.
+ * rename or a move, old path to new. `forgotten` is gone from the bucket;
+ * `forget` leaves the local copy, so `find` and `compare` still read it.
  * @typedef {{
  *   name: string,
  *   by: "backup" | "snapshot",
@@ -131,7 +133,7 @@ export const timeline = [
     },
     remove: ["old notes.txt"],
   },
-  // README's "watching what changes": a snapshot, not a backup.
+  // A snapshot, not a backup: what compare.md and output.md report.
   {
     name: "20251112T0915",
     by: "snapshot",
@@ -155,6 +157,11 @@ export const timeline = [
         size: 161_906_688,
         mtime: "2026-04-26T16:02:00.000Z",
       },
+      "raw-footage/clip002.mov": {
+        fill: "g",
+        size: 158_334_976,
+        mtime: "2026-04-26T16:09:00.000Z",
+      },
     },
     modify: {
       "diary.txt": {
@@ -169,7 +176,11 @@ export const timeline = [
   // The latest backup when restore.md is read.
   { name: "20260612T0915", by: "backup" },
   // The footage gone from disk, and deleted from the backups (`deleted`).
-  { name: "20260814T0930", by: "backup", remove: ["raw-footage/clip001.mov"] },
+  {
+    name: "20260814T0930",
+    by: "backup",
+    remove: ["raw-footage/clip001.mov", "raw-footage/clip002.mov"],
+  },
 ];
 
 /**
@@ -191,7 +202,11 @@ export function filesAt(name) {
     remove = [],
   } of timeline.slice(0, at + 1)) {
     for (const [from, to] of Object.entries(move)) {
-      files.set(to, /** @type {Content} */ (files.get(from)));
+      const content = files.get(from);
+      if (!content) {
+        throw new Error(`the story moves '${from}' before it has one`);
+      }
+      files.set(to, content);
       files.delete(from);
     }
     for (const [path, content] of Object.entries({ ...add, ...modify })) {
@@ -223,12 +238,12 @@ export const deleted = "2026-07-19T10:41:07.000Z";
 
 /**
  * The figures the named files can't show: how big the library is, when.
- * They agree across pages because every page reads them from here.
+ * The checked transcripts take theirs from here. The first backup, which only
+ * README's quick start and compare.md's prose show, is 1,312 files (4.2GB),
+ * 72 of them copies, so 1,240 objects.
  */
 export const scale = {
-  // The first backup: 1,312 files, 72 of them copies, so 1,240 objects.
-  firstBackup: { files: 1_312, objects: 1_240, bytes: 4_200_000_000 },
-  // By 20260612T0915, 214 new photos and the footage: 1,839 files.
+  // By 20260612T0915, 1,313 files plus 214 new photos and the footage.
   files: 1_839,
   footage: { files: 312, objects: 297, bytes: 48_100_000_000 },
   // What only the May snapshots held, exports since remade: what forgetting

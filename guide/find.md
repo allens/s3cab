@@ -40,12 +40,12 @@ The rules are POSIX `find`'s, not [exclude](exclude.md)'s — a file you are
 hunting for could be anywhere, whereas an exclude pattern is pruning a known
 subtree.
 
-| Pattern           | Matches                                                     |
-| ----------------- | ----------------------------------------------------------- |
-| `diary.txt`       | that **file name**, in any directory, in any set             |
-| `*.mov`           | every `.mov` file, anywhere                                  |
-| `2024/IMG_001.jpg` | that **path fragment**, at any depth, segments aligned      |
-| `raw-footage/`    | everything **beneath** a `raw-footage` directory, at any depth |
+| Pattern            | Matches                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| `diary.txt`        | that **file name**, in any directory, in any set               |
+| `*.mov`            | every `.mov` file, anywhere                                    |
+| `2024/IMG_001.jpg` | that **path fragment**, at any depth, segments aligned         |
+| `raw-footage/`     | everything **beneath** a `raw-footage` directory, at any depth |
 
 The rule behind the table: **no separator in the pattern and it matches the file
 name only; put a separator in and it matches the whole path**, floating (so it

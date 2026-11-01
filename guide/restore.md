@@ -276,8 +276,8 @@ Contacting the cloud…
 Restored 1,837 files from 'photos' (snapshot 20260612T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
-  C:\Users\me\Photos\2019\hike.jpg
-  C:\Users\me\Photos\2019\summit.jpg
+  C:\Users\me\Photos\2024\sorted\IMG_001.jpg
+  C:\Users\me\Photos\2025\new.jpg
 
 The rest of the restore finished. To check the other backups in this bucket:
   s3cab verify my-backups
@@ -310,7 +310,7 @@ reveals. If an unchanged copy of a damaged file survives anywhere — another ma
 stick — upload it again to repair the backup's copy:
 
 ```console
-> s3cab upload photos --file D:\old-laptop\Photos\2019\hike.jpg --force
+> s3cab upload photos --file D:\old-laptop\Photos\2025\new.jpg --force
 ```
 
 ## If there's nothing to restore
