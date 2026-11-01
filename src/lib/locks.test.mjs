@@ -240,7 +240,7 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
   });
 
-  it("mints a fresh instant, a millisecond on, when the 412 was someone else's lock", async () => {
+  it("mints a fresh instant, once the clock has moved, when the 412 was someone else's lock", async (t) => {
     let first = true;
     beforePut = (key) => {
       if (first) {
@@ -252,12 +252,11 @@ describe("writeLock", () => {
     // woke inside that millisecond, as a real timer sometimes does.
     const lost = Temporal.Now.zonedDateTimeISO();
     let reads = 0;
-    const clock = mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       ++reads <= 2 ? lost : lost.add({ milliseconds: 1 }),
     );
 
     const lock = await writeLock("b", { kind: "upload", command: "backup" });
-    clock.mock.restore();
 
     const puts = requests.filter((r) => r.startsWith("put:"));
     assert.equal(puts.length, 2, "one refused PUT, one that landed");
