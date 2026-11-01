@@ -13,7 +13,8 @@ s3cab would leave out, and the pattern that did it: the same answer
 pattern matcher, in your browser; nothing you type leaves the page.
 
 - **Patterns** are read as an `exclude.txt`: one per line, `#` starts a comment.
-  They start as the file a new set is born with.
+  They start as the file a new set is born with, written with `/`, which
+  Windows takes too.
 - **Paths** are relative to one of the set's directories, one per line. End a
   folder with `/` (or `\` on Windows).
 - **A left-out folder stands for everything inside it**, because s3cab never

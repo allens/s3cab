@@ -2,6 +2,7 @@
 // `npm test` can check it: patterns and paths in, `tree --excluded`'s verdict
 // out, from s3cab's own reader and matcher.
 
+import { posix } from "node:path";
 import { compileExcludePatterns } from "../../src/lib/exclude.mjs";
 import { parseLines } from "../../src/lib/read-lines.mjs";
 
@@ -10,9 +11,9 @@ import { parseLines } from "../../src/lib/read-lines.mjs";
 /**
  * One path the reader typed, and whether the patterns leave it out.
  * @typedef {Object} Verdict
- * @property {string} path - As typed
+ * @property {string} path - As typed, trimmed
  * @property {string} [pattern] - The pattern that left it out
- * @property {string} [folder] - The left-out folder it is inside, as typed,
+ * @property {string} [folder] - The left-out folder it is inside, `/`-separated,
  *   when that folder's pattern is what left it out
  */
 
@@ -30,8 +31,6 @@ const MEMBER = { win32: "C:\\member", darwin: "/member", linux: "/member" };
  */
 export function excludeReport(patternsText, pathsText, platform) {
   const member = MEMBER[platform];
-  const sep = platform === "win32" ? "\\" : "/";
-  const separators = platform === "win32" ? /[\\/]/g : /\//g;
   const excludedBy = compileExcludePatterns(
     member,
     parseLines(patternsText),
@@ -40,23 +39,29 @@ export function excludeReport(patternsText, pathsText, platform) {
 
   return pathsText
     .split("\n")
-    .filter((line) => line.trim() !== "")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
     .map((path) => {
-      for (const { index } of path.matchAll(separators)) {
+      // The walk only ever hands over a clean path inside the member: no `.`,
+      // no doubled or leading separator. `/` is the matcher's separator too.
+      const slashed = platform === "win32" ? path.replaceAll("\\", "/") : path;
+      const relative = posix.normalize(slashed).replace(/^(\.?\/)+/, "");
+      const subject = `${member}/${relative}`;
+      for (const { index } of relative.matchAll(/\//g)) {
         const pattern = excludedBy(
-          `${member}${sep}${path.slice(0, index)}`,
+          subject.slice(0, member.length + 1 + index),
           true,
         );
         if (pattern) {
-          return index === path.length - 1
+          return index === relative.length - 1
             ? { path, pattern }
-            : { path, pattern, folder: path.slice(0, index + 1) };
+            : { path, pattern, folder: relative.slice(0, index + 1) };
         }
       }
-      if (path.endsWith("/") || path.endsWith(sep)) {
+      if (relative === "" || relative.endsWith("/")) {
         return { path };
       }
-      const pattern = excludedBy(`${member}${sep}${path}`, false);
+      const pattern = excludedBy(subject, false);
       return pattern ? { path, pattern } : { path };
     });
 }

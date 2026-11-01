@@ -44,9 +44,10 @@ onMounted(() => {
       : "linux";
 });
 
-function remember() {
+/** @param {string} value - The option just chosen */
+function remember(value) {
   try {
-    localStorage.setItem(remembered, platform.value);
+    localStorage.setItem(remembered, value);
   } catch {
     // Not remembered, which is all that is lost.
   }
@@ -70,7 +71,7 @@ const leftOut = computed(
           type="radio"
           name="exclude-playground-os"
           :value="option.value"
-          @change="remember"
+          @change="remember(option.value)"
         />
         {{ option.label }}
       </label>

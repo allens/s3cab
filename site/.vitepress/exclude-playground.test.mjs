@@ -102,6 +102,23 @@ describe("excludeReport", () => {
     );
   });
 
+  it("reads a typed path as the walk would spell it: trimmed, `.` and repeated or leading separators dropped", () => {
+    assert.deepEqual(
+      excludeReport(
+        "*.log\nbuild/",
+        "./a.log\n/build/\n  c.log  \nsub//d.log\n./build/x.js",
+        "linux",
+      ),
+      [
+        { path: "./a.log", pattern: "*.log" },
+        { path: "/build/", pattern: "build/" },
+        { path: "c.log", pattern: "*.log" },
+        { path: "sub//d.log" },
+        { path: "./build/x.js", pattern: "build/", folder: "build/" },
+      ],
+    );
+  });
+
   it("names the first pattern that matches", () => {
     assert.deepEqual(leftOut(["*.log", "**/*"], ["a.log"]), {
       "a.log": "*.log",

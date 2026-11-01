@@ -19,20 +19,18 @@ import { globSource } from "./path-match.mjs";
  * - **The first matching pattern wins**, and is what the walk records as the
  *   pattern on its `#excluded` row.
  *
- * Names compare the way this machine's filesystem compares them by default:
+ * Names compare the way the platform's filesystem compares them by default:
  * ignoring case on Windows and macOS, and on macOS ignoring how an accent is
  * spelled too (one character, or a letter and a combining mark: NFC/NFD). The
  * platform is the right question here, unlike in `find`, because these patterns
- * only ever meet paths from this machine's own walk. Case folds by Unicode's
- * table, which joins a few rare letters NTFS keeps apart (the Kelvin sign and
- * `k`): not the `i` flag alone, which matched NTFS on those, because only `u`
- * makes `?` match a whole emoji.
- *
- * `platform` is this machine's everywhere but the docs site's playground
- * (site/.vitepress/exclude-playground.mjs), which matches like any of them.
+ * only ever meet paths from one machine's own walk, and `platform` names that
+ * machine. Case folds by Unicode's table, which joins a few rare letters NTFS
+ * keeps apart (the Kelvin sign and `k`): not the `i` flag alone, which matched
+ * NTFS on those, because only `u` makes `?` match a whole emoji.
  * @param {string} baseDir - The member directory the patterns are relative to
  * @param {string[]} patterns - Root-relative exclude globs, as the user wrote them
- * @param {NodeJS.Platform} [platform] - Whose filesystem to compare names like
+ * @param {NodeJS.Platform} [platform] - The machine whose walk the paths come
+ *   from: this one, unless a caller is showing another's
  * @returns {(path: string, isDirectory: boolean) => string | undefined} The
  *   first pattern matching `path`, or `undefined` to keep it
  */
