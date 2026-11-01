@@ -20,6 +20,9 @@ const paths = ref(
   ].join("\n"),
 );
 
+// s3cab's matcher escapes a pattern with `RegExp.escape`, which Vite doesn't
+// polyfill: without it every pattern would throw.
+const supported = typeof RegExp.escape === "function";
 const report = computed(() => findReport(patterns.value, paths.value));
 const refused = computed(() =>
   report.value.patterns.filter((pattern) => pattern.error),
@@ -30,7 +33,11 @@ const matches = computed(
 </script>
 
 <template>
-  <div class="find-playground">
+  <p v-if="!supported" class="find-playground">
+    This browser is too old for the playground: it needs one released in 2025 or
+    later.
+  </p>
+  <div v-else class="find-playground">
     <div class="inputs">
       <div class="field">
         <label for="find-patterns">Patterns, one per line</label>

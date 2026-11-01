@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
-import { findReport } from "./find-playground.mjs";
+import * as nodeShim from "./node-shim.mjs";
+
+// Through node-shim.mjs, as the page runs it: Node's own `node:path` would
+// test Windows pattern separators the page never uses, and would hide a
+// `posix` member the shim lacks.
+mock.module("node:path", { exports: { ...nodeShim } });
+mock.module("node:util", { exports: { ...nodeShim } });
+const { findReport } = await import("./find-playground.mjs");
 
 /**
  * The paths `pattern` matches, out of `paths`.
@@ -130,8 +137,11 @@ describe("findReport", () => {
     assert.deepEqual(report.paths[0]?.matchedBy, ["beach.jpg"]);
   });
 
-  it("skips blank lines and takes Windows line endings", () => {
-    const report = findReport("\r\n*.jpg\r\n  \r\n", "a.jpg\r\n\r\n/b.jpg\r\n");
+  it("trims each line, skips blank ones and takes Windows line endings", () => {
+    const report = findReport(
+      "\r\n*.jpg \r\n  \r\n",
+      "a.jpg\r\n\r\n  /b.jpg\r\n",
+    );
     assert.deepEqual(
       report.patterns.map((pattern) => pattern.pattern),
       ["*.jpg"],

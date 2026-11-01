@@ -1,6 +1,8 @@
 // The pattern playground's `find` half: patterns and paths in, which pattern
-// matched which path out. It runs s3cab's own matcher, so the page can't
-// disagree with `s3cab find`; FindPlayground.vue only draws the result.
+// matched which path out. It runs s3cab's own matcher, so the page agrees with
+// `s3cab find` on macOS and Linux; on Windows the CLI also takes `\` in a
+// pattern as a separator, which the page doesn't (node-shim.mjs). The
+// component, FindPlayground.vue, only draws the result.
 
 import { ValidationError } from "../../src/lib/error.mjs";
 import { compileFindPattern } from "../../src/lib/find-pattern.mjs";
@@ -27,11 +29,15 @@ import { preparePath } from "../../src/lib/path-match.mjs";
  */
 
 /**
- * The non-blank lines of a text box, each as typed.
+ * The non-blank lines of a text box, trimmed, as a shell would take an
+ * unquoted word: a stray space must not turn a match into "no match".
  * @param {string} text
  */
 const lines = (text) =>
-  text.split(/\r?\n/).filter((line) => line.trim() !== "");
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
 
 /**
  * Match each path, one per line, against each pattern, one per line. A

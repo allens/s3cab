@@ -2,7 +2,9 @@
 // imports) take from Node, for the docs site's pattern playground. The config
 // hands this module to them in place of `node:path` and `node:util`, so it
 // exports exactly the names they import; one they start importing that isn't
-// here fails `npm run docs:build`.
+// here fails `npm run docs:build`. find-playground.test.mjs runs through this
+// module too, so a `posix` member they start using that isn't here fails
+// `npm test`.
 //
 // `sep` is `/`: a pattern typed here is read the way s3cab on macOS or Linux
 // reads one, where `\` is an ordinary character.

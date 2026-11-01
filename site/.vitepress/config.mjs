@@ -16,6 +16,7 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { isAbsolute, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
@@ -149,9 +150,9 @@ export default defineConfig({
   },
   buildEnd: ({ outDir }) => checkLinks(outDir),
   // The pattern playground bundles s3cab's own matcher for the browser, so
-  // within src/lib/ `node:path` and `node:util` resolve to node-shim.mjs. Any
-  // other builtin is an error: Vite would only warn and swap in an empty
-  // module, and the page would break when it ran.
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
+  // in an empty module, and the page would break when it ran.
   vite: {
     plugins: [
       {
@@ -159,14 +160,10 @@ export default defineConfig({
         enforce: "pre",
         resolveId(id, importer) {
           const within = relative(srcLib, importer ?? "/");
-          if (
-            !id.startsWith("node:") ||
-            within.startsWith("..") ||
-            isAbsolute(within)
-          ) {
+          if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
             return null;
           }
-          if (id === "node:path" || id === "node:util") {
+          if (["path", "util"].includes(id.replace(/^node:/, ""))) {
             return nodeShim;
           }
           this.error(
