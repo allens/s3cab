@@ -39,7 +39,6 @@ read).
   `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
   patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
   with it. A `find` pattern twin is the same idea.
-- **Annotated snapshot anatomy** — hover a column of a real snapshot line for its meaning.
 
 ## Fun, with a point
 
