@@ -15,11 +15,7 @@ import { mkdtempDisposable, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
-import {
-  formatLine,
-  snapshotMoment,
-  writeSnapshot,
-} from "../../src/lib/snapshot-file.mjs";
+import { formatLine, writeSnapshot } from "../../src/lib/snapshot-file.mjs";
 
 const root = sep === "\\" ? "C:\\Users\\me" : "/home/me";
 const photos = join(root, "Photos");
@@ -27,7 +23,11 @@ const pictures = join(root, "Pictures");
 
 // Fixed, so a rebuild writes the same text. London in June, so the name (local
 // time) and START (UTC) visibly differ.
-const START = "2026-06-12T09:15:32.123+01:00[Europe/London]";
+const START = {
+  name: "20260612T0915",
+  instant: "2026-06-12T08:15:32.123Z",
+  zone: "Europe/London",
+};
 const FINISH = "2026-06-12T09:15:40.871+01:00[Europe/London]";
 const BY = "me@laptop";
 
@@ -75,77 +75,61 @@ const files = [
 ];
 
 /**
- * Run `fn` with s3cab's clock seam (`readClock` in src/lib/format.mjs) reading
- * `at`.
- * @template T
- * @param {string} at - A zoned date-time
- * @param {() => T | Promise<T>} fn
- * @returns {Promise<T>}
- */
-async function withClock(at, fn) {
-  const real = Temporal.Now.zonedDateTimeISO;
-  Temporal.Now.zonedDateTimeISO = () => Temporal.ZonedDateTime.from(at);
-  try {
-    return await fn();
-  } finally {
-    Temporal.Now.zonedDateTimeISO = real;
-  }
-}
-
-/**
  * The sample snapshot, decompressed: the text `gunzip` would give.
  * @returns {Promise<string>}
  */
 export async function sampleSnapshot() {
   const byPath = new Map(files.map((file) => [file.path, file]));
   await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-sample-"));
+  // FINISH is read from s3cab's clock seam (`readClock` in
+  // src/lib/format.mjs) and HOME from `S3CAB_HOME`, so both are pinned for the
+  // write. The build calls this once.
+  const clock = Temporal.Now.zonedDateTimeISO;
   const home = process.env.S3CAB_HOME;
+  Temporal.Now.zonedDateTimeISO = () => Temporal.ZonedDateTime.from(FINISH);
   process.env.S3CAB_HOME = join(root, ".s3cab");
   try {
-    const moment = await withClock(START, snapshotMoment);
-    const path = await withClock(FINISH, () =>
-      writeSnapshot(dir.path, moment, {
-        set: {
-          name: "photos",
-          bucket: "my-backups",
-          endpoint: "https://0123456789abcdef.r2.cloudflarestorage.com",
-          dirs: [photos, pictures],
-          patterns: ["*.tmp", "cache/"],
+    const path = await writeSnapshot(dir.path, START, {
+      set: {
+        name: "photos",
+        bucket: "my-backups",
+        endpoint: "https://0123456789abcdef.r2.cloudflarestorage.com",
+        dirs: [photos, pictures],
+        patterns: ["*.tmp", "cache/"],
+      },
+      files: byPath.keys(),
+      excluded: [
+        { pattern: "*.tmp", path: join(photos, "upload.tmp"), isDir: false },
+        { pattern: "cache/", path: join(photos, "cache"), isDir: true },
+      ],
+      errors: [
+        {
+          path: join(pictures, "Shared") + sep,
+          reason: `link to a folder outside the backup: ${join(root, "..", "shared")}`,
         },
-        files: byPath.keys(),
-        excluded: [
-          { pattern: "*.tmp", path: join(photos, "upload.tmp"), isDir: false },
-          { pattern: "cache/", path: join(photos, "cache"), isDir: true },
-        ],
-        errors: [
-          {
-            path: join(pictures, "Shared") + sep,
-            reason: `link to a folder outside the backup: ${join(root, "..", "shared")}`,
-          },
-        ],
-        getProps: async (path) => {
-          const file = byPath.get(path);
-          assert(file);
-          if ("error" in file) {
-            throw new Error(file.error);
-          }
-          const bytes = Buffer.alloc(file.size, file.content);
-          return {
-            size: file.size,
-            mtime: file.mtime,
-            hash: crypto.hash("sha256", bytes, "hex"),
-          };
-        },
-      }),
-    );
+      ],
+      getProps: async (path) => {
+        const file = byPath.get(path);
+        assert(file);
+        if ("error" in file) {
+          throw new Error(file.error);
+        }
+        const bytes = Buffer.alloc(file.size, file.content);
+        return {
+          size: file.size,
+          mtime: file.mtime,
+          hash: crypto.hash("sha256", bytes, "hex"),
+        };
+      },
+    });
     const text = gunzipSync(await readFile(path)).toString("utf8");
     // `BY` is the one value the writer takes from the machine with no seam to
     // set it, and the builder's own login has no place on a public page.
-    return text.replace(
-      /^@SNAPSHOT\tBY *\t.*\n/m,
-      formatLine("@SNAPSHOT", "BY", "", "", BY),
-    );
+    const by = /^@SNAPSHOT\tBY *\t.*\n/m;
+    assert.match(text, by, "the sample's @SNAPSHOT BY row has changed shape");
+    return text.replace(by, formatLine("@SNAPSHOT", "BY", "", "", BY));
   } finally {
+    Temporal.Now.zonedDateTimeISO = clock;
     if (home === undefined) {
       delete process.env.S3CAB_HOME;
     } else {
@@ -154,4 +138,8 @@ export async function sampleSnapshot() {
   }
 }
 
-export default { load: sampleSnapshot };
+export default {
+  // Relative to this file. Without it `docs:dev` keeps the old sample.
+  watch: ["../../src/lib/snapshot-file.mjs"],
+  load: () => sampleSnapshot(),
+};

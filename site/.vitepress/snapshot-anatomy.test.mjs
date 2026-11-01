@@ -75,6 +75,15 @@ describe("the snapshot-anatomy sample", async () => {
     assert.deepEqual(missing, []);
   });
 
+  it("has no note for a row the writer doesn't emit", () => {
+    const kinds = writerKinds();
+
+    assert.deepEqual(
+      Object.keys(ROWS).filter((kind) => !kinds.has(kind)),
+      [],
+    );
+  });
+
   it("has a note for every kind of row in it, and every column", () => {
     for (const line of lines) {
       const row = ROWS[kindOf(line)];

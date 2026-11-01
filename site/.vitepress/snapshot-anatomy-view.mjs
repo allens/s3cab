@@ -55,8 +55,12 @@ export const SnapshotSample = defineComponent({
       at.value = { line, col };
     };
 
-    /** @param {{ key: string, preventDefault(): void }} event */
+    /** @param {{ key: string, altKey: boolean, ctrlKey: boolean, metaKey: boolean, shiftKey: boolean, preventDefault(): void }} event */
     const onKeydown = (event) => {
+      // Alt+Left is the browser's Back, Shift+Arrow selects text.
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+      }
       let { line, col } = at.value ?? { line: 0, col: 0 };
       if (event.key === "ArrowDown") {
         line = Math.min(line + 1, lines.value.length - 1);
@@ -100,7 +104,8 @@ export const SnapshotSample = defineComponent({
           h("code", line.kind),
         ]);
       }
-      const column = row.columns && COLUMNS[row.columns][at.value.col];
+      const columns = row.columns ? COLUMNS[row.columns] : [];
+      const column = columns[at.value.col];
       return [
         h("p", [
           h("strong", rich(row.title)),
@@ -111,7 +116,10 @@ export const SnapshotSample = defineComponent({
         ]),
         column &&
           h("p", [
-            h("strong", `Column ${at.value.col + 1} of 5, ${column.label}:`),
+            h(
+              "strong",
+              `Column ${at.value.col + 1} of ${columns.length}, ${column.label}:`,
+            ),
             " ",
             ...rich(column.text),
             " ",

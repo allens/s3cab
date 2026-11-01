@@ -152,12 +152,17 @@ export default defineConfig({
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
     // filePath is the route template, `guide/[topic].md`; its topic is a param.
+    // Any other page is its own source, under site/.
     editLink: {
       pattern: ({ filePath, params }) => {
         const topic = params?.topic === "index" ? "README" : params?.topic;
         return (
           "https://github.com/allens/s3cab/edit/main/" +
-          (filePath === "index.md" ? "README.md" : `guide/${topic}.md`)
+          (filePath === "index.md"
+            ? "README.md"
+            : filePath.startsWith("guide/")
+              ? `guide/${topic}.md`
+              : `site/${filePath}`)
         );
       },
       text: "Edit this page on GitHub",

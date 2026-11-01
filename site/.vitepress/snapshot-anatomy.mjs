@@ -171,7 +171,7 @@ export const COLUMNS = {
     },
     {
       label: "path",
-      text: "What was left out. A path ending in a separator is a folder.",
+      text: "What was left out. A path ending in a separator is a folder, or a link to one.",
       section: "Row types",
     },
   ],
@@ -183,7 +183,7 @@ export const COLUMNS = {
     },
     {
       label: "message",
-      text: "What went wrong, in words. A long message runs past its column rather than being cut, which is why this row doesn't line up.",
+      text: "What went wrong, in words. A message too long for its column runs past it rather than being cut.",
       section: "Canonical form",
     },
     {

@@ -14,8 +14,9 @@ import {
 # Anatomy of a snapshot
 
 A snapshot is a gzip-compressed text file, one row per line, that anyone can open: decompress
-it with `gunzip` and read it in a text editor or a spreadsheet. Below is a real one, written by
-s3cab itself when this page was built, for a set called `photos` that backs up two folders.
+it with `gunzip` and read it in a text editor or a spreadsheet. Below is one written by s3cab's
+own code when this page was built, for a made-up set called `photos` that backs up two
+folders: the files, and so their hashes, exist only here.
 
 The [format spec](https://s3cab.plantegral.com/guide/format#snapshot-files) is the authority
 on every row and column. This page says what each one is for, and links to the part of the
