@@ -1,11 +1,10 @@
 // What s3cab's browser-safe lib modules (src/lib/find-pattern.mjs,
 // src/lib/exclude.mjs and what they import) take from Node, for the docs
 // site's pattern playgrounds. The config hands this module to them in place
-// of `node:path` and `node:util` (and assert-shim.mjs for `node:assert`), so
-// it exports exactly the names they import; one they start importing that
-// isn't here fails `npm run docs:build`. The playgrounds' tests run through
-// this module too, so a `posix` member they start using that isn't here fails
-// `npm test`.
+// of `node:path` and `node:util`, so it exports exactly the names they import;
+// one they start importing that isn't here fails `npm run docs:build`. The
+// playgrounds' tests run through this module too, so a `posix` member they
+// start using that isn't here fails `npm test`.
 //
 // `sep` is `/`: a `find` pattern typed here is read the way s3cab on macOS or
 // Linux reads one, where `\` escapes the character after it (ADR-0115). The

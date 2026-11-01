@@ -1,4 +1,4 @@
-import { showControlChars } from "./format.mjs";
+import { showControlChars } from "./control-chars.mjs";
 import { deleteObject, getBytes, listObjects, putText } from "./s3.mjs";
 import {
   FILE,

@@ -8,7 +8,7 @@ import {
   literalPattern,
   strayEscape,
 } from "./path-match.mjs";
-import { showControlChars } from "./format.mjs";
+import { showControlChars } from "./control-chars.mjs";
 import { activeLines } from "./read-lines.mjs";
 
 /**
@@ -117,6 +117,10 @@ export function parseExclude(text, escapes = ESCAPES) {
  * @returns {Error | undefined}
  */
 export function unusableExcludeError(patterns, file, escapes = ESCAPES) {
+  // `?`, not `*`: a `*` can join a `*` beside it into `**`, which crosses
+  // folders. Where `\` escapes, one escaping the tab goes with it, since a `\?`
+  // would match only `?`; group 1 keeps the escaped `\\` pairs before it.
+  const unwritable = escapes ? /(?<!\\)((?:\\\\)*)\\?[\t\r]/g : /()[\t\r]/g;
   // After the trim, so a CRLF file's line endings never get here.
   const controls = patterns.filter((pattern) => /[\t\r]/.test(pattern));
   if (controls.length) {
@@ -128,9 +132,9 @@ export function unusableExcludeError(patterns, file, escapes = ESCAPES) {
       `Can't use the set's exclude file, because ${these} a tab or a carriage ` +
         `return (${file}):\n` +
         controls.map((pattern) => `  ${showControlChars(pattern)}`).join("\n") +
-        `\nWrite * in place of the character, which still matches it:\n` +
+        `\nWrite ? in place of each, which still matches it:\n` +
         controls
-          .map((pattern) => `  ${pattern.replaceAll(/[\t\r]+/g, "*")}`)
+          .map((pattern) => `  ${pattern.replaceAll(unwritable, "$1?")}`)
           .join("\n"),
     );
   }

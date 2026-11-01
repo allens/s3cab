@@ -258,8 +258,18 @@ describe("unusableExcludeError", () => {
       error?.message,
       "Can't use the set's exclude file, because this pattern contains a " +
         "tab or a carriage return (x.txt):\n  a␉b\n" +
-        "Write * in place of the character, which still matches it:\n  a*b",
+        "Write ? in place of each, which still matches it:\n  a?b",
     );
+  });
+
+  it("offers a ? that can't make a ** or be escaped", () => {
+    const offered = (/** @type {string} */ pattern, escapes = true) =>
+      unusableExcludeError([pattern], "x", escapes)?.message.split("\n").at(-1);
+    assert.equal(offered("logs*\t/keep.txt"), "  logs*?/keep.txt");
+    assert.equal(offered("a\\\tb"), "  a?b");
+    assert.equal(offered("a\\\\\tb"), "  a\\\\?b");
+    assert.equal(offered("a\t\rb"), "  a??b");
+    assert.equal(offered("a\\\tb", false), "  a\\?b");
   });
 
   it("names each stray \\, offering it as a separator where that leaves a pattern", () => {

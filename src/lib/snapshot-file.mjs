@@ -20,8 +20,8 @@ import {
   formatByteValue,
   localMoment,
   shortDuration,
-  showControlChars,
 } from "./format.mjs";
+import { showControlChars } from "./control-chars.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
 import {
   foldsCase,

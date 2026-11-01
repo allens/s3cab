@@ -16,7 +16,8 @@ import {
   parseExclude,
   unusableExcludeError,
 } from "./exclude.mjs";
-import { formatCount, secondsSince, showControlChars } from "./format.mjs";
+import { showControlChars } from "./control-chars.mjs";
+import { formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";

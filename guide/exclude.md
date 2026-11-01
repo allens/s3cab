@@ -123,7 +123,7 @@ to every directory in the set.
 - When several patterns match, the first in the file is the one recorded as
   leaving the path out.
 - A pattern can't contain a tab or a carriage return: s3cab stops and names it.
-  Write `*` in place of the character, which still matches it.
+  Write `?` in place of each, which still matches it.
 - A file whose name holds a tab, CR or LF, or isn't valid Unicode, stops the
   backup, which names it. Rename it, or leave it out with a pattern such as
   `odd*name.jpg`.
