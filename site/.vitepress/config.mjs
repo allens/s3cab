@@ -131,6 +131,16 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
+  // The theme makes every image a block, so the README's badges, a row on
+  // GitHub, would stack one per line on the home page. The margin stands in
+  // for the space between them, which the build drops.
+  head: [
+    [
+      "style",
+      {},
+      ".vp-doc img[src^='https://img.shields.io/'] { display: inline-block; margin: 0 0.25rem 0 0; }",
+    ],
+  ],
   // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
   // guide/[topic].md), not the README or guide file it renders.
   markdown: {
