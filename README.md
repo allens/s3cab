@@ -117,14 +117,33 @@ Wasabi and the like, run `s3cab help provider`. With a bucket in hand:
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.
 #    --keys prompts for your access key + secret (never passed as flags).
 > s3cab setup --set photos --bucket my-backups --keys C:\Users\me\Photos
+Access key ID: AKIAIOSFODNN7EXAMPLE
+Secret access key (hidden):
 Contacting the cloud…
+Wrote a starter exclude file — these patterns are skipped by default:
+  **\node_modules\
+  **\.git\
+  **\.DS_Store
+  **\Thumbs.db
+  **\._*
+  **\desktop.ini
+  $RECYCLE.BIN\
+  System Volume Information\
+Edit C:\Users\me\.s3cab\sets\photos\exclude.txt to change what's skipped — see 's3cab help exclude'.
 Set 'photos' → bucket 'my-backups'
 dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
   C:\Users\me\Photos
 
 # 2. Back it up to the cloud. With one set, you can leave its name out.
 > s3cab backup
+Using s3cab home 'C:\Users\me\.s3cab'
 Contacting the cloud…
+Scanning existing objects in 's3://my-backups'… 0 in 0 sec
+Backing up 'photos/20251110T2104' ('~\.s3cab\sets\photos\snapshots\20251110T2104.tsv.gz'):
+Storing objects in 's3://my-backups'
+Using exclude file '~\.s3cab\sets\photos\exclude.txt'
+Finding files in '~\Photos'… 1,312 in 3 sec
+ 6m 10s  1,312/1,312  (Uploaded: 4.2GB)
 Backed up 'photos' → snapshot 20251110T2104
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
@@ -146,8 +165,7 @@ so pass `--overwrite` when you actually want to replace what's there.
 [guide/getting-started.md](guide/getting-started.md) walks through this loop on a folder
 that doesn't matter, with what each step did and why.
 
-Step 1 also drops a starter `exclude.txt` beside the set and lists what it will skip by
-default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
+To change what step 1's starter `exclude.txt` skips, edit that file
 ([guide/exclude.md](guide/exclude.md), or `s3cab help exclude`).
 
 ### Seeing what changed

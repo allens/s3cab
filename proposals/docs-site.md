@@ -16,10 +16,14 @@ read).
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
   says what it checks and how. **Still open:** every transcript it doesn't name, and in the
-  ones it does, the middle of `guide/getting-started.md`'s `setup --keys` transcript — the two
-  key prompts and the starter-exclude notice, derived from `setup.mjs` and `sets.mjs` and
-  never produced by a run — and its `Compare now? [y/N] y` line, typed into the test rather
-  than read from `promptYesNo`.
+  ones it does, the lines a command prints around its result: `setup --keys`'s two key prompts
+  and starter-exclude notice (README and `guide/getting-started.md`) and the README `backup`'s
+  home and progress lines, last confirmed by hand against a real run on 2026-11-01; and the
+  tutorial's `Compare now? [y/N] y` line, typed into the test rather than read from
+  `promptYesNo`. **Known drift:** every set command opens with `Using s3cab home '…'`
+  (`loadSet`), and `backup` prints progress lines before its report. Most set-command
+  transcripts leave the home line out (the tutorial's, `restore`, `extract`, `forget`), and the
+  tutorial's `backup` leaves out both.
 - **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
   visible inconsistency. Needs a markdown construct that still reads acceptably raw. The
   story ([test/helpers/story.mjs](../test/helpers/story.mjs)) already has a Windows and a
