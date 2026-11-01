@@ -962,6 +962,9 @@ substitute: it is a content hash only for single-part uploads to AWS.
 4. Download `objects/<its-hash>` from the bucket. That is your file, byte for byte; the row
    tells you its original path and modification time.
 
+To try it on a real bucket first, take the challenge:
+[the day s3cab disappeared](https://s3cab.plantegral.com/challenge).
+
 Or write a replacement tool in an afternoon — that is the point.
 
 ## Writing your own tool

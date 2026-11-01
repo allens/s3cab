@@ -117,6 +117,7 @@ export const commands = {
   },
   list: {
     summary: "List backup sets and their snapshots",
+    guide: "getting-started",
     examples: ["s3cab list", "s3cab list photos --remote"],
     args: {
       set: {
@@ -200,6 +201,7 @@ export const commands = {
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",
+    guide: "getting-started",
     examples: ["s3cab status", "s3cab status photos"],
     args: {
       set: {
@@ -309,6 +311,7 @@ export const commands = {
   },
   setup: {
     summary: "Create a backup set",
+    guide: "getting-started",
     examples: [
       "s3cab setup --set photos --bucket my-backups C:\\Users\\me\\Photos",
     ],
