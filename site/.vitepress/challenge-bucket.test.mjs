@@ -26,7 +26,7 @@ describe("the challenge bucket", () => {
       .filter((key) => /^snapshots\/photos\/\d{8}T\d{4}\.tsv\.gz$/.test(key))
       .sort()
       .at(-1);
-    assert.equal(latest, "snapshots/photos/20260902T2047.tsv.gz");
+    assert.equal(latest, "snapshots/photos/20260814T0930.tsv.gz");
 
     // Decompressed, its last line is the `.` that says it's whole.
     const lines = gunzipSync(readFileSync(join(bucket.path, latest)))
@@ -34,11 +34,11 @@ describe("the challenge bucket", () => {
       .split("\n");
     assert.deepEqual(lines.slice(-2), [".", ""]);
 
-    // Its one file row whose path ends in /beach.jpg, and that row's hash.
+    // Its one file row whose path ends in \beach.jpg, and that row's hash.
     const rows = lines
       .map((line) => line.split("\t"))
       .filter(
-        ([type, , , , path]) => type === "-" && path?.endsWith("/beach.jpg"),
+        ([type, , , , path]) => type === "-" && path?.endsWith("\\beach.jpg"),
       );
     assert.equal(rows.length, 1);
     const hash = rows[0]?.[1]?.trim() ?? "";
@@ -61,15 +61,40 @@ describe("the challenge bucket", () => {
 
     const dir = join(bucket.path, "snapshots", "photos");
     const names = readdirSync(dir);
-    assert.equal(names.length, 2);
+    assert.equal(names.length, 4);
     for (const name of names) {
       const snapshot = await parseCompressedSnapshotStream(
         createReadStream(join(dir, name)),
       );
       assert.deepEqual([...snapshot.refused], [], name);
-      assert.deepEqual(snapshot.dirs, ["/home/me/Photos/"], name);
+      assert.deepEqual(snapshot.dirs, ["C:\\Users\\me\\Photos\\"], name);
       assert.ok(snapshot.entries.size > 0, name);
     }
+  });
+
+  // What the answer's closing paragraph says of the first two snapshots.
+  it("stores a copy and a move once, five objects in all", async () => {
+    await using bucket = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));
+    await writeChallengeBucket(bucket.path);
+
+    /** @param {string} name */
+    const hashes = (name) =>
+      new Map(
+        gunzipSync(readFileSync(join(bucket.path, "snapshots", "photos", name)))
+          .toString("utf8")
+          .split("\n")
+          .map((line) => line.split("\t"))
+          .filter(([type]) => type === "-")
+          .map(([, hash = "", , , path = ""]) => [
+            path.slice(path.lastIndexOf("\\") + 1),
+            hash.trim(),
+          ]),
+      );
+    const first = hashes("20251110T2104.tsv.gz");
+    const second = hashes("20251111T0830.tsv.gz");
+    assert.equal(second.get("brand-logo.png"), second.get("logo.png"));
+    assert.equal(second.get("diary.txt"), first.get("notes.txt"));
+    assert.equal(readdirSync(join(bucket.path, "objects")).length, 5);
   });
 
   it("is the same bytes every time it is built", async () => {
