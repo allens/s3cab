@@ -1,6 +1,7 @@
 # The docs site renders guide/ in place and Cloudflare Pages serves it
 
-**Status:** accepted & implemented (2026-10-31).
+**Status:** accepted & implemented (2026-10-31); amended 2026-11-01 for the generated command
+reference.
 
 ## Context
 
@@ -23,6 +24,15 @@ anchors the way GitHub does and points links that leave the site at GitHub, so a
 GitHub reads the same on both. The build fails on a link to a missing page or `#anchor`, which
 makes CI's `docs` job the link check. (VitePress is pinned to an exact 2.0 alpha; the reason is in
 `site/.vitepress/config.mjs`.)
+
+**The command reference is generated, not rendered from a file.** `/commands/<name>`, one page
+per command, and its index at `/commands/` are built at build time from the command registry
+with `src/help.mjs`'s own helpers (`site/.vitepress/command-pages.mjs`), so a page can't say
+anything `--help` doesn't, and nothing generated is committed to go stale. They live outside
+`guide/`, which ships in the npm tarball as markdown a person wrote. The CLI prints none of these
+URLs, but the README links every one, and the README ships in every tarball, so they are held to
+the same rule as `/guide/<topic>`: a page that moves, or a command that is renamed, gets a
+`_redirects` line.
 
 **Cloudflare Pages builds and serves it, through its own GitHub app**: production from `main`, a
 preview for every other branch. This repo has no deploy job and holds no Cloudflare credential.

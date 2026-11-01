@@ -279,8 +279,9 @@ Four layout notes the README and code don't carry:
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
   **The command reference (`/commands/<name>`) and the README's command tables are generated
-  from the registry** by `site/.vitepress/command-pages.mjs`: edit `src/commands.mjs`, never a
-  page, and paste the tables `npm test` prints when the README falls out of step.
+  from the registry** by `site/.vitepress/command-pages.mjs`: edit `src/commands.mjs` (or the
+  `src/command-details.mjs` text it names), never a page, and paste the tables `npm test`
+  prints when the README falls out of step.
   **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
   GitHub app, so this repo holds no deploy job and no Cloudflare secret
   ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)). The build command
