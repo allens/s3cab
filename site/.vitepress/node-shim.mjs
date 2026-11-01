@@ -1,7 +1,7 @@
 // What s3cab's browser-safe lib modules (src/lib/find-pattern.mjs,
-// src/lib/exclude.mjs, src/lib/read-lines.mjs and what they import) take from
-// Node, for the docs site's pattern playgrounds. The config hands this module
-// to them in place of `node:path`, `node:util` and `node:fs`, so it exports
+// src/lib/exclude.mjs and what they import) take from Node, for the docs
+// site's pattern playgrounds. The config hands this module to them in place
+// of `node:path` and `node:util`, so it exports
 // exactly the names they import; one they start importing that isn't here
 // fails `npm run docs:build`. The playgrounds' tests run through this module
 // too, so a `posix` member they start using that isn't here fails `npm test`.
@@ -73,12 +73,3 @@ export const win32 = {
  * @param {string} text
  */
 export const styleText = (_format, text) => text;
-
-/**
- * `fs.readFileSync`, for read-lines.mjs's import: the playground calls only its
- * `parseLines`, and a page has no files to read.
- * @returns {never}
- */
-export const readFileSync = () => {
-  throw new Error("A web page has no files to read.");
-};

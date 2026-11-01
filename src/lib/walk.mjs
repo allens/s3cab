@@ -1,6 +1,7 @@
 import {
   existsSync,
   lstatSync,
+  readFileSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -10,13 +11,17 @@ import { isUtf8 } from "node:buffer";
 import { isAbsolute, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
-import { compileExcludePatterns } from "./exclude.mjs";
+import { compileExcludePatterns, parseExclude } from "./exclude.mjs";
 import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { preparePath } from "./path-match.mjs";
+import {
+  asFolders,
+  ESCAPE_RULE,
+  preparePath,
+  strayEscape,
+} from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
-import { readLines } from "./read-lines.mjs";
 
 /**
  * @import { Dirent, Stats } from "node:fs"
@@ -76,8 +81,10 @@ export function walkSet(set) {
  * @returns {string[]} The exclude glob patterns (guide/exclude.md)
  */
 export function readExcludePatterns(excludePath) {
-  const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
-  // ADR-0100. After `readLines`' trim, so a CRLF file's line endings never get here.
+  const patterns = existsSync(excludePath)
+    ? parseExclude(readFileSync(excludePath, "utf8"))
+    : [];
+  // ADR-0100. After the trim, so a CRLF file's line endings never get here.
   const unusable = patterns.filter((pattern) => /[\t\r]/.test(pattern));
   if (unusable.length) {
     const these =
@@ -92,6 +99,25 @@ export function readExcludePatterns(excludePath) {
         unusable
           .map((pattern) => `  ${pattern.replaceAll(/[\t\r]+/g, "*")}`)
           .join("\n"),
+    );
+  }
+  // ADR-0115. The likeliest cause is a file written on Windows, where `\`
+  // separates folders, so that is the fix offered first.
+  const stray = patterns.filter((pattern) => strayEscape(pattern));
+  if (stray.length) {
+    const folders = stray.map(asFolders).filter((line) => line !== undefined);
+    const these =
+      stray.length === 1 ? "this pattern has" : "these patterns have";
+    throw new Error(
+      `Can't use the set's exclude file, because ${these} a \\ that escapes ` +
+        `nothing (${tildeify(excludePath)}):\n` +
+        stray.map((pattern) => `  ${pattern}`).join("\n") +
+        `\n${ESCAPE_RULE}` +
+        (folders.length
+          ? ` If the \\ separates folders, write:\n` +
+            folders.map((pattern) => `  ${pattern}`).join("\n")
+          : "") +
+        `\nFor a backslash in a name, write \\\\.`,
     );
   }
   if (patterns.length) {

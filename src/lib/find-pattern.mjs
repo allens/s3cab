@@ -1,7 +1,13 @@
 import { posix, sep } from "node:path";
 
 import { ValidationError } from "./error.mjs";
-import { globSource } from "./path-match.mjs";
+import {
+  asFolders,
+  ESCAPE_RULE,
+  globSource,
+  STRAY_ESCAPE,
+  strayEscape,
+} from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 
 /** @import { PreparedPath } from "./path-match.mjs" */
@@ -40,14 +46,31 @@ import { shellCommand } from "./style.mjs";
  * different right answers: the pattern was typed at this machine's shell, so a
  * Windows user typing `secretsdir\secret1` means a separator; the path came out
  * of a snapshot that may have been taken on another OS entirely, so only its own
- * shape can say how it is spelled (`preparePath`). The consequence is a POSIX
- * filename containing a literal backslash can't be named by a pattern — a wart
- * worth the two rules being independently correct.
+ * shape can say how it is spelled (`preparePath`). So a Windows pattern can't
+ * name a POSIX filename containing a backslash; on Linux and macOS `\` escapes,
+ * and `\\` names one (ADR-0115).
  * @param {string} pattern - As the user typed it
  * @returns {FindMatcher}
- * @throws {ValidationError} On a pattern with nothing in it to match
+ * @throws {ValidationError} On a pattern with nothing in it to match, or one
+ *   with a `\` that escapes nothing
  */
 export function compileFindPattern(pattern) {
+  if (strayEscape(pattern)) {
+    const quoted = (/** @type {string} */ text) =>
+      `'${text.replaceAll("'", "'\\''")}'`;
+    const folders = asFolders(pattern);
+    const doubled = pattern.replaceAll(STRAY_ESCAPE, "$1\\\\");
+    throw new ValidationError(
+      `The pattern '${pattern}' has a \\ that escapes nothing. ${ESCAPE_RULE}` +
+        (folders
+          ? ` If the \\ separates folders:\n\n` +
+            `  ${shellCommand(`s3cab find ${quoted(folders)}`)}\n\n`
+          : "\n\n") +
+        `For a backslash in a name:\n\n` +
+        `  ${shellCommand(`s3cab find ${quoted(doubled)}`)}`,
+    );
+  }
+
   const slashed = pattern.split(sep).join(posix.sep);
   const directory = slashed.endsWith(posix.sep);
   const body = directory ? slashed.slice(0, -1) : slashed;

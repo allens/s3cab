@@ -10,6 +10,7 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
+import { ESCAPES } from "./path-match.mjs";
 import {
   backupMatcher,
   readExcludePatterns,
@@ -477,6 +478,55 @@ describe("readExcludePatterns (ADR-0100)", () => {
       "*.tmp",
       "cache/",
     ]);
+  });
+
+  it(
+    "keeps an escaped space at a line's end, CRLF or not (ADR-0115)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const excludePath = join(dir.path, "exclude.txt");
+      writeFileSync(excludePath, "notes\\ \r\nold\\  \n");
+      assert.deepStrictEqual(readExcludePatterns(excludePath), [
+        "notes\\ ",
+        "old\\ ",
+      ]);
+    },
+  );
+
+  it(
+    "refuses a \\ that escapes nothing, offering / as the separator (ADR-0115)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const excludePath = join(dir.path, "exclude.txt");
+      // The CR of a CRLF line is not what the backslash escapes. The second
+      // line is the shape a Windows-written exclude.txt brings with it.
+      writeFileSync(
+        excludePath,
+        "*.tmp\nodd\\\r\n**\\node_modules\\\n**\\Thumbs.db\n" +
+          "fine\\\\ \\#\\*\\?\nsub\\/x\n",
+      );
+      assert.throws(
+        () => readExcludePatterns(excludePath),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes("because these patterns have a \\") &&
+          error.message.includes("\n  odd\\\n") &&
+          error.message.includes("\n  sub\\/x\n") &&
+          error.message.includes("\n  **/node_modules/\n") &&
+          error.message.includes("\n  **/Thumbs.db\n") &&
+          error.message.includes("\n  sub/x\n") &&
+          !error.message.includes("fine"),
+      );
+    },
+  );
+
+  it("shows a tab in a pattern before any other refusal", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "a\tb\\\n");
+    assert.throws(() => readExcludePatterns(excludePath), /a␉b/);
   });
 });
 

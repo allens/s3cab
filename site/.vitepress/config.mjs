@@ -249,7 +249,7 @@ export default defineConfig({
           if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
             return null;
           }
-          if (["path", "util", "fs"].includes(id.replace(/^node:/, ""))) {
+          if (["path", "util"].includes(id.replace(/^node:/, ""))) {
             return nodeShim;
           }
           this.error(
