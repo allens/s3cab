@@ -98,6 +98,39 @@ it("opens the home page, and only the home page, with the recording", async () =
   );
 });
 
+const WINDOWS = "```console windows\n> s3cab list\n```\n";
+const POSIX = "```console posix\n> s3cab list\n```\n";
+
+/** @param {string} src */
+const renderGuide = (src) => render(src, "guide/find.md", "guide/find.md");
+
+it("makes a windows fence and the posix one after it one switch, highlighted as the language", async () => {
+  const html = await renderGuide(WINDOWS + POSIX);
+  assert.equal(html.match(/class="os-switch"/g)?.length, 1);
+  assert.equal(html.match(/role="tab"/g)?.length, 2);
+  assert.equal(html.match(/role="tabpanel"/g)?.length, 2);
+  assert.match(html, /aria-controls="os-1-posix"/);
+  assert.match(html, /id="os-1-posix"/);
+  assert.match(html, /class="language-console/);
+  assert.doesNotMatch(html, /language-console (windows|posix)/);
+});
+
+it("makes two examples with no prose between them two switches", async () => {
+  const html = await renderGuide(WINDOWS + POSIX + WINDOWS + POSIX);
+  assert.equal(html.match(/class="os-switch"/g)?.length, 2);
+  assert.match(html, /id="os-2-windows"/);
+});
+
+it("fails a variant without its partner, which would vanish for the other OS", async () => {
+  for (const src of [
+    WINDOWS,
+    POSIX + WINDOWS,
+    WINDOWS + "\nprose\n\n" + POSIX,
+  ]) {
+    await assert.rejects(renderGuide(src), /guide\/find\.md:1: an OS example/);
+  }
+});
+
 it("indexes a generated page's content, and any other page's file", async () => {
   const { search } = /** @type {DefaultTheme.Config} */ (config.themeConfig);
   const searchedPage =

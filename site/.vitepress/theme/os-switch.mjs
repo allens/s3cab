@@ -57,7 +57,8 @@ function onClick(event) {
 function onKeydown(event) {
   const tab = tabOf(event);
   const tabs = tab?.parentElement?.querySelectorAll(TAB);
-  if (!tab || !tabs) {
+  // Alt+Left is the browser's back, Ctrl+Home the page's top.
+  if (!tab || !tabs || event.altKey || event.ctrlKey || event.metaKey) {
     return;
   }
   const at = [...tabs].indexOf(tab);

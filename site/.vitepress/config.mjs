@@ -112,7 +112,9 @@ const OS_LABELS = { windows: "Windows", posix: "macOS / Linux" };
  * then `console posix`) become one example with a tab per OS. GitHub shows the
  * fences one after the other, so the pages read fine there. Which
  * tab shows is the `data-os` on `<html>`, set by `osChoice` below and by
- * theme/os-switch.mjs; without it every variant shows, under its label.
+ * theme/os-switch.mjs; without it every variant shows, under its label. A
+ * variant without its partner fails the build: alone, it would vanish for the
+ * other OS's readers.
  * @param {MarkdownIt} md
  */
 function osVariants(md) {
@@ -124,13 +126,21 @@ function osVariants(md) {
     const tokens = [];
     /** @type {[string, (typeof state.tokens)[number]][]} */
     let group = [];
+    let switches = 0;
     const flush = () => {
       if (!group.length) {
         return;
       }
+      if (group.map(([os]) => os).join() !== "windows,posix") {
+        const line = (group[0]?.[1].map?.[0] ?? 0) + 1;
+        throw new Error(
+          `${state.env.relativePath}:${line}: an OS example is a \`windows\` fence, then a \`posix\` one`,
+        );
+      }
+      const id = `os-${++switches}`;
       const tabs = group.map(
         ([os]) =>
-          `<button type="button" role="tab" data-os="${os}">${OS_LABELS[os]}</button>`,
+          `<button type="button" role="tab" id="${id}-${os}-tab" aria-controls="${id}-${os}" data-os="${os}">${OS_LABELS[os]}</button>`,
       );
       tokens.push(
         html(
@@ -140,7 +150,7 @@ function osVariants(md) {
       for (const [os, fence] of group) {
         tokens.push(
           html(
-            `<div class="os-variant" data-os="${os}"><p class="os-label">${OS_LABELS[os]}</p>\n`,
+            `<div class="os-variant" role="tabpanel" id="${id}-${os}" aria-labelledby="${id}-${os}-tab" data-os="${os}"><p class="os-label">${OS_LABELS[os]}</p>\n`,
           ),
           fence,
           html("</div>\n"),
@@ -155,6 +165,10 @@ function osVariants(md) {
           /^(\S+) +(windows|posix)$/.exec(token.info.trim())) ||
         [];
       if (lang && os) {
+        // A second example straight after the first, with no prose between.
+        if (group.some(([seen]) => seen === os)) {
+          flush();
+        }
         token.info = lang;
         group.push([os, token]);
       } else {

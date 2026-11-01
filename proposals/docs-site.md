@@ -27,9 +27,8 @@ read).
   tutorial's `backup` leaves out both.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11).
-- **OS switcher on the last six examples.** The switcher is built (`osVariants` in
-  `site/.vitepress/config.mjs`) and covers 17 examples on six pages. Still one OS:
-  `auth.md`'s two `provider` transcripts and `aws.md`'s deploy recipe, which show `~/.s3cab/…`
+- **OS variants for the examples still on one OS** (the switcher is `osVariants` in
+  `site/.vitepress/config.mjs`): `auth.md`'s two `provider` transcripts and `aws.md`'s deploy recipe, which show `~/.s3cab/…`
   where Windows prints `~\.s3cab\…`; and the tutorial (`getting-started.md`), whose `setup`,
   `restore` and `list photos` transcripts are Windows only by the page's own choice ("The
   pages use Windows paths").

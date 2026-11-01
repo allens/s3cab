@@ -356,10 +356,24 @@ const photo = (os, ...parts) => {
 // variant is checked by a run on that OS.
 const here = process.platform === "win32" ? "windows" : "posix";
 
+const OSES = /** @type {(keyof typeof WORLDS)[]} */ (Object.keys(WORLDS));
+
+// The site's `osVariants` tabs only these; another word after the language
+// would leave the example a plain block, unchecked.
+it("tags each OS variant windows or posix", () => {
+  for (const page of PAGES) {
+    for (const [, info = ""] of readFileSync(page, "utf8").matchAll(FENCE)) {
+      const { os } = fenceLang(info);
+      assert.ok(
+        os === undefined || OSES.some((known) => known === os),
+        `${page}: '${info.trim()}'`,
+      );
+    }
+  }
+});
+
 describe("documented output", () => {
-  for (const os of /** @type {(keyof typeof WORLDS)[]} */ (
-    Object.keys(WORLDS)
-  )) {
+  for (const os of OSES) {
     const onOs = { skip: os !== here && `the ${os} variant prints on ${os}` };
 
     it(`guide/compare.md shows what compare prints (${os})`, onOs, async () => {
@@ -769,9 +783,10 @@ const CLOUD = [
         ),
       ),
   },
-  {
+  ...OSES.map((os) => ({
     page: "guide/maintenance.md",
     command: "s3cab delete --bucket my-backups --from-file footage.txt",
+    os,
     ending: true,
     output: () =>
       printed("delete", {
@@ -782,7 +797,7 @@ const CLOUD = [
         record: "s3://my-backups/objects.deleted-1.tsv",
         deleted: true,
       }),
-  },
+  })),
   {
     page: "guide/maintenance.md",
     command: "s3cab cleanup my-backups",
@@ -846,8 +861,7 @@ const CLOUD = [
         throw noBackupsError("photos");
       }),
   },
-  ...Object.keys(WORLDS).flatMap((key) => {
-    const os = /** @type {keyof typeof WORLDS} */ (key);
+  ...OSES.flatMap((os) => {
     /** @param {...string} parts */
     const at = (...parts) => photo(os, ...parts);
     return [

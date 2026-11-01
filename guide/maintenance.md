@@ -249,8 +249,21 @@ pattern match. [`find`](find.md) is the search — it turns a name into the **co
 hashes** that back it, one per line, with everything it knows about them in comments. You
 review that file, cut anything you want to keep, and hand it back:
 
-```console
+```console windows
 > s3cab find raw-footage\ > footage.txt
+> s3cab delete --bucket my-backups --from-file footage.txt
+Contacting the cloud…
+Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
+
+This permanently removes the content above from every backup in 'my-backups'.
+Type the bucket name to proceed: my-backups
+Record of this removal — verify and restore read it to tell deliberate removal from damage:
+  s3://my-backups/objects.deleted-1.tsv
+my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
+```
+
+```console posix
+> s3cab find raw-footage/ > footage.txt
 > s3cab delete --bucket my-backups --from-file footage.txt
 Contacting the cloud…
 Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
