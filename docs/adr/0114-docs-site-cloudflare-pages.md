@@ -63,8 +63,9 @@ on that hostname takes the whole site off the air. Platform's `zone-plantegral-c
   `pages.dev` answers HTTP with a 301 to HTTPS, which risks a redirect loop.
 - **The `docs-urls` workflow checks the live URLs daily**, since a hosting change in the
   platform repo is invisible from here. [scripts/docs-urls.mjs](../../scripts/docs-urls.mjs)
-  fetches `/`, `/guide/` and each `/guide/<topic>` from the production domain. The list is
-  built from `guide/`, and `npm test` fails on any site URL in `src/` that isn't on it.
+  builds the list of frozen URLs from the checkout, its `frozenUrls` saying what is on it,
+  and fetches each from the production domain; `npm test` fails on any site URL in `src/`
+  that isn't on it.
 
 Verified at the cutover: `/`, `/guide/` and all ten `/guide/<topic>` pages return 200 with no
 redirect on `s3cab.pages.dev` and on `s3cab.plantegral.com`; `/guide/nope` returns the site's own

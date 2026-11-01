@@ -100,8 +100,8 @@ step 2.
 
 ```console
 > s3cab provider photos
-AWS profile for set 'photos': s3cab-backup   (~/.s3cab/sets/photos/env)
-AWS region for set 'photos': eu-west-1   (~/.s3cab/sets/photos/env)
+AWS profile for set 'photos': s3cab-backup   (~\.s3cab\sets\photos\env)
+AWS region for set 'photos': eu-west-1   (~\.s3cab\sets\photos\env)
 ```
 
 Each line names the setting, the set, and the file it came from. A set with nothing of its own
@@ -120,7 +120,7 @@ against your AWS config and tells you if it isn't there — a typo caught now ra
 your next backup:
 
 ```console
-AWS profile for set 'photos': typo-profile   (~/.s3cab/sets/photos/env)
+AWS profile for set 'photos': typo-profile   (~\.s3cab\sets\photos\env)
 Not in your AWS config — no credentials to use.
 To fix it:  aws configure --profile typo-profile
 ```

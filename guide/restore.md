@@ -8,14 +8,8 @@ everyday one to the rare backstop:
 - **everything**, onto a working or a replacement machine — the disaster-recovery case, with
   `--all`.
 
-```console windows
+```console
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
-Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20260612T0915).
-```
-
-```console posix
-> s3cab restore --set photos /home/me/Pictures/beach.jpg
 Contacting the cloud…
 Restored 1 file from 'photos' (snapshot 20260612T0915).
 ```
@@ -34,7 +28,7 @@ paths you want back.
 
 You always say what you want back: paths, a list of them, or `--all` (`-a`) for everything.
 
-```console windows
+```console
 # One file
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 
@@ -43,23 +37,6 @@ You always say what you want back: paths, a list of them, or `--all` (`-a`) for 
 
 # Several at once
 > s3cab restore --set photos C:\Users\me\Photos\2024 C:\Users\me\Photos\beach.jpg
-
-# The paths listed in a file, one per line
-> s3cab restore --set photos --from-file paths.txt
-
-# Everything in the snapshot
-> s3cab restore --set photos --all
-```
-
-```console posix
-# One file
-> s3cab restore --set photos /home/me/Pictures/beach.jpg
-
-# A whole directory (everything under it)
-> s3cab restore --set photos /home/me/Pictures/2024
-
-# Several at once
-> s3cab restore --set photos /home/me/Pictures/2024 /home/me/Pictures/beach.jpg
 
 # The paths listed in a file, one per line
 > s3cab restore --set photos --from-file paths.txt
@@ -93,21 +70,11 @@ Three rules worth knowing:
 
 If nothing matches, restore stops rather than silently doing nothing:
 
-```console windows
+```console
 > s3cab restore --set photos C:\Users\me\Photos\nope.jpg
 Contacting the cloud…
 ERROR: No files in snapshot '20260612T0915' matched:
   C:\Users\me\Photos\nope.jpg
-
-Find how the backup spells a file, and which snapshots hold it:
-  s3cab find <pattern> --set photos
-```
-
-```console posix
-> s3cab restore --set photos /home/me/Pictures/nope.jpg
-Contacting the cloud…
-ERROR: No files in snapshot '20260612T0915' matched:
-  /home/me/Pictures/nope.jpg
 
 Find how the backup spells a file, and which snapshots hold it:
   s3cab find <pattern> --set photos
@@ -123,16 +90,10 @@ By default you get the **latest** snapshot. To pull an earlier version of a file
 older snapshot with `--snapshot` (`-s`) — the names are what `s3cab list <set> --remote`
 prints:
 
-```console windows
-> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+```console
+> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20251110T2104
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20260501T0800).
-```
-
-```console posix
-> s3cab restore --set photos /home/me/Pictures/report.pdf --snapshot 20260501T0800
-Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20260501T0800).
+Restored 1 file from 'photos' (snapshot 20251110T2104).
 ```
 
 This is the case a sync service can't help with once its short version history has expired.
@@ -149,29 +110,21 @@ Contacting the cloud…
 ERROR: Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
   20260612T0915
-  20260501T0800
+  20251111T0830
+  20251110T2104
 ```
 
 ## Existing files are never touched
 
 By default restore **skips any file that already exists** and tells you which:
 
-```console windows
-> s3cab restore --set photos --all
+```console
+> s3cab restore --set photos C:\Users\me\Photos\2019 C:\Users\me\Photos\report.pdf
 Contacting the cloud…
 Restored 2 files from 'photos' (snapshot 20260612T0915).
 
 Skipped 1 existing file (rerun with --overwrite to replace):
   C:\Users\me\Photos\report.pdf
-```
-
-```console posix
-> s3cab restore --set photos --all
-Contacting the cloud…
-Restored 2 files from 'photos' (snapshot 20260612T0915).
-
-Skipped 1 existing file (rerun with --overwrite to replace):
-  /home/me/Pictures/report.pdf
 ```
 
 This is the behaviour that makes restore safe to reach for. Your accidental deletion comes
@@ -182,12 +135,8 @@ nothing special: run the same command again, and it carries on past the files al
 
 Pass `--overwrite` when you genuinely want the backup's copy to win:
 
-```console windows
+```console
 > s3cab restore --set photos C:\Users\me\Photos\report.pdf --overwrite
-```
-
-```console posix
-> s3cab restore --set photos /home/me/Pictures/report.pdf --overwrite
 ```
 
 The skipped list is never truncated — each entry is a file you asked for and didn't get, so
@@ -232,16 +181,10 @@ Reach for it when:
 rather than at its full path the way `restore --output` does. It's the command for "let me
 look at last month's copy":
 
-```console windows
-> s3cab extract --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+```console
+> s3cab extract --set photos C:\Users\me\Photos\report.pdf --snapshot 20251110T2104
 Contacting the cloud…
-Extracted 1 file from 'photos' (snapshot 20260501T0800) to C:\Users\me\report.pdf.
-```
-
-```console posix
-> s3cab extract --set photos /home/me/Pictures/report.pdf --snapshot 20260501T0800
-Contacting the cloud…
-Extracted 1 file from 'photos' (snapshot 20260501T0800) to /home/me/report.pdf.
+Extracted 1 file from 'photos' (snapshot 20251110T2104) to C:\Users\me\report.pdf.
 ```
 
 - **One path per run**, a file or a folder, matched just as `restore` matches it. For several
@@ -317,7 +260,7 @@ backups of it are refused from then on.
   invariant is part of the [format spec](format.md) — and if something has removed content
   from the bucket behind s3cab's back, the next section is what you'll see.
 
-Progress prints to stderr (`Restoring 250/1,240…`), so it stays out of piped or redirected
+Progress prints to stderr (`Restoring 250/1,839…`), so it stays out of piped or redirected
 output. For the machine-readable result, add `--json` — see [output formats](output.md).
 
 ## If some content is missing from the backup
@@ -327,34 +270,21 @@ lifecycle rule that expired objects, someone tidying the bucket by hand, a partl
 bucket after an incident. When a file's content isn't there, restore **skips that file and
 carries on with the rest**, then lists everything it couldn't produce:
 
-```console windows
+```console
 > s3cab restore --set photos --all
 Contacting the cloud…
-Restored 1,238 files from 'photos' (snapshot 20260612T0915).
+Restored 1,837 files from 'photos' (snapshot 20260612T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
-  C:\Users\me\Photos\2019\hike.jpg
-  C:\Users\me\Photos\2019\summit.jpg
-
-The rest of the restore finished. To check the other backups in this bucket:
-  s3cab verify my-backups
-```
-
-```console posix
-> s3cab restore --set photos --all
-Contacting the cloud…
-Restored 1,238 files from 'photos' (snapshot 20260612T0915).
-
-Could not restore 2 files — the backup no longer holds their contents:
-  /home/me/Pictures/2019/hike.jpg
-  /home/me/Pictures/2019/summit.jpg
+  C:\Users\me\Photos\2024\sorted\IMG_001.jpg
+  C:\Users\me\Photos\2025\new.jpg
 
 The rest of the restore finished. To check the other backups in this bucket:
   s3cab verify my-backups
 ```
 
 The run exits non-zero, so a scripted restore can't mistake this for a clean one — but the
-1,238 files that _were_ recoverable are on disk. Stopping at the first casualty would be the
+1,837 files that _were_ recoverable are on disk. Stopping at the first casualty would be the
 worse outcome in exactly the situation you most need the backup.
 
 `s3cab verify <bucket>` is the follow-up: it checks every snapshot in the repository against
@@ -379,12 +309,8 @@ catches damage that changed a file's size but not damage that kept it — that o
 reveals. If an unchanged copy of a damaged file survives anywhere — another machine, a USB
 stick — upload it again to repair the backup's copy:
 
-```console windows
-> s3cab upload photos --file D:\old-laptop\Photos\2019\hike.jpg --force
-```
-
-```console posix
-> s3cab upload photos --file /mnt/old-laptop/Pictures/2019/hike.jpg --force
+```console
+> s3cab upload photos --file E:\Photos\report.pdf --force
 ```
 
 ## If there's nothing to restore

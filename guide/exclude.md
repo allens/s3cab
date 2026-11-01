@@ -3,10 +3,10 @@
 Files and directories to skip are listed in a backup set's exclude file,
 `~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
 `#` are comments, even indented; blank lines are ignored. Each line is trimmed of
-the whitespace around it, so a pattern can't start or end with a space: tab, VT,
-FF, CR, LF, every Unicode space (category Zs), U+2028, U+2029 and a byte-order
-mark, but not U+0085. So CRLF line endings, or a missing newline at the end, are
-fine.
+the whitespace around it: tab, VT, FF, CR, LF, every Unicode space (category Zs),
+U+2028, U+2029 and a byte-order mark, but not U+0085. So CRLF line endings, or a
+missing newline at the end, are fine. To match a name that starts with `#` or a
+space anyway, see **Names with special characters** below.
 
 A new set starts with a ready-made exclude file: it skips regenerable
 dependency trees (`node_modules`), `.git` directories, and operating-system
@@ -63,6 +63,27 @@ to every directory in the set.
   counts as one more.
 - If you know `.gitignore`, two things differ: there, `**` inside a name acts like
   a single `*` and stays within one directory, and `*` can match nothing at all.
+
+**Names with special characters**
+
+- On Linux and macOS, `\` makes the character after it match only itself: `\*`,
+  `\?`, `\#`, `\ ` (a space), and `\\` for a backslash.
+- So `what\?.txt` matches only `what?.txt`, and `notes\ ` the name `notes `.
+  A `\` keeps the space after it at the end of a line. Other blank characters,
+  such as a no-break space, escape the same way; a tab doesn't.
+- A `\` before any other character, or at the end of a line, escapes nothing,
+  and s3cab stops and names the pattern. An exclude file written on Windows,
+  with `\` between directories, usually stops it this way; write `/` instead.
+  A `\` there before a `*`, `?`, `#` or space is read as an escape, though, so
+  `**\*.tmp` matches only a file named `*.tmp`.
+- On Windows `\` separates directories, as everywhere else in Windows. No escape
+  is needed there, since Windows programs can't give a name a `*` or `?`.
+- On every system, a name starting with `#` or a space goes after a `\`: `\#notes`
+  matches `#notes`, and `\ draft` matches ` draft`. On Windows this works because
+  a separator at the start changes nothing.
+- On Windows, a name that ends in a space, or holds a `*` or `?`, can't be matched
+  on its own. Windows programs can't make such a name, so it only turns up on
+  files from elsewhere, such as a network share.
 
 **Directories and links**
 
@@ -140,3 +161,8 @@ To find out why one particular file isn't being backed up, search that listing
 for it — `s3cab tree --excluded | findstr beach.jpg` on Windows, or
 `s3cab tree --excluded | grep beach.jpg` elsewhere. The plain `s3cab tree` is the
 other half of the same question: everything that *would* be backed up.
+
+To try a pattern before you have a set, or against paths you only type out, the
+docs site has an
+[exclude-pattern playground](https://s3cab.plantegral.com/tools/exclude): the
+same matcher, in your browser.

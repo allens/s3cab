@@ -3,6 +3,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
+import { ESCAPES } from "../lib/path-match.mjs";
 
 // Offline tests for `backup`'s porcelain: the holder check up front, the fused
 // pass handed to `uploadSet` (lib/upload.mjs, where its order and failures are
@@ -196,6 +197,7 @@ describe("backup", () => {
       uploadMs: 2_000,
       errors: pass.errors,
       excludeSuggestions: [],
+      unexcludable: [],
       excludePath: "photos/exclude.txt",
       comparison,
     });
@@ -277,6 +279,26 @@ describe("backup", () => {
     const result = await backup("photos");
 
     assert.deepEqual(result.excludeSuggestions, ["a.pst"]);
+  });
+
+  it("suggests the line exclude.txt reads back as the file (ADR-0115)", async () => {
+    // A line is trimmed, so `notes ` as written would name `notes`. Windows
+    // has no escape for the space, so there the file gets no line at all.
+    const root = resolve("data", "docs");
+    pass.roots = [root];
+    const again = join(root, "notes ");
+    pass.errors = [{ path: again, reason: "EBUSY" }];
+    baseline.previousErrors = new Map([[again, "EBUSY"]]);
+
+    const result = await backup("photos");
+
+    if (ESCAPES) {
+      assert.deepEqual(result.excludeSuggestions, ["notes\\ "]);
+      assert.deepEqual(result.unexcludable, []);
+    } else {
+      assert.deepEqual(result.excludeSuggestions, []);
+      assert.deepEqual(result.unexcludable, [again]);
+    }
   });
 
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {

@@ -19,36 +19,13 @@ count; empty sections are left out. A closing line totals every category and the
 bytes that changed. (`s3cab snapshot` prints the same report after taking a
 snapshot, showing what changed since the previous one.)
 
-```console windows
-> s3cab compare photos --since 20251111T0830
-photos: ~\Photos  20251111T0830 → 20251112T0915
+```console
+> s3cab compare photos --since 20251110T2104
+photos: ~/Photos  20251110T2104 → 20251112T0915
 
 Added (2)
-  2025\new.jpg
   brand-logo.png  (duplicate of logo.png)
-
-Renamed (1)
-  notes.txt → diary.txt
-
-Moved (1)
-  2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
-
-Modified (1)
-  report.pdf
-
-Deleted (1)
-  old notes.txt
-
-2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 5.3MB changed
-```
-
-```console posix
-> s3cab compare photos --since 20251111T0830
-photos: ~/Pictures  20251111T0830 → 20251112T0915
-
-Added (2)
   2025/new.jpg
-  brand-logo.png  (duplicate of logo.png)
 
 Renamed (1)
   notes.txt → diary.txt
@@ -62,7 +39,7 @@ Modified (1)
 Deleted (1)
   old notes.txt
 
-2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 5.3MB changed
+2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 2.1MB changed
 ```
 
 The header names the set and, after it, the common parent directory the listed
@@ -71,7 +48,7 @@ form — the same report as a JSON structure with absolute paths — pass `--jso
 (see [output formats](output.md)).
 
 A first snapshot has nothing to compare against, so instead of listing your whole
-tree as "added" it collapses to a one-line count: `First snapshot: 1,234 files
+tree as "added" it collapses to a one-line count: `First snapshot: 1,312 files
 (4.2GB)`.
 
 ## The sections

@@ -1,6 +1,12 @@
-import { join, posix, sep } from "node:path";
+import { posix, win32 } from "node:path";
 
-import { globSource } from "./path-match.mjs";
+import {
+  ESCAPES,
+  globSource,
+  literalPattern,
+  strayEscape,
+} from "./path-match.mjs";
+import { activeLines } from "./read-lines.mjs";
 
 /**
  * Compile a set's exclude patterns for one member directory into a matcher that
@@ -13,29 +19,57 @@ import { globSource } from "./path-match.mjs";
  *   always describes a whole path beneath its root and `*`/`**` can't escape it —
  *   which is where `find` deliberately parts company (ADR-0088).
  * - **Either separator works, in patterns and paths alike**: `/` everywhere, `\`
- *   too on Windows. Both are converted to `/` before matching.
+ *   too on Windows. Both are converted to `/` before matching. Elsewhere `\`
+ *   escapes (ADR-0115).
  * - **A directory is matched with a trailing `/`**, so `build/` names only the
  *   directory and `build` only a file — a `**` reaches either.
  * - **The first matching pattern wins**, and is what the walk records as the
  *   pattern on its `#excluded` row.
  *
- * Names compare the way this machine's filesystem compares them by default:
+ * Names compare the way the platform's filesystem compares them by default:
  * ignoring case on Windows and macOS, and on macOS ignoring how an accent is
  * spelled too (one character, or a letter and a combining mark: NFC/NFD). The
  * platform is the right question here, unlike in `find`, because these patterns
- * only ever meet paths from this machine's own walk. Case folds by Unicode's
- * table, which joins a few rare letters NTFS keeps apart (the Kelvin sign and
- * `k`): not the `i` flag alone, which matched NTFS on those, because only `u`
- * makes `?` match a whole emoji.
+ * only ever meet paths from one machine's own walk, and `platform` names that
+ * machine. Case folds by Unicode's table, which joins a few rare letters NTFS
+ * keeps apart (the Kelvin sign and `k`): not the `i` flag alone, which matched
+ * NTFS on those, because only `u` makes `?` match a whole emoji.
  * @param {string} baseDir - The member directory the patterns are relative to
  * @param {string[]} patterns - Root-relative exclude globs, as the user wrote them
+ * @param {NodeJS.Platform} [platform] - The machine whose walk the paths come
+ *   from: this one, unless a caller is showing another's
  * @returns {(path: string, isDirectory: boolean) => string | undefined} The
  *   first pattern matching `path`, or `undefined` to keep it
  */
-export function compileExcludePatterns(baseDir, patterns) {
+export function compileExcludePatterns(
+  baseDir,
+  patterns,
+  platform = process.platform,
+) {
+  // Node's own choice of `node:path` flavour, made from `platform`.
+  const { join, sep } = platform === "win32" ? win32 : posix;
+  const escapes = sep === posix.sep;
+  const foldsAccents = platform === "darwin";
+  const flags = platform === "win32" || foldsAccents ? "iu" : "u";
+
+  /**
+   * A path or pattern with `/` separators, and on macOS in one accent spelling.
+   * @param {string} path
+   */
+  const spell = (path) => {
+    const slashed = path.split(sep).join(posix.sep);
+    return foldsAccents ? slashed.normalize("NFC") : slashed;
+  };
+
+  // The member directory is a path, not a pattern: a `\`, `*` or `?` in its
+  // name must match only itself.
+  const root = literalPattern(baseDir, escapes);
   const matchers = patterns.map((pattern) => ({
     pattern,
-    regex: compile(join(baseDir, pattern)),
+    regex: new RegExp(
+      `^${globSource(posix.normalize(spell(join(root, pattern))), escapes)}$`,
+      flags,
+    ),
   }));
 
   return (path, isDirectory) => {
@@ -47,26 +81,51 @@ export function compileExcludePatterns(baseDir, patterns) {
   };
 }
 
-const FOLDS_CASE =
-  process.platform === "win32" || process.platform === "darwin";
-const FOLDS_ACCENTS = process.platform === "darwin";
-
 /**
- * @param {string} pattern - Absolute exclude glob
- * @returns {RegExp}
+ * Parse exclude.txt text into its patterns: `parseLines`' rules, but a
+ * whitespace character a `\` at the end of a line escapes is part of the
+ * pattern (ADR-0115).
+ * @param {string} text
+ * @param {boolean} [escapes] - As for `literalPattern`
+ * @returns {string[]}
  */
-function compile(pattern) {
-  return new RegExp(
-    `^${globSource(posix.normalize(spell(pattern)))}$`,
-    FOLDS_CASE ? "iu" : "u",
+export function parseExclude(text, escapes = ESCAPES) {
+  return activeLines(
+    text.split("\n").map((line) => {
+      // A CRLF line's CR goes first, so it is never the escaped character.
+      const start = line.replace(/\r$/, "").trimStart();
+      const trimmed = start.trimEnd();
+      const kept = start.slice(0, trimmed.length + 1);
+      return strayEscape(trimmed, escapes) && !strayEscape(kept, escapes)
+        ? kept
+        : trimmed;
+    }),
   );
 }
 
 /**
- * A path or pattern with `/` separators, and on macOS in one accent spelling.
- * @param {string} path
+ * The line that names exactly `rel` when exclude.txt is read back, or
+ * `undefined` when there is none (ADR-0115). A leading `#` or space is written
+ * after a `\`, which escapes it on Linux and macOS and on Windows is a leading
+ * separator, which changes nothing. Windows has no escape, so a name there
+ * ending in a space, or holding a `*` or `?` (a share can), has no line; nor
+ * does a name with a control character, which no line holds and no terminal
+ * shows as written.
+ * @param {string} rel - A path relative to a member directory
+ * @returns {string | undefined}
  */
-function spell(path) {
-  const slashed = path.split(sep).join(posix.sep);
-  return FOLDS_ACCENTS ? slashed.normalize("NFC") : slashed;
+export function exactPattern(rel) {
+  if (/\p{Cc}/u.test(rel) || (!ESCAPES && /[*?]/.test(rel))) {
+    return undefined;
+  }
+  let pattern = literalPattern(rel);
+  if (pattern.trimEnd() !== pattern) {
+    if (!ESCAPES) {
+      return undefined;
+    }
+    pattern = `${pattern.slice(0, -1)}\\${pattern.slice(-1)}`;
+  }
+  return pattern.startsWith("#") || pattern.trimStart() !== pattern
+    ? `\\${pattern}`
+    : pattern;
 }
