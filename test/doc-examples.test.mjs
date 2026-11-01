@@ -51,7 +51,7 @@ import { join, resolve } from "node:path";
 import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
-import { errorReport, helpTopics } from "../src/help.mjs";
+import { errorReport, helpTopics, usage } from "../src/help.mjs";
 import { uploadRunningError } from "../src/lib/locks.mjs";
 import {
   noBackupsError,
@@ -866,10 +866,15 @@ function storyNames(code) {
   add("home", /(?<![\w.\\:])\/home\/([^/\s`'"]+)\/?([^/\s`'")]*)/g);
   add("home", /(?<![\w.\\:])\/(Users)\/([^/\s`'"]+)/g);
   add("home", /(?<![\w])~()[\\/]([^\\/\s`'")]+)/g);
-  add("identity", /(?<![\w.@-])([\w.-]+@[A-Za-z][\w-]*)(?![\w.@-])/g);
+  add(
+    "identity",
+    /(?<![\w.@-])([\w.-]+@[A-Za-z][\w-]*(?:\.[\w-]+)*)(?![\w@-])/g,
+  );
   // Every line that reads as a command, in any block: more than `codeOf`
   // takes, since a line that names no command is skipped here.
-  for (const [, line = ""] of code.matchAll(/^\s*(?:> )?(s3cab\s.*)$/gm)) {
+  for (const [, line = ""] of code.matchAll(
+    /^[ \t]*(?:> )?(s3cab[ \t].*)$/gm,
+  )) {
     const [, name = "", ...args] = argv(line);
     const command = commands[name];
     if (!command) {
@@ -939,8 +944,8 @@ describe("the story", () => {
 
   it("the built-in help names only what the story has", () => {
     const help = [
-      ...helpExamples.map(({ line }) => line),
-      ...Object.values(commands).map(({ details = "" }) => details),
+      usage(commands),
+      ...Object.keys(commands).map((name) => usage(commands, name)),
       ...Object.values(helpTopics),
     ].join("\n");
     assert.deepEqual(strangers(storyNames(help)), []);
@@ -964,10 +969,11 @@ describe("the story", () => {
       "```text",
       "@SET NAME videos",
       "OWNER=allen@DESKTOP",
+      "held by allen@Allens-MacBook.local.",
       "s3cab provider --keys garden",
       "```",
       "`~/.s3cab/sets/<set>/env`, `~/.s3cab/sets/work/env` and",
-      "`s3cab list photos`",
+      "`s3cab list photos`, and a bare `s3cab` before `cleanup stray`",
     ].join("\n");
     const { code, lines } = codeOf(page);
 
@@ -988,6 +994,7 @@ describe("the story", () => {
       "home 'Users/me'",
       "home '/Pictures'",
       "identity 'allen@DESKTOP'",
+      "identity 'allen@Allens-MacBook.local'",
       "set 'holiday'",
       "bucket 'my-bucket'",
       "bucket 'spare'",

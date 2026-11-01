@@ -238,8 +238,9 @@ export const deleted = "2026-07-19T10:41:07.000Z";
 
 /**
  * The figures the named files can't show: how big the library is, when.
- * The checked transcripts take theirs from here; the first backup's are only
- * in README's quick start and compare.md's prose, which no check reads.
+ * The checked transcripts take theirs from here. The first backup, which only
+ * README's quick start and compare.md's prose show and no check reads, is
+ * 1,312 files (4.2GB), 72 of them small copies, so 1,240 objects (4.2GB).
  */
 export const scale = {
   // By 20260612T0915, 1,313 files plus 214 new photos and the footage.
