@@ -117,14 +117,33 @@ Wasabi and the like, run `s3cab help provider`. With a bucket in hand:
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.
 #    --keys prompts for your access key + secret (never passed as flags).
 > s3cab setup --set photos --bucket my-backups --keys C:\Users\me\Photos
+Access key ID: AKIAIOSFODNN7EXAMPLE
+Secret access key (hidden):
 Contacting the cloud…
+Wrote a starter exclude file — these patterns are skipped by default:
+  **\node_modules\
+  **\.git\
+  **\.DS_Store
+  **\Thumbs.db
+  **\._*
+  **\desktop.ini
+  $RECYCLE.BIN\
+  System Volume Information\
+Edit C:\Users\me\.s3cab\sets\photos\exclude.txt to change what's skipped — see 's3cab help exclude'.
 Set 'photos' → bucket 'my-backups'
 dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
   C:\Users\me\Photos
 
 # 2. Back it up to the cloud. With one set, you can leave its name out.
 > s3cab backup
+Using s3cab home 'C:\Users\me\.s3cab'
 Contacting the cloud…
+Scanning existing objects in 's3://my-backups'… 0 in 0 sec
+Backing up 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
+Storing objects in 's3://my-backups'
+Using exclude file '~\.s3cab\sets\photos\exclude.txt'
+Finding files in '~\Photos'… 1,312 in 3 sec
+ 6m 10s  1,312/1,312  (Uploaded: 4.2GB)
 Backed up 'photos' → snapshot 20251112T0915
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
@@ -142,10 +161,11 @@ back. To pull an _older_ version, add `--snapshot <name>`; to recover everything
 disaster-recovery case), run `restore --all`. By default `restore` leaves files that
 still exist untouched — your accidental deletions come back while everything else stays put —
 so pass `--overwrite` when you actually want to replace what's there.
-[guide/restore.md](guide/restore.md) covers all of it.
+[guide/restore.md](guide/restore.md) covers all of it, and
+[guide/getting-started.md](guide/getting-started.md) walks through this loop on a folder
+that doesn't matter, with what each step did and why.
 
-Step 1 also drops a starter `exclude.txt` beside the set and lists what it will skip by
-default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
+To change what step 1's starter `exclude.txt` skips, edit that file
 ([guide/exclude.md](guide/exclude.md), or `s3cab help exclude`).
 
 ### Seeing what changed
@@ -166,9 +186,10 @@ in [guide/backup.md](guide/backup.md#where-a-set-lives).
 ## Command reference
 
 Every invocation takes the same shape — `s3cab <command> [options] [args]` — and the groups
-below are the CLI's own: `s3cab --help` prints this same list, `s3cab <command> --help` adds
-that command's flags, examples and a fuller description, and the [guides](guide/) are the
-sit-down read.
+below are the CLI's own: `s3cab --help` prints this same list, and `s3cab <command> --help`
+adds that command's flags, examples and a fuller description. Each command links to its page
+in the online [command reference](https://s3cab.plantegral.com/commands/), which shows the
+same, and the [guides](guide/) are the sit-down read.
 
 When you have only one backup set you can leave its name out — plain `s3cab snapshot` just
 works. The commands that reach into a backup and change it are the deliberate exceptions:
@@ -179,52 +200,52 @@ they always name what they act on, as `--set <set>` or a bucket.
 Recording what your files look like, and what changed since last time. All local — no
 network, no bucket needed.
 
-| Command                  | What it does |
-| ------------------------ | ------------ |
-| `s3cab snapshot [<set>]` | Take a snapshot of the set, then show what changed since the previous one. `--rehash` re-hashes every file instead of reusing unchanged files' hashes. |
-| `s3cab list [<set>]`     | List your backup sets and their snapshots — name a set for its detail, `-r`/`--remote` for its cloud backups, `-l`/`--latest` for just the newest. |
-| `s3cab compare [<set>]`  | Show what changed between two snapshots — added / renamed / moved / modified / deleted; `--since` and `--until` choose which two ([guide](guide/compare.md)). |
-| `s3cab find <pattern>…`  | Search your backups for a file: which snapshots hold it and the hash it's stored under, ready to hand to `delete` ([guide](guide/find.md)). |
-| `s3cab status [<set>]`   | Show what is backed up already, and what the next `backup` would upload. |
+| Command                                                            | What it does |
+| ------------------------------------------------------------------ | ------------ |
+| [`s3cab snapshot`](https://s3cab.plantegral.com/commands/snapshot) | Take a snapshot of a backup set ([guide](guide/backup.md)) |
+| [`s3cab list`](https://s3cab.plantegral.com/commands/list)         | List backup sets and their snapshots ([guide](guide/getting-started.md)) |
+| [`s3cab compare`](https://s3cab.plantegral.com/commands/compare)   | Show what changed between two snapshots ([guide](guide/compare.md)) |
+| [`s3cab find`](https://s3cab.plantegral.com/commands/find)         | Search your backups for a file, and show what backs it ([guide](guide/find.md)) |
+| [`s3cab status`](https://s3cab.plantegral.com/commands/status)     | Show what is backed up and what a backup would upload ([guide](guide/getting-started.md)) |
 
 ### Setup
 
 Run once: a bucket to back up to, credentials to reach it, and the set itself.
 
-| Command                                | What it does |
-| -------------------------------------- | ------------ |
-| `s3cab aws <bucket>`                   | Write a CloudFormation template — and print the steps — to stand up an **AWS** S3 bucket plus a locked-down identity; `--roles-anywhere` builds the keyless certificate identity instead ([guide](guide/aws.md)). |
-| `s3cab provider [<set>]`               | Set, clear, or show how s3cab reaches your storage: `--profile` for an AWS profile, `--endpoint` + `--region` for any [S3-compatible provider](guide/aws.md#non-aws-providers), `--keys` to be prompted for an access key, `--unset` to remove one ([guide](guide/auth.md)). |
-| `s3cab setup --set <set> <directory>…` | Create a **backup set** from one or more directories; `--bucket` binds its cloud destination, and it takes the same provider flags as `provider`. Its directories then live in an editable `dirs.txt`. |
-| `s3cab reattach <set>`                 | Attach a set that already exists in the cloud to this machine, read-only, to browse and restore it (`--bucket` names its bucket the first time). Pulls its snapshot history, not the files (that's `restore`); run it again to pull newer snapshots. |
-| `s3cab takeover <set>`                 | Make this machine the one that backs a set up — a replacement machine. Attaches the set if it isn't here, fills in its directory list and exclude rules where this machine has none, and from then on the old machine's backups are refused. |
+| Command                                                            | What it does |
+| ------------------------------------------------------------------ | ------------ |
+| [`s3cab aws`](https://s3cab.plantegral.com/commands/aws)           | Show the steps to set up an AWS S3 bucket for backups ([guide](guide/aws.md)) |
+| [`s3cab provider`](https://s3cab.plantegral.com/commands/provider) | Set, clear, or show how s3cab connects to your storage provider ([guide](guide/auth.md)) |
+| [`s3cab setup`](https://s3cab.plantegral.com/commands/setup)       | Create a backup set ([guide](guide/getting-started.md)) |
+| [`s3cab reattach`](https://s3cab.plantegral.com/commands/reattach) | Attach an existing backup set to this machine read-only, or refresh it ([guide](guide/restore.md)) |
+| [`s3cab takeover`](https://s3cab.plantegral.com/commands/takeover) | Make this machine the one that backs up an existing set ([guide](guide/restore.md)) |
 
 ### Backup & restore
 
-The cloud round trip, plus the maintenance that keeps a repository healthy
-([guide](guide/maintenance.md)).
+The cloud round trip, plus the maintenance that keeps a repository healthy.
 
-| Command                                  | What it does |
-| ---------------------------------------- | ------------ |
-| `s3cab backup [<set>]`                   | Take a fresh snapshot and upload it — and the files it references — to the set's bucket. `--rehash` re-reads every file instead of trusting an unchanged size and modification time ([guide](guide/backup.md)). |
-| `s3cab restore --set <set> <path>…`      | Recover from the set's cloud backup: name paths for specific files, `--from-file` for a list of them, or `--all` for the whole set. `--snapshot` pulls an older version, `--overwrite` replaces files that still exist, `-o`/`--output` restores under a directory you choose ([guide](guide/restore.md)). |
-| `s3cab extract --set <set> <path>`       | Copy one file or folder out of the backup into the current folder, or `-o`/`--output`, under its own name or `--name` — never over something already there unless `--overwrite` ([guide](guide/restore.md#copying-one-item-out)). |
-| `s3cab verify <bucket>`                  | Check a repository's backups are complete and undamaged — every referenced file stored, at the right size (findings reported per set). |
-| `s3cab forget --set <set> <snapshot>…`   | Remove snapshots from a backup: previews what would become unrestorable, then confirms once (`-f`/`--force` for scripts). The files themselves are left for `cleanup` to reclaim. |
-| `s3cab delete --bucket <bucket> <hash>…` | Permanently delete content from every backup, named by hash — for things you no longer want stored at all. `s3cab find` produces the hashes; `--from-file` reads a saved list, `-n`/`--dry-run` previews, `-f`/`--force` skips the typed confirmation. |
-| `s3cab cleanup <bucket>`                 | Reclaim storage held by objects no snapshot references — confirms first (`-n`/`--dry-run` previews, `-f`/`--force` for scripts). |
+| Command                                                          | What it does |
+| ---------------------------------------------------------------- | ------------ |
+| [`s3cab backup`](https://s3cab.plantegral.com/commands/backup)   | Back up a set to the cloud ([guide](guide/backup.md)) |
+| [`s3cab restore`](https://s3cab.plantegral.com/commands/restore) | Restore files from a backup ([guide](guide/restore.md)) |
+| [`s3cab extract`](https://s3cab.plantegral.com/commands/extract) | Copy one file or folder out of a backup, by its own name ([guide](guide/restore.md)) |
+| [`s3cab verify`](https://s3cab.plantegral.com/commands/verify)   | Check that a repository's backups are complete and undamaged ([guide](guide/maintenance.md)) |
+| [`s3cab forget`](https://s3cab.plantegral.com/commands/forget)   | Remove snapshots from a backup ([guide](guide/maintenance.md)) |
+| [`s3cab delete`](https://s3cab.plantegral.com/commands/delete)   | Delete objects from every backup by content hash, permanently ([guide](guide/maintenance.md)) |
+| [`s3cab cleanup`](https://s3cab.plantegral.com/commands/cleanup) | Reclaim storage held by objects no snapshot references ([guide](guide/maintenance.md)) |
+| [`s3cab unlock`](https://s3cab.plantegral.com/commands/unlock)   | Remove locks a stopped backup, upload, cleanup or delete left behind ([guide](guide/maintenance.md)) |
 
 ### Advanced
 
 Plumbing and diagnostics: the building blocks the everyday commands compose. Most people
-never run these directly.
+never run these directly ([guide](guide/maintenance.md#the-building-blocks-hashes-and-upload)).
 
-| Command                 | What it does |
-| ----------------------- | ------------ |
-| `s3cab hashes <bucket>` | List a repository's stored object hashes, one per line — the same enumeration `verify` and `cleanup` diff, ready to pipe into ordinary shell tools ([guide](guide/maintenance.md#the-building-blocks-hashes-and-upload)). |
-| `s3cab upload [<set>]`  | Put objects into a set's store directly: `--file` for a single file, `--dir` to seed from a folder, `-s`/`--snapshot` for everything a snapshot references. `--bucket` targets a raw bucket with no set ([guide](guide/maintenance.md#the-building-blocks-hashes-and-upload)). |
-| `s3cab tree [<set>]`    | List the files a snapshot of the set would include, honouring exclude rules; `--excluded` lists what the patterns dropped instead, each with the pattern that matched it ([guide](guide/exclude.md)). |
-| `s3cab prop <file>`     | Show the hash, size, and modified time of a single file. |
+| Command                                                        | What it does |
+| -------------------------------------------------------------- | ------------ |
+| [`s3cab hashes`](https://s3cab.plantegral.com/commands/hashes) | List a repository's stored object hashes (one per line) |
+| [`s3cab upload`](https://s3cab.plantegral.com/commands/upload) | Upload a file, a folder's objects, or a snapshot's objects to a set's store |
+| [`s3cab tree`](https://s3cab.plantegral.com/commands/tree)     | List the files a snapshot of a backup set would include ([guide](guide/exclude.md)) |
+| [`s3cab prop`](https://s3cab.plantegral.com/commands/prop)     | Show a file's hash, size, and modified time |
 
 ### Global options
 

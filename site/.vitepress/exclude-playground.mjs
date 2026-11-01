@@ -2,9 +2,10 @@
 // `npm test` can check it: patterns and paths in, `tree --excluded`'s verdict
 // out, from s3cab's own reader and matcher.
 
-import { posix } from "node:path";
 import { compileExcludePatterns } from "../../src/lib/exclude.mjs";
 import { parseLines } from "../../src/lib/read-lines.mjs";
+// Not `node:path`: config.mjs shims that only within src/lib/.
+import { posix } from "./node-shim.mjs";
 
 /** @typedef {"win32" | "darwin" | "linux"} Platform */
 

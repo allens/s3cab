@@ -16,11 +16,13 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { join, posix } from "node:path";
+import { isBuiltin } from "node:module";
+import { isAbsolute, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
+import { commandSidebar } from "./command-pages.mjs";
 import { slugify } from "./slugify.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
@@ -29,22 +31,28 @@ import { slugify } from "./slugify.mjs";
 const repo = "https://github.com/allens/s3cab";
 const site = "https://s3cab.plantegral.com";
 
+const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
+const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
+
 /**
  * Where a site page's markdown lives in the repo: `index.md` includes the
- * README; `guide/<topic>.md` is rendered from `guide/`.
+ * README; `guide/<topic>.md` is rendered from `guide/`; any other page is the
+ * site's own, in `site/`.
  * @param {string} relativePath
  */
 const sourceOf = (relativePath) =>
   relativePath === "index.md"
     ? "README.md"
-    : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
+    : relativePath.startsWith("guide/")
+      ? relativePath.replace(/^guide\/index\.md$/, "guide/README.md")
+      : `site/${relativePath}`;
 
 /**
  * A link as the site should serve it: one to the site's own domain becomes a
  * path on it, so the build checks it and a preview stays on the preview.
- * Otherwise, resolved against the page's real place in the repo, it stays as
- * written if it lands on a site page, becomes `/` for the README, and becomes a
- * GitHub link for any other repo file.
+ * Otherwise, resolved against the page's real place in the repo, it becomes
+ * relative to the page's place on the site if it lands on a guide page, `/` for
+ * the README, and a GitHub link for any other repo file.
  * @param {string} href
  * @param {string} relativePath - The site page the link is on
  */
@@ -68,7 +76,7 @@ function siteHref(href, relativePath) {
     return `/guide/${hash}`;
   }
   if (/^guide\/[^/]+\.md$/.test(target)) {
-    return href;
+    return posix.relative(posix.dirname(relativePath), target) + hash;
   }
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
@@ -89,9 +97,30 @@ function repoLinks(md) {
 }
 
 /**
+ * The page local search indexes. VitePress reads it from the page's file under
+ * site/, and a guide page has none — /guide/<topic> is a dynamic route — so
+ * without this no guide page is searchable. Runs only in Node: VitePress drops
+ * `_`-prefixed options before themeConfig goes to the browser. `docs:dev`
+ * doesn't re-index a guide page you edit; restart it to see search change.
+ * @type {NonNullable<DefaultTheme.LocalSearchOptions["_render"]>}
+ */
+const searchedPage = (src, env, md) =>
+  md.renderAsync(
+    env.relativePath.startsWith("guide/")
+      ? readFileSync(
+          new URL(`../../${sourceOf(env.relativePath)}`, import.meta.url),
+          "utf8",
+        )
+      : src,
+    env,
+  );
+
+/**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
  * bold link that opens each bullet under them, so the guide index stays the
- * one list.
+ * one list. A section with no such bullet — the by-situation list, whose
+ * bullets lead with the situation and link a section of a page — is prose for
+ * the index page, not a sidebar group.
  * @returns {DefaultTheme.SidebarItem[]}
  */
 function guideSidebar() {
@@ -121,9 +150,10 @@ function guideSidebar() {
       items: [
         { text: "What s3cab is", link: "/" },
         { text: "All guides", link: "/guide/" },
+        { text: "Command reference", link: "/commands/" },
       ],
     },
-    ...sections,
+    ...sections.filter((section) => section.items.length > 0),
   ];
 }
 
@@ -133,6 +163,16 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
+  // The theme makes every image a block with a 1rem margin, so the README's
+  // badges, a row on GitHub, would stack one per line on the home page, or
+  // wrap at phone width with a gap between the rows.
+  head: [
+    [
+      "style",
+      {},
+      ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
+    ],
+  ],
   // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
   // guide/[topic].md), not the README or guide file it renders.
   markdown: {
@@ -140,7 +180,15 @@ export default defineConfig({
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
     // the shell grammar colours as escapes (`C:\Users` → `\U`); shown plain.
     languageAlias: { console: "text" },
-    config: repoLinks,
+    config: (md) => {
+      repoLinks(md);
+      // A line break renders as a newline, which Vue's template compiler
+      // (`whitespace: "condense"`) drops between two elements, so a line ending
+      // in a link or code span would run into the next one's: `code`link, and
+      // the badges touching. A space it keeps. Not `whitespace: "preserve"`:
+      // that recompiles the theme's own components too, and shifts some.
+      md.renderer.rules.softbreak = () => " ";
+    },
   },
   // The challenge's bucket is written once the pages are, too late for
   // VitePress's own check, so links into it are left to check-links.mjs, run
@@ -150,34 +198,61 @@ export default defineConfig({
     await writeChallengeBucket(join(outDir, "challenge", "bucket"));
     checkLinks(outDir);
   },
+  // The pattern playgrounds bundle s3cab's own matchers for the browser, so
+  // within src/lib/ `path`, `util` and `fs`, with or without `node:`, resolve
+  // to node-shim.mjs. Any other builtin is an error: Vite would only warn and
+  // swap in an empty module, and the page would break when it ran.
   vite: {
     plugins: [
       {
-        // The exclude playground runs s3cab's own matcher in the browser,
-        // which has no `node:path`; the server-side render keeps Node's. The
-        // build's "node:fs has been externalized" warning is read-lines.mjs,
-        // whose `parseLines`, all the playground uses, never touches it.
-        name: "s3cab-browser-node-path",
+        name: "s3cab-node-shim",
         enforce: "pre",
-        resolveId: (id, _importer, options) =>
-          id === "node:path" && !options?.ssr
-            ? fileURLToPath(new URL("node-path.mjs", import.meta.url))
-            : undefined,
+        resolveId(id, importer) {
+          const within = relative(srcLib, importer ?? "/");
+          if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
+            return null;
+          }
+          if (["path", "util", "fs"].includes(id.replace(/^node:/, ""))) {
+            return nodeShim;
+          }
+          this.error(
+            `src/lib/${within} imports ${id}, which the pattern playground ` +
+              `can't run in a browser`,
+          );
+        },
       },
     ],
+    // style.mjs reads `process.stderr.isTTY` to decide whether to bold a
+    // suggested command; a page has no stderr, so it reads as no terminal.
+    define: { "process.stderr": "{}" },
   },
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
+      { text: "Commands", link: "/commands/" },
       { text: "Format spec", link: "/guide/format" },
     ],
-    sidebar: guideSidebar(),
-    search: { provider: "local" },
+    sidebar: { "/commands/": commandSidebar(), "/": guideSidebar() },
+    search: {
+      provider: "local",
+      options: {
+        _render: searchedPage,
+        // A pasted error line is long, so with the default title boost (4) its
+        // words matched across a long section, such as the format spec's
+        // "Reading", outranked the guide/errors.md heading that spells it. At
+        // 8 nearly every heading ranks first for its own pasted line, and
+        // searches for a word or two rank as before.
+        miniSearch: {
+          searchOptions: { boost: { title: 8, text: 2, titles: 1 } },
+        },
+      },
+    },
     outline: { level: [2, 3] },
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
     // filePath is the route template, `guide/[topic].md`; its topic is a param.
-    // Any other page is its own source, under site/.
+    // A command page is generated, so its source is the registry. Any other
+    // page is its own source, under site/.
     editLink: {
       pattern: ({ filePath, params }) => {
         const topic = params?.topic === "index" ? "README" : params?.topic;
@@ -187,7 +262,9 @@ export default defineConfig({
             ? "README.md"
             : filePath.startsWith("guide/")
               ? `guide/${topic}.md`
-              : `site/${filePath}`)
+              : filePath.startsWith("commands/")
+                ? "src/commands.mjs"
+                : `site/${filePath}`)
         );
       },
       text: "Edit this page on GitHub",
