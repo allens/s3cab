@@ -73,6 +73,9 @@ how an accented letter is stored — as one character, or as a letter and an
 accent mark, as a Mac often stores it. A search that missed would leave the file
 in your backups, while an extra match only shows in the list you pick from.
 
+To check a pattern before you trust it, try it against example paths in the
+[pattern playground](https://s3cab.plantegral.com/pattern-playground).
+
 ## Reading the output
 
 The header counts what was searched and what came back. **Files** are paths;

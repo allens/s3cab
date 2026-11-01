@@ -28,7 +28,9 @@ read).
 - **Exclude-pattern playground.** `src/lib/exclude.mjs` imports only `node:path` and
   `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
   patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
-  with it. A `find` pattern twin is the same idea.
+  with it. Put it on `/pattern-playground` beside the `find` one, with the same pasted paths
+  under both, so a pattern that means one thing in an exclude file and another to `find` shows
+  it.
 
 ## Fun, with a point
 

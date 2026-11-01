@@ -16,7 +16,9 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { join, posix } from "node:path";
+import { isBuiltin } from "node:module";
+import { isAbsolute, join, posix, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
@@ -29,22 +31,28 @@ import { slugify } from "./slugify.mjs";
 const repo = "https://github.com/allens/s3cab";
 const site = "https://s3cab.plantegral.com";
 
+const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
+const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
+
 /**
  * Where a site page's markdown lives in the repo: `index.md` includes the
- * README; `guide/<topic>.md` is rendered from `guide/`.
+ * README; `guide/<topic>.md` is rendered from `guide/`; any other page is the
+ * site's own, in `site/`.
  * @param {string} relativePath
  */
 const sourceOf = (relativePath) =>
   relativePath === "index.md"
     ? "README.md"
-    : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
+    : relativePath.startsWith("guide/")
+      ? relativePath.replace(/^guide\/index\.md$/, "guide/README.md")
+      : `site/${relativePath}`;
 
 /**
  * A link as the site should serve it: one to the site's own domain becomes a
  * path on it, so the build checks it and a preview stays on the preview.
- * Otherwise, resolved against the page's real place in the repo, it stays as
- * written if it lands on a site page, becomes `/` for the README, and becomes a
- * GitHub link for any other repo file.
+ * Otherwise, resolved against the page's real place in the repo, it becomes
+ * relative to the page's place on the site if it lands on a guide page, `/` for
+ * the README, and a GitHub link for any other repo file.
  * @param {string} href
  * @param {string} relativePath - The site page the link is on
  */
@@ -68,7 +76,7 @@ function siteHref(href, relativePath) {
     return `/guide/${hash}`;
   }
   if (/^guide\/[^/]+\.md$/.test(target)) {
-    return href;
+    return posix.relative(posix.dirname(relativePath), target) + hash;
   }
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
@@ -171,6 +179,34 @@ export default defineConfig({
   buildEnd: async ({ outDir }) => {
     await writeChallengeBucket(join(outDir, "challenge", "bucket"));
     checkLinks(outDir);
+  },
+  // The pattern playground bundles s3cab's own matcher for the browser, so
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
+  // in an empty module, and the page would break when it ran.
+  vite: {
+    plugins: [
+      {
+        name: "s3cab-node-shim",
+        enforce: "pre",
+        resolveId(id, importer) {
+          const within = relative(srcLib, importer ?? "/");
+          if (!isBuiltin(id) || within.startsWith("..") || isAbsolute(within)) {
+            return null;
+          }
+          if (["path", "util"].includes(id.replace(/^node:/, ""))) {
+            return nodeShim;
+          }
+          this.error(
+            `src/lib/${within} imports ${id}, which the pattern playground ` +
+              `can't run in a browser`,
+          );
+        },
+      },
+    ],
+    // style.mjs reads `process.stderr.isTTY` to decide whether to bold a
+    // suggested command; a page has no stderr, so it reads as no terminal.
+    define: { "process.stderr": "{}" },
   },
   themeConfig: {
     nav: [
