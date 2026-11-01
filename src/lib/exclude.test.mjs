@@ -176,16 +176,6 @@ describe("compileExcludePatterns escapes (ADR-0115)", () => {
   );
 
   it(
-    "never matches a stray \\ as text, should one get past the walk's refusal",
-    { skip: !ESCAPES && "\\ is a separator on Windows" },
-    () => {
-      // Normalizing the path turns `dir\/.` into `dir\`, which once matched
-      // `dirundefined`.
-      assert.throws(() => excludedBy(["dir\\/."], "/root/dirundefined"));
-    },
-  );
-
-  it(
     "takes \\ as a separator on Windows",
     { skip: ESCAPES && "\\ escapes off Windows" },
     () => {
@@ -209,6 +199,11 @@ describe("parseExclude", () => {
       assert.deepEqual(parseExclude("notes\\ \nold\\  \r\n"), [
         "notes\\ ",
         "old\\ ",
+      ]);
+      // A tab is a control character, which a \ doesn't escape.
+      assert.deepEqual(parseExclude("notes\\\t\nfine\\\\ \n"), [
+        "notes\\",
+        "fine\\\\",
       ]);
     },
   );
@@ -252,8 +247,8 @@ describe("exactPattern", () => {
     assert.equal(exactPattern(" lead"), "\\ lead");
   });
 
-  it("has no line for a name holding a tab, CR or LF, which no line can hold", () => {
-    for (const rel of ["a\tb", "a\rb", "a\nb"]) {
+  it("has no line for a name holding a control character", () => {
+    for (const rel of ["a\tb", "a\rb", "a\nb", "a\x1bb", "a\x7fb", "a\x9bb"]) {
       assert.equal(exactPattern(rel), undefined, JSON.stringify(rel));
     }
   });

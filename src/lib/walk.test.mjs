@@ -504,7 +504,8 @@ describe("readExcludePatterns (ADR-0100)", () => {
       // line is the shape a Windows-written exclude.txt brings with it.
       writeFileSync(
         excludePath,
-        "*.tmp\nodd\\\r\n**\\node_modules\\\nfine\\\\\nsub\\/x\n",
+        "*.tmp\nodd\\\r\n**\\node_modules\\\n**\\Thumbs.db\n" +
+          "fine\\\\ \\#\\*\\?\nsub\\/x\n",
       );
       assert.throws(
         () => readExcludePatterns(excludePath),
@@ -514,7 +515,8 @@ describe("readExcludePatterns (ADR-0100)", () => {
           error.message.includes("\n  odd\\\n") &&
           error.message.includes("\n  sub\\/x\n") &&
           error.message.includes("\n  **/node_modules/\n") &&
-          error.message.includes("\n  sub//x\n") &&
+          error.message.includes("\n  **/Thumbs.db\n") &&
+          error.message.includes("\n  sub/x\n") &&
           !error.message.includes("fine"),
       );
     },

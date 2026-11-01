@@ -190,15 +190,29 @@ describe("compileFindPattern", () => {
       assert.equal(matches("a\\*", "/docs/a*"), true);
       assert.equal(matches("a\\*", "/docs/ab"), false);
       assert.equal(matches("back\\\\slash", "/docs/back\\slash"), true);
-      assert.throws(
-        () => compileFindPattern("odd\\"),
-        (error) =>
-          error instanceof ValidationError &&
-          error.message.includes("s3cab find 'odd\\\\'"),
-      );
-      // Stripping the trailing `/` once left `odd\`, matched as `oddundefined`.
-      assert.throws(() => compileFindPattern("odd\\/"), ValidationError);
       assert.equal(matches("odd\\\\", "/docs/odd\\"), true);
+    },
+  );
+
+  it(
+    "refuses a \\ that escapes nothing, offering / and then \\\\ (ADR-0115)",
+    { skip: !ESCAPES && "\\ is a separator on Windows" },
+    () => {
+      assert.throws(
+        () => compileFindPattern("Users\\me\\it's\\"),
+        (error) => {
+          assert.ok(error instanceof ValidationError);
+          const slashed = error.message.indexOf(
+            "s3cab find 'Users/me/it'\\''s/'",
+          );
+          const doubled = error.message.indexOf(
+            "s3cab find 'Users\\\\me\\\\it'\\''s\\\\'",
+          );
+          return slashed !== -1 && slashed < doubled;
+        },
+      );
+      // A \ before a / escapes nothing, since no name holds a /.
+      assert.throws(() => compileFindPattern("odd\\/"), ValidationError);
     },
   );
 });

@@ -27,10 +27,10 @@ either, nor a Linux file with a literal backslash.
 **On Linux and macOS, `\` escapes the character after it, in `exclude.txt` and in `find`.**
 `\*`, `\?`, `\#`, `\ ` and `\\` each match that one character. `\` isn't a separator there, and
 it is the escape a shell user and a `.gitignore` user already know. An escaped space, or other
-whitespace, at the end of a line survives the trim: `notes\ ` names `notes `. A `\` that escapes
-nothing, at the end or before a `/` (which no name holds), is refused: normalizing the path would
-otherwise leave it with nothing to escape. A member directory's own path is matched as text, so
-a `\`, `*` or `?` in it matches only itself.
+whitespace that isn't a control character, at the end of a line survives the trim: `notes\ `
+names `notes `. A `\` before anything else, or at the end, escapes nothing and is refused: it is
+how a Windows path reads there, and `**\Thumbs.db` would also match `myThumbs.db`. A member
+directory's own path is matched as text, so a `\`, `*` or `?` in it matches only itself.
 
 **On Windows, nothing changes.** `\` and `/` are both separators, and a pattern is a path as a
 Windows user knows it (user, 2026-10-31). Nothing there needs an escape. Win32 refuses `*` and
@@ -41,11 +41,14 @@ changes nothing: `\#notes` names `#notes`, and `\ lead` names ` lead` (measured)
 escape elsewhere. `backup`'s suggestion writes a leading `#` or space that way everywhere, and
 on Linux and macOS escapes `*`, `?`, `\` and a trailing space. A name with no exact line gets
 none, and the report lists it: on Windows a name ending in a space or holding `*` or `?` (a share
-can hold them), and anywhere a name holding a tab, CR or LF, which only an `#error` row can carry.
+can hold them), and anywhere a name holding a control character, which no terminal shows as
+written.
 
 An exclude file is read by the rules of the system reading it: the crossing between systems is
 the boundary [0051](0051-native-separator-in-user-path-files.md) left for later. One written on
 Windows and read on Linux, `**\node_modules\` say, is refused with the same line in `/` offered.
+A `\` before `*`, `?`, `#` or a space is an escape however it was written, so a file whose only
+Windows line is `**\*.tmp` passes, and that line matches a literal `*`.
 
 Comments stay `#`. `dirs.txt` is untouched: it takes no globs, and no absolute path starts with
 `#`.

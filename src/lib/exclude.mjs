@@ -1,6 +1,11 @@
 import { join, posix, sep } from "node:path";
 
-import { ESCAPES, globSource, literalPattern } from "./path-match.mjs";
+import {
+  ESCAPES,
+  globSource,
+  literalPattern,
+  strayEscape,
+} from "./path-match.mjs";
 import { activeLines } from "./read-lines.mjs";
 
 /**
@@ -52,12 +57,9 @@ export function compileExcludePatterns(baseDir, patterns) {
   };
 }
 
-/** A `\` ending the text, with nothing after it to escape. */
-const ENDS_IN_ESCAPE = /(?<!\\)(?:\\\\)*\\$/;
-
 /**
- * Parse exclude.txt text into its patterns: `parseLines`' rules, but the
- * whitespace character after a `\` at the end of a line is part of the
+ * Parse exclude.txt text into its patterns: `parseLines`' rules, but a
+ * whitespace character a `\` at the end of a line escapes is part of the
  * pattern (ADR-0115).
  * @param {string} text
  * @returns {string[]}
@@ -68,9 +70,8 @@ export function parseExclude(text) {
       // A CRLF line's CR goes first, so it is never the escaped character.
       const start = line.replace(/\r$/, "").trimStart();
       const trimmed = start.trimEnd();
-      return ESCAPES && ENDS_IN_ESCAPE.test(trimmed)
-        ? start.slice(0, trimmed.length + 1)
-        : trimmed;
+      const kept = start.slice(0, trimmed.length + 1);
+      return strayEscape(trimmed) && !strayEscape(kept) ? kept : trimmed;
     }),
   );
 }
@@ -81,12 +82,13 @@ export function parseExclude(text) {
  * after a `\`, which escapes it on Linux and macOS and on Windows is a leading
  * separator, which changes nothing. Windows has no escape, so a name there
  * ending in a space, or holding a `*` or `?` (a share can), has no line; nor
- * does a name with a tab, CR or LF anywhere, which no line can hold.
+ * does a name with a control character, which no line holds and no terminal
+ * shows as written.
  * @param {string} rel - A path relative to a member directory
  * @returns {string | undefined}
  */
 export function exactPattern(rel) {
-  if (/[\t\r\n]/.test(rel) || (!ESCAPES && /[*?]/.test(rel))) {
+  if (/\p{Cc}/u.test(rel) || (!ESCAPES && /[*?]/.test(rel))) {
     return undefined;
   }
   let pattern = literalPattern(rel);

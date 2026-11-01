@@ -2,7 +2,12 @@ import { posix, sep } from "node:path";
 import { stderr } from "node:process";
 
 import { ValidationError, errorText } from "./error.mjs";
-import { globSource, preparePath, strayEscape } from "./path-match.mjs";
+import {
+  globSource,
+  preparePath,
+  STRAY_ESCAPE,
+  strayEscape,
+} from "./path-match.mjs";
 import { countedPass } from "./progress.mjs";
 import { isCorruptSnapshotError } from "./referenced.mjs";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
@@ -126,14 +131,17 @@ import { shellCommand } from "./style.mjs";
  */
 export function compileFindPattern(pattern) {
   if (strayEscape(pattern)) {
-    const doubled = pattern.replaceAll(
-      /(?<!\\)((?:\\\\)*)\\(?=\/|$)/g,
-      "$1\\\\",
-    );
+    const quoted = (/** @type {string} */ text) =>
+      `'${text.replaceAll("'", "'\\''")}'`;
+    const slashed = pattern.replaceAll(/[\\/]+/g, "/");
+    const doubled = pattern.replaceAll(STRAY_ESCAPE, "$1\\\\");
     throw new ValidationError(
-      `The pattern '${pattern}' has a \\ that escapes nothing, at the end or ` +
-        `before a /. For a backslash in a name, write \\\\:\n\n` +
-        `  ${shellCommand(`s3cab find '${doubled}'`)}`,
+      `The pattern '${pattern}' has a \\ that escapes nothing. Here / ` +
+        `separates folders, and a \\ makes a \\, *, ?, # or space after it ` +
+        `match only itself. If the \\ separates folders:\n\n` +
+        `  ${shellCommand(`s3cab find ${quoted(slashed)}`)}\n\n` +
+        `For a backslash in a name:\n\n` +
+        `  ${shellCommand(`s3cab find ${quoted(doubled)}`)}`,
     );
   }
 

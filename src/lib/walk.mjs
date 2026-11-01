@@ -104,12 +104,12 @@ export function readExcludePatterns(excludePath) {
       stray.length === 1 ? "this pattern has" : "these patterns have";
     throw new Error(
       `Can't use the set's exclude file, because ${these} a \\ that escapes ` +
-        `nothing, at the end or before a / (${tildeify(excludePath)}):\n` +
+        `nothing (${tildeify(excludePath)}):\n` +
         stray.map((pattern) => `  ${pattern}`).join("\n") +
-        `\nHere / separates folders, and a \\ makes the next character match ` +
-        `only itself. If the \\ separates folders, write:\n` +
+        `\nHere / separates folders, and a \\ makes a \\, *, ?, # or space ` +
+        `after it match only itself. If the \\ separates folders, write:\n` +
         stray
-          .map((pattern) => `  ${pattern.replaceAll("\\", "/")}`)
+          .map((pattern) => `  ${pattern.replaceAll(/[\\/]+/g, "/")}`)
           .join("\n") +
         `\nFor a backslash in a name, write \\\\.`,
     );

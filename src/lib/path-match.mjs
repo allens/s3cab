@@ -215,14 +215,21 @@ export function unmatchedFolders(folders, paths) {
 export const ESCAPES = process.platform !== "win32";
 
 /**
- * Whether `pattern` holds a `\` that escapes nothing: at the end, or before a
- * `/`, which no name holds. Refused rather than read, because normalizing the
- * path would turn `dir\/.` into a `dir\` with nothing left to escape.
+ * A `\` that escapes nothing: at the end, or before anything but `\`, `*`, `?`,
+ * `#` or a whitespace character that isn't a control character. Group 1 holds
+ * the escaped `\\` pairs before it. Refused, not read, because it is how a
+ * Windows path reads here: `**\Thumbs.db` would also match `myThumbs.db`.
+ */
+export const STRAY_ESCAPE =
+  /(?<!\\)((?:\\\\)*)\\(?![\\*?#]|(?![\t\n\v\f\r])\s)/g;
+
+/**
+ * Whether `pattern` holds a `STRAY_ESCAPE`.
  * @param {string} pattern
  * @returns {boolean} Always false where `\` doesn't escape
  */
 export const strayEscape = (pattern) =>
-  ESCAPES && /(?<!\\)(?:\\\\)*\\(?:\/|$)/.test(pattern);
+  ESCAPES && pattern.search(STRAY_ESCAPE) !== -1;
 
 /**
  * `text` matching only itself as a pattern: on Linux and macOS each `\`, `*`
@@ -265,11 +272,6 @@ export function globSource(pattern) {
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
     if (ESCAPES && char === "\\") {
-      if (i + 1 === pattern.length) {
-        throw new Error(
-          `A pattern ending in a stray \\ reached globSource: ${pattern}`,
-        );
-      }
       literal += pattern[++i];
     } else if (char === "*" && pattern[i + 1] === "*") {
       // **/ matches zero or more segments, where it starts one. Stuck to a name
