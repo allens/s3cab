@@ -143,7 +143,7 @@ export const commands = {
   compare: {
     summary: "Show what changed between two snapshots",
     guide: "compare",
-    examples: ["s3cab compare", "s3cab compare photos --since 20251111T0830"],
+    examples: ["s3cab compare", "s3cab compare photos --since 20251110T2104"],
     details: compareDetails,
     args: {
       set: {
@@ -169,9 +169,9 @@ export const commands = {
     summary: "Search your backups for a file, and show what backs it",
     guide: "find",
     examples: [
-      "s3cab find aws-keys.txt",
+      "s3cab find diary.txt",
       "s3cab find '*.mov' --set photos",
-      "s3cab find secretsdir/ > hashes.txt",
+      "s3cab find raw-footage/ > footage.txt",
     ],
     details: findDetails,
     args: {
@@ -491,8 +491,8 @@ export const commands = {
     summary: "Copy one file or folder out of a backup, by its own name",
     guide: "restore",
     examples: [
-      "s3cab extract --set photos C:\\Users\\me\\Documents\\report.pdf",
-      "s3cab extract --set photos C:\\Users\\me\\Photos --snapshot 20260501T0800 --name Photos-May",
+      "s3cab extract --set photos C:\\Users\\me\\Photos\\report.pdf",
+      "s3cab extract --set photos C:\\Users\\me\\Photos --snapshot 20251110T2104 --name Photos-first",
     ],
     args: {
       path: {
@@ -546,9 +546,9 @@ export const commands = {
     summary: "Remove snapshots from a backup",
     guide: "maintenance",
     examples: [
-      "s3cab forget --set photos 20260612T0915",
-      "s3cab forget --set photos 20260612T0915 20260619T0902",
-      "s3cab forget --set photos 20260612T0915 --force",
+      "s3cab forget --set photos 20260501T0800",
+      "s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800",
+      "s3cab forget --set photos 20260501T0800 --force",
     ],
     args: {
       snapshot: {
@@ -577,9 +577,9 @@ export const commands = {
     summary: "Delete objects from every backup by content hash, permanently",
     guide: "maintenance",
     examples: [
-      "s3cab find secretsdir/ > hashes.txt",
-      "s3cab delete --bucket my-backups --from-file hashes.txt",
-      "s3cab delete --bucket my-backups 5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93",
+      "s3cab find raw-footage/ > footage.txt",
+      "s3cab delete --bucket my-backups --from-file footage.txt",
+      "s3cab delete --bucket my-backups 6a6007a4b21655bfbff2ae7498198ed14aca0a06c3431fbff0dc9a7703645318",
     ],
     details: deleteDetails,
     args: {
@@ -663,7 +663,7 @@ export const commands = {
     examples: [
       "s3cab unlock --bucket my-backups",
       "s3cab unlock --bucket my-backups upload-20261027T140205.123Z",
-      "s3cab unlock --bucket my-backups --force delete-20261027T151000.004Z",
+      "s3cab unlock --bucket my-backups --force delete-20261029T091000.004Z",
     ],
     details: unlockDetails,
     args: {
@@ -713,10 +713,10 @@ export const commands = {
     summary:
       "Upload a file, a folder's objects, or a snapshot's objects to a set's store",
     examples: [
-      "s3cab upload photos --file C:\\Users\\me\\big.iso",
-      "s3cab upload photos --dir C:\\Users\\me\\Photos\\2026",
+      "s3cab upload photos --file C:\\Users\\me\\Photos\\beach.jpg",
+      "s3cab upload photos --dir C:\\Users\\me\\Photos\\2025",
       "s3cab upload photos --snapshot 20260612T0915",
-      "s3cab upload --bucket my-backups --file big.iso",
+      "s3cab upload --bucket my-backups --file beach.jpg",
     ],
     args: {
       set: {

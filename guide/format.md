@@ -82,7 +82,7 @@ One S3 bucket is one **repository** — the layout is fixed by convention, never
 prefix, so anything (s3cab, another tool, or you by hand) can find everything:
 
 ```
-s3://my-backup-bucket/
+s3://my-backups/
   objects/<sha256>                  # every backed-up file, stored once, named by content hash
   snapshots/<set>/<name>.tsv.gz     # each backup set's snapshot files
   snapshots/<set>.info              # which machine holds the set
@@ -148,9 +148,9 @@ interleave their trees, so the latest snapshot could be either machine's. The se
 `snapshots/<set>.info` names the holder, one `KEY=value` line each:
 
 ```
-OWNER=allen@DESKTOP
-CLAIMED=2026-10-14T08:15:32.000Z
-CREATED=2026-06-12T08:15:32.000Z
+OWNER=me@LAPTOP
+CLAIMED=2025-11-10T21:03:48.000Z
+CREATED=2025-11-10T21:03:48.000Z
 ```
 
 - `OWNER` is the holder, as `user@machine`.
@@ -292,8 +292,8 @@ object, and [the `.` line](#the-last-line) last:
 @CLIENT   NAME                                                        s3cab
 @CLIENT   VERSION                                                     0.14.0
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
-#deleted  a3f9…c60d                   1204  2026-08-14T09:31:07.412Z  me@DESKTOP
-#deleted  5e21…ac93                    892  2026-08-19T22:10:41.006Z  me@LAPTOP
+#deleted  6a60…5318              161906688  2026-07-19T10:41:07.412Z  me@LAPTOP
+#deleted  d7c6…6d92              158334976  2026-07-19T10:41:07.412Z  me@LAPTOP
 .
 ```
 
@@ -410,17 +410,16 @@ in a bucket:
 @CLIENT   HOME                                                        C:\Users\me\.s3cab\
 @CLIENT   EXCLUDE                                                     *.tmp
 @SET      NAME                                                        photos
-@SET      BUCKET                                                      s3://my-backup-bucket
+@SET      BUCKET                                                      s3://my-backups
 @SET      DIR                                                         C:\Users\me\Photos\
-@SET      DIR                                                         D:\Pics\
 @SNAPSHOT NAME                                                        20260612T0915
-@SNAPSHOT BY                                                          me@DESKTOP
+@SNAPSHOT BY                                                          me@LAPTOP
 @SNAPSHOT START                             2026-06-12T08:15:32.123Z  Europe/London
 #excluded *.tmp                                                       C:\Users\me\Photos\upload.tmp
-#error    EPERM: operation …                                          D:\Pics\locked.jpg
+#error    EPERM: operation …                                          C:\Users\me\Photos\2026\locked.jpg
 #error    link to a folder …                                          C:\Users\me\Photos\Shared\
--         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
--         e3b0…b855                      0  2024-01-01T00:00:00.000Z  D:\Pics\empty.txt
+-         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\beach.jpg
+-         e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\empty.txt
 @SNAPSHOT FILES                                                       2
 @SNAPSHOT SIZE                                                        4915200 (4.9MB)
 @SNAPSHOT FINISH                            2026-06-12T08:15:40.871Z  9s
@@ -775,8 +774,8 @@ written down here for one reason only: so that *"does my restore agree with s3ca
 question with an answer, rather than something you can settle only by running the tool and
 looking. Restoring to a chosen directory, it writes each file at its whole path under
 `<output>`, the root turned into a folder and the segments joined with the destination's
-separator. So a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
-`<output>\C\Users\me\Photos\2024\beach.jpg`. Where a file lands depends on its own path
+separator. So a row for `C:\Users\me\Photos\beach.jpg` lands at
+`<output>\C\Users\me\Photos\beach.jpg`. Where a file lands depends on its own path
 alone, not on the `@SET DIR` it is under or on the other rows restored. In detail:
 
 - The root's folder:
@@ -784,7 +783,7 @@ alone, not on the `@SET DIR` it is under or on the other rows restored. In detai
     `<output>\D\a.txt`;
   - a share's is `UNC`, as Windows' own long-path form spells it, so `\\nas\photos\a.jpg`
     lands at `<output>\UNC\nas\photos\a.jpg`;
-  - `/` has none, so `/home/me/a.jpg` lands at `<output>/home/me/a.jpg`.
+  - `/` has none, so `/home/me/Photos/beach.jpg` lands at `<output>/home/me/Photos/beach.jpg`.
 - Every other segment keeps the file row's spelling, the member directory's parents
   included.
 - Folders are made only as files land in them, so a member directory with no files restored
@@ -876,8 +875,8 @@ as much as a snapshot:
   one, or may be a nested `DIR` itself: the `#excluded` row of a member directory left out
   of an outer one's walk;
 - no file row's path running through another's as a folder, paths compared exactly:
-  `/home/me/a` and `/home/me/a/b.txt` can't both be files, since a restore can't make `a`
-  both;
+  `/home/me/Photos/2019` and `/home/me/Photos/2019/hike.jpg` can't both be files, since a
+  restore can't make `2019` both;
 - each path in at most one per-path row, whatever its type, paths compared exactly;
 - exactly one `@S3CAB SPEC`, one `@CLIENT NAME` and one `@CLIENT VERSION`;
 - each file row's hash 64 lowercase hex characters, its size decimal, its time a real

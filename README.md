@@ -139,12 +139,12 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
 Using s3cab home 'C:\Users\me\.s3cab'
 Contacting the cloud…
 Scanning existing objects in 's3://my-backups'… 0 in 0 sec
-Backing up 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
+Backing up 'photos/20251110T2104' ('~\.s3cab\sets\photos\snapshots\20251110T2104.tsv.gz'):
 Storing objects in 's3://my-backups'
 Using exclude file '~\.s3cab\sets\photos\exclude.txt'
 Finding files in '~\Photos'… 1,312 in 3 sec
  6m 10s  1,312/1,312  (Uploaded: 4.2GB)
-Backed up 'photos' → snapshot 20251112T0915
+Backed up 'photos' → snapshot 20251110T2104
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
 
@@ -153,7 +153,7 @@ First backup — every file is new.
 # 3. Deleted a file by accident? Get just that one back:
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20251112T0915).
+Restored 1 file from 'photos' (snapshot 20251110T2104).
 ```
 
 That's the whole loop: set up once, `backup` whenever, `restore` when you need something
