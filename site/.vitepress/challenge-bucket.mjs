@@ -3,8 +3,9 @@
 // the built site, so the challenge needs no real bucket to pay for or keep
 // keys to. The snapshots are written by s3cab's own writer from the sample
 // files in site/challenge/samples/, so the bucket follows the format of the
-// s3cab that builds it. Every instant is fixed here, so a rebuild serves the
-// same bytes.
+// s3cab that builds it. Every instant is fixed here, so a rebuild on the same
+// OS serves the same bytes: gzip's header records the OS, and Cloudflare
+// builds on Linux.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

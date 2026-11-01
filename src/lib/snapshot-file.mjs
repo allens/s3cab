@@ -1350,14 +1350,15 @@ function propsRows(getProps, signal) {
  * parked one isn't (ADR-0067).
  *
  * `FILES` and `SIZE` are counted here, from the rows as they pass, so they are
- * exact. `FINISH`'s instant is minted here too, when the last row landed, with
- * the run's duration since `start` beside it for people.
+ * exact. `FINISH`'s instant is minted here too, when the last row landed,
+ * unless `finish` gives one, with the run's duration since `start` beside it
+ * for people.
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
  * @param {object} options
  * @param {string} options.start - The run's `@SNAPSHOT START` instant, which `FINISH`'s duration counts from
  * @param {string} [options.preamble] - Rows that go before the objects, already formatted
  * @param {AbortSignal} [options.signal] - The park-on-interrupt signal; aborted means this file stops part-way
- * @param {string} [options.finish] - `FINISH`'s instant, in place of the clock's: the docs site's demo bucket, which a rebuild must not change
+ * @param {string} [options.finish] - `FINISH`'s instant, in place of the clock's, for a snapshot that must come out the same every time it is written
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */

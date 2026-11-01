@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { gunzipSync } from "node:zlib";
+import { parseCompressedSnapshotStream } from "../../src/lib/snapshot-file.mjs";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
 
 describe("the challenge bucket", () => {
-  // The published answer on site/challenge.md, step by step, with nothing but
+  // The steps of the answer on site/challenge.md, redone with nothing but
   // Node's built-ins: if the bucket stops being recoverable by hand, so does
-  // the page.
+  // the page. Its bash and PowerShell aren't run here, so an edit to those
+  // still needs trying by hand.
   it("gives beach.jpg back by the challenge's own answer", async () => {
     await using bucket = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));
     await writeChallengeBucket(bucket.path);
@@ -48,6 +50,26 @@ describe("the challenge bucket", () => {
       object,
       readFileSync(new URL("../challenge/samples/beach.jpg", import.meta.url)),
     );
+  });
+
+  // The preamble rows are written by hand, beside s3cab's writer rather than
+  // by it, so s3cab's own reader is the check that they still make a valid
+  // snapshot.
+  it("holds snapshots s3cab reads whole, every path restorable", async () => {
+    await using bucket = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));
+    await writeChallengeBucket(bucket.path);
+
+    const dir = join(bucket.path, "snapshots", "photos");
+    const names = readdirSync(dir);
+    assert.equal(names.length, 2);
+    for (const name of names) {
+      const snapshot = await parseCompressedSnapshotStream(
+        createReadStream(join(dir, name)),
+      );
+      assert.deepEqual([...snapshot.refused], [], name);
+      assert.deepEqual(snapshot.dirs, ["/home/me/Photos/"], name);
+      assert.ok(snapshot.entries.size > 0, name);
+    }
   });
 
   it("is the same bytes every time it is built", async () => {

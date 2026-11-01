@@ -49,7 +49,7 @@ look at the last line: it should be a lone `.`, which says the file is whole
 :::
 
 ::: details 3. Which row is the file?
-Every line has five columns, separated by tabs. A file's row starts with `-`; its second column
+Every row has five columns, separated by tabs. A file's row starts with `-`; its second column
 is a hash and its last is the path the file had. Find the row whose path ends in `/beach.jpg`.
 Careful: the photo has moved since the older snapshot, and its new version shares its content
 with another file. ([The columns](/guide/format#the-columns).)
