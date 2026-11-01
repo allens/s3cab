@@ -1,10 +1,11 @@
 // The exclude playground's whole answer, kept out of its Vue component so
 // `npm test` can check it: patterns and paths in, `tree --excluded`'s verdict
-// out, from s3cab's own reader and matcher.
+// out, or its refusal of the patterns, from s3cab's own reader and matcher.
 
 import {
   compileExcludePatterns,
   parseExclude,
+  unusableExcludeError,
 } from "../../src/lib/exclude.mjs";
 // Not `node:path`: config.mjs shims that only within src/lib/.
 import { posix } from "./node-shim.mjs";
@@ -20,6 +21,14 @@ import { posix } from "./node-shim.mjs";
  *   when that folder's pattern is what left it out
  */
 
+/**
+ * @typedef {Object} ExcludeReport
+ * @property {string} [refusal] - Why s3cab would refuse the patterns, and so
+ *   back nothing up
+ * @property {Verdict[]} verdicts - One per non-blank line of the paths, in
+ *   order; none when refused
+ */
+
 /** The member directory the typed paths are taken to be inside. */
 const MEMBER = { win32: "C:\\member", darwin: "/member", linux: "/member" };
 
@@ -30,17 +39,19 @@ const MEMBER = { win32: "C:\\member", darwin: "/member", linux: "/member" };
  * @param {string} patternsText - An `exclude.txt`, comments and all
  * @param {string} pathsText - Paths inside a member directory, one per line
  * @param {Platform} platform - Whose filesystem to match like
- * @returns {Verdict[]} One per non-blank line of `pathsText`, in order
+ * @returns {ExcludeReport}
  */
 export function excludeReport(patternsText, pathsText, platform) {
   const member = MEMBER[platform];
-  const excludedBy = compileExcludePatterns(
-    member,
-    parseExclude(patternsText, platform !== "win32"),
-    platform,
-  );
+  const escapes = platform !== "win32";
+  const patterns = parseExclude(patternsText, escapes);
+  const unusable = unusableExcludeError(patterns, "exclude.txt", escapes);
+  if (unusable) {
+    return { refusal: unusable.message, verdicts: [] };
+  }
+  const excludedBy = compileExcludePatterns(member, patterns, platform);
 
-  return pathsText
+  const verdicts = pathsText
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "")
@@ -67,4 +78,5 @@ export function excludeReport(patternsText, pathsText, platform) {
       const pattern = excludedBy(subject, false);
       return pattern ? { path, pattern } : { path };
     });
+  return { verdicts };
 }

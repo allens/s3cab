@@ -15,7 +15,7 @@ import starter from "./starter-exclude.data.mjs";
 const leftOut = (patterns, paths, platform = "linux") =>
   Object.fromEntries(
     excludeReport(patterns.join("\n"), paths.join("\n"), platform)
-      .filter(({ pattern }) => pattern)
+      .verdicts.filter(({ pattern }) => pattern)
       .map(({ path, pattern }) => [path, pattern]),
   );
 
@@ -93,7 +93,7 @@ describe("excludeReport", () => {
 
   it("leaves out everything in a left-out folder, naming the outermost one", () => {
     assert.deepEqual(
-      excludeReport("a/b/\na/", "a/b/c.txt\na/\nd/e.txt", "linux"),
+      excludeReport("a/b/\na/", "a/b/c.txt\na/\nd/e.txt", "linux").verdicts,
       [
         { path: "a/b/c.txt", pattern: "a/", folder: "a/" },
         { path: "a/", pattern: "a/" },
@@ -108,7 +108,7 @@ describe("excludeReport", () => {
         "*.log\nbuild/",
         "./a.log\n/build/\n  c.log  \nsub//d.log\n./build/x.js",
         "linux",
-      ),
+      ).verdicts,
       [
         { path: "./a.log", pattern: "*.log" },
         { path: "/build/", pattern: "build/" },
@@ -146,14 +146,51 @@ describe("excludeReport", () => {
     assert.deepEqual(leftOut(["**/Thumbs.db"], paths, "linux"), {});
   });
 
-  it("takes `\\` as a separator on Windows, and as a filename character elsewhere", () => {
+  it("takes `\\` as a separator on Windows, and as an escape elsewhere", () => {
     const paths = ["photos/raw/", "photos\\raw\\a.jpg"];
     assert.deepEqual(leftOut(["photos\\raw/"], paths, "win32"), {
       "photos/raw/": "photos\\raw/",
       "photos\\raw\\a.jpg": "photos\\raw/",
     });
-    assert.deepEqual(leftOut(["photos\\raw/"], paths, "linux"), {});
-    assert.deepEqual(leftOut(["photos\\raw/"], paths, "darwin"), {});
+    for (const platform of /** @type {Platform[]} */ (["linux", "darwin"])) {
+      assert.deepEqual(
+        leftOut(["what\\?.txt"], ["what?.txt", "whatX.txt"], platform),
+        {
+          "what?.txt": "what\\?.txt",
+        },
+      );
+    }
+  });
+
+  it("shows the walk's refusal of a \\ that escapes nothing, off Windows", () => {
+    for (const platform of /** @type {Platform[]} */ (["linux", "darwin"])) {
+      const { refusal, verdicts } = excludeReport(
+        "*.tmp\nphotos\\raw/",
+        "photos/raw/",
+        platform,
+      );
+      assert.deepEqual(verdicts, []);
+      assert.match(
+        refusal ?? "",
+        /because this pattern has a \\ that escapes nothing \(exclude\.txt\):\n {2}photos\\raw\/\n.*\n {2}photos\/raw\/\n/,
+      );
+    }
+    assert.equal(
+      excludeReport("photos\\raw/", "photos/raw/", "win32").refusal,
+      undefined,
+    );
+  });
+
+  it("shows the walk's refusal of a tab, before a stray \\, everywhere", () => {
+    for (const platform of /** @type {Platform[]} */ ([
+      "win32",
+      "darwin",
+      "linux",
+    ])) {
+      const { refusal, verdicts } = excludeReport("a\tb\\", "a b", platform);
+      assert.deepEqual(verdicts, []);
+      assert.match(refusal ?? "", /contains a tab or a carriage return/);
+    }
   });
 
   it("ignores how an accent is spelled on macOS only", () => {
@@ -177,7 +214,7 @@ describe("excludeReport", () => {
           patterns,
           "app/node_modules/x/index.js\napp/.git/\nPics/Thumbs.db\nPics/beach.jpg",
           platform,
-        ),
+        ).verdicts,
         [
           {
             path: "app/node_modules/x/index.js",

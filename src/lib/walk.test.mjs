@@ -440,7 +440,7 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
 });
 
 describe("readExcludePatterns (ADR-0100)", () => {
-  it("refuses a pattern holding a tab or CR, naming each with * as the fix", async () => {
+  it("refuses a pattern holding a tab or CR, naming each with ? as the fix", async () => {
     await using dir = await mkTmpDir();
     const excludePath = join(dir.path, "exclude.txt");
     writeFileSync(excludePath, "*.tmp\nodd\tname.jpg\ncr\rhere\n");
@@ -451,8 +451,8 @@ describe("readExcludePatterns (ADR-0100)", () => {
         error.message.includes("because these patterns contain a tab") &&
         error.message.includes("  odd␉name.jpg\n") &&
         error.message.includes("  cr␍here\n") &&
-        error.message.includes("  odd*name.jpg\n") &&
-        error.message.endsWith("  cr*here") &&
+        error.message.includes("  odd?name.jpg\n") &&
+        error.message.endsWith("  cr?here") &&
         !error.message.includes("*.tmp"),
     );
   });
@@ -466,7 +466,7 @@ describe("readExcludePatterns (ADR-0100)", () => {
       (error) =>
         error instanceof Error &&
         error.message.includes("because this pattern contains a tab") &&
-        error.message.endsWith("  odd*name.jpg"),
+        error.message.endsWith("  odd?name.jpg"),
     );
   });
 

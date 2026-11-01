@@ -330,9 +330,9 @@ export default defineConfig({
     checkLinks(outDir);
   },
   // The pattern playgrounds bundle s3cab's own matchers for the browser, so
-  // within src/lib/ `path`, `util` and `fs`, with or without `node:`, resolve
-  // to node-shim.mjs. Any other builtin is an error: Vite would only warn and
-  // swap in an empty module, and the page would break when it ran.
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
+  // in an empty module, and the page would break when it ran.
   vite: {
     plugins: [
       {
