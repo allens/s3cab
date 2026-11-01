@@ -4,27 +4,22 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { commands } from "../src/commands.mjs";
 import { ORIGIN, frozenUrls, printedUrls } from "./docs-urls.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 
-// help.mjs builds each command's guide link from its registry `guide` field, so
-// that one interpolated URL is checked as the URLs it expands to. Any other
-// interpolation is reported: nothing here can tell what it prints.
+// help.mjs builds each command's guide link from its registry `guide` field,
+// and help.test.mjs proves each of those has a page in guide/, so that one
+// interpolated URL passes here. Any other is reported: nothing here can tell
+// what it prints.
 const GUIDE_TEMPLATE = `${ORIGIN}/guide/\${guide}`;
-const guides = Object.values(commands).flatMap(({ guide }) =>
-  guide ? [`${ORIGIN}/guide/${guide}`] : [],
-);
 
 /** Each URL `root`'s `src/` prints that isn't frozen, as `file: url`. */
 const unfrozen = (/** @type {string} */ root) => {
   const frozen = new Set(frozenUrls(root));
-  return printedUrls(root).flatMap(({ file, url }) =>
-    (url === GUIDE_TEMPLATE ? guides : [url])
-      .filter((printed) => !frozen.has(printed))
-      .map((printed) => `${file}: ${printed}`),
-  );
+  return printedUrls(root)
+    .filter(({ url }) => url !== GUIDE_TEMPLATE && !frozen.has(url))
+    .map(({ file, url }) => `${file}: ${url}`);
 };
 
 describe("frozenUrls", () => {
@@ -57,10 +52,9 @@ describe("printed URLs", () => {
       "bare origin",
     );
     assert.ok(printed.some(({ url }) => url === GUIDE_TEMPLATE));
-    assert.ok(guides.length > 0, "the registry links guides");
   });
 
-  it("reports a printed URL that isn't frozen, and an unknown interpolation", async () => {
+  it("reports a printed URL that isn't frozen, an anchor, and an unknown interpolation", async () => {
     await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-urls-"));
     mkdirSync(join(dir.path, "guide"));
     writeFileSync(join(dir.path, "guide", "exclude.md"), "");
@@ -68,7 +62,8 @@ describe("printed URLs", () => {
     writeFileSync(
       join(dir.path, "src", "lib", "x.mjs"),
       `"See ${ORIGIN}/guide/exclude." + \`${ORIGIN}/guide/\${topic}\`;\n` +
-        `// ${ORIGIN}/guide/exlcude\n`,
+        `// ${ORIGIN}/guide/exlcude\n` +
+        `"${ORIGIN}/guide/exclude#patterns"\n`,
     );
     // Tests ship nothing, so a URL in one is never printed.
     writeFileSync(
@@ -79,6 +74,7 @@ describe("printed URLs", () => {
     assert.deepEqual(unfrozen(dir.path), [
       `src/lib/x.mjs: ${ORIGIN}/guide/\${topic}`,
       `src/lib/x.mjs: ${ORIGIN}/guide/exlcude`,
+      `src/lib/x.mjs: ${ORIGIN}/guide/exclude#patterns`,
     ]);
   });
 });

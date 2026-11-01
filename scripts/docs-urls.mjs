@@ -5,9 +5,12 @@
  * "Every URL we print"). The hosting lives in the platform repo's Terraform
  * (ADR-0114), so a change there can take a page off the air unseen from here.
  *
+ * Run, it fetches each frozen URL from the live site and fails unless every
+ * one answers 200 with no redirect and `/guide/nope` answers 404.
+ *
  * Two faces, hence the `import.meta.main` guard: `docs-urls.test.mjs` imports
  * the list and the source scan (in `npm test`, no network), and the
- * `docs-urls` workflow runs this file to fetch each URL from the live site.
+ * `docs-urls` workflow runs this file.
  *
  * Usage:
  *   node scripts/docs-urls.mjs     # exit 1 if any URL answers wrong
@@ -32,9 +35,9 @@ export function frozenUrls(root) {
   return [`${ORIGIN}/`, ...topics.map((topic) => `${ORIGIN}/guide/${topic}`)];
 }
 
-// A `${…}` stays in the match, so an interpolated URL reads as one and can't
-// pass for the literal it starts with.
-const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}]*/g;
+// A `${…}`, `#anchor` or `?query` stays in the match, so the URL can't pass
+// for the frozen page it starts with.
+const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}#?=&]*/g;
 
 /**
  * Every docs-site URL spelled in a shipped `src/` module, as written; the bare
@@ -72,7 +75,11 @@ if (import.meta.main) {
   for (const { url, want } of checks) {
     let got;
     try {
-      const response = await fetch(url, { redirect: "manual" });
+      // Under the job's timeout, so a hung URL still gets its FAIL line.
+      const response = await fetch(url, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+      });
       const location = response.headers.get("location");
       got = `${response.status}${location ? ` redirect to ${location}` : ""}`;
       if (response.status === want) {
@@ -80,7 +87,14 @@ if (import.meta.main) {
         continue;
       }
     } catch (error) {
-      got = `no answer (${error instanceof Error ? (error.cause ?? error.message) : error})`;
+      // fetch says only "fetch failed"; the reason is its `cause`, whose
+      // message is empty when every address failed, but whose `code` isn't.
+      // A timeout has no cause, and its own `code` is DOMException's 23.
+      const failure = /** @type {Error} */ (error);
+      const cause = /** @type {NodeJS.ErrnoException | undefined} */ (
+        failure.cause
+      );
+      got = `no answer (${cause ? (cause.code ?? cause.message) : failure.message})`;
     }
     failed++;
     console.log(`FAIL  ${url} wanted ${want}, got ${got}`);

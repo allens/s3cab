@@ -1,10 +1,11 @@
-# The frozen docs URLs, fetched from the live site (ADR-0114): every URL
-# s3cab may have printed must answer 200 with no redirect, and /guide/nope
-# must 404. The list and the check are scripts/docs-urls.mjs.
+# The frozen docs URLs, fetched from the live site (ADR-0114); what passes is
+# in scripts/docs-urls.mjs.
 #
 # Scheduled rather than on push: the hosting is the platform repo's
 # Terraform, so what breaks a URL usually never touches this repo. A failed
-# run is the alert; GitHub mails the repo owner.
+# run is the alert, mailed to whoever last touched the cron line. GitHub
+# disables the schedule after 60 days of repository inactivity, and then
+# nothing runs and nothing fails.
 
 name: docs-urls
 
