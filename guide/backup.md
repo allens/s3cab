@@ -42,11 +42,14 @@ A set is a folder of plain files in s3cab's home, never inside the directories i
 ```
 
 - **Editing a set is editing these files**, and deleting the folder deletes the set.
-- **Only `env` can't be got back.** `s3cab reattach` pulls the snapshots back down from the
-  bucket, and `s3cab takeover` the directory list and exclude rules too. `env` never leaves
-  this machine, since it can hold credentials ([signing in](auth.md)).
+- **Of these, only `env` can't be got back.** `s3cab reattach` pulls the snapshots back down
+  from the bucket, and `s3cab takeover` the directory list and exclude rules too. `env` never
+  leaves this machine, since it can hold credentials ([signing in](auth.md)).
 - **`claim`** marks this machine as the set's holder, the one machine that backs it up
   ([who holds a set](format.md#who-holds-a-set)).
+- **`forget` adds files of its own**: a record of each removal in the set's folder, and a
+  preview in the home itself. They never leave this machine either
+  ([the two files it leaves behind](maintenance.md#the-two-files-it-leaves-behind)).
 - **`~/.s3cab` is the home on every OS.** Set `S3CAB_HOME` to move the whole tree; every path
   s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
   keyless identity if you set one up ([signing in](auth.md#roles-anywhere-keyless)), and the
@@ -56,7 +59,7 @@ Each snapshot records a few of these settings for whoever reads it later:
 
 - `@CLIENT HOME` is the home it was taken from, so the set's folder and the snapshot's own
   path follow from it and the names.
-- `@SET BUCKET` is the set's `S3CAB_BUCKET`.
+- `@SET BUCKET` is the set's `S3CAB_BUCKET`, as `s3://<bucket>`.
 - `@SET ENDPOINT` is its endpoint, when it has one: `AWS_ENDPOINT_URL_S3`, else
   `AWS_ENDPOINT_URL`.
 

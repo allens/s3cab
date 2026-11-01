@@ -4,7 +4,8 @@ Four commands keep a repository healthy over the years: **`verify`** checks your
 still restorable, **`forget`** removes a snapshot you no longer want, **`delete`** removes a
 file or folder you no longer want from *every* backup, and **`cleanup`** reclaims the
 storage that frees up. Alongside them sits the thing that makes all of it safe to get wrong
-— **bucket versioning**.
+— **bucket versioning** — and underneath them two plumbing commands,
+[`hashes` and `upload`](#the-building-blocks-hashes-and-upload).
 
 You can ignore this page for a long time. Backups just accumulate, and that's fine. Come back
 when you want to know they're sound, or when the bill starts to matter.
@@ -439,10 +440,11 @@ from a folder, or uploads everything a snapshot references and then the snapshot
 - **Content already stored is skipped**, since identical bytes always land at the same key.
   `--force` re-uploads a single file anyway, which is how a damaged copy gets repaired
   ([getting files back](restore.md#if-some-content-is-missing-from-the-backup)).
-- **A set supplies its own bucket and sign-in.** `--bucket` is the escape hatch for seeding a
-  bucket that isn't one of your sets, signed in with your ambient AWS setup.
-- **Seeded files need a backup soon after**: until one references them, a `cleanup` counts
-  them as orphans ([above](#locks-backups-and-clean-ups-take-turns)).
+- **A set supplies its own bucket and sign-in.** `--bucket` is the escape hatch: it puts a
+  single file (`--file`) into a bucket that isn't one of your sets, signed in with your
+  ambient AWS setup.
+- **Seeding with `--dir`?** Run no clean-up before that set's first backup
+  ([above](#locks-backups-and-clean-ups-take-turns)).
 
 ## A routine, if you want one
 

@@ -158,8 +158,9 @@ read it. Add `--json` to any command for machine-readable output
 
 Going further: the [guides](guide/) cover backing up, getting files back, looking after a
 backup over the years, and signing in to your storage, and
-[guide/format.md](guide/format.md) is the format spec — everything s3cab stores, written down
-so you can read it without s3cab.
+[guide/format.md](guide/format.md) is the format spec — your backup as it sits in the bucket,
+written down so you can read it without s3cab. The files s3cab keeps on your own machine are
+in [guide/backup.md](guide/backup.md#where-a-set-lives).
 
 ## Command reference
 
