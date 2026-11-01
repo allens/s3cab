@@ -181,10 +181,10 @@ network, no bucket needed.
 
 | Command                                                            | What it does |
 | ------------------------------------------------------------------ | ------------ |
-| [`s3cab snapshot`](https://s3cab.plantegral.com/commands/snapshot) | Take a snapshot of a backup set |
+| [`s3cab snapshot`](https://s3cab.plantegral.com/commands/snapshot) | Take a snapshot of a backup set ([guide](guide/backup.md)) |
 | [`s3cab list`](https://s3cab.plantegral.com/commands/list)         | List backup sets and their snapshots |
-| [`s3cab compare`](https://s3cab.plantegral.com/commands/compare)   | Show what changed between two snapshots |
-| [`s3cab find`](https://s3cab.plantegral.com/commands/find)         | Search your backups for a file, and show what backs it |
+| [`s3cab compare`](https://s3cab.plantegral.com/commands/compare)   | Show what changed between two snapshots ([guide](guide/compare.md)) |
+| [`s3cab find`](https://s3cab.plantegral.com/commands/find)         | Search your backups for a file, and show what backs it ([guide](guide/find.md)) |
 | [`s3cab status`](https://s3cab.plantegral.com/commands/status)     | Show what is backed up and what a backup would upload |
 
 ### Setup
@@ -193,11 +193,11 @@ Run once: a bucket to back up to, credentials to reach it, and the set itself.
 
 | Command                                                            | What it does |
 | ------------------------------------------------------------------ | ------------ |
-| [`s3cab aws`](https://s3cab.plantegral.com/commands/aws)           | Show the steps to set up an AWS S3 bucket for backups |
-| [`s3cab provider`](https://s3cab.plantegral.com/commands/provider) | Set, clear, or show how s3cab connects to your storage provider |
+| [`s3cab aws`](https://s3cab.plantegral.com/commands/aws)           | Show the steps to set up an AWS S3 bucket for backups ([guide](guide/aws.md)) |
+| [`s3cab provider`](https://s3cab.plantegral.com/commands/provider) | Set, clear, or show how s3cab connects to your storage provider ([guide](guide/auth.md)) |
 | [`s3cab setup`](https://s3cab.plantegral.com/commands/setup)       | Create a backup set |
-| [`s3cab reattach`](https://s3cab.plantegral.com/commands/reattach) | Attach an existing backup set to this machine read-only, or refresh it |
-| [`s3cab takeover`](https://s3cab.plantegral.com/commands/takeover) | Make this machine the one that backs up an existing set |
+| [`s3cab reattach`](https://s3cab.plantegral.com/commands/reattach) | Attach an existing backup set to this machine read-only, or refresh it ([guide](guide/restore.md)) |
+| [`s3cab takeover`](https://s3cab.plantegral.com/commands/takeover) | Make this machine the one that backs up an existing set ([guide](guide/restore.md)) |
 
 ### Backup & restore
 
@@ -206,14 +206,14 @@ The cloud round trip, plus the maintenance that keeps a repository healthy
 
 | Command                                                          | What it does |
 | ---------------------------------------------------------------- | ------------ |
-| [`s3cab backup`](https://s3cab.plantegral.com/commands/backup)   | Back up a set to the cloud |
-| [`s3cab restore`](https://s3cab.plantegral.com/commands/restore) | Restore files from a backup |
-| [`s3cab extract`](https://s3cab.plantegral.com/commands/extract) | Copy one file or folder out of a backup, by its own name |
-| [`s3cab verify`](https://s3cab.plantegral.com/commands/verify)   | Check that a repository's backups are complete and undamaged |
-| [`s3cab forget`](https://s3cab.plantegral.com/commands/forget)   | Remove snapshots from a backup |
-| [`s3cab delete`](https://s3cab.plantegral.com/commands/delete)   | Delete objects from every backup by content hash, permanently |
-| [`s3cab cleanup`](https://s3cab.plantegral.com/commands/cleanup) | Reclaim storage held by objects no snapshot references |
-| [`s3cab unlock`](https://s3cab.plantegral.com/commands/unlock)   | Remove locks a stopped backup, upload, cleanup or delete left behind |
+| [`s3cab backup`](https://s3cab.plantegral.com/commands/backup)   | Back up a set to the cloud ([guide](guide/backup.md)) |
+| [`s3cab restore`](https://s3cab.plantegral.com/commands/restore) | Restore files from a backup ([guide](guide/restore.md)) |
+| [`s3cab extract`](https://s3cab.plantegral.com/commands/extract) | Copy one file or folder out of a backup, by its own name ([guide](guide/restore.md)) |
+| [`s3cab verify`](https://s3cab.plantegral.com/commands/verify)   | Check that a repository's backups are complete and undamaged ([guide](guide/maintenance.md)) |
+| [`s3cab forget`](https://s3cab.plantegral.com/commands/forget)   | Remove snapshots from a backup ([guide](guide/maintenance.md)) |
+| [`s3cab delete`](https://s3cab.plantegral.com/commands/delete)   | Delete objects from every backup by content hash, permanently ([guide](guide/maintenance.md)) |
+| [`s3cab cleanup`](https://s3cab.plantegral.com/commands/cleanup) | Reclaim storage held by objects no snapshot references ([guide](guide/maintenance.md)) |
+| [`s3cab unlock`](https://s3cab.plantegral.com/commands/unlock)   | Remove locks a stopped backup, upload, cleanup or delete left behind ([guide](guide/maintenance.md)) |
 
 ### Advanced
 
@@ -224,7 +224,7 @@ never run these directly ([guide](guide/maintenance.md#the-building-blocks-hashe
 | -------------------------------------------------------------- | ------------ |
 | [`s3cab hashes`](https://s3cab.plantegral.com/commands/hashes) | List a repository's stored object hashes (one per line) |
 | [`s3cab upload`](https://s3cab.plantegral.com/commands/upload) | Upload a file, a folder's objects, or a snapshot's objects to a set's store |
-| [`s3cab tree`](https://s3cab.plantegral.com/commands/tree)     | List the files a snapshot of a backup set would include |
+| [`s3cab tree`](https://s3cab.plantegral.com/commands/tree)     | List the files a snapshot of a backup set would include ([guide](guide/exclude.md)) |
 | [`s3cab prop`](https://s3cab.plantegral.com/commands/prop)     | Show a file's hash, size, and modified time |
 
 ### Global options
