@@ -16,39 +16,32 @@
 // alpha bump arrives as a reviewed Dependabot PR rather than on a fresh install.
 
 import { readFileSync } from "node:fs";
-import { join, posix } from "node:path";
+import { join, posix, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
 import { commandSidebar } from "./command-pages.mjs";
 import { slugify } from "./slugify.mjs";
+import commandRoute from "../commands/[name].paths.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
 /** @import MarkdownIt from "markdown-it" */
 
 const repo = "https://github.com/allens/s3cab";
 const site = "https://s3cab.plantegral.com";
-
-/**
- * Where a site page's markdown lives in the repo: `index.md` includes the
- * README; `guide/<topic>.md` is rendered from `guide/`.
- * @param {string} relativePath
- */
-const sourceOf = (relativePath) =>
-  relativePath === "index.md"
-    ? "README.md"
-    : relativePath.replace(/^guide\/index\.md$/, "guide/README.md");
+const root = fileURLToPath(new URL("../../", import.meta.url));
 
 /**
  * A link as the site should serve it: one to the site's own domain becomes a
  * path on it, so the build checks it and a preview stays on the preview.
- * Otherwise, resolved against the page's real place in the repo, it stays as
- * written if it lands on a site page, becomes `/` for the README, and becomes a
- * GitHub link for any other repo file.
+ * Otherwise, resolved against the page's file in the repo, it stays as written
+ * if it lands on a guide page, becomes `/` or `/guide/` for a README, and
+ * becomes a GitHub link for any other repo file.
  * @param {string} href
- * @param {string} relativePath - The site page the link is on
+ * @param {string} file - The page's file, relative to the repo
  */
-function siteHref(href, relativePath) {
+function siteHref(href, file) {
   if (href.startsWith(`${site}/`)) {
     return href.slice(site.length);
   }
@@ -58,9 +51,7 @@ function siteHref(href, relativePath) {
   const at = href.indexOf("#");
   const path = at < 0 ? href : href.slice(0, at);
   const hash = at < 0 ? "" : href.slice(at);
-  const target = posix.normalize(
-    posix.join(posix.dirname(sourceOf(relativePath)), path),
-  );
+  const target = posix.normalize(posix.join(posix.dirname(file), path));
   if (target === "README.md") {
     return `/${hash}`;
   }
@@ -76,12 +67,14 @@ function siteHref(href, relativePath) {
 /** @param {MarkdownIt} md */
 function repoLinks(md) {
   md.core.ruler.push("s3cab-repo-links", (state) => {
-    const page = state.env.relativePath ?? "";
+    const file = relative(root, state.env.realPath ?? state.env.path ?? "")
+      .split("\\")
+      .join("/");
     for (const token of state.tokens) {
       for (const child of token.children ?? []) {
         const href = child.type === "link_open" && child.attrGet("href");
         if (href) {
-          child.attrSet("href", siteHref(href, page));
+          child.attrSet("href", siteHref(href, file));
         }
       }
     }
@@ -89,23 +82,32 @@ function repoLinks(md) {
 }
 
 /**
- * The page local search indexes. VitePress reads it from the page's file under
- * site/, and a guide page has none — /guide/<topic> is a dynamic route — so
- * without this no guide page is searchable. Runs only in Node: VitePress drops
- * `_`-prefixed options before themeConfig goes to the browser. `docs:dev`
- * doesn't re-index a guide page you edit; restart it to see search change.
+ * The page local search indexes. VitePress reads it from the page's file, and a
+ * command page has none — /commands/<name> is generated — so without this no
+ * command page is searchable. Runs only in Node: VitePress drops `_`-prefixed
+ * options before themeConfig goes to the browser.
  * @type {NonNullable<DefaultTheme.LocalSearchOptions["_render"]>}
  */
-const searchedPage = (src, env, md) =>
-  md.renderAsync(
-    env.relativePath.startsWith("guide/")
-      ? readFileSync(
-          new URL(`../../${sourceOf(env.relativePath)}`, import.meta.url),
-          "utf8",
-        )
-      : src,
-    env,
-  );
+const searchedPage = (src, env, md) => {
+  const name = /^site\/commands\/(.+)\.md$/.exec(env.relativePath)?.[1];
+  const page = commandRoute.paths().find((route) => route.params.name === name);
+  return md.renderAsync(page?.content ?? src, env);
+};
+
+/**
+ * Opens the home page with the terminal recording. The home page is README.md,
+ * which GitHub renders too, so the recording can't be written into it.
+ * @param {MarkdownIt} md
+ */
+function homeRecording(md) {
+  md.core.ruler.push("s3cab-home-recording", (state) => {
+    if (state.env.relativePath === "index.md") {
+      const token = new state.Token("html_block", "", 0);
+      token.content = "<HomeRecording />\n";
+      state.tokens.unshift(token);
+    }
+  });
+}
 
 /**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
@@ -153,14 +155,28 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
-  // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
-  // guide/[topic].md), not the README or guide file it renders.
+  // The pages are the repo's own files where they live: README.md is the home
+  // page, guide/*.md the guide, and site/ holds the pages only the site has.
+  srcDir: "..",
+  // `foo/**` also matches the file `foo`, so this one pattern drops every other
+  // top-level file and folder.
+  srcExclude: ["!(README.md|guide|site)/**"],
+  rewrites: {
+    "README.md": "index.md",
+    "guide/README.md": "guide/index.md",
+    "site/:page*": ":page*",
+  },
+  // VitePress looks for it in srcDir, which would make it a top-level public/.
+  vite: { publicDir: "site/public" },
   markdown: {
     anchor: { slugify },
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
     // the shell grammar colours as escapes (`C:\Users` → `\U`); shown plain.
     languageAlias: { console: "text" },
-    config: repoLinks,
+    config: (md) => {
+      repoLinks(md);
+      homeRecording(md);
+    },
   },
   // The challenge's bucket is written once the pages are, too late for
   // VitePress's own check, so links into it are left to check-links.mjs, run
@@ -192,25 +208,12 @@ export default defineConfig({
       },
     },
     outline: { level: [2, 3] },
-    // Serialized into the browser bundle, so it can't close over `repo` or
-    // `sourceOf` above — it repeats their mapping on its own. A guide page's
-    // filePath is the route template, `guide/[topic].md`; its topic is a param.
-    // A command page is generated, so its source is the registry. Any other
-    // page is its own source, under site/.
+    // Serialized into the browser bundle, so it can't close over `repo`. A
+    // command page is generated, so its source is the registry.
     editLink: {
-      pattern: ({ filePath, params }) => {
-        const topic = params?.topic === "index" ? "README" : params?.topic;
-        return (
-          "https://github.com/allens/s3cab/edit/main/" +
-          (filePath === "index.md"
-            ? "README.md"
-            : filePath.startsWith("guide/")
-              ? `guide/${topic}.md`
-              : filePath.startsWith("commands/")
-                ? "src/commands.mjs"
-                : `site/${filePath}`)
-        );
-      },
+      pattern: ({ filePath }) =>
+        "https://github.com/allens/s3cab/edit/main/" +
+        (filePath.startsWith("site/commands/") ? "src/commands.mjs" : filePath),
       text: "Edit this page on GitHub",
     },
     socialLinks: [{ icon: "github", link: repo }],
