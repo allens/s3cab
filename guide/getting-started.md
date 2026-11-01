@@ -21,10 +21,10 @@ and everything else reads the same.
 **Try it on a copy first.** Copy a few hundred photos, or any folder of files you have
 elsewhere, to somewhere like `C:\Users\me\Photos`, and use that. s3cab never changes the
 files it backs up, but a trial on a copy means you can delete a file in step 3 without a
-second thought, and throw the whole thing away afterwards. The page follows one example
-folder, 212 photos with a `beach.jpg` among them: where it names a file, use one of yours,
-and expect your own counts and sizes in the reports. The pages use Windows paths; on macOS or
-Linux, write yours the way your system does.
+second thought, and throw the whole thing away afterwards. The page follows the example
+library every guide uses, 1,312 files with a `beach.jpg` among them: where it names a file,
+use one of yours, and expect your own counts and sizes in the reports. The pages use Windows
+paths; on macOS or Linux, write yours the way your system does.
 
 ## 1. Create a backup set
 
@@ -77,9 +77,9 @@ it's doing — which folder it's reading, how far the upload has got — and the
 ```console
 > s3cab backup
 Contacting the cloud…
-Backed up 'photos' → snapshot 20251112T0915
-Scanned 212 files (1.1GB) in 6s
-Uploaded 212 objects (1.1GB) in 2m 16s
+Backed up 'photos' → snapshot 20251110T2104
+Scanned 1,312 files (4.2GB) in 2m 41s
+Uploaded 1,240 objects (4.2GB) in 6m 08s
 
 First backup — every file is new.
 ```
@@ -88,12 +88,12 @@ What happened:
 
 - **s3cab took a snapshot**: a list of every file in the set, with its size, its modification
   time and a fingerprint of its contents (a SHA-256 hash). The snapshot is named for the
-  moment it was taken, `20251112T0915` — 12 November 2025 at 09:15, in your local time — and
+  moment it was taken, `20251110T2104` — 10 November 2025 at 21:04, in your local time — and
   that name is how you'll refer to it from now on.
 - **Each file was uploaded once, stored under its fingerprint.** Two files with the same
   contents, anywhere in the bucket — in this set or another — are stored once. That is why
-  the report counts *objects* uploaded as well as *files* scanned: on this first run they are
-  the same.
+  the report counts *objects* uploaded as well as *files* scanned: 72 of these files are
+  copies of others, so 1,312 files are 1,240 objects.
 - **The snapshot went up last**, after every file it lists. Any snapshot you can see in the
   bucket is complete.
 
@@ -111,7 +111,7 @@ elsewhere, or delete it and empty the recycle bin — then ask for it back:
 ```console
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20251112T0915).
+Restored 1 file from 'photos' (snapshot 20251110T2104).
 ```
 
 The file is back where it was, byte for byte, with its original modification time. What to
@@ -138,49 +138,56 @@ know:
 
 ## 4. Change something, back up again
 
-Make two changes. Move `2024\IMG_001.jpg` into a new subfolder, `2024\sorted`, and copy a new
-photo in as `2025\new.jpg`. Then back up again:
+Make four changes. Copy `logo.png` as `brand-logo.png`, rename `notes.txt` to `diary.txt`,
+edit `report.pdf`, and delete `old notes.txt`. Then back up again:
 
 ```console
 > s3cab backup
 Contacting the cloud…
-Backed up 'photos' → snapshot 20251113T0902
-Scanned 213 files (1.1GB) in 1s — 2 needed re-hashing (7.5MB)
-Uploaded 1 object (4.1MB) in 2s
+Backed up 'photos' → snapshot 20251111T0830
+Scanned 1,312 files (4.2GB) in 1s — 3 needed re-hashing (1.3MB)
+Uploaded 1 object (1.3MB) in 2s
 
-Changes since 20251112T0915:
+Changes since 20251110T2104:
   Added     1
-  Modified  0
-  Deleted   0
+  Modified  1
+  Deleted   1
   Moved     1
 
 To see the details:
-  s3cab compare photos --since 20251112T0915 --until 20251113T0902
+  s3cab compare photos --since 20251110T2104 --until 20251111T0830
 Compare now? [y/N] y
-photos: ~\Photos  20251112T0915 → 20251113T0902
+photos: ~\Photos  20251110T2104 → 20251111T0830
 
 Added (1)
-  2025\new.jpg
+  brand-logo.png  (duplicate of logo.png)
 
-Moved (1)
-  2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
+Renamed (1)
+  notes.txt → diary.txt
 
-1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 4.1MB changed
+Modified (1)
+  report.pdf
+
+Deleted (1)
+  old notes.txt
+
+1 added, 1 renamed, 0 moved, 1 modified, 1 deleted · 1.3MB changed
 ```
 
 What happened:
 
-- **Two files were read, and one uploaded.** The 211 files still at their old paths kept the
-  fingerprints from the first snapshot. The new photo and the moved one were read, because a
-  fingerprint is looked up by path and the moved one sits at a new path — but only the new
-  photo was new content.
-- **The moved photo is reported as moved**, not as one file deleted and another added. Its
-  fingerprint is the one the first snapshot recorded, so s3cab knows it is the same file — and
-  it cost nothing to upload, because that content was already in the bucket.
+- **Three files were read, and one uploaded.** The files untouched since the first snapshot
+  kept their fingerprints. The copy, the renamed file and the edited one were read, because a
+  fingerprint is reused only for a file at the same path, with the same size and modification
+  time — but only the edited `report.pdf` was new content.
+- **The renamed file is reported as renamed**, not as one file deleted and another added. Its
+  fingerprint is the one the first snapshot recorded, so s3cab knows it is the same file. The
+  copy is noted as a duplicate of the file it was copied from. Neither cost anything to upload,
+  because that content was already in the bucket.
 - **The report counts; `compare` lists.** A backup that found changes ends with the counts
   and the command that shows the detail. At a terminal it offers to run it for you, which is
   what `y` did above. You can run it yourself at any time —
-  `s3cab compare photos --since 20251112T0915` compares that snapshot with the latest — and
+  `s3cab compare photos --since 20251110T2104` compares that snapshot with the latest — and
   [Reading a compare report](compare.md) explains each section.
 
 ## 5. What you have: `list` and `status`
@@ -191,8 +198,8 @@ so it works offline:
 ```console
 > s3cab list
 photos:
-  20251113T0902
-  20251112T0915
+  20251111T0830
+  20251110T2104
 ```
 
 Name a set and it shows the files that define it — the ones you edit to change what it backs
@@ -208,8 +215,8 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
   C:\Users\me\Photos
 exclude file: C:\Users\me\.s3cab\sets\photos\exclude.txt
 snapshots:
-  20251113T0902
-  20251112T0915
+  20251111T0830
+  20251110T2104
 ```
 
 Add `--remote` to list the snapshots in the bucket instead (`s3cab list photos --remote`),
@@ -222,8 +229,8 @@ would a backup send?
 > s3cab status
 Contacting the cloud…
 photos
-  latest snapshot   20251113T0902
-  backed up         20251113T0902
+  latest snapshot   20251111T0830
+  backed up         20251111T0830
   up to date
 ```
 

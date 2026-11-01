@@ -30,13 +30,13 @@ content already existed elsewhere is noted '(duplicate of ...)'.`;
 
 export const findDetails = `Patterns work like the Unix 'find' command, NOT like your exclude file:
 
-  aws-keys.txt      a file of that name, wherever it lived
+  diary.txt         a file of that name, wherever it lived
   *.mov             every file with that extension
-  secretsdir/       everything beneath a directory of that name
-  me/Documents/tax  any path with that fragment in it
+  raw-footage/      everything beneath a directory of that name
+  2024/IMG_001.jpg  any path with that fragment in it
 
-* matches one or more characters within a name (so '*keys.txt' finds
-'aws-keys.txt' but not 'keys.txt'), ** crosses directories, ? matches
+* matches one or more characters within a name (so '*logo.png' finds
+'brand-logo.png' but not 'logo.png'), ** crosses directories, ? matches
 exactly one character. Quote patterns your shell would otherwise expand.
 
 This reads the snapshots already on this machine, so it makes no network

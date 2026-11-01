@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bucket, filesAt, scale, sets, timeline } from "./story.mjs";
 import { writeSnapshot } from "./write-snapshot.mjs";
 
 /** @import { BackupResult } from "../../src/commands/backup.mjs" */
@@ -60,22 +61,49 @@ export const file = (name, fill, size) =>
   });
 
 /**
- * The README quick start's first backup of `photos` to `my-backups`.
+ * The story's `photos` set in a temp home, with its snapshots up to and
+ * including `until`, and a way to run the CLI there.
+ * @param {string} root
+ * @param {string} until
+ */
+export const storySet = (root, until) =>
+  photosSet(
+    root,
+    Object.fromEntries(
+      timeline
+        .filter(({ name }) => name <= until)
+        .map(({ name }) => [
+          name,
+          [...filesAt(name)].map(
+            ([path, { fill, size, mtime }]) =>
+              new File([new Uint8Array(size).fill(fill.charCodeAt(0))], path, {
+                lastModified: Date.parse(mtime),
+              }),
+          ),
+        ]),
+    ),
+    sets.photos.folder,
+  );
+
+const { files, bytes, objects, scanMs, uploadMs } = scale.firstBackup;
+
+/**
+ * The README quick start's first backup of `photos`: the story's first.
  * @type {BackupResult}
  */
 export const firstBackup = {
   set: "photos",
-  bucket: "my-backups",
-  snapshot: "20251112T0915",
-  files: 1_312,
-  bytes: 4_200_000_000,
-  hashedFiles: 1_312,
-  hashedBytes: 4_200_000_000,
-  scanMs: 161_000,
-  candidates: 1_240,
-  uploaded: 1_240,
-  uploadedBytes: 4_200_000_000,
-  uploadMs: 368_000,
+  bucket,
+  snapshot: timeline[0]?.name ?? "",
+  files,
+  bytes,
+  hashedFiles: files,
+  hashedBytes: bytes,
+  scanMs,
+  candidates: objects,
+  uploaded: objects,
+  uploadedBytes: bytes,
+  uploadMs,
   errors: [],
   excludeSuggestions: [],
   excludePath: "",
@@ -83,14 +111,14 @@ export const firstBackup = {
 };
 
 /**
- * A restore of `photos` from `my-backups`, empty unless `result` says
- * otherwise.
+ * A restore of `photos`, from the story's latest backup when restore.md is
+ * read, empty unless `result` says otherwise.
  * @param {Partial<RestoreResult>} result
  * @returns {RestoreResult}
  */
 export const restoreResult = (result) => ({
   set: "photos",
-  bucket: "my-backups",
+  bucket,
   snapshot: "20260612T0915",
   restored: [],
   skipped: [],

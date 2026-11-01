@@ -15,7 +15,7 @@ when you want to know they're sound, or when the bill starts to matter.
 ```console
 > s3cab verify my-backups
 Contacting the cloud…
-my-backups: 3 sets, 48,210 objects checked — all verified ✓
+my-backups: 3 sets, 8,462 objects checked — all verified ✓
 ```
 
 `verify` reads every snapshot in the repository and confirms that each file it references is
@@ -36,11 +36,11 @@ is one listing of the whole store either way. Findings are still reported per se
 ```console
 > s3cab verify my-backups
 Contacting the cloud…
-my-backups: 3 sets, 48,210 objects checked — 1 set with findings ✗
+my-backups: 3 sets, 8,462 objects checked — 1 set with findings ✗
 
   photos   2 files with problems
-    C:\Users\me\Photos\beach.jpg    missing      (in snapshot 20260612T0915)
-    C:\Users\me\Photos\report.pdf   wrong size   (recorded 245,760 bytes, stored 0)
+    C:\Users\me\Photos\beach.jpg    missing      (in snapshots 20251110T2104, 20251111T0830, 20260612T0915)
+    C:\Users\me\Photos\report.pdf   wrong size   (recorded 1,250,000 bytes, stored 0)
 ```
 
 Two kinds of finding:
@@ -65,7 +65,7 @@ made on purpose shouldn't ring the alarm forever:
 ```console
 > s3cab verify my-backups
 Contacting the cloud…
-my-backups: 3 sets, 47,913 objects checked — all verified ✓
+my-backups: 3 sets, 8,165 objects checked — all verified ✓
 
   photos   312 files deleted from backups (s3cab delete — deleted 2026-07-19; expected, not damage)
 ```
@@ -79,10 +79,10 @@ A snapshot is a point in time. When you don't want to keep one any more:
 Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
 
-  snapshot            files    size
-  20260501T0800       3,201  12.4GB
-                      ─────────────
-  total unrestorable  3,201  12.4GB
+  snapshot            files   size
+  20260501T0800          18  2.6GB
+                      ────────────
+  total unrestorable     18  2.6GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
@@ -90,7 +90,7 @@ Forget snapshot '20260501T0800' from set 'photos' (bucket my-backups)? This cann
 Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
   s3cab cleanup my-backups
 Record of this removal:
-  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260501T080213.txt
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260612T141502.txt
 Snapshot '20260501T0800' forgotten from set 'photos'.
 ```
 
@@ -114,12 +114,12 @@ Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
 
   snapshot                   files     size
-  20260501T0800              3,201   12.4GB
-  20260508T0800                118  412.0MB
+  20260501T0800                 18    2.6GB
+  20260508T0800                  7  940.0MB
   20260515T0800                  0       0B
-  shared across 3 snapshots    842    3.1GB
+  shared across 3 snapshots     23    3.1GB
                              ──────────────
-  total unrestorable         4,161   15.9GB
+  total unrestorable            48    6.6GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
@@ -127,7 +127,7 @@ Forget 3 snapshots ('20260501T0800', '20260508T0800', '20260515T0800') from set 
 Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
   s3cab cleanup my-backups
 Record of this removal:
-  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260520T141807.txt
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260612T141807.txt
 3 snapshots forgotten from set 'photos'.
 ```
 
@@ -161,7 +161,7 @@ use once you have.
 Once you say **yes**, though, s3cab also keeps a permanent copy in the set's own folder:
 
 ```
-~/.s3cab/sets/photos/forget-unrestorable-20260501T080213.txt
+~/.s3cab/sets/photos/forget-unrestorable-20260612T141807.txt
 ```
 
 That one is a record of what you forgot and what it cost you, and it isn't overwritten or
@@ -265,8 +265,8 @@ them:
 ```console
 > s3cab cleanup my-backups
 Contacting the cloud…
-Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
-my-backups: deleted 312 orphaned objects, reclaimed 1.4GB.
+Delete 46 orphaned objects (6.6GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
+my-backups: deleted 46 orphaned objects, reclaimed 6.6GB.
 ```
 
 **It asks before it acts.** At a terminal the question itself carries the count and the
@@ -278,7 +278,7 @@ without touching anything, `-n` (`--dry-run`) reports and stops:
 > s3cab cleanup my-backups --dry-run
 Contacting the cloud…
 Dry run — nothing deleted. Re-run without --dry-run to reclaim (add --force when there's no terminal).
-my-backups: 48,210 objects stored, 312 orphaned (1.4GB reclaimable)
+my-backups: 8,508 objects stored, 46 orphaned (6.6GB reclaimable)
 ```
 
 In a script — no terminal to answer the prompt — state the intent with `--force`, which
@@ -334,9 +334,9 @@ a terminal the refusal comes after the question:
 ```console
 > s3cab cleanup my-backups
 Contacting the cloud…
-Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
+Delete 46 orphaned objects (6.6GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
 ERROR: Can't clean up right now — a backup or upload is running on bucket 'my-backups', and cleaning up while it runs could delete files it needs:
-  backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (3m 12s ago) — upload-20261027T140205.123Z
+  backup of set 'music' by me@DESKTOP (linux, pid:[4026531836], pid 18311), started 2026-06-12T13:18:43.123Z (3m 12s ago) — upload-20260612T131843.123Z
 
 Try again once it has finished, or run the same command again with --wait to let this run wait for it.
 If it was stopped without finishing and left its lock behind, remove the lock with:

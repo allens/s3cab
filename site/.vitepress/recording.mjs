@@ -5,8 +5,9 @@
 // command, which can't run without a bucket, is its own renderer for a result
 // built to the scenario, after the notice every cloud command opens with.
 //
-// One story, the README's: `photos` backed up to `my-backups` on 12 November,
-// a deleted beach.jpg got back from it, and a week later, what has changed.
+// The docs' story (test/helpers/story.mjs): `photos`' first backup, a deleted
+// beach.jpg got back from it, and after the next morning's tidy-up, what has
+// changed.
 
 import { mkdtempDisposable } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,11 +15,11 @@ import { join } from "node:path";
 import { commands } from "../../src/commands.mjs";
 import { authNotice } from "../../src/lib/s3.mjs";
 import {
-  file,
   firstBackup,
-  photosSet,
   restoreResult,
+  storySet,
 } from "../../test/helpers/photos-set.mjs";
+import { sets, timeline } from "../../test/helpers/story.mjs";
 
 /** @import { Command } from "../../src/commands.mjs" */
 /** @import { BackupResult } from "../../src/commands/backup.mjs" */
@@ -42,19 +43,7 @@ export async function recording() {
   await using dir = await mkdtempDisposable(
     join(tmpdir(), "s3cab-recordings-"),
   );
-  const { run } = await photosSet(dir.path, {
-    "20251112T0915": [
-      file("2024/IMG_001.jpg", "i", 3_400_000),
-      file("beach.jpg", "b", 4_900_000),
-      file("notes.txt", "n", 2_100),
-    ],
-    "20251119T0915": [
-      file("2024/sorted/IMG_001.jpg", "i", 3_400_000),
-      file("2025/new.jpg", "j", 812_000),
-      file("beach.jpg", "b", 4_900_000),
-      file("notes.txt", "N", 2_300),
-    ],
-  });
+  const { run } = await storySet(dir.path, timeline[1]?.name ?? "");
   /**
    * @param {string} command
    * @returns {Step}
@@ -66,13 +55,13 @@ export async function recording() {
     }
     return { command, output: stdout };
   };
-  const beach = join("~", "Pictures", "beach.jpg");
+  const beach = join("~", sets.photos.folder, "beach.jpg");
   return [
     cloud("s3cab backup", "backup", firstBackup),
     cloud(
       `s3cab restore --set photos ${beach}`,
       "restore",
-      restoreResult({ snapshot: "20251112T0915", restored: [beach] }),
+      restoreResult({ snapshot: firstBackup.snapshot, restored: [beach] }),
     ),
     local("s3cab list"),
     local("s3cab compare photos"),
