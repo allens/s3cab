@@ -15,7 +15,9 @@ read).
 
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
-  says what it checks and how. **Still open:** every transcript it doesn't name.
+  says what it checks and how. **Still open:** every transcript it doesn't name, and the lines
+  above the README quick start's `setup` and `backup` results (setup's key prompts and exclude
+  notice, backup's progress lines), last confirmed by hand against a real run on 2026-11-01.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).
