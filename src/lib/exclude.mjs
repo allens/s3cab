@@ -1,6 +1,12 @@
 import { posix, win32 } from "node:path";
 
-import { globSource } from "./path-match.mjs";
+import {
+  ESCAPES,
+  globSource,
+  literalPattern,
+  strayEscape,
+} from "./path-match.mjs";
+import { activeLines } from "./read-lines.mjs";
 
 /**
  * Compile a set's exclude patterns for one member directory into a matcher that
@@ -13,7 +19,8 @@ import { globSource } from "./path-match.mjs";
  *   always describes a whole path beneath its root and `*`/`**` can't escape it —
  *   which is where `find` deliberately parts company (ADR-0088).
  * - **Either separator works, in patterns and paths alike**: `/` everywhere, `\`
- *   too on Windows. Both are converted to `/` before matching.
+ *   too on Windows. Both are converted to `/` before matching. Elsewhere `\`
+ *   escapes (ADR-0115).
  * - **A directory is matched with a trailing `/`**, so `build/` names only the
  *   directory and `build` only a file — a `**` reaches either.
  * - **The first matching pattern wins**, and is what the walk records as the
@@ -41,6 +48,7 @@ export function compileExcludePatterns(
 ) {
   // Node's own choice of `node:path` flavour, made from `platform`.
   const { join, sep } = platform === "win32" ? win32 : posix;
+  const escapes = sep === posix.sep;
   const foldsAccents = platform === "darwin";
   const flags = platform === "win32" || foldsAccents ? "iu" : "u";
 
@@ -53,10 +61,13 @@ export function compileExcludePatterns(
     return foldsAccents ? slashed.normalize("NFC") : slashed;
   };
 
+  // The member directory is a path, not a pattern: a `\`, `*` or `?` in its
+  // name must match only itself.
+  const root = literalPattern(baseDir, escapes);
   const matchers = patterns.map((pattern) => ({
     pattern,
     regex: new RegExp(
-      `^${globSource(posix.normalize(spell(join(baseDir, pattern))))}$`,
+      `^${globSource(posix.normalize(spell(join(root, pattern))), escapes)}$`,
       flags,
     ),
   }));
@@ -68,4 +79,53 @@ export function compileExcludePatterns(
     }
     return matchers.find(({ regex }) => regex.test(subject))?.pattern;
   };
+}
+
+/**
+ * Parse exclude.txt text into its patterns: `parseLines`' rules, but a
+ * whitespace character a `\` at the end of a line escapes is part of the
+ * pattern (ADR-0115).
+ * @param {string} text
+ * @param {boolean} [escapes] - As for `literalPattern`
+ * @returns {string[]}
+ */
+export function parseExclude(text, escapes = ESCAPES) {
+  return activeLines(
+    text.split("\n").map((line) => {
+      // A CRLF line's CR goes first, so it is never the escaped character.
+      const start = line.replace(/\r$/, "").trimStart();
+      const trimmed = start.trimEnd();
+      const kept = start.slice(0, trimmed.length + 1);
+      return strayEscape(trimmed, escapes) && !strayEscape(kept, escapes)
+        ? kept
+        : trimmed;
+    }),
+  );
+}
+
+/**
+ * The line that names exactly `rel` when exclude.txt is read back, or
+ * `undefined` when there is none (ADR-0115). A leading `#` or space is written
+ * after a `\`, which escapes it on Linux and macOS and on Windows is a leading
+ * separator, which changes nothing. Windows has no escape, so a name there
+ * ending in a space, or holding a `*` or `?` (a share can), has no line; nor
+ * does a name with a control character, which no line holds and no terminal
+ * shows as written.
+ * @param {string} rel - A path relative to a member directory
+ * @returns {string | undefined}
+ */
+export function exactPattern(rel) {
+  if (/\p{Cc}/u.test(rel) || (!ESCAPES && /[*?]/.test(rel))) {
+    return undefined;
+  }
+  let pattern = literalPattern(rel);
+  if (pattern.trimEnd() !== pattern) {
+    if (!ESCAPES) {
+      return undefined;
+    }
+    pattern = `${pattern.slice(0, -1)}\\${pattern.slice(-1)}`;
+  }
+  return pattern.startsWith("#") || pattern.trimStart() !== pattern
+    ? `\\${pattern}`
+    : pattern;
 }

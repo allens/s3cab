@@ -955,8 +955,15 @@ function problemDetail(p) {
  * @returns {string}
  */
 export function renderBackup(result, { color = false } = {}) {
-  const { set, snapshot, errors, excludeSuggestions, excludePath, comparison } =
-    result;
+  const {
+    set,
+    snapshot,
+    errors,
+    excludeSuggestions,
+    unexcludable,
+    excludePath,
+    comparison,
+  } = result;
   const paint = painter(color);
 
   /** @type {[string, number][]} */
@@ -1035,6 +1042,21 @@ export function renderBackup(result, { color = false } = {}) {
     if (excludeSuggestions.length > ERRORS_SHOWN) {
       lines.push(
         `  and ${formatCount(excludeSuggestions.length - ERRORS_SHOWN)} more`,
+      );
+    }
+    blocks.push(lines.join("\n"));
+  }
+
+  if (unexcludable.length) {
+    const lines = [
+      `No exclude line names only these, so to skip them, rename them or exclude the folder holding them:`,
+      ...unexcludable
+        .slice(0, ERRORS_SHOWN)
+        .map((p) => `  ${withVisibleControls(p)}`),
+    ];
+    if (unexcludable.length > ERRORS_SHOWN) {
+      lines.push(
+        `  and ${formatCount(unexcludable.length - ERRORS_SHOWN)} more`,
       );
     }
     blocks.push(lines.join("\n"));

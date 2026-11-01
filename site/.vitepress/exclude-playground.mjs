@@ -2,8 +2,10 @@
 // `npm test` can check it: patterns and paths in, `tree --excluded`'s verdict
 // out, from s3cab's own reader and matcher.
 
-import { compileExcludePatterns } from "../../src/lib/exclude.mjs";
-import { parseLines } from "../../src/lib/read-lines.mjs";
+import {
+  compileExcludePatterns,
+  parseExclude,
+} from "../../src/lib/exclude.mjs";
 // Not `node:path`: config.mjs shims that only within src/lib/.
 import { posix } from "./node-shim.mjs";
 
@@ -34,7 +36,7 @@ export function excludeReport(patternsText, pathsText, platform) {
   const member = MEMBER[platform];
   const excludedBy = compileExcludePatterns(
     member,
-    parseLines(patternsText),
+    parseExclude(patternsText, platform !== "win32"),
     platform,
   );
 

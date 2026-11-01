@@ -999,6 +999,7 @@ describe("renderBackup", () => {
     uploadMs: 132_000,
     errors: [],
     excludeSuggestions: [],
+    unexcludable: [],
     excludePath: "/sets/photos/exclude.txt",
     comparison: result({ since: "20260701T0900", until: "20260704T1000" }),
     ...over,
@@ -1211,6 +1212,24 @@ describe("renderBackup", () => {
     );
     assert.match(text, /\n {2}f10\n {2}and 2 more\n/);
     assert.doesNotMatch(text, /\n {2}f11\n/);
+  });
+
+  it("shows a control character in a file no exclude line can name", () => {
+    const path = under("odd\tname.pst");
+    const text = renderBackup(run({ errors: failed(1), unexcludable: [path] }));
+    assert.match(text, /odd\\x09name\.pst$/);
+  });
+
+  it("says which files that failed last time too no exclude line can name", () => {
+    const errors = failed(1);
+    const path = under("locked-1.pst");
+    const text = renderBackup(run({ errors, unexcludable: [path] }));
+    assert.ok(
+      text.endsWith(
+        `\n\nNo exclude line names only these, so to skip them, rename them or exclude the folder holding them:\n  ${path}`,
+      ),
+      text,
+    );
   });
 
   it("drops the path a reason repeats, and leaves any other reason whole", async () => {

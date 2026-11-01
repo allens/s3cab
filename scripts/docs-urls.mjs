@@ -20,28 +20,56 @@ import { join } from "node:path";
 
 export const ORIGIN = "https://s3cab.plantegral.com";
 
+// A `${…}`, `#anchor` or `?query` stays in the match, so a URL src/ prints
+// can't pass for the frozen page it starts with.
+const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}#?=&]*/g;
+
 /**
- * Every URL a release may have printed: the home page, the guide index, and
- * one page per `guide/<topic>.md`. Built from `guide/` rather than kept by
- * hand; it covers every release only because no guide page is ever renamed.
+ * Every docs-site URL spelled in `text`, as written but for a sentence's
+ * closing full stop; the bare origin reads as `/`, the URL it fetches.
+ * @param {string} text
+ */
+const siteUrls = (text) =>
+  [...text.matchAll(SITE_URL)].map(([match]) => {
+    const url = match.replace(/\.+$/, "");
+    return url === ORIGIN ? `${ORIGIN}/` : url;
+  });
+
+/**
+ * Every URL a release may have printed or linked: the home page, the guide
+ * index, one page per `guide/<topic>.md`, and each site page the shipped
+ * markdown (README.md and `guide/`) links, such as the command reference.
+ * Built from the checkout rather than kept by hand; it covers every release
+ * only because no such page is ever renamed without a redirect (ADR-0114).
  * @param {string} root - The repo checkout
  * @returns {string[]}
  */
 export function frozenUrls(root) {
-  const topics = readdirSync(join(root, "guide"))
+  const guides = readdirSync(join(root, "guide"))
     .filter((file) => file.endsWith(".md"))
-    .map((file) => (file === "README.md" ? "" : file.slice(0, -3)))
     .sort();
-  return [`${ORIGIN}/`, ...topics.map((topic) => `${ORIGIN}/guide/${topic}`)];
+  const topics = guides.map((file) =>
+    file === "README.md" ? "" : file.slice(0, -3),
+  );
+  // By page: a link's `#anchor` or `?query` is a place on a page, and fetch
+  // never sends the anchor anyway.
+  const linked = [
+    join(root, "README.md"),
+    ...guides.map((file) => join(root, "guide", file)),
+  ]
+    .flatMap((file) => siteUrls(readFileSync(file, "utf8")))
+    .map((url) => url.replace(/[#?].*/, ""));
+  return [
+    ...new Set([
+      `${ORIGIN}/`,
+      ...topics.map((topic) => `${ORIGIN}/guide/${topic}`),
+      ...linked,
+    ]),
+  ];
 }
 
-// A `${…}`, `#anchor` or `?query` stays in the match, so the URL can't pass
-// for the frozen page it starts with.
-const SITE_URL = /https:\/\/s3cab\.plantegral\.com[\w\-./${}#?=&]*/g;
-
 /**
- * Every docs-site URL spelled in a shipped `src/` module, as written; the bare
- * origin reads as `/`, the URL it fetches.
+ * Every docs-site URL spelled in a shipped `src/` module.
  * @param {string} root - The repo checkout
  * @returns {{ file: string, url: string }[]}
  */
@@ -49,15 +77,10 @@ export function printedUrls(root) {
   return readdirSync(join(root, "src"), { recursive: true, encoding: "utf8" })
     .filter((file) => file.endsWith(".mjs") && !file.endsWith(".test.mjs"))
     .flatMap((file) =>
-      [...readFileSync(join(root, "src", file), "utf8").matchAll(SITE_URL)].map(
-        ([match]) => {
-          const url = match.replace(/\.+$/, "");
-          return {
-            file: `src/${file.replaceAll("\\", "/")}`,
-            url: url === ORIGIN ? `${ORIGIN}/` : url,
-          };
-        },
-      ),
+      siteUrls(readFileSync(join(root, "src", file), "utf8")).map((url) => ({
+        file: `src/${file.replaceAll("\\", "/")}`,
+        url,
+      })),
     );
 }
 
@@ -71,34 +94,45 @@ if (import.meta.main) {
     })),
     { url: `${ORIGIN}/guide/nope`, want: 404 },
   ];
-  let failed = 0;
-  for (const { url, want } of checks) {
-    let got;
-    try {
-      // Under the job's timeout, so a hung URL still gets its FAIL line.
-      const response = await fetch(url, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(15_000),
-      });
-      const location = response.headers.get("location");
-      got = `${response.status}${location ? ` redirect to ${location}` : ""}`;
-      if (response.status === want) {
-        console.log(`ok    ${url} ${got}`);
-        continue;
+  // All at once, so even a site that never answers times every URL out well
+  // inside the job's timeout, and each still gets its FAIL line.
+  const results = await Promise.all(
+    checks.map(async ({ url, want }) => {
+      try {
+        const response = await fetch(url, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(15_000),
+        });
+        const location = response.headers.get("location");
+        return {
+          url,
+          want,
+          ok: response.status === want,
+          got: `${response.status}${location ? ` redirect to ${location}` : ""}`,
+        };
+      } catch (error) {
+        // fetch says only "fetch failed"; the reason is its `cause`, whose
+        // message is empty when every address failed, but whose `code` isn't.
+        // A timeout has no cause, and its own `code` is DOMException's 23.
+        const failure = /** @type {Error} */ (error);
+        const cause = /** @type {NodeJS.ErrnoException | undefined} */ (
+          failure.cause
+        );
+        return {
+          url,
+          want,
+          ok: false,
+          got: `no answer (${cause ? (cause.code ?? cause.message) : failure.message})`,
+        };
       }
-    } catch (error) {
-      // fetch says only "fetch failed"; the reason is its `cause`, whose
-      // message is empty when every address failed, but whose `code` isn't.
-      // A timeout has no cause, and its own `code` is DOMException's 23.
-      const failure = /** @type {Error} */ (error);
-      const cause = /** @type {NodeJS.ErrnoException | undefined} */ (
-        failure.cause
-      );
-      got = `no answer (${cause ? (cause.code ?? cause.message) : failure.message})`;
-    }
-    failed++;
-    console.log(`FAIL  ${url} wanted ${want}, got ${got}`);
+    }),
+  );
+  for (const { url, want, ok, got } of results) {
+    console.log(
+      ok ? `ok    ${url} ${got}` : `FAIL  ${url} wanted ${want}, got ${got}`,
+    );
   }
+  const failed = results.filter(({ ok }) => !ok).length;
   console.log(`\n${checks.length - failed} of ${checks.length} as expected`);
   process.exitCode = failed ? 1 : 0;
 }

@@ -106,6 +106,7 @@ export const firstBackup = {
   uploadMs,
   errors: [],
   excludeSuggestions: [],
+  unexcludable: [],
   excludePath: "",
   comparison: null,
 };

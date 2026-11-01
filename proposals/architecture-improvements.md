@@ -170,15 +170,6 @@ the real S3 read/write path.
   set-marker's `holding` (:180–187): the stored pair matches the marker, GLOSSARY's **Holder**.
   [render.mjs](../src/render.mjs):113–116 and :428–439 say "Held by this machine" for both.
   list.test.mjs:116–120 and :138–156 cover claim-present and none; nothing asserts a stale claim.
-- **Suggested exclude line.** _Strong; holds, wider input._ `excludePattern` moved to
-  [backup.mjs](../src/commands/backup.mjs):168–179; #461 keeps a folder link's trailing separator
-  (:175–178) and it still returns `relative(root, path)` raw (:177) — no escaping of `*`/`?`/`[`/`#`
-  or edge spaces; `parseLines` (read-lines.mjs:11–15) trims and drops `#`; `globSource`
-  (path-match.mjs:226–229) has no inverse. #460 widened the source: an uninspectable entry is an
-  `#error` (walk.mjs:439–449) → `pass.errors` → suggestion (backup.mjs:149–151). The render
-  ([render.mjs](../src/render.mjs):1028–1040) says nothing about renaming; backup.test.mjs:230–280
-  cover plain names. The fix (an inverse beside `compileExcludePatterns`, or nothing when the grammar
-  has no exact spelling, and a render that says so) and the round-trip test stand as filed.
 - **Forget plans twice.** _Worth exploring; holds, and the "same step" now has two policies._
   [forget.mjs](../src/commands/forget.mjs):194 (`.orphaned`) and :212 (`{ gone }`) are still two
   `planUnrestorable` calls around one intersect-and-HEAD (:200–211), which now pre-filters through
