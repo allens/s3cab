@@ -429,7 +429,9 @@ in a bucket:
 ```
 
 That example lines up the first column and narrows the others to stay readable;
-[the real widths](#the-columns) are below.
+[the real widths](#the-columns) are below. For a real snapshot with every part of it
+explained in place, see the
+[anatomy of a snapshot](https://s3cab.plantegral.com/tools/snapshot-anatomy).
 
 ### The columns
 
