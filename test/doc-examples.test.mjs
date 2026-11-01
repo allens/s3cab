@@ -24,18 +24,21 @@
 //   bucket, the figures are a real library's (48,210 objects), and the
 //   restores write to `C:\Users\me`. What drifts is the wording and layout,
 //   and that is the renderer's. Each result is typed as its command's own, so
-//   `typecheck` catches one that no longer matches.
+//   `typecheck` catches one that no longer matches. README's quick start
+//   `setup` and `backup` are checked the same way, timings included: they are
+//   values in backup's result.
 //
 // Only the transcripts the tests below name are checked; every other one is
-// kept right by hand. Two kinds can't be checked this way:
+// kept right by hand. What a command prints itself, before or around its
+// result, can't be checked this way. For those only the transcript's last
+// lines are compared (`ending`):
 //
 // - What forget, delete and cleanup print between the notice and their
 //   result: the preview, the prompt, and the lines after the answer (forget's
-//   cleanup pointer and record path, delete's record notice). For those only
-//   the transcript's last lines are compared (`ending`).
-// - README's quick start `setup` and `backup`: `setup --keys` prompts, and
-//   prints the starter exclude notice, in an order only a real run would
-//   settle; `backup` carries timings.
+//   cleanup pointer and record path, delete's record notice).
+// - Everything above setup's and backup's result in the quick start: setup's
+//   key prompts, the notice and the starter exclude notice; backup's home
+//   line, the notice and its progress lines. Those are copied from a real run.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
@@ -58,11 +61,13 @@ import { authNotice } from "../src/lib/s3.mjs";
 import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
+/** @import { backup } from "../src/commands/backup.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
 /** @import { deleteHashes } from "../src/commands/delete.mjs" */
 /** @import { extract } from "../src/commands/extract.mjs" */
 /** @import { forget } from "../src/commands/forget.mjs" */
 /** @import { restore } from "../src/commands/restore.mjs" */
+/** @import { setup } from "../src/commands/setup.mjs" */
 /** @import { cleanup } from "../src/commands/cleanup.mjs" */
 /** @import { verify } from "../src/commands/verify.mjs" */
 /** @import { VerifyResult } from "../src/commands/verify.mjs" */
@@ -263,7 +268,11 @@ function transcript(page, command, containing) {
       if (line === `> ${command}`) {
         const rest = lines.slice(at + 1);
         const next = rest.findIndex((after) => after.startsWith("> "));
-        shown.push((next < 0 ? rest : rest.slice(0, next)).join("\n"));
+        const output = next < 0 ? rest : rest.slice(0, next);
+        // A `#` line introduces the next command, and the blank before it
+        // separates them: the page's, not the output's.
+        const end = output.findLastIndex((after) => !/^(#.*)?$/.test(after));
+        shown.push(output.slice(0, end + 1).join("\n"));
       }
     }
   }
@@ -470,6 +479,8 @@ const PHOTOS = "C:\\Users\\me\\Photos";
  *   forget: Awaited<ReturnType<typeof forget>>,
  *   delete: Awaited<ReturnType<typeof deleteHashes>>,
  *   cleanup: Awaited<ReturnType<typeof cleanup>>,
+ *   setup: Awaited<ReturnType<typeof setup>>,
+ *   backup: Awaited<ReturnType<typeof backup>>,
  * }} Results
  */
 
@@ -777,6 +788,63 @@ describe("documented output, cloud", () => {
         (ending ? rest.slice(-result.split("\n").length) : rest).join("\n"),
         result,
       );
+    });
+  }
+});
+
+const SET_DIR = "C:\\Users\\me\\.s3cab\\sets\\photos";
+
+/**
+ * README's quick start, by command line: what setup and backup print as their
+ * result, for the page's set. Both print lines of their own above it, so only
+ * the transcript's ending is compared.
+ * @type {{ command: string, output: () => string }[]}
+ */
+const QUICK_START = [
+  {
+    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
+    output: () =>
+      printed(
+        "setup",
+        /** @type {BackupSet} */ ({
+          name: "photos",
+          bucket: "my-backups",
+          dirs: [PHOTOS],
+          dirsPath: `${SET_DIR}\\dirs.txt`,
+        }),
+      ),
+  },
+  {
+    command: "s3cab backup",
+    output: () =>
+      printed("backup", {
+        set: "photos",
+        bucket: "my-backups",
+        snapshot: "20251112T0915",
+        files: 1_312,
+        bytes: 4_200_000_000,
+        hashedFiles: 1_312,
+        hashedBytes: 4_200_000_000,
+        scanMs: 161_000,
+        candidates: 1_240,
+        uploaded: 1_240,
+        uploadedBytes: 4_180_000_000,
+        uploadMs: 368_000,
+        errors: [],
+        excludeSuggestions: [],
+        excludePath: `${SET_DIR}\\exclude.txt`,
+        comparison: null,
+      }),
+  },
+];
+
+describe("documented output, README quick start", () => {
+  for (const { command, output } of QUICK_START) {
+    it(`'${command}' ends with its result`, () => {
+      const shown = transcript("README.md", command).split("\n");
+      const result = output();
+
+      assert.equal(shown.slice(-result.split("\n").length).join("\n"), result);
     });
   }
 });
