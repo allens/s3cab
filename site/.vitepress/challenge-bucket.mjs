@@ -4,9 +4,9 @@
 // keys to. It is the docs' story (test/helpers/story.mjs): the photos set's
 // backups still in the bucket, written by s3cab's own writer, so the bucket
 // follows the format of the s3cab that builds it. Its world is Windows, as
-// the story's LAPTOP is. Every instant is fixed by the story, so a rebuild on
-// the same OS serves the same bytes: gzip's header records the OS, and
-// Cloudflare builds on Linux.
+// the story's LAPTOP is. Every instant is a story snapshot's minute plus an
+// offset fixed here, so a rebuild on the same OS serves the same bytes: gzip's
+// header records the OS, and Cloudflare builds on Linux.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,6 +29,7 @@ import {
   sets,
   timeline,
   worlds,
+  zone,
 } from "../../test/helpers/story.mjs";
 
 /** @import { Props } from "../../src/lib/snapshot-file.mjs" */
@@ -50,7 +51,6 @@ const samplesDir = new URL("../challenge/samples/", import.meta.url);
 
 const set = "photos";
 const { by } = sets[set];
-const zone = "Europe/London";
 const dir = `${photo("windows")}\\`;
 
 /**
@@ -70,6 +70,21 @@ const first = names[0] ?? "";
 // LastModified to the second.
 const claimed = after(first, -312.387);
 const claimUploaded = after(first, -312);
+
+/**
+ * The backup that first uploaded each content, forgotten ones included.
+ * @type {Map<string, string>}
+ */
+const firstUpload = new Map();
+for (const { name, by } of timeline) {
+  if (by === "backup") {
+    for (const { fill } of filesAt(name).values()) {
+      if (!firstUpload.has(fill)) {
+        firstUpload.set(fill, name);
+      }
+    }
+  }
+}
 
 /**
  * A snapshot's rows before the files, in the order `writeSnapshot` writes
@@ -136,7 +151,7 @@ export async function writeChallengeBucket(root) {
       entries.set(photo("windows", path), { hash, size: bytes.length, mtime });
       if (!stored.has(hash)) {
         stored.add(hash);
-        put(`objects/${hash}`, bytes, uploaded);
+        put(`objects/${hash}`, bytes, after(firstUpload.get(fill) ?? name, 14));
       }
     }
     await withSnapshotFile(join(root, "snapshots", set), name, (stream) =>

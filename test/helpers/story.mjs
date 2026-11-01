@@ -24,6 +24,9 @@ export const homeFolders = ["Photos", "Documents", "Music", ".s3cab", ".aws"];
 
 export const bucket = "my-backups";
 
+/** The zone LAPTOP's clock keeps, and so the one snapshot names are in. */
+export const zone = "Europe/London";
+
 /**
  * The sets in the bucket, each with the folder it backs up and the machine
  * that holds it. `photos` is the one the story follows, and the only set on
@@ -71,7 +74,7 @@ const logo = { fill: "l", size: 41_000, mtime: "2025-03-14T09:00:00.000Z" };
 
 /**
  * The photos set's snapshots, oldest first, named as `backup` names them:
- * local time (Europe/London), so `20260612T0915` began 08:15 UTC.
+ * local time (`zone`), so `20260612T0915` began 08:15 UTC.
  * @type {Snapshot[]}
  */
 export const timeline = [

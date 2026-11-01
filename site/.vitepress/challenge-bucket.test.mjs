@@ -72,6 +72,31 @@ describe("the challenge bucket", () => {
     }
   });
 
+  // What the answer's closing paragraph says of the first two snapshots.
+  it("stores a copy and a move once, five objects in all", async () => {
+    await using bucket = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));
+    await writeChallengeBucket(bucket.path);
+
+    /** @param {string} name */
+    const hashes = (name) =>
+      new Map(
+        gunzipSync(readFileSync(join(bucket.path, "snapshots", "photos", name)))
+          .toString("utf8")
+          .split("\n")
+          .map((line) => line.split("\t"))
+          .filter(([type]) => type === "-")
+          .map(([, hash = "", , , path = ""]) => [
+            path.slice(path.lastIndexOf("\\") + 1),
+            hash.trim(),
+          ]),
+      );
+    const first = hashes("20251110T2104.tsv.gz");
+    const second = hashes("20251111T0830.tsv.gz");
+    assert.equal(second.get("brand-logo.png"), second.get("logo.png"));
+    assert.equal(second.get("diary.txt"), first.get("notes.txt"));
+    assert.equal(readdirSync(join(bucket.path, "objects")).length, 5);
+  });
+
   it("is the same bytes every time it is built", async () => {
     await using first = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));
     await using second = await mkdtempDisposable(join(tmpdir(), "s3cab-cb-"));

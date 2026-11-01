@@ -12,15 +12,17 @@ out.
 
 Here it is: [s3cab.plantegral.com/challenge/bucket/](https://s3cab.plantegral.com/challenge/bucket/).
 It is a real s3cab repository, served as files on this site instead of from S3, so there is
-nothing to sign in to. Opening that address gives the listing an S3 bucket answers with, and
-every key in it is a file at that address plus the key: `snapshots/photos.info` is at
+nothing to sign in to, and it holds a few of the library's files, not all of them, to stay
+small. Opening that address gives the listing an S3 bucket answers with, and every key in it is
+a file at that address plus the key: `snapshots/photos.info` is at
 `https://s3cab.plantegral.com/challenge/bucket/snapshots/photos.info`. With a real bucket you
 would use `aws s3 ls` and `aws s3 cp`, or your provider's web console; here `curl`,
 `Invoke-WebRequest` or a browser does the same job.
 
 ## The goal
 
-Get `beach.jpg` back, byte for byte, as it was in the **newest** snapshot of the set `photos`.
+Get `beach.jpg` back, byte for byte, from the newest snapshot of the set `photos`: the last
+backup made, and the one a restore reads unless told otherwise.
 
 You need what any computer has or can get: a way to download a file, `gunzip` (or PowerShell,
 on Windows), and a SHA-256 check. You've won when the file you downloaded hashes to the value on
@@ -34,10 +36,11 @@ cold first: the hints are below, one at a time.
 
 ::: details 1. Where are the snapshots?
 Each set keeps its snapshots under `snapshots/` and the set's name, one file per backup, named
-for the minute it started on the backed-up machine's clock: `20251110T2104.tsv.gz` is
-10 November 2025 at 21:04. So the newest is the one whose name sorts last. Everything else in the
-listing can wait: `objects/` is the content, `snapshots/photos.info` says which machine backs
-the set up, and `.s3cab/` is s3cab's own folder, which a restore ignores.
+for the minute it started on the backed-up machine's clock: `20251110T2104.tsv.gz`, the
+oldest here, is 10 November 2025 at 21:04. So the newest is the one whose name sorts last.
+Everything else in the listing can wait: `objects/` is the content, `snapshots/photos.info`
+says which machine backs the set up, and `.s3cab/` is s3cab's own folder, which a restore
+ignores.
 ([The layout](/guide/format#the-remote-repository-the-keystone).)
 :::
 
@@ -50,7 +53,7 @@ look at the last line: it should be a lone `.`, which says the file is whole
 
 ::: details 3. Which row is the file?
 Every row has five columns, separated by tabs. A file's row starts with `-`; its second column
-is a hash and its last is the path the file had. Find the row whose path ends in `beach.jpg`.
+is a hash and its last is the path the file had. Find the row whose path ends in `\beach.jpg`.
 Careful: the path is spelled the way the backed-up machine spells it, whatever computer you
 read it on. This set was backed up from a Windows laptop, so it's `C:\Users\me\Photos\beach.jpg`,
 backslashes and all. ([The columns](/guide/format#the-columns).)
