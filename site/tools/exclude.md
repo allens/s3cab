@@ -23,7 +23,7 @@ pattern matcher, in your browser; nothing you type leaves the page.
   Windows and macOS, `\` separates folders only on Windows, and on macOS an
   accent matches however it is stored.
 
-The rules themselves are in [Exclude rules](../../guide/exclude.md).
+The rules themselves are in [Exclude rules](https://s3cab.plantegral.com/guide/exclude).
 
 <script setup>
 import ExcludePlayground from "../.vitepress/ExcludePlayground.vue";
