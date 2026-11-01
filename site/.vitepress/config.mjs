@@ -24,9 +24,8 @@ import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
 import { commandSidebar } from "./command-pages.mjs";
 import { slugify } from "./slugify.mjs";
-import commandRoute from "../commands/[name].paths.mjs";
 
-/** @import { DefaultTheme } from "vitepress" */
+/** @import { DefaultTheme, SiteConfig } from "vitepress" */
 /** @import MarkdownIt from "markdown-it" */
 
 const repo = "https://github.com/allens/s3cab";
@@ -34,6 +33,15 @@ const site = "https://s3cab.plantegral.com";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const srcLib = fileURLToPath(new URL("../../src/lib/", import.meta.url));
 const nodeShim = fileURLToPath(new URL("node-shim.mjs", import.meta.url));
+
+/**
+ * The config VitePress resolved, which it keeps on globalThis while it runs —
+ * and reloads there in `docs:dev`. Unset outside a VitePress run, as in
+ * config.test.mjs.
+ */
+const resolved = () =>
+  /** @type {{ VITEPRESS_CONFIG?: SiteConfig }} */ (globalThis)
+    .VITEPRESS_CONFIG;
 
 /**
  * A link as the site should serve it: one to the site's own domain becomes a
@@ -71,7 +79,12 @@ function siteHref(href, file, relativePath) {
 /** @param {MarkdownIt} md */
 function repoLinks(md) {
   md.core.ruler.push("s3cab-repo-links", (state) => {
-    const file = relative(root, state.env.realPath ?? state.env.path ?? "")
+    // Against VitePress's own srcDir, where the page's path comes from, so a
+    // symlinked or junctioned checkout can't make the two disagree.
+    const file = relative(
+      resolved()?.srcDir ?? root,
+      state.env.realPath ?? state.env.path ?? "",
+    )
       .split("\\")
       .join("/");
     for (const token of state.tokens) {
@@ -92,14 +105,17 @@ function repoLinks(md) {
  * The page local search indexes. VitePress reads it from the page's file, and a
  * command page has none — /commands/<name> is generated — so without this no
  * command page is searchable. Runs only in Node: VitePress drops `_`-prefixed
- * options before themeConfig goes to the browser.
+ * options before themeConfig goes to the browser. Search's `env.relativePath`
+ * is the page's source path (`site/commands/backup.md`), not the rewritten one
+ * a page build sees (`commands/backup.md`).
  * @type {NonNullable<DefaultTheme.LocalSearchOptions["_render"]>}
  */
-const searchedPage = (src, env, md) => {
-  const name = /^site\/commands\/(.+)\.md$/.exec(env.relativePath)?.[1];
-  const page = commandRoute.paths().find((route) => route.params.name === name);
-  return md.renderAsync(page?.content ?? src, env);
-};
+const searchedPage = (src, env, md) =>
+  md.renderAsync(
+    resolved()?.dynamicRoutes.find((route) => route.path === env.relativePath)
+      ?.content ?? src,
+    env,
+  );
 
 /**
  * Opens the home page with the terminal recording. The home page is README.md,
@@ -185,6 +201,8 @@ export default defineConfig({
       ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
     ],
   ],
+  // Not `lastUpdated`: if Cloudflare Pages clones shallow, every page would be
+  // dated by the build's own commit.
   markdown: {
     anchor: { slugify },
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
@@ -238,6 +256,15 @@ export default defineConfig({
     define: { "process.stderr": "{}" },
     // VitePress looks for it in srcDir, which would make it a top-level public/.
     publicDir: "site/public",
+    // srcDir makes the dev server watch the whole repo, other sessions'
+    // worktrees with it. Not everything outside the pages: the modules they
+    // import from src/ are watched too. Not `**/.claude/**`: a worktree's own
+    // path has `.claude/` in it, so that ignores every file.
+    server: {
+      watch: {
+        ignored: [(file) => relative(root, file).startsWith(".claude")],
+      },
+    },
   },
   themeConfig: {
     nav: [

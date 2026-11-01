@@ -23,9 +23,9 @@ VitePress site whose source folder is the repo root, narrowed to README.md, `gui
 home page and `guide/README.md` the `/guide/` index; nothing is copied. Each of these pages is
 a real file, so search, edit links and the dev server's reload read the file the page comes
 from, with no patch each. The site spells heading anchors the way GitHub does and points links
-that leave the site at GitHub, so a page written for GitHub reads the same on both. The build fails on a link to a missing page or `#anchor`, which
-makes CI's `docs` job the link check. (VitePress is pinned to an exact 2.0 alpha; the reason is in
-`site/.vitepress/config.mjs`.)
+that leave the site at GitHub, so a page written for GitHub reads the same on both. The build
+fails on a link to a missing page or `#anchor`, which makes CI's `docs` job the link check.
+(VitePress is pinned to an exact 2.0 alpha; the reason is in `site/.vitepress/config.mjs`.)
 
 **The command reference is generated, not rendered from a file.** `/commands/<name>`, one page
 per command, and its index at `/commands/` are built at build time from the command registry
