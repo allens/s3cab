@@ -1,0 +1,30 @@
+# The frozen docs URLs, fetched from the live site (ADR-0114); what passes is
+# in scripts/docs-urls.mjs.
+#
+# Scheduled rather than on push: the hosting is the platform repo's
+# Terraform, so what breaks a URL usually never touches this repo. A failed
+# run is the alert, mailed to whoever last touched the cron line. GitHub
+# disables the schedule after 60 days of repository inactivity, and then
+# nothing runs and nothing fails.
+
+name: docs-urls
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Match ci.yml: the engines floor.
+          node-version: "26.10.0"
+      - run: node scripts/docs-urls.mjs

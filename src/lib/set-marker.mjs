@@ -68,7 +68,7 @@ export function freshInfo(created) {
  * @param {SetInfo} info
  * @returns {string}
  */
-const formatInfo = ({ owner, claimed, created }) =>
+export const formatInfo = ({ owner, claimed, created }) =>
   `OWNER=${owner}\nCLAIMED=${claimed}\nCREATED=${created}\n`;
 
 /**
