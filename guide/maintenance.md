@@ -4,7 +4,8 @@ Four commands keep a repository healthy over the years: **`verify`** checks your
 still restorable, **`forget`** removes a snapshot you no longer want, **`delete`** removes a
 file or folder you no longer want from *every* backup, and **`cleanup`** reclaims the
 storage that frees up. Alongside them sits the thing that makes all of it safe to get wrong
-— **bucket versioning**.
+— **bucket versioning** — and underneath them two plumbing commands,
+[`hashes` and `upload`](#the-building-blocks-hashes-and-upload).
 
 You can ignore this page for a long time. Backups just accumulate, and that's fine. Come back
 when you want to know they're sound, or when the bill starts to matter.
@@ -463,6 +464,40 @@ That deferral *is* the safety net, not a bug: it's your window to notice and und
 reclaim a large amount and watch the bill, expect it to drop when the window elapses, not
 today. [The cloud-bucket guide](aws.md) covers the full model, including how to change the
 window.
+
+## The building blocks: `hashes` and `upload`
+
+Two plumbing commands sit underneath the ones above. Most people never run them: they're for
+composing your own checks, and for putting content into the store directly.
+
+`hashes` lists a repository's stored objects, one SHA-256 per line, to stdout. It's the same
+listing `verify` and `cleanup` compare snapshots against, so ordinary shell tools can
+reproduce their work by hand:
+
+```console
+> s3cab hashes my-backups               # one hash per line
+> s3cab hashes my-backups > have.txt    # …or into a file
+```
+
+`upload` is the writing half, and does the jobs `backup` combines — a backup is a `snapshot`
+plus an `upload`. It puts a single file into the store at `objects/<hash>`, seeds the store
+from a folder, or uploads everything a snapshot references and then the snapshot file, last:
+
+```console
+> s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one file into the set's bucket
+> s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's files, no snapshot
+> s3cab upload photos --snapshot 20260612T0915              # that snapshot's files, its snapshot file last
+> s3cab upload --bucket my-backups --file beach.jpg         # a bucket that isn't one of your sets
+```
+
+- **Content already stored is skipped**, since identical bytes always land at the same key.
+  `--force` re-uploads a single file anyway, which is how a damaged copy gets repaired
+  ([getting files back](restore.md#if-some-content-is-missing-from-the-backup)).
+- **A set supplies its own bucket and sign-in.** `--bucket` is the escape hatch: it puts a
+  single file (`--file`) into a bucket that isn't one of your sets, signed in with your
+  ambient AWS setup.
+- **Seeding with `--dir`?** Run no clean-up before that set's first backup
+  ([above](#locks-backups-and-clean-ups-take-turns)).
 
 ## A routine, if you want one
 

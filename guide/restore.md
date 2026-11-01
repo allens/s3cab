@@ -271,7 +271,7 @@ first, then restore:
 ```
 
 `reattach` pulls the set's _snapshot history_ down — not the files. It's `restore` that brings
-the content back. (See [Status](../README.md#status) for the split.)
+the content back.
 
 The set is read-only here until you take it over, which makes this the machine that backs it
 up:
