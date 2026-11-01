@@ -1,11 +1,12 @@
 // The bucket behind the recover-by-hand challenge (site/challenge.md): a
 // repository laid out as guide/format.md says, written as static files into
 // the built site, so the challenge needs no real bucket to pay for or keep
-// keys to. The snapshots are written by s3cab's own writer from the sample
-// files in site/challenge/samples/, so the bucket follows the format of the
-// s3cab that builds it. Every instant is fixed here, so a rebuild on the same
-// OS serves the same bytes: gzip's header records the OS, and Cloudflare
-// builds on Linux.
+// keys to. It is the docs' story (test/helpers/story.mjs): the photos set's
+// backups still in the bucket, written by s3cab's own writer, so the bucket
+// follows the format of the s3cab that builds it. Its world is Windows, as
+// the story's LAPTOP is. Every instant is fixed by the story, so a rebuild on
+// the same OS serves the same bytes: gzip's header records the OS, and
+// Cloudflare builds on Linux.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,52 +21,55 @@ import {
   stringifySnapshot,
   withSnapshotFile,
 } from "../../src/lib/snapshot-file.mjs";
+import {
+  backedUp,
+  bucket,
+  filesAt,
+  photo,
+  sets,
+  timeline,
+  worlds,
+} from "../../test/helpers/story.mjs";
 
 /** @import { Props } from "../../src/lib/snapshot-file.mjs" */
 
-const samples = new URL("../challenge/samples/", import.meta.url);
-const bucket = "my-backups";
+/**
+ * The real bytes behind the story's contents, by fill. A file of any other
+ * content (the rest of the library, the footage since deleted) is left out,
+ * so the bucket stays a few kilobytes.
+ * @type {Record<string, string>}
+ */
+const samples = {
+  b: "beach.jpg",
+  h: "hike.jpg",
+  l: "logo.png",
+  n: "notes.txt",
+  d: "diary.txt",
+};
+const samplesDir = new URL("../challenge/samples/", import.meta.url);
+
 const set = "photos";
-const home = "/home/me/";
-const dir = `${home}Photos/`;
-const by = "me@laptop";
-const claimed = "2026-06-14T17:58:47.613Z";
-// S3 keeps a key's LastModified to the second.
-const claimUploaded = "2026-06-14T17:58:48.000Z";
+const { by } = sets[set];
+const zone = "Europe/London";
+const dir = `${photo("windows")}\\`;
 
 /**
- * The set's snapshots, oldest first. Between them beach.jpg was edited and
- * moved into 2026/, a copy of the edit became the wallpaper, and the hike
- * photo moved into 2019/ unchanged. Each row is a path under `dir`, its
- * sample file, and its modification time; `uploaded` is when the run's keys
- * landed in the bucket.
- * @type {{ name: string, start: string, finish: string, uploaded: string, rows: [string, string, string][] }[]}
+ * The instant `seconds` after the minute snapshot `name` is named for.
+ * @param {string} name @param {number} seconds
  */
-const snapshots = [
-  {
-    name: "20260614T1902",
-    start: "2026-06-14T18:02:11.482Z",
-    finish: "2026-06-14T18:02:12.907Z",
-    uploaded: "2026-06-14T18:02:14.000Z",
-    rows: [
-      ["beach.jpg", "beach-original.jpg", "2026-06-08T10:41:22.000Z"],
-      ["hike-2019.jpg", "hike.jpg", "2019-07-21T14:03:51.000Z"],
-      ["notes.txt", "notes.txt", "2026-06-14T17:55:40.127Z"],
-    ],
-  },
-  {
-    name: "20260902T2047",
-    start: "2026-09-02T19:47:36.205Z",
-    finish: "2026-09-02T19:47:37.561Z",
-    uploaded: "2026-09-02T19:47:39.000Z",
-    rows: [
-      ["2019/hike.jpg", "hike.jpg", "2019-07-21T14:03:51.000Z"],
-      ["2026/beach.jpg", "beach.jpg", "2026-08-30T19:12:05.318Z"],
-      ["notes.txt", "notes.txt", "2026-06-14T17:55:40.127Z"],
-      ["wallpaper.jpg", "beach.jpg", "2026-08-30T19:14:47.090Z"],
-    ],
-  },
-];
+const after = (name, seconds) =>
+  Temporal.PlainDateTime.from(name)
+    .toZonedDateTime(zone)
+    .add({ milliseconds: Math.round(seconds * 1000) })
+    .toInstant()
+    .toString({ fractionalSecondDigits: 3 });
+
+const names = backedUp(timeline.at(-1)?.name ?? "").reverse();
+const first = names[0] ?? "";
+// `setup` a few minutes before the first backup. S3 keeps a key's
+// LastModified to the second.
+const claimed = after(first, -312.387);
+const claimUploaded = after(first, -312);
 
 /**
  * A snapshot's rows before the files, in the order `writeSnapshot` writes
@@ -77,13 +81,13 @@ const preamble = (name, start) =>
     ["@S3CAB", "SPEC", SPEC_DATE],
     ["@CLIENT", "NAME", "s3cab"],
     ["@CLIENT", "VERSION", pkg.version],
-    ["@CLIENT", "HOME", `${home}.s3cab/`],
+    ["@CLIENT", "HOME", `${worlds.windows.home}\\.s3cab\\`],
     ["@SET", "NAME", set],
     ["@SET", "BUCKET", `s3://${bucket}`],
     ["@SET", "DIR", dir],
     ["@SNAPSHOT", "NAME", name],
     ["@SNAPSHOT", "BY", by],
-    ["@SNAPSHOT", "START", "Europe/London", start],
+    ["@SNAPSHOT", "START", zone, start],
   ]
     .map(([type = "", property = "", value = "", time = ""]) =>
       formatLine(type, property, "", time, value),
@@ -107,7 +111,7 @@ export async function writeChallengeBucket(root) {
     keys.push({ key, modified });
   };
 
-  put(`.s3cab/sets/${set}/dirs.txt`, `${dir.slice(0, -1)}\n`, claimUploaded);
+  put(`.s3cab/sets/${set}/dirs.txt`, `${photo("windows")}\n`, claimUploaded);
   put(
     `snapshots/${set}.info`,
     formatInfo({ owner: by, claimed, created: claimed }),
@@ -115,13 +119,21 @@ export async function writeChallengeBucket(root) {
   );
 
   const stored = new Set();
-  for (const { name, start, finish, uploaded, rows } of snapshots) {
+  for (const name of names) {
+    const start = after(name, 11.482);
+    const finish = after(name, 12.907);
+    const uploaded = after(name, 14);
     /** @type {Map<string, Props>} */
     const entries = new Map();
-    for (const [path, sample, mtime] of rows) {
-      const bytes = readFileSync(new URL(sample, samples));
+    const files = [...filesAt(name)].sort(([a], [b]) => (a < b ? -1 : 1));
+    for (const [path, { fill, mtime }] of files) {
+      const sample = samples[fill];
+      if (!sample) {
+        continue;
+      }
+      const bytes = readFileSync(new URL(sample, samplesDir));
       const hash = createHash("sha256").update(bytes).digest("hex");
-      entries.set(dir + path, { hash, size: bytes.length, mtime });
+      entries.set(photo("windows", path), { hash, size: bytes.length, mtime });
       if (!stored.has(hash)) {
         stored.add(hash);
         put(`objects/${hash}`, bytes, uploaded);
