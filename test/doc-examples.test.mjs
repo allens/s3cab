@@ -16,13 +16,13 @@
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
 // - **The printed result** for the cloud transcripts (backup, verify, restore,
-//   extract, and how setup, forget, delete and cleanup end): what the CLI prints for a
-//   result built to the page's scenario (the registry's own renderer for the
-//   command, or `errorReport` for an error) after the notice every cloud
-//   command opens with (`authNotice`). Not a run against a real bucket, which
-//   can't reproduce them: verify and cleanup read the whole shared test
-//   bucket, the figures are a real library's (48,210 objects), and the
-//   restores write to `C:\Users\me`. What drifts is the wording and layout,
+//   extract, and how setup, forget, delete and cleanup end): what the CLI
+//   prints for a result built to the page's scenario (the registry's own
+//   renderer for the command, or `errorReport` for an error) after the notice
+//   every cloud command opens with (`authNotice`). Not a run against a real
+//   bucket, which can't reproduce them: verify and cleanup read the whole
+//   shared test bucket, the figures are a real library's (48,210 objects), and
+//   the restores write to `C:\Users\me`. What drifts is the wording and layout,
 //   and that is the renderer's. Each result is typed as its command's own, so
 //   `typecheck` catches one that no longer matches. Backup's timings are
 //   values in its result, so they are checked too.
@@ -610,7 +610,7 @@ const NOTICE = authNotice({});
  * preview or prompt between the notice and the result, so only its last lines
  * are the printed result. `before` counts the lines a command prints before
  * its first cloud touch (`setup --keys` asks for the key and the secret first,
- * and a set command can open with `Using s3cab home`). `skip` is
+ * and every set command opens with `Using s3cab home`). `skip` is
  * `windowsOnly`'s, for a result whose rendering spells paths the platform's way.
  * @type {{ page: string, command: string, containing?: string, ending?: boolean, before?: number, skip?: string | false, output: () => string }[]}
  */

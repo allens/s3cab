@@ -117,7 +117,7 @@ Wasabi and the like, run `s3cab help provider`. With a bucket in hand:
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.
 #    --keys prompts for your access key + secret (never passed as flags).
 > s3cab setup --set photos --bucket my-backups --keys C:\Users\me\Photos
-Access key ID: AKIAIOSF••••••••••••
+Access key ID: AKIAIOSFODNN7EXAMPLE
 Secret access key (hidden):
 Contacting the cloud…
 Wrote a starter exclude file — these patterns are skipped by default:
@@ -165,8 +165,7 @@ so pass `--overwrite` when you actually want to replace what's there.
 [guide/getting-started.md](guide/getting-started.md) walks through this loop on a folder
 that doesn't matter, with what each step did and why.
 
-Step 1 also drops a starter `exclude.txt` beside the set and lists what it will skip by
-default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
+To change what step 1's starter `exclude.txt` skips, edit that file
 ([guide/exclude.md](guide/exclude.md), or `s3cab help exclude`).
 
 ### Seeing what changed
