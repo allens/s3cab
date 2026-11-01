@@ -16,28 +16,30 @@
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
 // - **The printed result** for the cloud transcripts (backup, verify, restore,
-//   extract, and how forget, delete and cleanup end): what the CLI prints for a
-//   result built to the page's scenario (the registry's own renderer for the
-//   command, or `errorReport` for an error) after the notice every cloud
-//   command opens with (`authNotice`). Not a run against a real bucket, which
-//   can't reproduce them: verify and cleanup read the whole shared test
-//   bucket, the figures are a real library's (48,210 objects), and the
-//   restores write to `C:\Users\me`. What drifts is the wording and layout,
+//   extract, and how setup, forget, delete and cleanup end): what the CLI
+//   prints for a result built to the page's scenario (the registry's own
+//   renderer for the command, or `errorReport` for an error) after the notice
+//   every cloud command opens with (`authNotice`). Not a run against a real
+//   bucket, which can't reproduce them: verify and cleanup read the whole
+//   shared test bucket, the figures are a real library's (48,210 objects), and
+//   the restores write to `C:\Users\me`. What drifts is the wording and layout,
 //   and that is the renderer's. Each result is typed as its command's own, so
-//   `typecheck` catches one that no longer matches.
+//   `typecheck` catches one that no longer matches. Backup's timings are
+//   values in its result, so they are checked too.
 //
 // Only the transcripts the tests below name are checked; every other one is
-// kept right by hand. Two kinds can't be checked this way:
+// kept right by hand. What a command prints itself, before or around its
+// result, can't be checked this way. For those only the transcript's last
+// lines are compared (`ending`):
 //
 // - What forget, delete and cleanup print between the notice and their
 //   result: the preview, the prompt, and the lines after the answer (forget's
-//   cleanup pointer and record path, delete's record notice). For those only
-//   the transcript's last lines are compared (`ending`).
-// - What `setup` prints between the notice and its result: the starter exclude
-//   notice (its patterns are spelled with the platform's separator). For the
-//   tutorial's `setup --keys` only its last lines are compared (`ending`), after
-//   the key prompts a terminal shows first (`prompts`). README's quick start
-//   `setup` isn't checked at all.
+//   cleanup pointer and record path, delete's record notice).
+// - What `setup --keys` prints around the notice: the key prompts before it
+//   (`before`), and the starter exclude notice after it (its patterns are
+//   spelled with the platform's separator).
+// - What README's quick start `backup` prints around the notice: the
+//   `Using s3cab home` line before it, and the progress lines after it.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
@@ -606,17 +608,17 @@ const NOTICE = authNotice({});
  * scenario after the notice. `containing` picks among the times a page shows
  * the same command line. `ending` marks a transcript with the command's own
  * preview or prompt between the notice and the result, so only its last lines
- * are the printed result. `prompts` counts the lines a command's own prompts
- * took before its first cloud touch (`setup --keys` asks for the key and the
- * secret first). `skip` is `windowsOnly`'s, for a result whose rendering spells
- * paths the platform's way.
- * @type {{ page: string, command: string, containing?: string, ending?: boolean, prompts?: number, skip?: string | false, output: () => string }[]}
+ * are the printed result. `before` counts the lines a command prints before
+ * its first cloud touch (`setup --keys` asks for the key and the secret first,
+ * and every set command opens with `Using s3cab home`). `skip` is
+ * `windowsOnly`'s, for a result whose rendering spells paths the platform's way.
+ * @type {{ page: string, command: string, containing?: string, ending?: boolean, before?: number, skip?: string | false, output: () => string }[]}
  */
 const CLOUD = [
   {
     page: TUTORIAL,
     command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
-    prompts: 2,
+    before: 2,
     ending: true,
     output: () => printed("setup", TUTORIAL_SET),
   },
@@ -919,7 +921,16 @@ const CLOUD = [
   },
   {
     page: "README.md",
+    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
+    before: 2,
+    ending: true,
+    output: () => printed("setup", TUTORIAL_SET),
+  },
+  {
+    page: "README.md",
     command: "s3cab backup",
+    before: 1,
+    ending: true,
     output: () => printed("backup", firstBackup),
   },
   {
@@ -942,7 +953,7 @@ describe("documented output, cloud", () => {
     command,
     containing,
     ending,
-    prompts = 0,
+    before = 0,
     skip = false,
     output,
   } of CLOUD) {
@@ -950,7 +961,7 @@ describe("documented output, cloud", () => {
     it(title, { skip }, () => {
       const [first, ...rest] = transcript(page, command, containing)
         .split("\n")
-        .slice(prompts);
+        .slice(before);
       const result = output();
 
       assert.equal(first, NOTICE, "the notice every cloud command opens with");
