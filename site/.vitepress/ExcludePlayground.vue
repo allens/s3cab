@@ -56,8 +56,9 @@ function remember(value) {
 const report = computed(() =>
   excludeReport(patterns.value, paths.value, platform.value),
 );
+const verdicts = computed(() => report.value.verdicts);
 const leftOut = computed(
-  () => report.value.filter(({ pattern }) => pattern).length,
+  () => verdicts.value.filter(({ pattern }) => pattern).length,
 );
 </script>
 
@@ -83,6 +84,7 @@ const leftOut = computed(
         <textarea
           id="exclude-playground-patterns"
           v-model="patterns"
+          aria-describedby="exclude-playground-refused"
           rows="16"
           wrap="off"
           spellcheck="false"
@@ -106,12 +108,18 @@ const leftOut = computed(
       </div>
     </div>
 
-    <p class="summary" aria-live="polite">
-      {{ leftOut }} of {{ report.length }}
-      {{ report.length === 1 ? "path" : "paths" }} left out.
+    <p id="exclude-playground-refused" class="refused" aria-live="polite">
+      <template v-if="report.refusal">
+        <strong>Refused, so nothing is backed up:</strong> {{ report.refusal }}
+      </template>
     </p>
 
-    <table v-if="report.length">
+    <p v-if="!report.refusal" class="summary" aria-live="polite">
+      {{ leftOut }} of {{ verdicts.length }}
+      {{ verdicts.length === 1 ? "path" : "paths" }} left out.
+    </p>
+
+    <table v-if="verdicts.length">
       <thead>
         <tr>
           <th scope="col">Path</th>
@@ -121,7 +129,7 @@ const leftOut = computed(
       </thead>
       <tbody>
         <tr
-          v-for="(verdict, i) in report"
+          v-for="(verdict, i) in verdicts"
           :key="i"
           :class="{ out: verdict.pattern }"
         >
@@ -193,6 +201,12 @@ textarea:focus-visible,
 }
 .summary {
   font-weight: 600;
+}
+.refused {
+  white-space: pre-wrap;
+}
+.refused:empty {
+  display: none;
 }
 tr.out td:nth-child(2) {
   color: var(--vp-c-danger-1);

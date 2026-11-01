@@ -1,6 +1,8 @@
 import { posix, win32 } from "node:path";
 
 import {
+  asFolders,
+  ESCAPE_RULE,
   ESCAPES,
   globSource,
   literalPattern,
@@ -100,6 +102,36 @@ export function parseExclude(text, escapes = ESCAPES) {
         ? kept
         : trimmed;
     }),
+  );
+}
+
+/**
+ * Why the walk can't use these exclude.txt patterns, or `undefined` when no
+ * pattern holds a `\` that escapes nothing (ADR-0115). The likeliest cause is a
+ * file written on Windows, where `\` separates folders, so that is the fix
+ * offered first.
+ * @param {string[]} patterns - As `parseExclude` read them
+ * @param {string} file - The exclude file, as the message names it
+ * @param {boolean} [escapes] - As for `literalPattern`
+ * @returns {string | undefined}
+ */
+export function strayEscapeRefusal(patterns, file, escapes = ESCAPES) {
+  const stray = patterns.filter((pattern) => strayEscape(pattern, escapes));
+  if (!stray.length) {
+    return undefined;
+  }
+  const folders = stray.map(asFolders).filter((line) => line !== undefined);
+  const these = stray.length === 1 ? "this pattern has" : "these patterns have";
+  return (
+    `Can't use the set's exclude file, because ${these} a \\ that escapes ` +
+    `nothing (${file}):\n` +
+    stray.map((pattern) => `  ${pattern}`).join("\n") +
+    `\n${ESCAPE_RULE}` +
+    (folders.length
+      ? ` If the \\ separates folders, write:\n` +
+        folders.map((pattern) => `  ${pattern}`).join("\n")
+      : "") +
+    `\nFor a backslash in a name, write \\\\.`
   );
 }
 
