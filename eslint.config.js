@@ -193,6 +193,11 @@ export default defineConfig([
     // Tree-wide: every imported type travels by an @import tag, never inline.
     rules: { "local/no-inline-import-type": "error" },
   },
+  // The docs site's theme runs in the browser.
+  {
+    files: ["site/.vitepress/theme/*.mjs"],
+    languageOptions: { globals: globals.browser },
+  },
   {
     files: ["src/commands/*.mjs"],
     ignores: ["src/commands/*.test.mjs"],

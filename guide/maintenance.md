@@ -33,7 +33,7 @@ It's cheap and safe to run often:
 The operand is the **bucket**, not a set — one repository checked per run — because the cost
 is one listing of the whole store either way. Findings are still reported per set:
 
-```console
+```console windows
 > s3cab verify my-backups
 Contacting the cloud…
 my-backups: 3 sets, 8,462 objects checked — 1 set with findings ✗
@@ -41,6 +41,16 @@ my-backups: 3 sets, 8,462 objects checked — 1 set with findings ✗
   photos   2 files with problems
     C:\Users\me\Photos\beach.jpg    missing      (in snapshots 20251110T2104, 20251111T0830, 20260612T0915)
     C:\Users\me\Photos\report.pdf   wrong size   (recorded 1,250,000 bytes, stored 0)
+```
+
+```console posix
+> s3cab verify my-backups
+Contacting the cloud…
+my-backups: 3 sets, 8,462 objects checked — 1 set with findings ✗
+
+  photos   2 files with problems
+    /home/me/Photos/beach.jpg    missing      (in snapshots 20251110T2104, 20251111T0830, 20260612T0915)
+    /home/me/Photos/report.pdf   wrong size   (recorded 1,250,000 bytes, stored 0)
 ```
 
 Two kinds of finding:
@@ -74,7 +84,7 @@ my-backups: 3 sets, 8,165 objects checked — all verified ✓
 
 A snapshot is a point in time. When you don't want to keep one any more:
 
-```console
+```console windows
 > s3cab forget --set photos 20260501T0800
 Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
@@ -94,6 +104,26 @@ Record of this removal:
 Snapshot '20260501T0800' forgotten from set 'photos'.
 ```
 
+```console posix
+> s3cab forget --set photos 20260501T0800
+Contacting the cloud…
+Unrestorable preview — what you could no longer restore once these are gone:
+
+  snapshot            files   size
+  20260501T0800          18  2.6GB
+                      ────────────
+  total unrestorable     18  2.6GB
+
+Full list:
+  /home/me/.s3cab/forget-unrestorable-preview.txt
+Forget snapshot '20260501T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
+  s3cab cleanup my-backups
+Record of this removal:
+  /home/me/.s3cab/sets/photos/forget-unrestorable-20260612T141502.txt
+Snapshot '20260501T0800' forgotten from set 'photos'.
+```
+
 Before it asks, `forget` works out **what you'd be the last to hold** — files that, once
 these snapshots are gone, no surviving snapshot anywhere in the bucket holds, so `restore`
 could never produce them again. That's what **unrestorable** means here. The counts go on
@@ -108,7 +138,7 @@ stored — and stays on your bill — until a `cleanup`.
 Name as many as you like in one run — it's one question, not one per snapshot, and the
 preview covers the whole selection:
 
-```console
+```console windows
 > s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800
 Contacting the cloud…
 Unrestorable preview — what you could no longer restore once these are gone:
@@ -128,6 +158,29 @@ Forgetting removes snapshots, not the objects they point at; reclaim unreference
   s3cab cleanup my-backups
 Record of this removal:
   C:\Users\me\.s3cab\sets\photos\forget-unrestorable-20260612T141807.txt
+3 snapshots forgotten from set 'photos'.
+```
+
+```console posix
+> s3cab forget --set photos 20260501T0800 20260508T0800 20260515T0800
+Contacting the cloud…
+Unrestorable preview — what you could no longer restore once these are gone:
+
+  snapshot                   files     size
+  20260501T0800                 18    2.6GB
+  20260508T0800                  7  940.0MB
+  20260515T0800                  0       0B
+  shared across 3 snapshots     23    3.1GB
+                             ──────────────
+  total unrestorable            48    6.6GB
+
+Full list:
+  /home/me/.s3cab/forget-unrestorable-preview.txt
+Forget 3 snapshots ('20260501T0800', '20260508T0800', '20260515T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
+  s3cab cleanup my-backups
+Record of this removal:
+  /home/me/.s3cab/sets/photos/forget-unrestorable-20260612T141807.txt
 3 snapshots forgotten from set 'photos'.
 ```
 
@@ -196,8 +249,21 @@ pattern match. [`find`](find.md) is the search — it turns a name into the **co
 hashes** that back it, one per line, with everything it knows about them in comments. You
 review that file, cut anything you want to keep, and hand it back:
 
-```console
+```console windows
 > s3cab find raw-footage\ > footage.txt
+> s3cab delete --bucket my-backups --from-file footage.txt
+Contacting the cloud…
+Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
+
+This permanently removes the content above from every backup in 'my-backups'.
+Type the bucket name to proceed: my-backups
+Record of this removal — verify and restore read it to tell deliberate removal from damage:
+  s3://my-backups/objects.deleted-1.tsv
+my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
+```
+
+```console posix
+> s3cab find raw-footage/ > footage.txt
 > s3cab delete --bucket my-backups --from-file footage.txt
 Contacting the cloud…
 Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
@@ -430,11 +496,18 @@ reproduce their work by hand:
 plus an `upload`. It puts a single file into the store at `objects/<hash>`, seeds the store
 from a folder, or uploads everything a snapshot references and then the snapshot file, last:
 
-```console
+```console windows
 > s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one file into the set's bucket
 > s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's files, no snapshot
 > s3cab upload photos --snapshot 20260612T0915              # that snapshot's files, its snapshot file last
 > s3cab upload --bucket my-backups --file beach.jpg         # a bucket that isn't one of your sets
+```
+
+```console posix
+> s3cab upload photos --file /home/me/Photos/beach.jpg  # one file into the set's bucket
+> s3cab upload photos --dir /home/me/Photos/2026        # a folder's files, no snapshot
+> s3cab upload photos --snapshot 20260612T0915          # that snapshot's files, its snapshot file last
+> s3cab upload --bucket my-backups --file beach.jpg     # a bucket that isn't one of your sets
 ```
 
 - **Content already stored is skipped**, since identical bytes always land at the same key.
