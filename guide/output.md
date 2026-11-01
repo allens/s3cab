@@ -12,14 +12,16 @@ structured JSON value instead:
 > s3cab compare photos --json
 {
   "setName": "photos",
-  "dirs": ["/home/me/Pictures"],
+  "dirs": ["/home/me/Photos"],
   "since": "20251111T0830",
   "until": "20251112T0915",
   "added": [
-    { "path": "/home/me/Pictures/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
+    { "path": "/home/me/Photos/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
   ],
-  "moved": [],
-  "modified": [{ "path": "/home/me/Pictures/diary.txt", "size": 240 }],
+  "moved": [
+    { "path": "/home/me/Photos/2024/IMG_001.jpg", "to": "/home/me/Photos/2024/sorted/IMG_001.jpg", "size": 3400000 }
+  ],
+  "modified": [],
   "deleted": [],
   "errors": []
 }
@@ -52,7 +54,7 @@ A few things worth knowing:
   | `127` | unknown command |
   | `130` | interrupted (Ctrl+C) |
 - **Neither format truncates.** s3cab prints the whole result either way; manage
-  volume yourself with a pager (`s3cab verify my-bucket | less`) or a redirect.
+  volume yourself with a pager (`s3cab verify my-backups | less`) or a redirect.
 
 Absolute paths are what the JSON carries (unambiguous for a machine); the human
 text shortens them for readability — see [reading a compare report](compare.md)

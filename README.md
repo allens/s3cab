@@ -121,7 +121,7 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
 # 2. Back it up to the cloud. With one set, you can leave its name out.
 > s3cab backup
 Contacting the cloud…
-Backed up 'photos' → snapshot 20251112T0915
+Backed up 'photos' → snapshot 20251110T2104
 Scanned 1,312 files (4.2GB) in 2m 41s
 Uploaded 1,240 objects (4.2GB) in 6m 08s
 First backup — every file is new.
@@ -129,7 +129,7 @@ First backup — every file is new.
 # 3. Deleted a file by accident? Get just that one back:
 > s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20251112T0915).
+Restored 1 file from 'photos' (snapshot 20251110T2104).
 ```
 
 That's the whole loop: set up once, `backup` whenever, `restore` when you need something
@@ -151,10 +151,10 @@ file, not a delete plus an add:
 
 ```console
 > s3cab snapshot
-Using s3cab home 'C:\Users\you\.s3cab'
+Using s3cab home 'C:\Users\me\.s3cab'
 Reading previous snapshot '~\.s3cab\sets\photos\snapshots\20251111T0830.tsv.gz'
 Snapshotting 'photos/20251112T0915' ('~\.s3cab\sets\photos\snapshots\20251112T0915.tsv.gz'):
-Finding files in '~\Photos'… 1,204 in 3 sec
+Finding files in '~\Photos'… 1,313 in 3 sec
 Comparing '20251111T0830' → '20251112T0915'
 photos: ~\Photos  20251111T0830 → 20251112T0915
 
@@ -319,9 +319,9 @@ can be told from a whole one:
 @SET      NAME                                                        photos
 @SET      DIR                                                         C:\Users\me\Photos\
 @SNAPSHOT START                             2025-11-11T08:30:12.418Z  Europe/London
--         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
--         e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
-@SNAPSHOT FILES                                                       2
+-         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\beach.jpg
+-         9f2d…41e7                1250000  2025-11-11T08:05:00.000Z  C:\Users\me\Photos\report.pdf
+@SNAPSHOT FILES                                                       1312
 @SNAPSHOT FINISH                            2025-11-11T08:30:13.004Z  1s
 .
 ```
@@ -352,7 +352,7 @@ directory inside a shared one. Inside, the structure is fixed and well-known, so
 (s3cab, another tool, or you by hand) can find everything by convention:
 
 ```
-s3://my-backup-bucket/
+s3://my-backups/
   objects/<sha256>                 # your files, each stored once under its content hash
   snapshots/<set>/<name>.tsv.gz    # the snapshot files saying which objects make up each backup
   snapshots/<set>.info             # the machine that backs each set up, and since when
@@ -405,8 +405,8 @@ the flat hash-per-line stream pipes into ordinary shell tools, so you can reprod
 own maintenance by hand (it's the same enumeration `verify`/`cleanup` diff):
 
 ```console
-> s3cab hashes my-backup-bucket               # one sha256 per line, to stdout
-> s3cab hashes my-backup-bucket > have.txt    # …or redirect to a file
+> s3cab hashes my-backups               # one sha256 per line, to stdout
+> s3cab hashes my-backups > have.txt    # …or redirect to a file
 ```
 
 Its write counterpart, `upload`, is set-scoped and does the jobs `backup` composes: put **a
@@ -419,7 +419,7 @@ store is skipped automatically — identical bytes always map to the same key �
 > s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
 > s3cab upload photos --dir C:\Users\me\Photos\2026         # a folder's objects, no snapshot
 > s3cab upload photos --snapshot 20260612T0915              # that snapshot's objects, snapshot file last
-> s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
+> s3cab upload --bucket my-backups --file beach.jpg         # raw bucket, no set (ambient credentials)
 ```
 
 (Like `hashes`, `upload` is plumbing: a lower-level building block beside the snapshot-driven
