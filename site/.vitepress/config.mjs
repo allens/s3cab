@@ -110,7 +110,9 @@ const searchedPage = (src, env, md) =>
 /**
  * The sidebar, read from guide/README.md's own `## Section` headings and the
  * bold link that opens each bullet under them, so the guide index stays the
- * one list.
+ * one list. A section with no such bullet — the by-situation list, whose
+ * bullets lead with the situation and link a section of a page — is prose for
+ * the index page, not a sidebar group.
  * @returns {DefaultTheme.SidebarItem[]}
  */
 function guideSidebar() {
@@ -143,7 +145,7 @@ function guideSidebar() {
         { text: "Command reference", link: "/commands/" },
       ],
     },
-    ...sections,
+    ...sections.filter((section) => section.items.length > 0),
   ];
 }
 

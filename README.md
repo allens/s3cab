@@ -142,7 +142,9 @@ back. To pull an _older_ version, add `--snapshot <name>`; to recover everything
 disaster-recovery case), run `restore --all`. By default `restore` leaves files that
 still exist untouched — your accidental deletions come back while everything else stays put —
 so pass `--overwrite` when you actually want to replace what's there.
-[guide/restore.md](guide/restore.md) covers all of it.
+[guide/restore.md](guide/restore.md) covers all of it, and
+[guide/getting-started.md](guide/getting-started.md) walks through this loop on a folder
+that doesn't matter, with what each step did and why.
 
 Step 1 also drops a starter `exclude.txt` beside the set and lists what it will skip by
 default — `node_modules`, `.git`, and the usual OS clutter. Edit that file to change it
@@ -183,10 +185,10 @@ network, no bucket needed.
 | Command                                                            | What it does |
 | ------------------------------------------------------------------ | ------------ |
 | [`s3cab snapshot`](https://s3cab.plantegral.com/commands/snapshot) | Take a snapshot of a backup set ([guide](guide/backup.md)) |
-| [`s3cab list`](https://s3cab.plantegral.com/commands/list)         | List backup sets and their snapshots |
+| [`s3cab list`](https://s3cab.plantegral.com/commands/list)         | List backup sets and their snapshots ([guide](guide/getting-started.md)) |
 | [`s3cab compare`](https://s3cab.plantegral.com/commands/compare)   | Show what changed between two snapshots ([guide](guide/compare.md)) |
 | [`s3cab find`](https://s3cab.plantegral.com/commands/find)         | Search your backups for a file, and show what backs it ([guide](guide/find.md)) |
-| [`s3cab status`](https://s3cab.plantegral.com/commands/status)     | Show what is backed up and what a backup would upload |
+| [`s3cab status`](https://s3cab.plantegral.com/commands/status)     | Show what is backed up and what a backup would upload ([guide](guide/getting-started.md)) |
 
 ### Setup
 
@@ -196,7 +198,7 @@ Run once: a bucket to back up to, credentials to reach it, and the set itself.
 | ------------------------------------------------------------------ | ------------ |
 | [`s3cab aws`](https://s3cab.plantegral.com/commands/aws)           | Show the steps to set up an AWS S3 bucket for backups ([guide](guide/aws.md)) |
 | [`s3cab provider`](https://s3cab.plantegral.com/commands/provider) | Set, clear, or show how s3cab connects to your storage provider ([guide](guide/auth.md)) |
-| [`s3cab setup`](https://s3cab.plantegral.com/commands/setup)       | Create a backup set |
+| [`s3cab setup`](https://s3cab.plantegral.com/commands/setup)       | Create a backup set ([guide](guide/getting-started.md)) |
 | [`s3cab reattach`](https://s3cab.plantegral.com/commands/reattach) | Attach an existing backup set to this machine read-only, or refresh it ([guide](guide/restore.md)) |
 | [`s3cab takeover`](https://s3cab.plantegral.com/commands/takeover) | Make this machine the one that backs up an existing set ([guide](guide/restore.md)) |
 
