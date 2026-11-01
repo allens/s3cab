@@ -213,6 +213,19 @@ describe("compileFindPattern", () => {
       );
       // A \ before a / escapes nothing, since no name holds a /.
       assert.throws(() => compileFindPattern("odd\\/"), ValidationError);
+      assert.throws(
+        () => compileFindPattern("\\#notes\\x"),
+        (error) =>
+          error instanceof ValidationError &&
+          error.message.includes("s3cab find '#notes/x'"),
+      );
+      assert.throws(
+        () => compileFindPattern("\\"),
+        (error) =>
+          error instanceof ValidationError &&
+          !error.message.includes("s3cab find '/'") &&
+          error.message.includes("s3cab find '\\\\'"),
+      );
     },
   );
 });

@@ -61,8 +61,8 @@ The glob tokens are the same ones [exclude patterns](exclude.md#globbing) use:
 
 On Linux and macOS, `\` makes the next character match only itself, as in an
 exclude pattern: `'what\?.txt'` finds only `what?.txt`, and `'back\\slash'` a
-name holding a backslash. A `\` before any other character escapes nothing, and
-`find` stops. Quote the pattern so the shell passes the `\` along.
+name holding a backslash. A `\` escapes a `\`, `*`, `?`, `#` or space; before
+any other character it escapes nothing, and `find` stops. Quote the pattern so the shell passes the `\` along.
 
 **`*` means one or more, not zero or more** — one token grammar serves both
 commands, and this is where it differs from POSIX `find`. So `*secret1` matches

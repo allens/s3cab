@@ -69,10 +69,13 @@ to every directory in the set.
 - On Linux and macOS, `\` makes the character after it match only itself: `\*`,
   `\?`, `\#`, `\ ` (a space), and `\\` for a backslash.
 - So `what\?.txt` matches only `what?.txt`, and `notes\ ` the name `notes `.
-  A `\` keeps the space after it at the end of a line.
+  A `\` keeps the space after it at the end of a line. Other blank characters,
+  such as a no-break space, escape the same way; a tab doesn't.
 - A `\` before any other character, or at the end of a line, escapes nothing,
   and s3cab stops and names the pattern. An exclude file written on Windows,
-  with `\` between directories, stops it this way; write `/` instead.
+  with `\` between directories, usually stops it this way; write `/` instead.
+  A `\` there before a `*`, `?`, `#` or space is read as an escape, though, so
+  `**\*.tmp` matches only a file named `*.tmp`.
 - On Windows `\` separates directories, as everywhere else in Windows. No escape
   is needed there, since Windows programs can't give a name a `*` or `?`.
 - On every system, a name starting with `#` or a space goes after a `\`: `\#notes`

@@ -231,6 +231,22 @@ export const STRAY_ESCAPE =
 export const strayEscape = (pattern) =>
   ESCAPES && pattern.search(STRAY_ESCAPE) !== -1;
 
+/** What a `\` means here, for a refusal of a `STRAY_ESCAPE` to explain. */
+export const ESCAPE_RULE =
+  "Here / separates folders, and a \\ makes a \\, *, ?, # or space after it " +
+  "match only itself.";
+
+/**
+ * A refused pattern as it reads if each `\` separates folders: one `/` per run
+ * of separators, none leading. `undefined` when that leaves nothing.
+ * @param {string} pattern
+ * @returns {string | undefined}
+ */
+export function asFolders(pattern) {
+  const slashed = pattern.replaceAll(/[\\/]+/g, "/").replace(/^\//, "");
+  return slashed === "" || slashed === "/" ? undefined : slashed;
+}
+
 /**
  * `text` matching only itself as a pattern: on Linux and macOS each `\`, `*`
  * and `?` escaped. Windows has no escape, and no name there holds `*` or `?`

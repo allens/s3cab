@@ -3,6 +3,8 @@ import { stderr } from "node:process";
 
 import { ValidationError, errorText } from "./error.mjs";
 import {
+  asFolders,
+  ESCAPE_RULE,
   globSource,
   preparePath,
   STRAY_ESCAPE,
@@ -133,13 +135,14 @@ export function compileFindPattern(pattern) {
   if (strayEscape(pattern)) {
     const quoted = (/** @type {string} */ text) =>
       `'${text.replaceAll("'", "'\\''")}'`;
-    const slashed = pattern.replaceAll(/[\\/]+/g, "/");
+    const folders = asFolders(pattern);
     const doubled = pattern.replaceAll(STRAY_ESCAPE, "$1\\\\");
     throw new ValidationError(
-      `The pattern '${pattern}' has a \\ that escapes nothing. Here / ` +
-        `separates folders, and a \\ makes a \\, *, ?, # or space after it ` +
-        `match only itself. If the \\ separates folders:\n\n` +
-        `  ${shellCommand(`s3cab find ${quoted(slashed)}`)}\n\n` +
+      `The pattern '${pattern}' has a \\ that escapes nothing. ${ESCAPE_RULE}` +
+        (folders
+          ? ` If the \\ separates folders:\n\n` +
+            `  ${shellCommand(`s3cab find ${quoted(folders)}`)}\n\n`
+          : "\n\n") +
         `For a backslash in a name:\n\n` +
         `  ${shellCommand(`s3cab find ${quoted(doubled)}`)}`,
     );
