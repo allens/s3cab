@@ -15,7 +15,7 @@
 //   names a command rather than running it.
 // - **Exact output** for the transcripts that are local and deterministic: the
 //   real CLI, run against snapshots built to the page's own scenario.
-// - **The printed result** for the cloud transcripts (verify, restore,
+// - **The printed result** for the cloud transcripts (backup, verify, restore,
 //   extract, and how forget, delete and cleanup end): what the CLI prints for a
 //   result built to the page's scenario (the registry's own renderer for the
 //   command, or `errorReport` for an error) after the notice every cloud
@@ -33,17 +33,15 @@
 //   result: the preview, the prompt, and the lines after the answer (forget's
 //   cleanup pointer and record path, delete's record notice). For those only
 //   the transcript's last lines are compared (`ending`).
-// - README's quick start `setup` and `backup`: `setup --keys` prompts, and
-//   prints the starter exclude notice, in an order only a real run would
-//   settle; `backup` carries timings.
+// - README's quick start `setup`: `setup --keys` prompts, and prints the
+//   starter exclude notice, in an order only a real run would settle.
 //
 // Cross-cutting, with no module to sit beside, so it lives in test/ (ADR-0049).
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { describe, it, mock } from "node:test";
 import { parseArgs } from "node:util";
 import { commands } from "../src/commands.mjs";
@@ -55,9 +53,15 @@ import {
   snapshotNotFoundError,
 } from "../src/lib/restore.mjs";
 import { authNotice } from "../src/lib/s3.mjs";
-import { writeSnapshot } from "./helpers/write-snapshot.mjs";
+import {
+  file,
+  firstBackup,
+  photosSet,
+  restoreResult,
+} from "./helpers/photos-set.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
+/** @import { backup } from "../src/commands/backup.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
 /** @import { deleteHashes } from "../src/commands/delete.mjs" */
 /** @import { extract } from "../src/commands/extract.mjs" */
@@ -66,7 +70,6 @@ import { writeSnapshot } from "./helpers/write-snapshot.mjs";
 /** @import { cleanup } from "../src/commands/cleanup.mjs" */
 /** @import { verify } from "../src/commands/verify.mjs" */
 /** @import { VerifyResult } from "../src/commands/verify.mjs" */
-/** @import { RestoreResult } from "../src/lib/restore.mjs" */
 /** @import { BackupSet } from "../src/lib/sets.mjs" */
 /** @import { SetReport } from "../src/lib/verify.mjs" */
 
@@ -263,7 +266,13 @@ function transcript(page, command, containing) {
       if (line === `> ${command}`) {
         const rest = lines.slice(at + 1);
         const next = rest.findIndex((after) => after.startsWith("> "));
-        shown.push((next < 0 ? rest : rest.slice(0, next)).join("\n"));
+        const output = next < 0 ? rest : rest.slice(0, next);
+        // Not the page's own `# ` note introducing the next command (the
+        // README quick start's numbered steps), nor the blank line before it.
+        while (/^(#.*)?$/.test(output.at(-1) ?? "x")) {
+          output.pop();
+        }
+        shown.push(output.join("\n"));
       }
     }
   }
@@ -282,48 +291,6 @@ function transcript(page, command, containing) {
   );
   return /** @type {string} */ (picked[0]);
 }
-
-/**
- * A `photos` set over `~/Pictures` in a temp home, with a snapshot per entry of
- * `snapshots` (name → files, paths relative to the set's directory), and a way
- * to run the CLI there. Paths are written as the snapshot would hold them, so
- * the report shortens them against the home exactly as on a real machine.
- * @param {string} root
- * @param {Record<string, File[]>} snapshots
- */
-async function photosSet(root, snapshots) {
-  // Absolute, as `setup` writes it: the snapshot rows are absolute paths.
-  const home = resolve(root, "home");
-  const pictures = join(home, "Pictures");
-  const set = join(home, ".s3cab", "sets", "photos");
-  mkdirSync(join(set, "snapshots"), { recursive: true });
-  writeFileSync(join(set, "dirs.txt"), `${pictures}\n`);
-  writeFileSync(join(set, "env"), "S3CAB_BUCKET=my-backups\n");
-  for (const [name, files] of Object.entries(snapshots)) {
-    await writeSnapshot(join(set, "snapshots"), name, files, pictures);
-  }
-  return {
-    home,
-    /** @param {...string} args */
-    run: (...args) =>
-      spawnSync(process.execPath, ["src/s3cab.mjs", ...args], {
-        encoding: "utf8",
-        env: { ...process.env, HOME: home, USERPROFILE: home },
-      }),
-  };
-}
-
-/**
- * A file of `size` bytes, its content fixed by `fill` — the same `fill` and
- * size is the same content, which is what makes a move or a duplicate.
- * @param {string} name
- * @param {string} fill
- * @param {number} size
- */
-const file = (name, fill, size) =>
-  new File([new Uint8Array(size).fill(fill.charCodeAt(0))], name, {
-    lastModified: Date.UTC(2025, 9, 1),
-  });
 
 // The transcripts are POSIX ones (`~/Pictures`, `/home/me/…`); a Windows run
 // would print the same report with `\`.
@@ -417,31 +384,6 @@ const verifyResult = (photos) => ({
 });
 
 /**
- * A restore of `photos` from `my-backups`, empty unless `result` says
- * otherwise.
- * @param {Partial<RestoreResult>} result
- * @returns {RestoreResult}
- */
-const restoreResult = (result) => ({
-  set: "photos",
-  bucket: "my-backups",
-  snapshot: "20260612T0915",
-  restored: [],
-  skipped: [],
-  collided: [],
-  missing: [],
-  corrupt: [],
-  refused: [],
-  blocked: [],
-  clamped: [],
-  coarseTimes: 0,
-  invalid: [],
-  deleted: [],
-  unmatched: [],
-  ...result,
-});
-
-/**
  * A cleanup of `my-backups` with the page's figures, having removed `deleted`
  * objects (0 for a dry run).
  * @param {number} deleted
@@ -464,6 +406,7 @@ const PHOTOS = "C:\\Users\\me\\Photos";
 /**
  * The result each checked command returns, by name.
  * @typedef {{
+ *   backup: Awaited<ReturnType<typeof backup>>,
  *   verify: Awaited<ReturnType<typeof verify>>,
  *   restore: Awaited<ReturnType<typeof restore>>,
  *   extract: Awaited<ReturnType<typeof extract>>,
@@ -749,6 +692,11 @@ const CLOUD = [
           missing: [`${PHOTOS}\\2019\\hike.jpg`, `${PHOTOS}\\2019\\summit.jpg`],
         }),
       ),
+  },
+  {
+    page: "README.md",
+    command: "s3cab backup",
+    output: () => printed("backup", firstBackup),
   },
   {
     page: "README.md",
