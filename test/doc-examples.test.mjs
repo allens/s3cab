@@ -358,14 +358,15 @@ const here = process.platform === "win32" ? "windows" : "posix";
 
 const OSES = /** @type {(keyof typeof WORLDS)[]} */ (Object.keys(WORLDS));
 
-// The site's `osVariants` tabs only these; another word after the language
-// would leave the example a plain block, unchecked.
+// The site's `osVariants` tabs only a language then one of these; any other
+// word after the language would leave the example a plain block.
 it("tags each OS variant windows or posix", () => {
+  const variant = new RegExp(`^\\S+ +(${OSES.join("|")})$`);
   for (const page of PAGES) {
     for (const [, info = ""] of readFileSync(page, "utf8").matchAll(FENCE)) {
       const { os } = fenceLang(info);
       assert.ok(
-        os === undefined || OSES.some((known) => known === os),
+        os === undefined || variant.test(info.trim()),
         `${page}: '${info.trim()}'`,
       );
     }

@@ -76,17 +76,22 @@ function siteHref(href, file, relativePath) {
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
 
+/**
+ * The page's file in the repo (`README.md`), not its place on the site
+ * (`index.md`).
+ * @param {{ realPath?: string, path?: string }} env
+ */
+const repoFile = (env) =>
+  // Against VitePress's own srcDir, where the page's path comes from, so a
+  // symlinked or junctioned checkout can't make the two disagree.
+  relative(resolved()?.srcDir ?? root, env.realPath ?? env.path ?? "")
+    .split("\\")
+    .join("/");
+
 /** @param {MarkdownIt} md */
 function repoLinks(md) {
   md.core.ruler.push("s3cab-repo-links", (state) => {
-    // Against VitePress's own srcDir, where the page's path comes from, so a
-    // symlinked or junctioned checkout can't make the two disagree.
-    const file = relative(
-      resolved()?.srcDir ?? root,
-      state.env.realPath ?? state.env.path ?? "",
-    )
-      .split("\\")
-      .join("/");
+    const file = repoFile(state.env);
     for (const token of state.tokens) {
       for (const child of token.children ?? []) {
         const href = child.type === "link_open" && child.attrGet("href");
@@ -131,10 +136,10 @@ function osVariants(md) {
       if (!group.length) {
         return;
       }
-      if (group.map(([os]) => os).join() !== "windows,posix") {
+      if (group.map(([os]) => os).join() !== Object.keys(OS_LABELS).join()) {
         const line = (group[0]?.[1].map?.[0] ?? 0) + 1;
         throw new Error(
-          `${state.env.relativePath}:${line}: an OS example is a \`windows\` fence, then a \`posix\` one`,
+          `${repoFile(state.env)}:${line}: an OS example is a \`windows\` fence, then a \`posix\` one`,
         );
       }
       const id = `os-${++switches}`;
