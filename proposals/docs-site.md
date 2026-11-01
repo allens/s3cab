@@ -29,12 +29,9 @@ read).
   Windows paths in some pages, POSIX in others).
 - **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
   visible inconsistency. Needs a markdown construct that still reads acceptably raw.
-- **Exclude-pattern playground.** `src/lib/exclude.mjs` imports only `node:path` and
-  `path-match.mjs`, so the real matcher can be bundled for the browser — paste paths, type
-  patterns, see what's dropped and by which pattern. Same code as the CLI, so it cannot disagree
-  with it. Put it on `/pattern-playground` beside the `find` one, with the same pasted paths
-  under both, so a pattern that means one thing in an exclude file and another to `find` shows
-  it.
+- **One page for both pattern playgrounds.** The exclude one (`/tools/exclude`) and the `find`
+  one (`/pattern-playground`) are separate pages. Side by side, with the same pasted paths under
+  both, a pattern that means one thing in an exclude file and another to `find` would show it.
 
 ## Fun, with a point
 
