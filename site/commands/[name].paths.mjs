@@ -1,7 +1,6 @@
 // One page per command at /commands/<name>, and the reference's index at
-// /commands/, generated from the command registry (command-pages.mjs). Under
-// `docs:dev`, an edit to the registry shows only after a restart; a guide's
-// title, which a page links by, refreshes on its own.
+// /commands/, generated from the command registry (command-pages.mjs). A page
+// links its guide by the guide's title, read from guide/, hence the watch.
 
 import { commands } from "../../src/commands.mjs";
 import { commandIndex, commandPage } from "../.vitepress/command-pages.mjs";
