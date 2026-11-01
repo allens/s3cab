@@ -1,11 +1,14 @@
 import { posix, win32 } from "node:path";
 
 import {
+  asFolders,
+  ESCAPE_RULE,
   ESCAPES,
   globSource,
   literalPattern,
   strayEscape,
 } from "./path-match.mjs";
+import { showControlChars } from "./control-chars.mjs";
 import { activeLines } from "./read-lines.mjs";
 
 /**
@@ -101,6 +104,60 @@ export function parseExclude(text, escapes = ESCAPES) {
         : trimmed;
     }),
   );
+}
+
+/**
+ * The error that stops the walk using these exclude.txt patterns, or
+ * `undefined` when it can use them: first a tab or carriage return in a
+ * pattern (ADR-0100), then a `\` that escapes nothing (ADR-0115). Here, not in
+ * the walk, so the docs site's playground refuses the same patterns.
+ * @param {string[]} patterns - As `parseExclude` read them
+ * @param {string} file - The exclude file, as the message names it
+ * @param {boolean} [escapes] - As for `literalPattern`
+ * @returns {Error | undefined}
+ */
+export function unusableExcludeError(patterns, file, escapes = ESCAPES) {
+  // `?`, not `*`: a `*` can join a `*` beside it into `**`, which crosses
+  // folders. Where `\` escapes, one escaping the tab goes with it, since a `\?`
+  // would match only `?`; group 1 keeps the escaped `\\` pairs before it.
+  const unwritable = escapes ? /(?<!\\)((?:\\\\)*)\\?[\t\r]/g : /()[\t\r]/g;
+  // After the trim, so a CRLF file's line endings never get here.
+  const controls = patterns.filter((pattern) => /[\t\r]/.test(pattern));
+  if (controls.length) {
+    const these =
+      controls.length === 1
+        ? "this pattern contains"
+        : "these patterns contain";
+    return new Error(
+      `Can't use the set's exclude file, because ${these} a tab or a carriage ` +
+        `return (${file}):\n` +
+        controls.map((pattern) => `  ${showControlChars(pattern)}`).join("\n") +
+        `\nWrite ? in place of each, which still matches it:\n` +
+        controls
+          .map((pattern) => `  ${pattern.replaceAll(unwritable, "$1?")}`)
+          .join("\n"),
+    );
+  }
+  // The likeliest cause is a file written on Windows, where `\` separates
+  // folders, so that is the fix offered first.
+  const stray = patterns.filter((pattern) => strayEscape(pattern, escapes));
+  if (stray.length) {
+    const folders = stray.map(asFolders).filter((line) => line !== undefined);
+    const these =
+      stray.length === 1 ? "this pattern has" : "these patterns have";
+    return new Error(
+      `Can't use the set's exclude file, because ${these} a \\ that escapes ` +
+        `nothing (${file}):\n` +
+        stray.map((pattern) => `  ${pattern}`).join("\n") +
+        `\n${ESCAPE_RULE}` +
+        (folders.length
+          ? ` If the \\ separates folders, write:\n` +
+            folders.map((pattern) => `  ${pattern}`).join("\n")
+          : "") +
+        `\nFor a backslash in a name, write \\\\.`,
+    );
+  }
+  return undefined;
 }
 
 /**

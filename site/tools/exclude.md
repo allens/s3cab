@@ -21,7 +21,9 @@ pattern matcher, in your browser; nothing you type leaves the page.
   looks inside one: a path in it is left out by that folder's pattern.
 - **Windows, macOS or Linux** changes how names compare: case is ignored on
   Windows and macOS, `\` separates folders only on Windows, and on macOS an
-  accent matches however it is stored.
+  accent matches however it is stored. On macOS and Linux `\` escapes the
+  character after it instead, and one that escapes nothing, as in a pattern
+  written with Windows separators, makes s3cab refuse the whole file.
 
 The rules themselves are in [Exclude rules](https://s3cab.plantegral.com/guide/exclude).
 

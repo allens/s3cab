@@ -243,7 +243,7 @@ See [the format spec](format.md#no-row-holds-a-tab-or-a-line-ending).
 ### Can't use the set's exclude file, because … a tab or a carriage return (…):
 
 A pattern in `exclude.txt` has a tab or a carriage return in it, which a snapshot can't record.
-Write `*` in place of the character, as the message shows; it still matches it. See
+Write `?` in place of each, as the message shows; it still matches it. See
 [exclude rules](exclude.md).
 
 ### A snapshot of this set is already in progress — or a previous one was interrupted and left its work file behind.

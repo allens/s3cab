@@ -32,6 +32,11 @@
 // `user@machine` outside it, so a page and its check can't disagree about the
 // world.
 //
+// An example whose paths depend on the OS is two adjacent fences,
+// `console windows` then `console posix` (the site makes them tabs), one in
+// each of the story's worlds. Each variant is checked on its own: a local
+// transcript by a run on that OS, a cloud one through the renderer on both.
+//
 // Only the transcripts the tests below name are checked; every other one is
 // kept right by hand. What a command prints itself, before or around its
 // result, can't be checked this way. For those only the transcript's last
@@ -81,7 +86,7 @@ import {
 } from "./helpers/story.mjs";
 
 /** @import { Command } from "../src/commands.mjs" */
-/** @import { Content } from "./helpers/story.mjs" */
+/** @import { Content, World } from "./helpers/story.mjs" */
 /** @import { backup, BackupResult } from "../src/commands/backup.mjs" */
 /** @import { CleanupResult } from "../src/commands/cleanup.mjs" */
 /** @import { compare } from "../src/commands/compare.mjs" */
@@ -116,6 +121,16 @@ const FENCE = /^ *```([^\n]*)\n([\s\S]*?)^ *```/gm;
 const SHELL = new Set(["", "sh", "bash", "powershell"]);
 
 /**
+ * A fence's language, and the OS it is the variant for: `console windows` is
+ * the Windows variant of a `console` block, which the site turns into a tab.
+ * @param {string} info
+ */
+const fenceLang = (info) => {
+  const [lang = "", os] = info.trim().split(/\s+/);
+  return { lang, os };
+};
+
+/**
  * A page's code, never its prose: its fenced blocks and inline spans, and the
  * `s3cab …` command lines among them. Inline code is marked: there a trailing
  * flag can be a mention of the flag rather than half an invocation
@@ -128,7 +143,7 @@ function codeOf(text) {
   const lines = [];
   for (const [, lang = "", body = ""] of text.matchAll(FENCE)) {
     code.push(body);
-    const tag = lang.trim();
+    const tag = fenceLang(lang).lang;
     const rows = body.split("\n").filter((row) => row.trim());
     const indent = (/** @type {string} */ row) =>
       row.length - row.trimStart().length;
@@ -306,18 +321,23 @@ describe("documented command lines", () => {
  * to the next prompt or the end of the block. Where a page shows the same
  * command line more than once, `containing` picks the one whose output
  * includes it: by what it shows, not where it sits, so adding or moving an
- * example can't point a check at a different one.
+ * example can't point a check at a different one. `os` takes only that OS's
+ * variants, and the examples the same on every OS.
  * @param {string} page
  * @param {string} command
- * @param {string} [containing]
+ * @param {{ containing?: string, os?: World }} [pick]
  */
-function transcript(page, command, containing) {
+function transcript(page, command, { containing, os } = {}) {
   /** @type {string[]} */
   const shown = [];
-  for (const [, lang, body = ""] of readFileSync(page, "utf8").matchAll(
+  for (const [, info = "", body = ""] of readFileSync(page, "utf8").matchAll(
     FENCE,
   )) {
-    if (lang?.trim() !== "console") {
+    const fence = fenceLang(info);
+    if (
+      fence.lang !== "console" ||
+      (fence.os !== undefined && fence.os !== os)
+    ) {
       continue;
     }
     const lines = body.trimEnd().split("\n");
@@ -343,6 +363,7 @@ function transcript(page, command, containing) {
     picked.length,
     1,
     `${page} shows '> ${command}' ${shown.length} time(s)` +
+      (os === undefined ? "" : ` for ${os}`) +
       (containing === undefined
         ? ""
         : `, ${picked.length} with '${containing}'`) +
@@ -351,12 +372,29 @@ function transcript(page, command, containing) {
   return /** @type {string} */ (picked[0]);
 }
 
-// The transcripts are POSIX ones (`~/Photos`, `/home/me/…`); a Windows run
-// would print the same report with `\`. The tutorial's are Windows ones
-// (`C:\Users\me\Photos`), and the converse holds.
-const posixOnly = {
-  skip: process.platform === "win32" && "the page shows a POSIX transcript",
-};
+const OSES = /** @type {World[]} */ (Object.keys(worlds));
+
+// A local transcript is what the CLI prints on this machine, so each OS's
+// variant is checked by a run on that OS.
+const here = process.platform === "win32" ? "windows" : "posix";
+
+// The site's `osVariants` tabs only a language then one of these; any other
+// word after the language would leave the example a plain block.
+it("tags each OS variant windows or posix", () => {
+  const variant = new RegExp(`^\\S+ +(${OSES.join("|")})$`);
+  for (const page of PAGES) {
+    for (const [, info = ""] of readFileSync(page, "utf8").matchAll(FENCE)) {
+      const { os } = fenceLang(info);
+      assert.ok(
+        os === undefined || variant.test(info.trim()),
+        `${page}: '${info.trim()}'`,
+      );
+    }
+  }
+});
+
+// The tutorial shows Windows transcripts only (`C:\Users\me\Photos`); a POSIX
+// run would print the same report with `/`.
 const windowsOnly = {
   skip: process.platform !== "win32" && "the page shows a Windows transcript",
 };
@@ -371,36 +409,47 @@ const KEY_ID = "AKIAIOSFODNN7EXAMPLE";
 const TUTORIAL = "guide/getting-started.md";
 
 describe("documented output", () => {
-  it("guide/compare.md shows what compare prints", posixOnly, async () => {
-    await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const command = "s3cab compare photos --since 20251110T2104";
-    const { run } = await storySet(dir.path, "20251112T0915");
+  for (const os of OSES) {
+    const onOs = { skip: os !== here && `the ${os} variant prints on ${os}` };
 
-    const { status, stdout, stderr } = run(...argv(command).slice(1));
-
-    assert.equal(status, 0, stderr);
-    assert.equal(stdout.trimEnd(), transcript("guide/compare.md", command));
-  });
-
-  it(
-    "guide/output.md's --json example is what compare --json prints",
-    posixOnly,
-    async () => {
+    it(`guide/compare.md shows what compare prints (${os})`, onOs, async () => {
       await using dir = await mkdtempDisposable(join("test", ".tmp"));
-      const command = "s3cab compare photos --until 20251111T0830 --json";
-      const { home, run } = await storySet(dir.path, "20251112T0915");
+      const command = "s3cab compare photos --since 20251110T2104";
+      const { run } = await storySet(dir.path, "20251112T0915");
 
       const { status, stdout, stderr } = run(...argv(command).slice(1));
 
-      // The page lays the JSON out by hand to keep it short, so the comparison is
-      // of the data, with the temp home spelled as the page's.
       assert.equal(status, 0, stderr);
-      assert.deepEqual(
-        JSON.parse(stdout.replaceAll(home, worlds.posix.home)),
-        JSON.parse(transcript("guide/output.md", command)),
+      assert.equal(
+        stdout.trimEnd(),
+        transcript("guide/compare.md", command, { os }),
       );
-    },
-  );
+    });
+
+    it(
+      `guide/output.md's --json example is what compare --json prints (${os})`,
+      onOs,
+      async () => {
+        await using dir = await mkdtempDisposable(join("test", ".tmp"));
+        const command = "s3cab compare photos --until 20251111T0830 --json";
+        const { home, run } = await storySet(dir.path, "20251112T0915");
+
+        const { status, stdout, stderr } = run(...argv(command).slice(1));
+
+        // The page lays the JSON out by hand to keep it short, so the
+        // comparison is of the data, with the temp home spelled as the page's.
+        assert.equal(status, 0, stderr);
+        assert.deepEqual(
+          JSON.parse(stdout, (_, value) =>
+            typeof value === "string"
+              ? value.replace(home, worlds[os].home)
+              : value,
+          ),
+          JSON.parse(transcript("guide/output.md", command, { os })),
+        );
+      },
+    );
+  }
 
   /**
    * The tutorial's set after its two backups, as `setup --keys` leaves a set:
@@ -541,20 +590,28 @@ const cleanupResult = (deleted) => {
  */
 
 /**
- * The tutorial's set as `setup` returns it, every path under its home.
- * @type {BackupSet}
+ * The photos set as `setup` returns it in `os`'s world, every path under its
+ * home.
+ * @param {World} os
+ * @returns {BackupSet}
  */
-const TUTORIAL_SET = {
-  name: "photos",
-  dirs: [PHOTOS],
-  bucket,
-  dir: `${HOME}\\.s3cab\\sets\\photos`,
-  snapshotsDir: `${HOME}\\.s3cab\\sets\\photos\\snapshots`,
-  dirsPath: `${HOME}\\.s3cab\\sets\\photos\\dirs.txt`,
-  excludePath: `${HOME}\\.s3cab\\sets\\photos\\exclude.txt`,
-  envPath: `${HOME}\\.s3cab\\sets\\photos\\env`,
-  claimPath: `${HOME}\\.s3cab\\sets\\photos\\claim`,
+const setOf = (os) => {
+  const { home, sep } = worlds[os];
+  const dir = [home, ".s3cab", "sets", "photos"].join(sep);
+  return {
+    name: "photos",
+    dirs: [photo(os)],
+    bucket,
+    dir,
+    snapshotsDir: `${dir}${sep}snapshots`,
+    dirsPath: `${dir}${sep}dirs.txt`,
+    excludePath: `${dir}${sep}exclude.txt`,
+    envPath: `${dir}${sep}env`,
+    claimPath: `${dir}${sep}claim`,
+  };
 };
+
+const TUTORIAL_SET = setOf("windows");
 
 /**
  * A backup of the tutorial's set: the story's first, unless `result` says
@@ -639,18 +696,20 @@ function printedError(name, run) {
 // the default one, for a set with no profile or endpoint of its own.
 const NOTICE = authNotice({});
 
-const at = (/** @type {string} */ path) => photo("windows", path);
+// The tutorial's world, and the one the shared entries spell paths in.
+const atWindows = (/** @type {string} */ path) => photo("windows", path);
 
 /**
  * Each cloud transcript a page shows, and what the CLI prints for the page's
- * scenario after the notice. `containing` picks among the times a page shows
- * the same command line. `ending` marks a transcript with the command's own
+ * scenario after the notice. `os` names the OS variant it is, and
+ * `containing` picks among the times a page shows the same command line.
+ * `ending` marks a transcript with the command's own
  * preview or prompt between the notice and the result, so only its last lines
  * are the printed result. `before` counts the lines a command prints before
  * its first cloud touch (`setup --keys` asks for the key and the secret first,
  * and every set command opens with `Using s3cab home`). `skip` is
  * `windowsOnly`'s, for a result whose rendering spells paths the platform's way.
- * @type {{ page: string, command: string, containing?: string, ending?: boolean, before?: number, skip?: string | false, output: () => string }[]}
+ * @type {{ page: string, command: string, containing?: string, os?: World, ending?: boolean, before?: number, skip?: string | false, output: () => string }[]}
  */
 const CLOUD = [
   {
@@ -668,11 +727,11 @@ const CLOUD = [
   },
   {
     page: TUTORIAL,
-    command: `s3cab restore --set photos ${at("beach.jpg")}`,
+    command: `s3cab restore --set photos ${atWindows("beach.jpg")}`,
     output: () =>
       printed(
         "restore",
-        restoreResult({ snapshot: FIRST, restored: [at("beach.jpg")] }),
+        restoreResult({ snapshot: FIRST, restored: [atWindows("beach.jpg")] }),
       ),
   },
   {
@@ -734,89 +793,6 @@ const CLOUD = [
   },
   {
     page: "guide/maintenance.md",
-    command: `s3cab verify ${bucket}`,
-    containing: "1 set with findings",
-    output: () =>
-      printed(
-        "verify",
-        verifyResult(
-          setReport("photos", {
-            problems: [
-              {
-                path: at("beach.jpg"),
-                problem: "missing",
-                snapshots: holding("beach.jpg"),
-              },
-              {
-                path: at("report.pdf"),
-                problem: "wrong-size",
-                snapshots: holding("report.pdf"),
-                recordedSize: filesAt(JUNE).get("report.pdf")?.size,
-                storedSize: 0,
-              },
-            ],
-          }),
-        ),
-      ),
-  },
-  {
-    page: "guide/maintenance.md",
-    command: `s3cab verify ${bucket}`,
-    containing: "files deleted from backups",
-    output: () =>
-      printed(
-        "verify",
-        verifyResult(
-          setReport("photos", {
-            referencedObjects: scale.referenced.photos - scale.footage.objects,
-            expectedMissing: Array.from(
-              { length: scale.footage.files },
-              (_, i) => ({
-                path: at(
-                  `raw-footage/clip${String(i + 1).padStart(3, "0")}.mov`,
-                ),
-                snapshots: [JUNE],
-                deletedOn: deleted,
-              }),
-            ),
-          }),
-        ),
-      ),
-  },
-  {
-    page: "guide/maintenance.md",
-    command: `s3cab forget --set photos ${MAY[0]}`,
-    ending: true,
-    output: () =>
-      printed("forget", {
-        set: "photos",
-        snapshots: MAY.slice(0, 1),
-        forgotten: true,
-      }),
-  },
-  {
-    page: "guide/maintenance.md",
-    command: `s3cab forget --set photos ${MAY.join(" ")}`,
-    ending: true,
-    output: () =>
-      printed("forget", { set: "photos", snapshots: MAY, forgotten: true }),
-  },
-  {
-    page: "guide/maintenance.md",
-    command: `s3cab delete --bucket ${bucket} --from-file footage.txt`,
-    ending: true,
-    output: () =>
-      printed("delete", {
-        bucket,
-        deletedObjects: scale.footage.objects,
-        deletedBytes: scale.footage.bytes,
-        missing: [],
-        record: `s3://${bucket}/objects.deleted-1.tsv`,
-        deleted: true,
-      }),
-  },
-  {
-    page: "guide/maintenance.md",
     command: `s3cab cleanup ${bucket}`,
     containing: "reclaimed",
     ending: true,
@@ -862,36 +838,6 @@ const CLOUD = [
   },
   {
     page: "guide/restore.md",
-    command: `s3cab restore --set photos ${at("beach.jpg")}`,
-    containing: "Restored 1 file",
-    output: () =>
-      printed("restore", restoreResult({ restored: [at("beach.jpg")] })),
-  },
-  {
-    page: "guide/restore.md",
-    command: `s3cab restore --set photos ${at("nope.jpg")}`,
-    output: () =>
-      printedError("restore", () =>
-        selectTargets(
-          {
-            entries: new Map(
-              [...filesAt(JUNE)].map(([path, { size, mtime }]) => [
-                at(path),
-                { hash: "0".repeat(64), size, mtime },
-              ]),
-            ),
-            errors: new Map(),
-            refused: new Map(),
-            dirs: [at("")],
-          },
-          /** @type {BackupSet} */ ({ name: "photos" }),
-          JUNE,
-          [at("nope.jpg")],
-        ),
-      ),
-  },
-  {
-    page: "guide/restore.md",
     command: "s3cab restore --set photos --all --snapshot 2026-05-01",
     output: () =>
       printedError("restore", () => {
@@ -908,77 +854,208 @@ const CLOUD = [
       }),
   },
   {
-    page: "guide/restore.md",
-    command: `s3cab restore --set photos ${at("report.pdf")} --snapshot ${FIRST}`,
+    page: "guide/maintenance.md",
+    command: `s3cab verify ${bucket}`,
+    containing: "files deleted from backups",
     output: () =>
       printed(
-        "restore",
-        restoreResult({ snapshot: FIRST, restored: [at("report.pdf")] }),
+        "verify",
+        verifyResult(
+          setReport("photos", {
+            referencedObjects: scale.referenced.photos - scale.footage.objects,
+            expectedMissing: Array.from(
+              { length: scale.footage.files },
+              (_, i) => ({
+                path: atWindows(
+                  `raw-footage/clip${String(i + 1).padStart(3, "0")}.mov`,
+                ),
+                snapshots: [JUNE],
+                deletedOn: deleted,
+              }),
+            ),
+          }),
+        ),
       ),
   },
-  {
-    page: "guide/restore.md",
-    command: `s3cab restore --set photos ${at("2019")} ${at("report.pdf")}`,
-    output: () =>
-      printed(
-        "restore",
-        restoreResult({
-          restored: [at("2019/hike.jpg"), at("2019/summit.jpg")],
-          skipped: [at("report.pdf")],
-        }),
-      ),
-  },
-  {
-    page: "guide/restore.md",
-    command: `s3cab extract --set photos ${at("report.pdf")} --snapshot ${FIRST}`,
-    output: () =>
-      printed(
-        "extract",
-        restoreResult({
-          snapshot: FIRST,
-          restored: [at("report.pdf")],
-          to: `${worlds.windows.home}\\report.pdf`,
-        }),
-      ),
-  },
-  {
-    page: "guide/restore.md",
-    command: "s3cab restore --set photos --all",
-    containing: "Could not restore 2 files",
-    output: () =>
-      printed(
-        "restore",
-        restoreResult({
-          restored: Array.from({ length: scale.files - 2 }, (_, i) =>
-            at(`${i}.jpg`),
+  ...OSES.flatMap((os) => {
+    const at = (/** @type {string} */ path) => photo(os, path);
+    return [
+      {
+        page: "guide/maintenance.md",
+        command: `s3cab verify ${bucket}`,
+        os,
+        containing: "1 set with findings",
+        output: () =>
+          printed(
+            "verify",
+            verifyResult(
+              setReport("photos", {
+                problems: [
+                  {
+                    path: at("beach.jpg"),
+                    problem: "missing",
+                    snapshots: holding("beach.jpg"),
+                  },
+                  {
+                    path: at("report.pdf"),
+                    problem: "wrong-size",
+                    snapshots: holding("report.pdf"),
+                    recordedSize: filesAt(JUNE).get("report.pdf")?.size,
+                    storedSize: 0,
+                  },
+                ],
+              }),
+            ),
           ),
-          missing: [at("2024/sorted/IMG_001.jpg"), at("2025/new.jpg")],
-        }),
-      ),
-  },
-  {
-    page: "README.md",
-    command: `s3cab setup --set photos --bucket my-backups --keys ${PHOTOS}`,
-    before: 2,
-    ending: true,
-    output: () => printed("setup", TUTORIAL_SET),
-  },
-  {
-    page: "README.md",
-    command: "s3cab backup",
-    before: 1,
-    ending: true,
-    output: () => printed("backup", firstBackup),
-  },
-  {
-    page: "README.md",
-    command: `s3cab restore --set photos ${at("beach.jpg")}`,
-    output: () =>
-      printed(
-        "restore",
-        restoreResult({ snapshot: FIRST, restored: [at("beach.jpg")] }),
-      ),
-  },
+      },
+      {
+        page: "guide/maintenance.md",
+        command: `s3cab forget --set photos ${MAY[0]}`,
+        os,
+        ending: true,
+        output: () =>
+          printed("forget", {
+            set: "photos",
+            snapshots: MAY.slice(0, 1),
+            forgotten: true,
+          }),
+      },
+      {
+        page: "guide/maintenance.md",
+        command: `s3cab forget --set photos ${MAY.join(" ")}`,
+        os,
+        ending: true,
+        output: () =>
+          printed("forget", { set: "photos", snapshots: MAY, forgotten: true }),
+      },
+      {
+        page: "guide/maintenance.md",
+        command: `s3cab delete --bucket ${bucket} --from-file footage.txt`,
+        os,
+        ending: true,
+        output: () =>
+          printed("delete", {
+            bucket,
+            deletedObjects: scale.footage.objects,
+            deletedBytes: scale.footage.bytes,
+            missing: [],
+            record: `s3://${bucket}/objects.deleted-1.tsv`,
+            deleted: true,
+          }),
+      },
+      {
+        page: "guide/restore.md",
+        command: `s3cab restore --set photos ${at("beach.jpg")}`,
+        os,
+        containing: "Restored 1 file",
+        output: () =>
+          printed("restore", restoreResult({ restored: [at("beach.jpg")] })),
+      },
+      {
+        page: "guide/restore.md",
+        command: `s3cab restore --set photos ${at("nope.jpg")}`,
+        os,
+        output: () =>
+          printedError("restore", () =>
+            selectTargets(
+              {
+                entries: new Map(
+                  [...filesAt(JUNE)].map(([path, { size, mtime }]) => [
+                    at(path),
+                    { hash: "0".repeat(64), size, mtime },
+                  ]),
+                ),
+                errors: new Map(),
+                refused: new Map(),
+                dirs: [at("")],
+              },
+              /** @type {BackupSet} */ ({ name: "photos" }),
+              JUNE,
+              [at("nope.jpg")],
+            ),
+          ),
+      },
+      {
+        page: "guide/restore.md",
+        command: `s3cab restore --set photos ${at("report.pdf")} --snapshot ${FIRST}`,
+        os,
+        output: () =>
+          printed(
+            "restore",
+            restoreResult({ snapshot: FIRST, restored: [at("report.pdf")] }),
+          ),
+      },
+      {
+        page: "guide/restore.md",
+        command: `s3cab restore --set photos ${at("2019")} ${at("report.pdf")}`,
+        os,
+        output: () =>
+          printed(
+            "restore",
+            restoreResult({
+              restored: [at("2019/hike.jpg"), at("2019/summit.jpg")],
+              skipped: [at("report.pdf")],
+            }),
+          ),
+      },
+      {
+        page: "guide/restore.md",
+        command: `s3cab extract --set photos ${at("report.pdf")} --snapshot ${FIRST}`,
+        os,
+        output: () =>
+          printed(
+            "extract",
+            restoreResult({
+              snapshot: FIRST,
+              restored: [at("report.pdf")],
+              to: `${worlds[os].home}${worlds[os].sep}report.pdf`,
+            }),
+          ),
+      },
+      {
+        page: "guide/restore.md",
+        command: "s3cab restore --set photos --all",
+        os,
+        containing: "Could not restore 2 files",
+        output: () =>
+          printed(
+            "restore",
+            restoreResult({
+              restored: Array.from({ length: scale.files - 2 }, (_, i) =>
+                at(`${i}.jpg`),
+              ),
+              missing: [at("2024/sorted/IMG_001.jpg"), at("2025/new.jpg")],
+            }),
+          ),
+      },
+      {
+        page: "README.md",
+        command: `s3cab setup --set photos --bucket my-backups --keys ${at("")}`,
+        os,
+        before: 2,
+        ending: true,
+        output: () => printed("setup", setOf(os)),
+      },
+      {
+        page: "README.md",
+        command: "s3cab backup",
+        os,
+        before: 1,
+        ending: true,
+        output: () => printed("backup", firstBackup),
+      },
+      {
+        page: "README.md",
+        command: `s3cab restore --set photos ${at("beach.jpg")}`,
+        os,
+        output: () =>
+          printed(
+            "restore",
+            restoreResult({ snapshot: FIRST, restored: [at("beach.jpg")] }),
+          ),
+      },
+    ];
+  }),
 ];
 
 describe("documented output, cloud", () => {
@@ -986,14 +1063,15 @@ describe("documented output, cloud", () => {
     page,
     command,
     containing,
+    os,
     ending,
     before = 0,
     skip = false,
     output,
   } of CLOUD) {
-    const title = `${page}: '${command}'${containing ? ` (showing '${containing}')` : ""}`;
+    const title = `${page}: '${command}'${containing ? ` (showing '${containing}')` : ""}${os ? ` (${os})` : ""}`;
     it(title, { skip }, () => {
-      const [first, ...rest] = transcript(page, command, containing)
+      const [first, ...rest] = transcript(page, command, { containing, os })
         .split("\n")
         .slice(before);
       const result = output();

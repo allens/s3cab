@@ -19,7 +19,30 @@ count; empty sections are left out. A closing line totals every category and the
 bytes that changed. (`s3cab snapshot` prints the same report after taking a
 snapshot, showing what changed since the previous one.)
 
-```console
+```console windows
+> s3cab compare photos --since 20251110T2104
+photos: ~\Photos  20251110T2104 → 20251112T0915
+
+Added (2)
+  brand-logo.png  (duplicate of logo.png)
+  2025\new.jpg
+
+Renamed (1)
+  notes.txt → diary.txt
+
+Moved (1)
+  2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
+
+Modified (1)
+  report.pdf
+
+Deleted (1)
+  old notes.txt
+
+2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 2.1MB changed
+```
+
+```console posix
 > s3cab compare photos --since 20251110T2104
 photos: ~/Photos  20251110T2104 → 20251112T0915
 

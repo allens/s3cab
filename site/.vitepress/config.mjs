@@ -76,17 +76,22 @@ function siteHref(href, file, relativePath) {
   return `${repo}/${target.endsWith("/") ? "tree" : "blob"}/main/${target}${hash}`;
 }
 
+/**
+ * The page's file in the repo (`README.md`), not its place on the site
+ * (`index.md`).
+ * @param {{ realPath?: string, path?: string }} env
+ */
+const repoFile = (env) =>
+  // Against VitePress's own srcDir, where the page's path comes from, so a
+  // symlinked or junctioned checkout can't make the two disagree.
+  relative(resolved()?.srcDir ?? root, env.realPath ?? env.path ?? "")
+    .split("\\")
+    .join("/");
+
 /** @param {MarkdownIt} md */
 function repoLinks(md) {
   md.core.ruler.push("s3cab-repo-links", (state) => {
-    // Against VitePress's own srcDir, where the page's path comes from, so a
-    // symlinked or junctioned checkout can't make the two disagree.
-    const file = relative(
-      resolved()?.srcDir ?? root,
-      state.env.realPath ?? state.env.path ?? "",
-    )
-      .split("\\")
-      .join("/");
+    const file = repoFile(state.env);
     for (const token of state.tokens) {
       for (const child of token.children ?? []) {
         const href = child.type === "link_open" && child.attrGet("href");
@@ -100,6 +105,93 @@ function repoLinks(md) {
     }
   });
 }
+
+/**
+ * The tab label for each OS tag a fence can carry after its language.
+ * @type {Record<string, string>}
+ */
+const OS_LABELS = { windows: "Windows", posix: "macOS / Linux" };
+
+/**
+ * Adjacent fences tagged with an OS after their language (`console windows`,
+ * then `console posix`) become one example with a tab per OS. GitHub shows the
+ * fences one after the other, so the pages read fine there. Which
+ * tab shows is the `data-os` on `<html>`, set by `osChoice` below and by
+ * theme/os-switch.mjs; without it every variant shows, under its label. A
+ * variant without its partner fails the build: alone, it would vanish for the
+ * other OS's readers.
+ * @param {MarkdownIt} md
+ */
+function osVariants(md) {
+  md.core.ruler.push("s3cab-os-variants", (state) => {
+    /** @param {string} content */
+    const html = (content) =>
+      Object.assign(new state.Token("html_block", "", 0), { content });
+    /** @type {typeof state.tokens} */
+    const tokens = [];
+    /** @type {[string, (typeof state.tokens)[number]][]} */
+    let group = [];
+    let switches = 0;
+    const flush = () => {
+      if (!group.length) {
+        return;
+      }
+      if (group.map(([os]) => os).join() !== Object.keys(OS_LABELS).join()) {
+        const line = (group[0]?.[1].map?.[0] ?? 0) + 1;
+        throw new Error(
+          `${repoFile(state.env)}:${line}: an OS example is a \`windows\` fence, then a \`posix\` one`,
+        );
+      }
+      const id = `os-${++switches}`;
+      const tabs = group.map(
+        ([os]) =>
+          `<button type="button" role="tab" id="${id}-${os}-tab" aria-controls="${id}-${os}" data-os="${os}">${OS_LABELS[os]}</button>`,
+      );
+      tokens.push(
+        html(
+          `<div class="os-switch"><div class="os-tabs" role="tablist" aria-label="Operating system">${tabs.join("")}</div>\n`,
+        ),
+      );
+      for (const [os, fence] of group) {
+        tokens.push(
+          html(
+            `<div class="os-variant" role="tabpanel" id="${id}-${os}" aria-labelledby="${id}-${os}-tab" data-os="${os}"><p class="os-label">${OS_LABELS[os]}</p>\n`,
+          ),
+          fence,
+          html("</div>\n"),
+        );
+      }
+      tokens.push(html("</div>\n"));
+      group = [];
+    };
+    for (const token of state.tokens) {
+      const [, lang, os] =
+        (token.type === "fence" &&
+          /^(\S+) +(windows|posix)$/.exec(token.info.trim())) ||
+        [];
+      if (lang && os) {
+        // A second example straight after the first, with no prose between.
+        if (group.some(([seen]) => seen === os)) {
+          flush();
+        }
+        token.info = lang;
+        group.push([os, token]);
+      } else {
+        flush();
+        tokens.push(token);
+      }
+    }
+    flush();
+    state.tokens = tokens;
+  });
+}
+
+/**
+ * Sets `data-os` before the page paints, so the chosen variant shows from the
+ * first frame: the stored choice, else the visitor's platform. The key is
+ * theme/os-switch.mjs's `KEY`.
+ */
+const osChoice = `{let os;try{os=localStorage.getItem("s3cab-os")}catch{}document.documentElement.dataset.os=os==="windows"||os==="posix"?os:/^win/i.test(navigator.userAgentData?.platform??navigator.platform)?"windows":"posix"}`;
 
 /**
  * The page local search indexes. VitePress reads it from the page's file, and a
@@ -203,6 +295,7 @@ export default defineConfig({
       {},
       ".vp-doc img[src^='https://img.shields.io/'] { display: inline; vertical-align: middle; margin: 0; }",
     ],
+    ["script", {}, osChoice],
   ],
   markdown: {
     anchor: { slugify },
@@ -211,6 +304,7 @@ export default defineConfig({
     languageAlias: { console: "text" },
     config: (md) => {
       repoLinks(md);
+      osVariants(md);
       homeRecording(md);
       // A line break renders as a newline, which Vue's template compiler
       // (`whitespace: "condense"`) drops between two elements, so a line ending
@@ -236,9 +330,9 @@ export default defineConfig({
     checkLinks(outDir);
   },
   // The pattern playgrounds bundle s3cab's own matchers for the browser, so
-  // within src/lib/ `path`, `util` and `fs`, with or without `node:`, resolve
-  // to node-shim.mjs. Any other builtin is an error: Vite would only warn and
-  // swap in an empty module, and the page would break when it ran.
+  // within src/lib/ `path` and `util`, with or without `node:`, resolve to
+  // node-shim.mjs. Any other builtin is an error: Vite would only warn and swap
+  // in an empty module, and the page would break when it ran.
   vite: {
     plugins: [
       {
