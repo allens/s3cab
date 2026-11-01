@@ -1,8 +1,8 @@
 # Backing up
 
-`s3cab backup <set>` is the whole routine job. This page covers what a set backs up, how
-s3cab decides a file hasn't changed (and the rare edits that fool it), and what happens when
-a backup stops part way.
+`s3cab backup <set>` is the whole routine job. This page covers what a set backs up and where
+it lives, how s3cab decides a file hasn't changed (and the rare edits that fool it), and what
+happens when a backup stops part way.
 
 ## What a set backs up
 
@@ -25,6 +25,60 @@ directory.
   the snapshot unless an exclude pattern matches it, and then it is listed as excluded like
   any other. Only a directory is skipped: a file or a link named `.s3cab` is backed up as
   usual.
+
+## Where a set lives
+
+A set is a folder of plain files in s3cab's home, never inside the directories it backs up:
+
+```
+~/.s3cab/sets/photos/
+  claim                     # present while this machine holds the set
+  dirs.txt                  # the directories that make up the set — yours to edit
+  env                       # S3CAB_BUCKET=… plus how this set signs in
+  exclude.txt               # patterns for files to skip — yours to edit
+  snapshots/
+    20251110T2104.tsv.gz    # one snapshot per run
+    20251111T0830.tsv.gz
+```
+
+- **Editing a set is editing these files**, and deleting the folder deletes the set.
+- **Of these, only `env` can't be got back.** `s3cab reattach` pulls the snapshots back down
+  from the bucket, and `s3cab takeover` the directory list and exclude rules too. `env` never
+  leaves this machine, since it can hold credentials ([signing in](auth.md)).
+- **`claim`** marks this machine as the set's holder, the one machine that backs it up
+  ([who holds a set](format.md#who-holds-a-set)).
+- **`forget` adds files of its own**: a record of each removal in the set's folder, and a
+  preview in the home itself. They never leave this machine either
+  ([the two files it leaves behind](maintenance.md#the-two-files-it-leaves-behind)).
+- **`~/.s3cab` is the home on every OS.** Set `S3CAB_HOME` to move the whole tree; every path
+  s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
+  keyless identity if you set one up ([signing in](auth.md#roles-anywhere-keyless)), and the
+  templates `s3cab aws` writes ([setting up a cloud bucket](aws.md)).
+
+Each snapshot records a few of these settings for whoever reads it later:
+
+- `@CLIENT HOME` is the home it was taken from, so the set's folder and the snapshot's own
+  path follow from it and the names.
+- `@SET BUCKET` is the set's `S3CAB_BUCKET`, as `s3://<bucket>`.
+- `@SET ENDPOINT` is its endpoint, when it has one: `AWS_ENDPOINT_URL_S3`, else
+  `AWS_ENDPOINT_URL`.
+
+### Its copy in the bucket
+
+s3cab keeps a copy of each set's directory list and exclude rules in the bucket, in its own
+folder, so a machine taking the set over gets them back:
+
+```
+s3://my-backups/.s3cab/sets/photos/
+  dirs.txt                  # its member directories
+  exclude.txt               # its exclude patterns, if it has any
+```
+
+- `exclude.txt` is a byte-for-byte copy of yours.
+- `dirs.txt` is the list s3cab read from yours, one directory per line, without its comments
+  and blank lines.
+- Another tool leaves `.s3cab/` alone, as s3cab leaves any other `.`-named folder alone
+  ([the format spec](format.md#the-remote-repository-the-keystone)).
 
 ## How s3cab spots an unchanged file
 
