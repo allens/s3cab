@@ -21,8 +21,10 @@ and everything else reads the same.
 **Try it on a copy first.** Copy a few hundred photos, or any folder of files you have
 elsewhere, to somewhere like `C:\Users\me\Photos`, and use that. s3cab never changes the
 files it backs up, but a trial on a copy means you can delete a file in step 3 without a
-second thought, and throw the whole thing away afterwards. The pages use Windows paths; on
-macOS or Linux, write yours the way your system does.
+second thought, and throw the whole thing away afterwards. The page follows one example
+folder, 212 photos with a `beach.jpg` among them: where it names a file, use one of yours,
+and expect your own counts and sizes in the reports. The pages use Windows paths; on macOS or
+Linux, write yours the way your system does.
 
 ## 1. Create a backup set
 
@@ -57,10 +59,11 @@ What happened:
   non-AWS provider, [Signing in to your storage](auth.md) has every option.
 - **s3cab claimed the name `photos` in the bucket**, so no other machine can create a set with
   that name there. That is the one thing a set has: its name.
-- **The set lives in three small text files** under `C:\Users\me\.s3cab\sets\photos\`:
+- **The set lives in a few small text files** under `C:\Users\me\.s3cab\sets\photos\`:
   `dirs.txt` lists its folders (one per line — add a folder by adding a line), `exclude.txt`
-  lists the patterns it skips, and `env` holds the bucket and the key. To change what the set
-  backs up, edit those files; to change how it signs in, use `s3cab provider`.
+  lists the patterns it skips, `env` holds the bucket and the key, and `claim` records that
+  this machine holds the set. Its snapshots will go in `snapshots\` beside them. To change
+  what the set backs up, edit those files; to change how it signs in, use `s3cab provider`.
 - **The starter exclude file** skips things nobody wants backed up — dependency folders, `.git`
   repositories, the operating system's own clutter — and says so, so nothing is skipped behind
   your back. [Exclude rules](exclude.md) explains the patterns; `s3cab tree --excluded` shows
@@ -88,8 +91,9 @@ What happened:
   moment it was taken, `20251112T0915` — 12 November 2025 at 09:15, in your local time — and
   that name is how you'll refer to it from now on.
 - **Each file was uploaded once, stored under its fingerprint.** Two files with the same
-  contents, anywhere in the set, are stored once. That is why the report counts *objects*
-  uploaded as well as *files* scanned: on this first run they are the same.
+  contents, anywhere in the bucket — in this set or another — are stored once. That is why
+  the report counts *objects* uploaded as well as *files* scanned: on this first run they are
+  the same.
 - **The snapshot went up last**, after every file it lists. Any snapshot you can see in the
   bucket is complete.
 
@@ -116,8 +120,8 @@ know:
 - **`restore` always names its set** (`--set photos`), even when you have only one. It writes
   into your folders, so it never guesses which backup to write from.
 - **You name the file as the backup spells it**: the full path. Copy it out of
-  `s3cab tree photos` rather than typing it. A folder works too, and restores everything
-  under it.
+  `s3cab find beach.jpg`, which searches the snapshots and prints it, rather than typing it.
+  A folder works too, and restores everything under it.
 - **Files that still exist are left alone.** Restore a whole folder and only the missing files
   come back; everything you've changed since stays as it is. Add `--overwrite` when you really
   want the backup's copy to win ([Existing files are never
@@ -141,7 +145,7 @@ photo in as `2025\new.jpg`. Then back up again:
 > s3cab backup
 Contacting the cloud…
 Backed up 'photos' → snapshot 20251113T0902
-Scanned 213 files (1.1GB) in 1s — 1 needed re-hashing (4.1MB)
+Scanned 213 files (1.1GB) in 1s — 2 needed re-hashing (7.5MB)
 Uploaded 1 object (4.1MB) in 2s
 
 Changes since 20251112T0915:
@@ -166,15 +170,17 @@ Moved (1)
 
 What happened:
 
-- **Only one file was read, and one uploaded.** The 212 unchanged files kept the fingerprints
-  from the first snapshot; the new photo was the only new content.
+- **Two files were read, and one uploaded.** The 211 files still at their old paths kept the
+  fingerprints from the first snapshot. The new photo and the moved one were read, because a
+  fingerprint is looked up by path and the moved one sits at a new path — but only the new
+  photo was new content.
 - **The moved photo is reported as moved**, not as one file deleted and another added. Its
-  contents are the same, so s3cab knows it is the same file — and it cost nothing to upload,
-  because that content was already in the bucket.
-- **The report counts; `compare` lists.** Every backup ends with the counts and the command
-  that shows the detail. At a terminal it offers to run it for you, which is what `y` did
-  above. You can run it yourself at any time — `s3cab compare photos --since 20251112T0915`
-  compares that snapshot with the latest — and
+  fingerprint is the one the first snapshot recorded, so s3cab knows it is the same file — and
+  it cost nothing to upload, because that content was already in the bucket.
+- **The report counts; `compare` lists.** A backup that found changes ends with the counts
+  and the command that shows the detail. At a terminal it offers to run it for you, which is
+  what `y` did above. You can run it yourself at any time —
+  `s3cab compare photos --since 20251112T0915` compares that snapshot with the latest — and
   [Reading a compare report](compare.md) explains each section.
 
 ## 5. What you have: `list` and `status`
@@ -227,8 +233,10 @@ snapshot of it.
 
 ## Where next
 
-- **Point it at your real files.** Create a set for them with `setup`, the same command as
-  step 1 with your folders in place of the trial one, and back it up. One set per thing you
+- **Point it at your real files.** The name `photos` is now taken in the bucket, for good: a
+  set's name is claimed when it is created and nothing gives it back. So either keep this
+  set and swap the trial folder for the real one in its `dirs.txt`, or create a set under a
+  new name with `setup`, the same command as step 1 with your folders. One set per thing you
   think of as a unit — your photos, your documents — all in the same bucket.
 - **Back up on a schedule.** `s3cab backup photos` is the whole job; run it from Task
   Scheduler, cron or launchd. It exits non-zero when something couldn't be backed up, so a

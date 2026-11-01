@@ -18,7 +18,8 @@ read).
   says what it checks and how. **Still open:** every transcript it doesn't name, and in the
   ones it does, the middle of `guide/getting-started.md`'s `setup --keys` transcript — the two
   key prompts and the starter-exclude notice, derived from `setup.mjs` and `sets.mjs` and
-  never produced by a run.
+  never produced by a run — and its `Compare now? [y/N] y` line, typed into the test rather
+  than read from `promptYesNo`.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11;
   Windows paths in some pages, POSIX in others).

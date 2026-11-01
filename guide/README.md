@@ -35,8 +35,9 @@ pages are the sit-down read.
   [re-reading everything now and then](backup.md#re-reading-everything-now-and-then).
 - **A backup stopped part way** — Ctrl+C, a crash or a lost connection, and what the next run
   does about it: [stopping part way](backup.md#stopping-part-way).
-- **It says a backup is running, but nothing is** — a stopped run left its lock behind:
-  [locks: backups and clean-ups take turns](maintenance.md#locks-backups-and-clean-ups-take-turns).
+- **It says a backup is running, but nothing is** — a killed run left its work file behind,
+  which `--resume` carries on from: [stopping part way](backup.md#stopping-part-way). Or its
+  lock in the bucket: [locks: backups and clean-ups take turns](maintenance.md#locks-backups-and-clean-ups-take-turns).
 - **s3cab can't sign in** — expired sessions, rejected keys, and the signature mismatch a wrong
   endpoint produces: [when it doesn't work](auth.md#when-it-doesnt-work).
 - **I don't use AWS** — Cloudflare R2, Backblaze B2, Wasabi and the like:
