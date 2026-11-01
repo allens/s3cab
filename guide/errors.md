@@ -1,9 +1,10 @@
 # Error messages
 
 When s3cab can't do what you asked, it stops and prints `ERROR:` followed by what went wrong
-and how to fix it. Each heading below is the first line of one of those messages, spelled the
-way s3cab prints it, with `…` where it names your set, bucket, path or a count. Paste the
-first line of yours into the site's search to land on its entry.
+and how to fix it. This page covers the errors you're most likely to meet. Each heading is the
+first line of one of them, spelled the way s3cab prints it, with `…` where it names your set,
+bucket, path or a count. Search this page for the first line of yours, or paste it into the
+search at https://s3cab.plantegral.com/guide/errors.
 
 The message already gives the fix. An entry here adds why it happens, what else might be going
 on, and where to read more.
@@ -248,8 +249,9 @@ Write `*` in place of the character, as the message shows; it still matches it. 
 ### A snapshot of this set is already in progress — or a previous one was interrupted and left its work file behind.
 
 Either a snapshot, backup or upload of this set is running right now, or one was killed without
-a chance to tidy up. s3cab can't tell which. Once you're sure nothing is running, run the
-command again with `--resume`: `s3cab backup photos --resume`. See
+a chance to tidy up. s3cab can't tell which. Once you're sure nothing is running, run the same
+command again with `--resume` to carry on from the file hashes already worked out. To start
+over instead, delete the work file the message names. See
 [stopping part way](backup.md#stopping-part-way).
 
 ### Couldn't finish backing up — sending your files to the cloud stopped part-way (…).
@@ -269,9 +271,10 @@ See [files that change during a backup](exclude.md#files-that-change-during-a-ba
 
 ### Couldn't record this backup as '…': the name was already taken when we wrote it (…).
 
-Snapshot names are the time to the minute, and another machine backing up the same set took
-this one first. Your files were uploaded; only this backup's record wasn't written. Run the
-backup again to record it under the next minute's name.
+Snapshot names are the time to the minute, so another machine backing up the same set can take
+one first. Copied state can do it too, such as a cloned virtual machine or a restored
+`~/.s3cab`. Your files were uploaded; only this backup's record wasn't written. Run the backup
+again to record it under the next minute's name.
 
 ### Snapshot '…' already exists in '…'.
 
