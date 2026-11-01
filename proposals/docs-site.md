@@ -16,7 +16,7 @@ read).
 - **Examples that can't drift — mostly built** in
   [test/doc-examples.test.mjs](../test/doc-examples.test.mjs), part of `npm test`; its header
   says what it checks and how. **Still open:** every transcript it doesn't name — among them,
-  both OS variants of README's `snapshot` (it prints timings) and of `find.md`'s first example.
+  both OS variants of `find.md`'s first example.
 
   Example worlds still differ page to page (`restore.md` is 2026-06, the README 2025-11).
 - **Check the frozen URLs live.** A scheduled job fetching `/`, `/guide/` and each
@@ -32,7 +32,7 @@ read).
   bill is too high*. (`setup`, `list`, `status` have no `guide` link yet — the tutorial is
   their natural home.)
 - **OS switcher on the last three examples.** The switcher is built (`osVariants` in
-  `site/.vitepress/config.mjs`) and covers 18 examples on six pages. Still one OS, 3 examples:
+  `site/.vitepress/config.mjs`) and covers 17 examples on six pages. Still one OS, 3 examples:
   `auth.md`'s two `provider` transcripts and `aws.md`'s deploy recipe, which show `~/.s3cab/…`
   where Windows prints `~\.s3cab\…`.
 - **Error index.** ADR-0030 messages are already constructive; give each a page anchor so
