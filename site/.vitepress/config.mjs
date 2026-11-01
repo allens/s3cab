@@ -20,6 +20,7 @@ import { join, posix } from "node:path";
 import { defineConfig } from "vitepress";
 import { writeChallengeBucket } from "./challenge-bucket.mjs";
 import { checkLinks } from "./check-links.mjs";
+import { commandSidebar } from "./command-pages.mjs";
 import { slugify } from "./slugify.mjs";
 
 /** @import { DefaultTheme } from "vitepress" */
@@ -139,6 +140,7 @@ function guideSidebar() {
       items: [
         { text: "What s3cab is", link: "/" },
         { text: "All guides", link: "/guide/" },
+        { text: "Command reference", link: "/commands/" },
       ],
     },
     ...sections,
@@ -171,9 +173,10 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: "Guides", link: "/guide/" },
+      { text: "Commands", link: "/commands/" },
       { text: "Format spec", link: "/guide/format" },
     ],
-    sidebar: guideSidebar(),
+    sidebar: { "/commands/": commandSidebar(), "/": guideSidebar() },
     search: {
       provider: "local",
       options: {
@@ -192,7 +195,8 @@ export default defineConfig({
     // Serialized into the browser bundle, so it can't close over `repo` or
     // `sourceOf` above — it repeats their mapping on its own. A guide page's
     // filePath is the route template, `guide/[topic].md`; its topic is a param.
-    // Any other page is its own source, under site/.
+    // A command page is generated, so its source is the registry. Any other
+    // page is its own source, under site/.
     editLink: {
       pattern: ({ filePath, params }) => {
         const topic = params?.topic === "index" ? "README" : params?.topic;
@@ -202,7 +206,9 @@ export default defineConfig({
             ? "README.md"
             : filePath.startsWith("guide/")
               ? `guide/${topic}.md`
-              : `site/${filePath}`)
+              : filePath.startsWith("commands/")
+                ? "src/commands.mjs"
+                : `site/${filePath}`)
         );
       },
       text: "Edit this page on GitHub",
