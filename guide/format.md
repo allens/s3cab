@@ -10,9 +10,8 @@ project honest — a human-readable mirror of the true format that the code must
 
 The page covers the repository and nothing else: what any tool needs to read a backup, or
 to write one another tool can read. s3cab's own files — its home on your machine, a set's
-directory list and exclude patterns — are s3cab's, and documented with it: the
-[README](../README.md#how-it-works), [backing up](backup.md) and the
-[exclude rules](exclude.md).
+directory list and exclude patterns — are s3cab's, and documented with it:
+[backing up](backup.md#where-a-set-lives) and the [exclude rules](exclude.md).
 
 Every rule and recommendation on this page is a **commitment**, not an implementation
 detail. If a future s3cab needs to change any of it, that is a breaking format change,
@@ -118,8 +117,8 @@ s3://my-backups/
 - **`locks/`** holds one small file per upload or delete that is running right now, so the
   two kinds never overlap: [locks](#locks). A reader ignores the folder.
 - **A top-level folder named `.<name>`** belongs to the client called `<name>`, which keeps
-  its own files there: s3cab's is `.s3cab/`, described in its
-  [README](../README.md#cloud-repositories). Nothing a restore needs lives in one. A reader
+  its own files there: s3cab's is `.s3cab/`, described in
+  [backing up](backup.md#its-copy-in-the-bucket). Nothing a restore needs lives in one. A reader
   ignores every key under a `.` prefix; a writer touches only the layout above and its own
   folder. There is no registry of names.
 
@@ -428,7 +427,9 @@ in a bucket:
 ```
 
 That example lines up the first column and narrows the others to stay readable;
-[the real widths](#the-columns) are below.
+[the real widths](#the-columns) are below. For a real snapshot with every part of it
+explained in place, see the
+[anatomy of a snapshot](https://s3cab.plantegral.com/tools/snapshot-anatomy).
 
 ### The columns
 
@@ -620,8 +621,8 @@ can go stale later without the row being wrong.
 | `@SNAPSHOT FINISH` | the instant the last file's row was written, before the snapshot is uploaded (column 4), and how long the run took to get there (`9s`, `12m 21s`, `3h 04m`) |
 
 Any other `@CLIENT` row belongs to the tool `@CLIENT NAME` names, and only that tool gives it
-a meaning; s3cab's are in its [README](../README.md#how-it-works) and
-[backing up](backup.md#what-a-set-backs-up). A file has exactly one `@S3CAB SPEC`, one
+a meaning; s3cab's are in [backing up](backup.md#what-a-set-backs-up) and
+[where a set lives](backup.md#where-a-set-lives). A file has exactly one `@S3CAB SPEC`, one
 `@CLIENT NAME` and one `@CLIENT VERSION`.
 
 `user@machine`, in `BY`, a `#deleted` row and a set's `OWNER`, is for people: s3cab
