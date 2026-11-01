@@ -131,14 +131,14 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
-  // The theme makes every image a block, so the README's badges, a row on
-  // GitHub, would stack one per line on the home page. The margin stands in
-  // for the space between them, which the build drops.
+  // The theme makes every image a block with a 1rem margin, so the README's
+  // badges, a row on GitHub, would stack one per line on the home page, or
+  // wrap at phone width with a gap between the rows.
   head: [
     [
       "style",
       {},
-      ".vp-doc img[src^='https://img.shields.io/'] { display: inline-block; margin: 0 0.25rem 0 0; }",
+      ".vp-doc img[src^='https://img.shields.io/'] { display: inline-block; vertical-align: middle; margin: 0; }",
     ],
   ],
   // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
@@ -148,7 +148,15 @@ export default defineConfig({
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
     // the shell grammar colours as escapes (`C:\Users` → `\U`); shown plain.
     languageAlias: { console: "text" },
-    config: repoLinks,
+    config: (md) => {
+      repoLinks(md);
+      // A line break renders as a newline, which Vue's template compiler
+      // (`whitespace: "condense"`) drops between two elements, so a line ending
+      // in a link or code span would run into the next one's: `code`link, and
+      // the badges touching. A space it keeps. Not `whitespace: "preserve"`:
+      // that recompiles the theme's own components too, and shifts some.
+      md.renderer.rules.softbreak = () => " ";
+    },
   },
   buildEnd: ({ outDir }) => checkLinks(outDir),
   themeConfig: {
