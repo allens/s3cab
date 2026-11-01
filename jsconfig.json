@@ -27,7 +27,14 @@
   // default's reach and adds that one tree; `.claude/worktrees/` stays out (each
   // is a full checkout of this repo, and eslint ignores it for the same reason).
   // The docs site's config sits in `.vitepress/` for the same reason; only its
-  // own modules, not the build output or cache beside them.
-  "include": ["**/*", ".claude/skills/**/*", "site/.vitepress/*.mjs"],
+  // own modules, not the build output or cache beside them. Of the theme, only
+  // the switcher: `theme/index.mjs` imports a `.vue` file, which tsc can't
+  // resolve without a declaration file.
+  "include": [
+    "**/*",
+    ".claude/skills/**/*",
+    "site/.vitepress/*.mjs",
+    "site/.vitepress/theme/os-switch.mjs"
+  ],
   "exclude": ["node_modules", "dist", ".claude/worktrees"]
 }

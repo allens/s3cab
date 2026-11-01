@@ -18,16 +18,19 @@ read).
   says what it checks and how. **Still open:** every transcript it doesn't name, and in the
   ones it does, the lines a command prints around its result: `setup --keys`'s two key prompts
   and starter-exclude notice (README and `guide/getting-started.md`) and the README `backup`'s
-  home and progress lines, last confirmed by hand against a real run on 2026-11-01; and the
+  home and progress lines, last confirmed by hand against a real run on 2026-11-01; the
   tutorial's `Compare now? [y/N] y` line, typed into the test rather than read from
-  `promptYesNo`. **Known drift:** every set command opens with `Using s3cab home '…'`
+  `promptYesNo`; and the macOS / Linux variants of the lines that came from real Windows runs
+  (those README lines, `find.md`'s first example, `maintenance.md`'s forget previews), which
+  are those runs with `/`, not runs of their own. **Known drift:** every set command opens with `Using s3cab home '…'`
   (`loadSet`), and `backup` prints progress lines before its report. Most set-command
   transcripts leave the home line out (the tutorial's, `restore`, `extract`, `forget`), and the
   tutorial's `backup` leaves out both.
-- **OS switcher** (Windows / macOS / Linux), remembered across pages — the paths are the most
-  visible inconsistency. Needs a markdown construct that still reads acceptably raw. The
-  story ([test/helpers/story.mjs](../test/helpers/story.mjs)) already has a Windows and a
-  POSIX world for each example to draw on.
+- **OS variants for the examples still on one OS** (the switcher is `osVariants` in
+  `site/.vitepress/config.mjs`): `auth.md`'s two `provider` transcripts (`~\.s3cab\…`, where
+  macOS and Linux print `~/.s3cab/…`), `aws.md`'s deploy recipe (the converse), and the
+  tutorial (`getting-started.md`), whose `setup`, `restore` and `list photos` transcripts are
+  Windows only by the page's own choice ("The pages use Windows paths").
 - **One page for both pattern playgrounds.** The exclude one (`/tools/exclude`) and the `find`
   one (`/pattern-playground`) are separate pages. Side by side, with the same pasted paths under
   both, a pattern that means one thing in an exclude file and another to `find` would show it.

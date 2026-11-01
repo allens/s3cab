@@ -4,12 +4,27 @@
 It reads the snapshots already on this computer — no network, no S3 calls — and
 searches **every set attached here** unless `--set` narrows it to one.
 
-```console
+```console windows
 > s3cab find diary.txt
 # s3cab find · 1 pattern · 1 file · 2 objects
 # searched photos → s3://my-backups (8 snapshots) — local history
 #
 # C:\Users\me\Photos\diary.txt
+#   2,400 bytes (2.4kB)   modified 2026-04-30 21:10Z
+#   photos  20260501T0800 … 20260814T0930   (5 snapshots)
+ef372cd1d64f8d5a76f026995450dca917ce03848ea33f732046817ca70da304
+#   2,100 bytes (2.1kB)   modified 2025-10-28 19:30Z
+#   photos  20251111T0830 … 20251112T0915   (2 snapshots)
+#   ⚠ also backs 1 other path — deleting this removes both
+0623bf340e23b059b80094b792e9c4ad4e3e33a5fc239833a2cc3dbeed404c1f
+```
+
+```console posix
+> s3cab find diary.txt
+# s3cab find · 1 pattern · 1 file · 2 objects
+# searched photos → s3://my-backups (8 snapshots) — local history
+#
+# /home/me/Photos/diary.txt
 #   2,400 bytes (2.4kB)   modified 2026-04-30 21:10Z
 #   photos  20260501T0800 … 20260814T0930   (5 snapshots)
 ef372cd1d64f8d5a76f026995450dca917ce03848ea33f732046817ca70da304
