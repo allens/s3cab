@@ -101,6 +101,73 @@ const displayOption = (name, { short }) =>
   short ? `-${short}, --${name}` : `--${name}`;
 
 /**
+ * A command's Arguments table as `[display, description]` rows. Shared by
+ * `--help` and the docs site's command pages, so both spell an argument alike.
+ * @param {Command} command
+ * @returns {[string, string][]}
+ */
+export const argRows = ({ args }) =>
+  Object.entries(args ?? {}).map(([name, arg]) => [
+    displayArg(name, arg),
+    arg.description,
+  ]);
+
+/**
+ * A command's Options table as `[display, description]` rows, ending with the
+ * `-h, --help` every command answers. Shared like `argRows`.
+ * @param {Command} command
+ * @returns {[string, string][]}
+ */
+export const optionRows = ({ options }) => [
+  ...Object.entries(options ?? {}).map(
+    ([name, option]) =>
+      /** @type {[string, string]} */ ([
+        displayOption(name, option),
+        option.description ?? "",
+      ]),
+  ),
+  ["-h, --help", "Show this help"],
+];
+
+/**
+ * The flags the dispatcher answers for every command (and at the top level), as
+ * `[display, description]` rows: the top-level `--help`'s own section rather
+ * than buried in prose, and the docs site's command index. `--json` (ADR-0043)
+ * turns any command's result into machine-readable JSON.
+ * @type {[string, string][]}
+ */
+export const globalOptionRows = [
+  ["--json", "Print machine-readable JSON instead of text (shape may change)"],
+  ["-v, --version", "Print the version and exit"],
+  ["-h, --help", "Show this help; 's3cab <command> --help' for a command"],
+];
+
+/**
+ * The registry's commands under their `group` headings, in registry order (the
+ * display order: day-to-day groups first, plumbing last). A group sticks until
+ * the next command that sets one, so the registry only labels the first command
+ * of each section; a registry with no groups at all is one "Commands" group.
+ * Shared by the top-level `--help`, the docs site's sidebar and the README's
+ * command tables.
+ * @param {Record<string, Command>} commands
+ * @returns {{ group: string, entries: [string, Command][] }[]}
+ */
+export function commandGroups(commands) {
+  /** @type {{ group: string, entries: [string, Command][] }[]} */
+  const groups = [];
+  for (const entry of Object.entries(commands)) {
+    const last = groups.at(-1);
+    const group = entry[1].group ?? last?.group ?? "Commands";
+    if (last && group === last.group) {
+      last.entries.push(entry);
+    } else {
+      groups.push({ group, entries: [entry] });
+    }
+  }
+  return groups;
+}
+
+/**
  * The one-line command shape — `Usage: s3cab setup [options] <directory>...`.
  * Every command accepts `[options]` (the dispatcher answers -h/--help even for
  * those that declare none). Split out of usage() so a usage *error* prints just
@@ -243,7 +310,7 @@ export function usage(commands, commandName, style) {
   const lines = [];
 
   if (command && commandName) {
-    const { args, options, summary, details, guide, examples } = command;
+    const { args, summary, details, guide, examples } = command;
 
     lines.push(synopsis(commandName, command), "");
 
@@ -263,20 +330,17 @@ export function usage(commands, commandName, style) {
 
     if (args) {
       lines.push(heading("Arguments:"));
-      for (const [name, arg] of Object.entries(args)) {
-        lines.push(`  ${displayArg(name, arg)}`.padEnd(24) + arg.description);
+      for (const [display, description] of argRows(command)) {
+        lines.push(`  ${display}`.padEnd(24) + description);
       }
       lines.push("");
     }
 
     lines.push(heading("Options:"));
-    for (const [name, option] of Object.entries(options ?? {})) {
-      lines.push(
-        `  ${displayOption(name, option)}`.padEnd(24) +
-          (option.description ?? ""),
-      );
+    for (const [display, description] of optionRows(command)) {
+      lines.push(`  ${display}`.padEnd(24) + description);
     }
-    lines.push(`  -h, --help`.padEnd(24) + "Show this help", "");
+    lines.push("");
 
     if (details) {
       lines.push(heading("Description:"), details, "");
@@ -299,34 +363,18 @@ export function usage(commands, commandName, style) {
       "Usage: s3cab <command> [options] [args]",
     );
 
-    // Commands render under their registry `group` heading (day-to-day groups
-    // first, plumbing last — the registry's insertion order is the display
-    // order). A group sticks until the next command that sets one, so the
-    // registry only labels the first command of each section; a registry with
-    // no groups at all renders one flat "Commands" list.
-    /** @type {string | undefined} */
-    let group;
-    for (const [name, command] of Object.entries(commands)) {
-      const section = command.group ?? group ?? "Commands";
-      if (section !== group) {
-        lines.push("", heading(`${section}:`));
-        group = section;
+    for (const { group, entries } of commandGroups(commands)) {
+      lines.push("", heading(`${group}:`));
+      for (const [name, command] of entries) {
+        lines.push(`  ${name}`.padEnd(nameColumn) + command.summary);
       }
-      lines.push(`  ${name}`.padEnd(nameColumn) + command.summary);
     }
 
-    // Global options — the flags the dispatcher answers for every command (and
-    // at the top level), so they get their own section rather than being buried
-    // in prose. Padded to 24 like the per-command Options table. `--json`
-    // (ADR-0043) turns any command's result into machine-readable JSON.
+    lines.push("", heading("Global options:"));
+    for (const [display, description] of globalOptionRows) {
+      lines.push(`  ${display}`.padEnd(24) + description);
+    }
     lines.push(
-      "",
-      heading("Global options:"),
-      "  --json".padEnd(24) +
-        "Print machine-readable JSON instead of text (shape may change)",
-      "  -v, --version".padEnd(24) + "Print the version and exit",
-      "  -h, --help".padEnd(24) +
-        "Show this help; 's3cab <command> --help' for a command",
       "",
       `Run 's3cab help <topic>' for a guide (topics: ${Object.keys(helpTopics).join(", ")}).`,
       "Set the S3CAB_DEBUG environment variable for verbose debug output.",

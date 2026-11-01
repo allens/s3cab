@@ -9,18 +9,24 @@ For scripting, pass the global **`--json`** flag to get the same result as a
 structured JSON value instead:
 
 ```console
-> s3cab compare photos --json
+> s3cab compare photos --until 20251111T0830 --json
 {
   "setName": "photos",
-  "dirs": ["/home/me/Pictures"],
-  "since": "20251111T0830",
-  "until": "20251112T0915",
+  "dirs": ["/home/me/Photos"],
+  "since": "20251110T2104",
+  "until": "20251111T0830",
   "added": [
-    { "path": "/home/me/Pictures/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
+    { "path": "/home/me/Photos/brand-logo.png", "size": 41000, "duplicates": ["/home/me/Photos/logo.png"], "wasUnreadable": false }
   ],
-  "moved": [],
-  "modified": [{ "path": "/home/me/Pictures/diary.txt", "size": 240 }],
-  "deleted": [],
+  "moved": [
+    { "path": "/home/me/Photos/notes.txt", "size": 2100, "to": "/home/me/Photos/diary.txt" }
+  ],
+  "modified": [
+    { "path": "/home/me/Photos/report.pdf", "size": 1250000 }
+  ],
+  "deleted": [
+    { "path": "/home/me/Photos/old notes.txt", "size": 900 }
+  ],
   "errors": []
 }
 ```
@@ -52,7 +58,7 @@ A few things worth knowing:
   | `127` | unknown command |
   | `130` | interrupted (Ctrl+C) |
 - **Neither format truncates.** s3cab prints the whole result either way; manage
-  volume yourself with a pager (`s3cab verify my-bucket | less`) or a redirect.
+  volume yourself with a pager (`s3cab verify my-backups | less`) or a redirect.
 
 Absolute paths are what the JSON carries (unambiguous for a machine); the human
 text shortens them for readability — see [reading a compare report](compare.md)

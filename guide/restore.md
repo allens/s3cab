@@ -91,9 +91,9 @@ older snapshot with `--snapshot` (`-s`) — the names are what `s3cab list <set>
 prints:
 
 ```console
-> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 20251110T2104
 Contacting the cloud…
-Restored 1 file from 'photos' (snapshot 20260501T0800).
+Restored 1 file from 'photos' (snapshot 20251110T2104).
 ```
 
 This is the case a sync service can't help with once its short version history has expired.
@@ -110,7 +110,8 @@ Contacting the cloud…
 ERROR: Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
   20260612T0915
-  20260501T0800
+  20251111T0830
+  20251110T2104
 ```
 
 ## Existing files are never touched
@@ -118,7 +119,7 @@ Available snapshots (newest first):
 By default restore **skips any file that already exists** and tells you which:
 
 ```console
-> s3cab restore --set photos --all
+> s3cab restore --set photos C:\Users\me\Photos\2019 C:\Users\me\Photos\report.pdf
 Contacting the cloud…
 Restored 2 files from 'photos' (snapshot 20260612T0915).
 
@@ -181,9 +182,9 @@ rather than at its full path the way `restore --output` does. It's the command f
 look at last month's copy":
 
 ```console
-> s3cab extract --set photos C:\Users\me\Photos\report.pdf --snapshot 20260501T0800
+> s3cab extract --set photos C:\Users\me\Photos\report.pdf --snapshot 20251110T2104
 Contacting the cloud…
-Extracted 1 file from 'photos' (snapshot 20260501T0800) to C:\Users\me\report.pdf.
+Extracted 1 file from 'photos' (snapshot 20251110T2104) to C:\Users\me\report.pdf.
 ```
 
 - **One path per run**, a file or a folder, matched just as `restore` matches it. For several
@@ -213,7 +214,7 @@ first, then restore:
 ```
 
 `reattach` pulls the set's _snapshot history_ down — not the files. It's `restore` that brings
-the content back. (See [Status](../README.md#status) for the split.)
+the content back.
 
 The set is read-only here until you take it over, which makes this the machine that backs it
 up:
@@ -259,7 +260,7 @@ backups of it are refused from then on.
   invariant is part of the [format spec](format.md) — and if something has removed content
   from the bucket behind s3cab's back, the next section is what you'll see.
 
-Progress prints to stderr (`Restoring 250/1,240…`), so it stays out of piped or redirected
+Progress prints to stderr (`Restoring 250/1,839…`), so it stays out of piped or redirected
 output. For the machine-readable result, add `--json` — see [output formats](output.md).
 
 ## If some content is missing from the backup
@@ -272,18 +273,18 @@ carries on with the rest**, then lists everything it couldn't produce:
 ```console
 > s3cab restore --set photos --all
 Contacting the cloud…
-Restored 1,238 files from 'photos' (snapshot 20260612T0915).
+Restored 1,837 files from 'photos' (snapshot 20260612T0915).
 
 Could not restore 2 files — the backup no longer holds their contents:
-  C:\Users\me\Photos\2019\hike.jpg
-  C:\Users\me\Photos\2019\summit.jpg
+  C:\Users\me\Photos\2024\sorted\IMG_001.jpg
+  C:\Users\me\Photos\2025\new.jpg
 
 The rest of the restore finished. To check the other backups in this bucket:
   s3cab verify my-backups
 ```
 
 The run exits non-zero, so a scripted restore can't mistake this for a clean one — but the
-1,238 files that _were_ recoverable are on disk. Stopping at the first casualty would be the
+1,837 files that _were_ recoverable are on disk. Stopping at the first casualty would be the
 worse outcome in exactly the situation you most need the backup.
 
 `s3cab verify <bucket>` is the follow-up: it checks every snapshot in the repository against
@@ -309,7 +310,7 @@ reveals. If an unchanged copy of a damaged file survives anywhere — another ma
 stick — upload it again to repair the backup's copy:
 
 ```console
-> s3cab upload photos --file D:\old-laptop\Photos\2019\hike.jpg --force
+> s3cab upload photos --file E:\Photos\report.pdf --force
 ```
 
 ## If there's nothing to restore

@@ -1,4 +1,4 @@
-import { posix } from "node:path";
+import { posix, sep } from "node:path";
 
 // Matching a path against text, tolerantly: the two primitives shared by every
 // path matcher in the codebase — the glob token grammar (`globSource`) and the
@@ -209,10 +209,12 @@ export function unmatchedFolders(folders, paths) {
  * Whether `\` escapes the next character in a pattern
  * ([ADR-0115](../../docs/adr/0115-backslash-escapes-on-linux-and-macos.md)):
  * on Linux and macOS, where it isn't a separator. On Windows it is one, and no
- * name there holds `*` or `?`. The platform, not the path's shape, because a
- * pattern is typed on this machine.
+ * name there holds `*` or `?`. This machine's separator, not the path's shape,
+ * because a pattern is typed on this machine; and `sep`, not `process.platform`,
+ * because the docs site's playgrounds run this in a browser, whose `node:path`
+ * stand-in has `/`.
  */
-export const ESCAPES = process.platform !== "win32";
+export const ESCAPES = sep === posix.sep;
 
 /**
  * A `\` that escapes nothing: at the end, or before anything but `\`, `*`, `?`,
@@ -226,10 +228,11 @@ export const STRAY_ESCAPE =
 /**
  * Whether `pattern` holds a `STRAY_ESCAPE`.
  * @param {string} pattern
+ * @param {boolean} [escapes] - As for `literalPattern`
  * @returns {boolean} Always false where `\` doesn't escape
  */
-export const strayEscape = (pattern) =>
-  ESCAPES && pattern.search(STRAY_ESCAPE) !== -1;
+export const strayEscape = (pattern, escapes = ESCAPES) =>
+  escapes && pattern.search(STRAY_ESCAPE) !== -1;
 
 /** What a `\` means here, for a refusal of a `STRAY_ESCAPE` to explain. */
 export const ESCAPE_RULE =
@@ -252,10 +255,12 @@ export function asFolders(pattern) {
  * and `?` escaped. Windows has no escape, and no name there holds `*` or `?`
  * through Win32.
  * @param {string} text
+ * @param {boolean} [escapes] - Whether `\` escapes: `ESCAPES`, unless the
+ *   caller matches like another machine
  * @returns {string}
  */
-export const literalPattern = (text) =>
-  ESCAPES ? text.replaceAll(/[\\*?]/g, "\\$&") : text;
+export const literalPattern = (text, escapes = ESCAPES) =>
+  escapes ? text.replaceAll(/[\\*?]/g, "\\$&") : text;
 
 /**
  * Compile a glob's *tokens* into regular-expression source, **unanchored** — the
@@ -267,17 +272,18 @@ export const literalPattern = (text) =>
  * Tokens (guide/exclude.md, guide/find.md): a `**` path segment matches zero or
  * more whole segments; a `**` *not* followed by a separator matches anything at
  * all, separators included; `*` matches one or more characters within a single
- * segment; `?` matches one character; where `ESCAPES`, `\` makes the character
+ * segment; `?` matches one character; where `escapes`, `\` makes the character
  * after it match only itself. (The first can't be written with its trailing
  * slash anywhere in this file — that sequence ends a block comment.)
  * @param {string} pattern - A `/`-separated glob; converting the platform's own
  *   separator is the caller's job, because the per-segment tokens need one
  *   canonical separator to define a segment by. Never `strayEscape`: the
  *   callers refuse that with their own wording
+ * @param {boolean} [escapes] - As for `literalPattern`
  * @returns {string} Regex source carrying no `^`/`$` of its own, for compiling
  *   with the `u` flag: without it `?` matches half of an emoji
  */
-export function globSource(pattern) {
+export function globSource(pattern, escapes = ESCAPES) {
   let source = "";
   let literal = "";
   const token = (/** @type {string} */ regex) => {
@@ -287,7 +293,7 @@ export function globSource(pattern) {
   };
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
-    if (ESCAPES && char === "\\") {
+    if (escapes && char === "\\") {
       literal += pattern[++i];
     } else if (char === "*" && pattern[i + 1] === "*") {
       // **/ matches zero or more segments, where it starts one. Stuck to a name

@@ -687,7 +687,7 @@ records) in that sequence — rather than restated at each call site.
 
 (Items previously listed here and since done: the auth.md set-layer update, the README /
 guide/exclude.md / help-topic moves to `~/.s3cab/sets/`, and the versioning/ransomware
-user-doc note — now in README "Cloud repositories", guide/aws.md, and guide/maintenance.md.)
+user-doc note — now in guide/aws.md and guide/maintenance.md.)
 
 ## Implementation plan
 
@@ -772,7 +772,7 @@ TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, act-by-default with `
 and `--force` for scripts, single-pass y/N, the delete lock (ADR-0112), damage interlock — and
 no local cache: ADR-0045 dropped it, so there is nothing to rewrite).
 The encryption-non-goal note is done (in the format spec), as is the
-versioning/ransomware user doc (README, guide/aws.md, guide/maintenance.md). The
+versioning/ransomware user doc (guide/aws.md, guide/maintenance.md). The
 everyday-vs-elevated delete-rights question is resolved: no split — the everyday
 soft-delete grant is the settled model
 ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)).

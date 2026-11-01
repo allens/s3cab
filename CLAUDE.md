@@ -38,7 +38,8 @@ undermine the no-lock-in premise.
    automated for the user docs: [test/doc-examples.test.mjs](test/doc-examples.test.mjs) parses
    every `s3cab …` line they show and checks the transcripts it names against what s3cab
    prints, so a changed flag, or a changed report or error it checks, fails `npm test` until
-   the page changes with it. Every other transcript is kept right by hand.
+   the page changes with it. Every other transcript is kept right by hand. Every example
+   tells one story, defined in [test/helpers/story.mjs](test/helpers/story.mjs).
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable from
    the code** — never restate `package.json` scripts or build/test/lint commands.
 
@@ -278,6 +279,10 @@ Four layout notes the README and code don't carry:
   a dead `#anchor`, and on one trap worth knowing by name: **no line may start with `<`**, not
   even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
   reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
+  **The command reference (`/commands/<name>`) and the README's command tables are generated
+  from the registry** by `site/.vitepress/command-pages.mjs`: edit `src/commands.mjs` (or the
+  `src/command-details.mjs` text it names), never a page, and paste the tables `npm test`
+  prints when the README falls out of step.
   **Cloudflare Pages builds and deploys it** from `main`, with a preview per branch, through its
   GitHub app, so this repo holds no deploy job and no Cloudflare secret
   ([ADR-0114](docs/adr/0114-docs-site-cloudflare-pages.md)). The build command

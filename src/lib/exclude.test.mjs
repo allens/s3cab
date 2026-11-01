@@ -117,6 +117,40 @@ describe("compileExcludePatterns", () => {
     );
   });
 
+  it("matches like the platform it is given, whatever machine runs it", () => {
+    /**
+     * @param {NodeJS.Platform} platform
+     * @param {string} base
+     * @param {string} pattern
+     * @param {string} path
+     */
+    const on = (platform, base, pattern, path) =>
+      compileExcludePatterns(base, [pattern], platform)(path, false);
+    // Windows: `\` separates, case folds.
+    assert.equal(
+      on("win32", "C:\\root", "sub\\*.TMP", "C:\\root\\sub\\a.tmp"),
+      "sub\\*.TMP",
+    );
+    // macOS: case and accent spelling fold.
+    assert.equal(
+      on("darwin", "/root", "UPPER.txt", "/root/upper.txt"),
+      "UPPER.txt",
+    );
+    const oneChar = "caf\u00e9".normalize("NFC");
+    const withMark = "caf\u00e9".normalize("NFD");
+    assert.equal(on("darwin", "/root", oneChar, `/root/${withMark}`), oneChar);
+    // Linux: neither folds, and `\` is a filename character.
+    assert.equal(
+      on("linux", "/root", "UPPER.txt", "/root/upper.txt"),
+      undefined,
+    );
+    assert.equal(on("linux", "/root", oneChar, `/root/${withMark}`), undefined);
+    assert.equal(
+      on("linux", "/root", "sub\\*.tmp", "/root/sub/a.tmp"),
+      undefined,
+    );
+  });
+
   it(
     "treats the platform separator as a path separator, in patterns and paths",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },

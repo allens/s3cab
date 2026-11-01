@@ -5,22 +5,25 @@ It reads the snapshots already on this computer — no network, no S3 calls — 
 searches **every set attached here** unless `--set` narrows it to one.
 
 ```console
-> s3cab find aws-keys.txt
-# s3cab find · 1 pattern · 1 file · 1 object
-# searched myset → s3://my-backups (943 snapshots) — local history
+> s3cab find diary.txt
+# s3cab find · 1 pattern · 1 file · 2 objects
+# searched photos → s3://my-backups (8 snapshots) — local history
 #
-# C:\Users\me\secretsdir\aws-keys.txt
-#   892 bytes   modified 2019-03-28 14:02Z
-#   myset  20190328T0812 … 20260814T0930   (943 snapshots)
-#   ⚠ also backs 3 other paths — deleting this removes all of them
-5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93
+# C:\Users\me\Photos\diary.txt
+#   2,400 bytes (2.4kB)   modified 2026-04-30 21:10Z
+#   photos  20260501T0800 … 20260814T0930   (5 snapshots)
+ef372cd1d64f8d5a76f026995450dca917ce03848ea33f732046817ca70da304
+#   2,100 bytes (2.1kB)   modified 2025-10-28 19:30Z
+#   photos  20251111T0830 … 20251112T0915   (2 snapshots)
+#   ⚠ also backs 1 other path — deleting this removes both
+0623bf340e23b059b80094b792e9c4ad4e3e33a5fc239833a2cc3dbeed404c1f
 ```
 
 Everything except the hashes is a `#` comment, so the output redirects to a file
 and can be edited down to the hashes you want:
 
 ```console
-> s3cab find secretsdir/ > hashes.txt
+> s3cab find raw-footage/ > footage.txt
 ```
 
 `s3cab find` only *reads*. Nothing it prints changes a backup.
@@ -37,17 +40,17 @@ The rules are POSIX `find`'s, not [exclude](exclude.md)'s — a file you are
 hunting for could be anywhere, whereas an exclude pattern is pruning a known
 subtree.
 
-| Pattern           | Matches                                                     |
-| ----------------- | ----------------------------------------------------------- |
-| `aws-keys.txt`    | that **file name**, in any directory, in any set             |
-| `*.mov`           | every `.mov` file, anywhere                                  |
-| `Documents/tax`   | that **path fragment**, at any depth, segments aligned       |
-| `secretsdir/`     | everything **beneath** a `secretsdir` directory, at any depth |
+| Pattern            | Matches                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| `diary.txt`        | that **file name**, in any directory, in any set               |
+| `*.mov`            | every `.mov` file, anywhere                                    |
+| `2024/IMG_001.jpg` | that **path fragment**, at any depth, segments aligned         |
+| `raw-footage/`     | everything **beneath** a `raw-footage` directory, at any depth |
 
 The rule behind the table: **no separator in the pattern and it matches the file
 name only; put a separator in and it matches the whole path**, floating (so it
-still matches at any depth, but `Documents/tax` will not match
-`Documents/old/tax`). A **trailing** separator searches beneath a directory.
+still matches at any depth, but `2024/IMG_001.jpg` will not match
+`2024/sorted/IMG_001.jpg`). A **trailing** separator searches beneath a directory.
 Write `/` between directories; on Windows `\` works too.
 
 The glob tokens are the same ones [exclude patterns](exclude.md#globbing) use:
@@ -62,21 +65,25 @@ The glob tokens are the same ones [exclude patterns](exclude.md#globbing) use:
 On Linux and macOS, `\` makes the next character match only itself, as in an
 exclude pattern: `'what\?.txt'` finds only `what?.txt`, and `'back\\slash'` a
 name holding a backslash. A `\` escapes a `\`, `*`, `?`, `#` or space; before
-any other character it escapes nothing, and `find` stops. Quote the pattern so the shell passes the `\` along.
+any other character it escapes nothing, and `find` stops. Quote the pattern so
+the shell passes the `\` along.
 
 **`*` means one or more, not zero or more** — one token grammar serves both
-commands, and this is where it differs from POSIX `find`. So `*secret1` matches
-`copy-secret1` but **not** `secret1` itself. Give both patterns when you want
+commands, and this is where it differs from POSIX `find`. So `*logo.png` matches
+`brand-logo.png` but **not** `logo.png` itself. Give both patterns when you want
 both; `find` takes as many as you like:
 
 ```console
-> s3cab find secret1 '*secret1'
+> s3cab find logo.png '*logo.png'
 ```
 
 Case never matters: `photos/` also finds `Photos/`, on every system. Nor does
 how an accented letter is stored — as one character, or as a letter and an
 accent mark, as a Mac often stores it. A search that missed would leave the file
 in your backups, while an extra match only shows in the list you pick from.
+
+To check a pattern before you trust it, try it against example paths in the
+[pattern playground](https://s3cab.plantegral.com/pattern-playground).
 
 ## Reading the output
 
@@ -85,11 +92,11 @@ The header counts what was searched and what came back. **Files** are paths;
 several objects, one per version.
 
 Under each path, one line per object: its size and when it was last modified,
-then which snapshots hold it. A file that sat unchanged for five years is one
-line with a span, not 900 identical ones:
+then which snapshots hold it. A file that sat unchanged for months is one line
+with a span, not one per snapshot:
 
 ```
-#   myset  20190328T0812 … 20260814T0930   (943 snapshots)
+#   photos  20260501T0800 … 20260814T0930   (5 snapshots)
 ```
 
 The span covers **consecutive** snapshots holding that exact content. If the
@@ -124,7 +131,7 @@ it.
 
 `s3cab reattach` pulls a set's **entire** snapshot history down when you attach
 it, so what is on disk is what is in the bucket. That is why `find`, like
-`compare`, `list` and `restore`, has no `--remote`: there would be nothing extra
+`compare` and `restore`, has no `--remote`: there would be nothing extra
 to fetch. If a set is backed up from another computer, `s3cab reattach <set>`
 here pulls the snapshots it has taken since.
 

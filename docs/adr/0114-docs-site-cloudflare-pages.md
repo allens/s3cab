@@ -1,6 +1,7 @@
 # The docs site renders guide/ in place and Cloudflare Pages serves it
 
-**Status:** accepted & implemented (2026-10-31).
+**Status:** accepted & implemented (2026-10-31); amended 2026-11-01 for the generated command
+reference.
 
 ## Context
 
@@ -17,12 +18,24 @@ meaning `guide/<topic>.md`.
 ## Decision
 
 **The site renders README.md and `guide/*.md` where they are.** [site/](../../site/) is a
-VitePress site. A dynamic route, `site/guide/[topic].paths.mjs`, serves `/guide/<topic>` from
-`guide/<topic>.md`, and the README is the home page; nothing is copied. The site spells heading
-anchors the way GitHub does and points links that leave the site at GitHub, so a page written for
-GitHub reads the same on both. The build fails on a link to a missing page or `#anchor`, which
-makes CI's `docs` job the link check. (VitePress is pinned to an exact 2.0 alpha; the reason is in
-`site/.vitepress/config.mjs`.)
+VitePress site whose source folder is the repo root, narrowed to README.md, `guide/` and
+`site/`: `guide/<topic>.md` is `/guide/<topic>` as it stands, and rewrites make the README the
+home page and `guide/README.md` the `/guide/` index; nothing is copied. Each of these pages is
+a real file, so search, edit links and the dev server's reload read the file the page comes
+from, with no patch each. The site spells heading anchors the way GitHub does and points links
+that leave the site at GitHub, so a page written for GitHub reads the same on both. The build
+fails on a link to a missing page or `#anchor`, which makes CI's `docs` job the link check.
+(VitePress is pinned to an exact 2.0 alpha; the reason is in `site/.vitepress/config.mjs`.)
+
+**The command reference is generated, not rendered from a file.** `/commands/<name>`, one page
+per command, and its index at `/commands/` are built at build time from the command registry
+with `src/help.mjs`'s own helpers (`site/.vitepress/command-pages.mjs`), so a page can't say
+anything `--help` doesn't, and nothing generated is committed to go stale. They live outside
+`guide/`, which ships in the npm tarball as markdown a person wrote. The CLI prints none of these
+URLs, but the README links every one, and the README ships in every tarball, so they are held to
+the same rule as `/guide/<topic>`: a page that moves, or a command that is renamed, gets a
+`_redirects` line. Having no file, these pages need the patches the guide's don't: search
+and the edit link are told their source in `site/.vitepress/config.mjs`.
 
 **Cloudflare Pages builds and serves it, through its own GitHub app**: production from `main`, a
 preview for every other branch. This repo has no deploy job and holds no Cloudflare credential.
@@ -48,9 +61,10 @@ on that hostname takes the whole site off the air. Platform's `zone-plantegral-c
   which the domain serves as a real redirect for good.
 - **The zone's SSL mode is strict.** With flexible, Cloudflare fetches the origin over HTTP, and
   `pages.dev` answers HTTP with a 301 to HTTPS, which risks a redirect loop.
-- **Nothing checks the live URLs yet.** `help.test.mjs` proves each topic a command links to
-  has a page in `guide/`, not that its URL answers. A scheduled fetch of each one is still a
-  proposal ([docs-site.md](../../proposals/docs-site.md)).
+- **The `docs-urls` workflow checks the live URLs daily**, since a hosting change in the
+  platform repo is invisible from here. [scripts/docs-urls.mjs](../../scripts/docs-urls.mjs)
+  fetches `/`, `/guide/` and each `/guide/<topic>` from the production domain. The list is
+  built from `guide/`, and `npm test` fails on any site URL in `src/` that isn't on it.
 
 Verified at the cutover: `/`, `/guide/` and all ten `/guide/<topic>` pages return 200 with no
 redirect on `s3cab.pages.dev` and on `s3cab.plantegral.com`; `/guide/nope` returns the site's own
@@ -70,3 +84,7 @@ Platform commits `1c35764` (project) and `2da90bb` (domain, DNS and the rules' r
   resource. Moving later would change the deploy target, not the content.
 - **A docs generator that wants its own content folder** — moving `guide/` there would break
   the npm tarball and the GitHub pages; copying it would give two sources to keep in step.
+- **A dynamic route under `site/` that reads each guide page in** (the first build) — a page
+  with no file of its own, so every VitePress feature that reads the page's file needed its
+  own patch: search indexed nothing, the edit link mapped paths by hand, and `lastUpdated`
+  would date the route template.

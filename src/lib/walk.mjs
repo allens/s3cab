@@ -103,7 +103,7 @@ export function readExcludePatterns(excludePath) {
   }
   // ADR-0115. The likeliest cause is a file written on Windows, where `\`
   // separates folders, so that is the fix offered first.
-  const stray = patterns.filter(strayEscape);
+  const stray = patterns.filter((pattern) => strayEscape(pattern));
   if (stray.length) {
     const folders = stray.map(asFolders).filter((line) => line !== undefined);
     const these =
