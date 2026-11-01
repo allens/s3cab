@@ -93,8 +93,7 @@ mock.module("./user-at-machine.mjs", {
 let sleeps = [];
 // The wait between looks is a real half minute; here each such sleep parks
 // until the test wakes it, so a test steps the wait loop by hand. A retry's
-// millisecond really passes: the fresh lock id is the clock's next instant,
-// and waking at once would mint the same id again.
+// short sleep wakes at once.
 mock.module("node:timers/promises", {
   exports: {
     setTimeout: (/** @type {number} */ ms) =>
@@ -102,7 +101,7 @@ mock.module("node:timers/promises", {
         const wake = () => resolve(undefined);
         sleeps.push({ ms, wake });
         if (ms < 1000) {
-          setTimeout(wake, ms);
+          setImmediate(wake);
         }
       }),
   },
@@ -241,7 +240,7 @@ describe("writeLock", () => {
     assert.deepEqual(lockKeys(), [`locks/${lock.id}`]);
   });
 
-  it("mints a fresh instant, a millisecond on, when the 412 was someone else's lock", async () => {
+  it("mints a fresh instant, once the clock has moved, when the 412 was someone else's lock", async (t) => {
     let first = true;
     beforePut = (key) => {
       if (first) {
@@ -249,6 +248,13 @@ describe("writeLock", () => {
         store.set(key, "COMMAND=backup\nBY=other@LAPTOP\n"); // theirs
       }
     };
+    // The clock holds the lost instant for one more read: the first 1ms sleep
+    // woke inside that millisecond, as a real timer sometimes does.
+    const lost = Temporal.Now.zonedDateTimeISO();
+    let reads = 0;
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      ++reads <= 2 ? lost : lost.add({ milliseconds: 1 }),
+    );
 
     const lock = await writeLock("b", { kind: "upload", command: "backup" });
 
@@ -259,8 +265,8 @@ describe("writeLock", () => {
     assert.equal(lockKeys().length, 2, "theirs stays, ours is the second");
     assert.deepEqual(
       sleeps.map(({ ms }) => ms),
-      [1],
-      "it waited for the clock to move, not for a derived id",
+      [1, 1],
+      "it slept until the clock moved, not for a derived id",
     );
   });
 });
