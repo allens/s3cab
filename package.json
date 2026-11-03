@@ -62,7 +62,7 @@
     "globals": "^17.11.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
-    "vitepress": "2.0.0-alpha.20"
+    "vitepress": "2.0.0-alpha.21"
   },
   "engines": {
     "node": ">=26.10.0"
