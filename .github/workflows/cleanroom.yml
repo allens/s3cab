@@ -258,6 +258,11 @@ jobs:
 
       - name: gather
         if: always()
+        env:
+          # Git Bash's cp would copy what a link in the clean room points at, in or out of it,
+          # into the public artifact, and exit 1 on a link whose target isn't there, which
+          # stops this step before the transcript. A real link keeps only the link's text.
+          MSYS: winsymlinks:nativestrict
         run: |
           rm -f "$SANDBOX"/cleanroom/credentials.*
           mkdir -p "$RUNNER_TEMP/keep"
