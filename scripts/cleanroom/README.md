@@ -162,7 +162,7 @@ instead of the job's.
 The session signs in with the `CLAUDE_CODE_OAUTH_TOKEN` secret, from
 `claude setup-token`; mint one per batch of runs and revoke it after. The artifact
 is public, so download it as soon as the run ends, then delete it. It holds one
-`cleanroom.tgz`:
+`cleanroom.tgz`, with any links in the clean room left out:
 
 ```sh
 gh workflow run cleanroom.yml --ref main -f role=backup -f platform=linux -f effort=low

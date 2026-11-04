@@ -258,16 +258,19 @@ jobs:
 
       - name: gather
         if: always()
-        env:
-          # Git Bash's cp would copy what a link in the clean room points at, in or out of it,
-          # into the public artifact, and exit 1 on a link whose target isn't there, which
-          # stops this step before the transcript. A real link keeps only the link's text.
-          MSYS: winsymlinks:nativestrict
         run: |
           rm -f "$SANDBOX"/cleanroom/credentials.*
+          # Git Bash's cp would copy what a link points at, in or out of the clean room, into
+          # the public artifact, and exit 1 on one whose target isn't there, which stops this
+          # step before the transcript. Not MSYS=winsymlinks:nativestrict: it ships link text
+          # the secret search can't see, in a tar Git Bash can't extract.
+          find "$SANDBOX/cleanroom" -type l -delete
           mkdir -p "$RUNNER_TEMP/keep"
           cp -R "$SANDBOX/cleanroom" "$SANDBOX"/session*.log "$RUNNER_TEMP/keep/"
-          if [ -d "$SANDBOX/spec-only" ]; then cp -R "$SANDBOX/spec-only" "$RUNNER_TEMP/keep/"; fi
+          if [ -d "$SANDBOX/spec-only" ]; then
+            find "$SANDBOX/spec-only" -type l -delete
+            cp -R "$SANDBOX/spec-only" "$RUNNER_TEMP/keep/"
+          fi
           cp ~/.claude/projects/*/"$SESSION_ID.jsonl" "$RUNNER_TEMP/keep/"
       # The artifact is public: refuse it if any of the job's secrets is in it. The AWS
       # keys are replaced first, since the session is handed them and may well print
