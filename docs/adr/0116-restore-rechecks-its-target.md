@@ -30,22 +30,35 @@ the target. That costs each written file one failed `rm`: 0.16 ms on NTFS, 0.21 
 nothing keeps the run's remembered answers, where a stale one can only misreport it. Fresh, each
 write costs 0.21 ms on NTFS and 0.013 ms on ext4, 6 folders deep.
 
-**A dedup copy goes through `writeFileAtomic`'s digest check.** A source that no longer hashes
-to the row's hash isn't an object fault: the path is fetched instead, and its report and exit
-are whatever the fetch earns. What became of the first file is its changer's business, and
-nothing is said about it. `writeFileAtomic` is the one writer left, so `copyFile` is gone, and
-so is the split between handling the temp and writing to it.
+**A dedup copy goes through `writeFileAtomic`'s digest check.** A copy that fails on its
+source's account — it no longer hashes to the row's hash, or is gone, unreadable or a folder
+now — isn't an object fault: the path is fetched instead, its report and exit are whatever the
+fetch earns, and no later path goes back to that file. What became of it is its changer's
+business, and nothing is said about it. The source's failures are the copy's answer (`false`),
+not a throw: the errno says which side failed (`open` and `read` are the source's, the rest the
+destination's), where whether the source still exists was a guess. `writeFileAtomic` is the one
+writer left, so `copyFile` is gone, and so is the split between handling the temp and writing
+to it.
 
 ## Cost of checking copies
 
 Only rows that share content pay, and at the rate every download already pays, so a copy stays
-cheaper than fetching. Measured against `copyFile` (best of 3):
+cheaper than fetching. Measured against `copyFile` (best of 3, one machine; absolute times vary
+by disk, the ratios are the point):
 
 | Copied | NTFS | ext4 |
 | --- | --- | --- |
-| 4 KB | 0.98 → 1.20 ms | 0.33 → 0.93 ms |
-| 4 MB | 3.1 → 18.6 ms | 2.9 → 28.2 ms |
-| 1 GB | 0.43 → 5.2 s | 0.41 → 7.6 s |
+| 4 KB | 0.98 → 1.82 ms | 0.35 → 1.33 ms |
+| 4 MB | 3.3 → 31.7 ms | 2.9 → 17.3 ms |
+| 1 GB | 0.72 → 8.2 s | 0.41 → 4.3 s |
+
+The source is read in chunks of its own size up to 1 MiB, not `createReadStream`'s 64 KiB
+default: at 64 KiB the same 1 GB copy took 12.6 s on NTFS and 6.6 s on ext4. On a faster disk
+the 1 MiB copy of 1 GB takes 3.1 s against 3.0 s for hashing the bytes alone, so the hash is the
+floor. A plain 1 MiB read costs a 4 KB file 0.5 ms more than a 64 KiB one (a stream allocates
+each read in full), which is why the chunk is capped at the file's size. `copyFile` could also
+have been a clone on a filesystem that offers one (APFS, btrfs, XFS, ReFS); a clone can't say
+what it read either.
 
 ## Considered options
 

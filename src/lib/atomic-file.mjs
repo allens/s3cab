@@ -37,33 +37,31 @@ import { IntegrityError } from "./error.mjs";
  * @returns {Promise<void>}
  * @throws {IntegrityError} The content hashes differently from `hash` (nothing
  *   is left at `destPath` or in the temp)
- * @throws {NodeJS.ErrnoException} `EEXIST`: a folder sits at the temp's name
+ * @throws {NodeJS.ErrnoException} `EEXIST`: what sits at the temp's name
+ *   couldn't be removed — a folder, or a leftover something else holds open
+ *   or has made read-only
  */
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
   const hasher = hash ? createHash("sha256") : undefined;
-  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
-  // the name pushes a legal name near the filesystem's 255 limit past it.
-  const nameDigest = createHash("sha256")
-    .update(basename(destPath))
-    .digest("hex")
-    .slice(0, 16);
-  const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
+  const tmpPath = tempPathFor(destPath);
+  // Derived from the name, so whatever is there is a dead run's leftover or
+  // something planted, and a link or hard link must not carry the bytes out
+  // of this folder (ADR-0116). `wx` alone isn't enough: NTFS's exclusive open
+  // goes through a link whose target doesn't exist, creating the target
+  // (measured; ext4 refuses). So it is removed first, not on `EEXIST`, and
+  // what can't be removed is the `EEXIST` the open answers with.
+  await rm(tmpPath, { force: true }).catch(() => {});
+  // Opened before any byte flows, not `createWriteStream(tmpPath)`: that opens
+  // lazily, so `pipeline` can reject before the temp exists, and the open
+  // creates it after the cleanup below has run. Outside the `try` so that
+  // `EEXIST` leaves what is there alone: it isn't this call's temp.
+  const fd = await open(tmpPath, "wx").catch((error) => {
+    // Nothing else will read `source`, and an S3 body left open keeps its
+    // connection.
+    source.destroy();
+    throw error;
+  });
   try {
-    // Derived from the name, so whatever is there is a dead run's leftover or
-    // something planted, and a link or hard link must not carry the bytes out
-    // of this folder (ADR-0116). `wx` alone isn't enough: NTFS's exclusive open
-    // goes through a link whose target doesn't exist, creating the target
-    // (measured; ext4 refuses). So it is removed first, not on `EEXIST`.
-    await rm(tmpPath, { force: true }).catch(() => {});
-    // Opened before any byte flows, not `createWriteStream(tmpPath)`: that opens
-    // lazily, so `pipeline` can reject before the temp exists, and the open
-    // creates it after the cleanup below has run.
-    const fd = await open(tmpPath, "wx").catch((error) => {
-      // Nothing else will read `source`, and an S3 body left open keeps its
-      // connection.
-      source.destroy();
-      throw error;
-    });
     try {
       // Tee every chunk to disk unchanged, hashing en route only when verifying.
       await pipeline(
@@ -103,20 +101,63 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
 }
 
 /**
+ * The temp sibling `writeFileAtomic` writes `destPath` through. Fixed-length,
+ * not `.<name>.s3cab-tmp`: a temp 11 characters longer than the name pushes a
+ * legal name near the filesystem's 255 limit past it.
+ * @param {string} destPath
+ */
+export function tempPathFor(destPath) {
+  const nameDigest = createHash("sha256")
+    .update(basename(destPath))
+    .digest("hex")
+    .slice(0, 16);
+  return join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
+}
+
+/**
  * Copy the file at `from` to `destPath` the way `writeFileAtomic` lands a
  * download, digest check included. Not `copyFile`, which can't say what it read
  * (ADR-0116), and writes *through* a link already at its destination.
- * @param {string} from - An existing file
+ * @param {string} from - A file landed earlier
  * @param {string} destPath - Where to write the copy (parent must exist)
- * @param {object} [options]
- * @param {string} [options.hash] - Expected content hash (lowercase hex)
- * @returns {Promise<void>}
- * @throws {IntegrityError} `from` hashes differently from `hash` (nothing is
- *   left at `destPath` or in the temp)
+ * @param {object} options
+ * @param {string} options.hash - Expected content hash (lowercase hex)
+ * @returns {Promise<boolean>} Whether the copy landed. `false` is the source's
+ *   doing, whatever it is now: gone, unreadable, a folder, or content that
+ *   hashes differently from `hash`. Nothing is left at `destPath` or in the
+ *   temp, and the caller still has the content to fetch. A fault at the
+ *   destination throws as `writeFileAtomic` does.
  */
-export async function copyFileAtomic(from, destPath, { hash } = {}) {
+export async function copyFileAtomic(from, destPath, { hash }) {
   // Opened here, not `createReadStream(from)`: that opens lazily, and a failed
   // open would be an uncaught 'error' before `pipeline` is listening.
-  const source = await open(from);
-  await writeFileAtomic(destPath, source.createReadStream(), { hash });
+  let source;
+  try {
+    source = await open(from);
+  } catch {
+    return false;
+  }
+  // Reads of up to 1 MiB, not the 64 KiB default, which costs a large copy
+  // most of its time; capped at the file's size, since a stream allocates each
+  // read in full and a 1 MiB read costs a small file more than it saves
+  // (ADR-0116).
+  const { size } = await source.stat();
+  const chunks = source.createReadStream({
+    highWaterMark: Math.min(size, 1024 * 1024) || 1,
+  });
+  try {
+    await writeFileAtomic(destPath, chunks, { hash });
+  } catch (error) {
+    // `pipeline` destroys every stream on any failure, so the source's own
+    // 'error' can't tell its failure from the writer's; the errno's syscall
+    // can, and only the source reads. A folder opens fine and fails there.
+    if (
+      error instanceof IntegrityError ||
+      /** @type {NodeJS.ErrnoException} */ (error).syscall === "read"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+  return true;
 }

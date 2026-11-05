@@ -12,10 +12,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { copyFileAtomic, writeFileAtomic } from "./atomic-file.mjs";
+import {
+  copyFileAtomic,
+  tempPathFor as tempFor,
+  writeFileAtomic,
+} from "./atomic-file.mjs";
 
 /** @import { TestContext } from "node:test" */
 
@@ -23,13 +27,6 @@ import { copyFileAtomic, writeFileAtomic } from "./atomic-file.mjs";
 // anyone who can write in the destination folder can put something there first
 // (ADR-0116). A link must not carry the bytes out of the folder, nor end up at
 // the destination when the rename moves it.
-
-/** The temp name `writeFileAtomic` derives for `dest`. */
-const tempFor = (/** @type {string} */ dest) =>
-  join(
-    join(dest, ".."),
-    `.${createHash("sha256").update(basename(dest)).digest("hex").slice(0, 16)}.s3cab-tmp`,
-  );
 
 /** @type {string} */
 let dir;
@@ -92,7 +89,7 @@ describe("a link planted at the temp name", () => {
     const source = join(dir, "source.txt");
     writeFileSync(source, payload);
 
-    await copyFileAtomic(source, dest);
+    await copyFileAtomic(source, dest, { hash });
 
     assert.equal(readFileSync(victim, "utf8"), "precious");
     assertLanded();

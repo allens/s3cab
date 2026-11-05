@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -29,7 +30,7 @@ const contents = new Map(
   ["aaa", "bbb", "ccc"].map((content) => [digestOf(content), content]),
 );
 
-/** @type {(landed: string) => void} */
+/** @type {(dest: string) => void} Runs after each fetch, landed or not. */
 let afterFetch = () => {};
 /** @type {string[]} What `getObject` was asked for, in order. */
 let fetched = [];
@@ -61,8 +62,11 @@ mock.module("../lib/objects.mjs", {
     ) => {
       const content = /** @type {string} */ (contents.get(hash));
       fetched.push(content);
-      await writeFileAtomic(destPath, Readable.from(content), { hash });
-      afterFetch(destPath);
+      try {
+        await writeFileAtomic(destPath, Readable.from(content), { hash });
+      } finally {
+        afterFetch(destPath);
+      }
     },
   },
 });
@@ -157,5 +161,51 @@ describe("restore when the target changes mid-run", () => {
     ]);
     assert.deepEqual(result.corrupt, []);
     assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("fetches the content again rather than copy a landed file that is a folder now", async () => {
+    snapshot = oneContent;
+    afterFetch = (landed) => {
+      if (basename(landed) === "a.txt") {
+        rmSync(landed);
+        mkdirSync(landed);
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.equal(readFileSync(dest("b.txt"), "utf8"), "aaa");
+    assert.equal(readFileSync(dest("c.txt"), "utf8"), "aaa");
+    assert.deepEqual(fetched, ["aaa", "aaa"]);
+    assert.deepEqual(result.restored, [
+      dest("a.txt"),
+      dest("b.txt"),
+      dest("c.txt"),
+    ]);
+    assert.deepEqual(result.blocked, []);
+    assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("doesn't go back to a landed file once a copy from it has failed", async () => {
+    snapshot = oneContent;
+    afterFetch = (fetched) => {
+      if (basename(fetched) === "a.txt") {
+        writeFileSync(fetched, "changed");
+        // b.txt's fetch, which replaces the failed copy, will find this in the way.
+        mkdirSync(dest("b.txt"));
+      } else if (basename(fetched) === "b.txt") {
+        // Changed back, so a copy from it would succeed again: whether one is
+        // tried at all is what is asserted.
+        writeFileSync(dest("a.txt"), "aaa");
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.equal(readFileSync(dest("c.txt"), "utf8"), "aaa");
+    assert.deepEqual(fetched, ["aaa", "aaa", "aaa"]);
+    assert.deepEqual(result.restored, [dest("a.txt"), dest("c.txt")]);
+    assert.deepEqual(result.blocked, [dest("b.txt")]);
+    assert.equal(process.exitCode, 1);
   });
 });

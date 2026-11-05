@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
-import { writeFileAtomic } from "../lib/atomic-file.mjs";
+import { tempPathFor, writeFileAtomic } from "../lib/atomic-file.mjs";
 import { IntegrityError } from "../lib/error.mjs";
 
 // Offline tests for how restore lands its downloads: content shared by several
@@ -1237,10 +1237,7 @@ describe("restore when something on disk is in the way", () => {
   });
 
   it("reports a folder at a file's temp name as in the way, rather than stopping", async () => {
-    const name = createHash("sha256").update("gone.txt").digest("hex");
-    mkdirSync(join(output, "data", `.${name.slice(0, 16)}.s3cab-tmp`), {
-      recursive: true,
-    });
+    mkdirSync(tempPathFor(dest("gone.txt")), { recursive: true });
 
     const result = await restore([], { all: true, set: "photos", output });
 
