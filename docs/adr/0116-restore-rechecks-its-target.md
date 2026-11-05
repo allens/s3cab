@@ -31,14 +31,14 @@ nothing keeps the run's remembered answers, where a stale one can only misreport
 write costs 0.21 ms on NTFS and 0.013 ms on ext4, 6 folders deep.
 
 **A dedup copy goes through `writeFileAtomic`'s digest check.** A copy that fails on its
-source's account — it no longer hashes to the row's hash, or is gone, unreadable or a folder
-now — isn't an object fault: the path is fetched instead, its report and exit are whatever the
-fetch earns, and no later path goes back to that file. What became of it is its changer's
-business, and nothing is said about it. The source's failures are the copy's answer (`false`),
-not a throw: the errno says which side failed (`open` and `read` are the source's, the rest the
-destination's), where whether the source still exists was a guess. `writeFileAtomic` is the one
-writer left, so `copyFile` is gone, and so is the split between handling the temp and writing
-to it.
+source's account — it no longer hashes to the row's hash, or is gone, unreadable or no longer a
+regular file — isn't an object fault: the path is fetched instead, its report and exit are
+whatever the fetch earns, and no later path goes back to that file. What became of it is its
+changer's business, and nothing is said about it. The source's failures are the copy's answer
+(`false`), not a throw: the source is opened and checked on its own, and of the pipeline's
+errors only a `read` is its (the temp's `open` is the destination's), where whether the source
+still exists was a guess. `writeFileAtomic` is the one writer left, so `copyFile` is gone, and so
+is the split between handling the temp and writing to it.
 
 ## Cost of checking copies
 

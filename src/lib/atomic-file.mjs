@@ -38,8 +38,8 @@ import { IntegrityError } from "./error.mjs";
  * @throws {IntegrityError} The content hashes differently from `hash` (nothing
  *   is left at `destPath` or in the temp)
  * @throws {NodeJS.ErrnoException} `EEXIST`: what sits at the temp's name
- *   couldn't be removed — a folder, or a leftover something else holds open
- *   or has made read-only
+ *   couldn't be removed — a folder, a leftover a program on Windows holds open
+ *   without sharing deletion, or one in a folder this process can't write to
  */
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
   const hasher = hash ? createHash("sha256") : undefined;
@@ -123,10 +123,10 @@ export function tempPathFor(destPath) {
  * @param {object} options
  * @param {string} options.hash - Expected content hash (lowercase hex)
  * @returns {Promise<boolean>} Whether the copy landed. `false` is the source's
- *   doing, whatever it is now: gone, unreadable, a folder, or content that
- *   hashes differently from `hash`. Nothing is left at `destPath` or in the
- *   temp, and the caller still has the content to fetch. A fault at the
- *   destination throws as `writeFileAtomic` does.
+ *   doing, whatever it is now: gone, unreadable, no longer a regular file, or
+ *   content that hashes differently from `hash`. Nothing is left at `destPath`
+ *   or in the temp, and the caller still has the content to fetch. A fault at
+ *   the destination throws as `writeFileAtomic` does.
  */
 export async function copyFileAtomic(from, destPath, { hash }) {
   // Opened here, not `createReadStream(from)`: that opens lazily, and a failed
@@ -137,20 +137,27 @@ export async function copyFileAtomic(from, destPath, { hash }) {
   } catch {
     return false;
   }
+  // Only a regular file is a landed file: a folder opens fine, and a device
+  // reports size 0 and never ends.
+  const stat = await source.stat().catch(() => undefined);
+  if (!stat?.isFile()) {
+    await source.close();
+    return false;
+  }
   // Reads of up to 1 MiB, not the 64 KiB default, which costs a large copy
   // most of its time; capped at the file's size, since a stream allocates each
   // read in full and a 1 MiB read costs a small file more than it saves
-  // (ADR-0116).
-  const { size } = await source.stat();
+  // (ADR-0116). An empty file still gets one read, where 0 ends the stream
+  // unread.
   const chunks = source.createReadStream({
-    highWaterMark: Math.min(size, 1024 * 1024) || 1,
+    highWaterMark: Math.min(stat.size, 1024 * 1024) || 1,
   });
   try {
     await writeFileAtomic(destPath, chunks, { hash });
   } catch (error) {
     // `pipeline` destroys every stream on any failure, so the source's own
     // 'error' can't tell its failure from the writer's; the errno's syscall
-    // can, and only the source reads. A folder opens fine and fails there.
+    // can, and only the source reads.
     if (
       error instanceof IntegrityError ||
       /** @type {NodeJS.ErrnoException} */ (error).syscall === "read"

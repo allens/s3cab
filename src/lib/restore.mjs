@@ -555,10 +555,11 @@ export async function restoreTargets({
           copied = await copyFileAtomic(from, step.dest, { hash: step.hash });
         }
         if (!copied) {
-          // A source that fails its copy has changed since it landed, which
-          // says nothing about the object: this isn't `corrupt`, and this path
-          // still gets the content. Nor is that file where the content is any
-          // more, whatever this fetch earns.
+          // No landed file to copy from, or one that failed its copy: changed
+          // since it landed, which says nothing about the object (this isn't
+          // `corrupt`), and this path still gets the content. Nor is that file
+          // where the content is any more, whatever this fetch earns, so it is
+          // forgotten first (nothing to forget before a first fetch).
           fateByHash.delete(step.hash);
           await getObject(set.bucket, step.hash, step.dest);
         }
@@ -786,7 +787,8 @@ function isRefusedName(error) {
  * and ext4: a file where one of its folders should be is `EEXIST` from the
  * `mkdir` when it is the file's own folder, `ENOTDIR` when it is one further
  * up, on both, as is whatever `writeFileAtomic` can't clear from the file's
- * temp name (a folder, or a leftover held open or read-only); a folder where
+ * temp name (a folder, or a leftover held open against deletion or in a folder
+ * this process can't write to); a folder where
  * the file should be is `EPERM` on NTFS and `EISDIR` on ext4, named for the
  * *source* of the rename either way, and so on NTFS is a directory link or
  * junction, even one whose folder is gone.

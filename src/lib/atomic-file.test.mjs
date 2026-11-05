@@ -193,6 +193,25 @@ describe("copyFileAtomic", () => {
     });
   }
 
+  // The destination's folder doesn't exist, so a copy that reads the device
+  // fails at its temp instead of reading forever.
+  it(
+    "answers false for a source that is a device now, before reading it",
+    { skip: process.platform === "win32" && "no /dev/zero" },
+    async () => {
+      await using dir = await mkTmpDir();
+      symlinkSync("/dev/zero", join(dir.path, "source"));
+
+      const copied = await copyFileAtomic(
+        join(dir.path, "source"),
+        join(dir.path, "nowhere", "dest"),
+        { hash },
+      );
+
+      assert.equal(copied, false);
+    },
+  );
+
   it("still throws for a destination the filesystem refuses", async () => {
     await using dir = await mkTmpDir();
     writeFileSync(join(dir.path, "source"), "what landed");
