@@ -7,9 +7,10 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 [Linux](format-spec-audit-13.md), [macOS](format-spec-audit-14.md) and
 [Windows](format-spec-audit-15.md).
 
-- **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/windows/s3cab-backup.py), Python with
-  boto3, and `ctypes` for the Windows calls. Its notes, logs and test tools stay with the run,
-  outside the repo.
+- **Program:**
+  [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/2bb756af41f5deedd1fa265cdc5b8dac9a152ec1/scripts/cleanroom/backup/windows/s3cab-backup.py),
+  Python with boto3, and `ctypes` for the Windows calls. Its notes, logs and test tools stay with
+  the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** nothing outside the sandbox was flagged.
 - **Tokens:** input 1,866, cache write 260,870, cache read 10,294,370, output 142,346.

@@ -16,7 +16,7 @@ or merely costs the implementer an afternoon.
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
 boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
 SDK), [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK), and
-two real sets. On Opus 5.5 at `xhigh` (2026-10-22): backups on
+three real sets. On Opus 5.5 at `xhigh` (2026-10-22): backups on
 [Linux](../../docs/format-spec-audit-4.md), [macOS](../../docs/format-spec-audit-5.md)
 and [Windows](../../docs/format-spec-audit-6.md), restores on
 [Linux](../../docs/format-spec-audit-7.md), [macOS](../../docs/format-spec-audit-8.md)
@@ -25,6 +25,11 @@ backups on [Linux](../../docs/format-spec-audit-10.md),
 [macOS](../../docs/format-spec-audit-11.md) and [Windows](../../docs/format-spec-audit-12.md),
 restores on [Linux](../../docs/format-spec-audit-13.md),
 [macOS](../../docs/format-spec-audit-14.md) and [Windows](../../docs/format-spec-audit-15.md).
+On Fable 5.1 at `xhigh` again (2026-11-04 and 2026-11-05): backups on
+[Linux](../../docs/format-spec-audit-16.md), [macOS](../../docs/format-spec-audit-17.md) and
+[Windows](../../docs/format-spec-audit-18.md), restores on
+[Linux](../../docs/format-spec-audit-19.md), [macOS](../../docs/format-spec-audit-20.md) and
+[Windows](../../docs/format-spec-audit-21.md).
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 

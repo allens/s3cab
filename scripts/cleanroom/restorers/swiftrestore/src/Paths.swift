@@ -1,85 +1,129 @@
 import Foundation
 
-enum PathKind { case posix, windows }
+enum PathKind { case posix, drive, share }
 
-/// A path split by the spec's rules: the kind is told by the first characters alone;
-/// a Windows path splits on `/` and `\`, a POSIX path on `/` only.
+func isWinSep(_ b: UInt8) -> Bool { b == 0x2F || b == 0x5C }
+func isAsciiLetter(_ b: UInt8) -> Bool { (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) }
+
+/// A path split into its root and segments, by the spec's "first characters" rule.
 struct ParsedPath {
     let kind: PathKind
-    let isShare: Bool            // Windows path rooted at two separators
-    let rootKey: [UInt8]         // comparison form of the root
-    let driveLetter: UInt8?      // as written, for a drive root's folder name
-    let rootLength: Int          // bytes of the root
-    let segments: [[UInt8]]      // as written
-    let cmpSegments: [[UInt8]]   // comparison form: exact for POSIX, full lowercase for Windows
+    let driveLetter: UInt8?       // upper-case ASCII, for a drive path
+    let segments: [Bytes]         // as spelled; for a share the server and share name come first
+    var isWindows: Bool { kind != .posix }
 
-    static func isSep(_ b: UInt8, _ kind: PathKind) -> Bool {
-        b == UInt8(ascii: "/") || (kind == .windows && b == UInt8(ascii: "\\"))
-    }
-    static func isLetter(_ b: UInt8) -> Bool {
-        (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A)
-    }
-    static func kind(of p: [UInt8]) -> PathKind {
-        if p.count >= 3, isLetter(p[0]), p[1] == UInt8(ascii: ":"), isSep(p[2], .windows) { return .windows }
-        if p.count >= 2, isSep(p[0], .windows), isSep(p[1], .windows) { return .windows }
-        return .posix
-    }
-    static func isAbsolute(_ p: [UInt8]) -> Bool {
-        kind(of: p) == .windows || (p.first == UInt8(ascii: "/"))
-    }
-
-    /// Unicode's full default lowercase mapping with Final_Sigma, as JavaScript's
-    /// toLowerCase(): Foundation's lowercased(with: nil) goes through ICU's root locale.
-    static func windowsLower(_ bytes: [UInt8]) -> [UInt8] {
-        Array(String(decoding: bytes, as: UTF8.self).lowercased(with: nil).utf8)
-    }
-
-    /// `trailing`: strip the separators the path ends with first (for a `@SET DIR`).
-    /// Returns nil for a path that isn't absolute.
-    static func parse(_ p: [UInt8], stripTrailingSeparators: Bool) -> ParsedPath? {
-        let k = kind(of: p)
-        var rootLength = 0
-        var isShare = false
-        var driveLetter: UInt8? = nil
-        var rootKey: [UInt8]
-        switch k {
-        case .windows:
-            if p[1] == UInt8(ascii: ":") {
-                rootLength = 3; driveLetter = p[0]
-                rootKey = windowsLower([p[0]]) + [UInt8(ascii: ":")]
-            } else {
-                rootLength = 2; isShare = true; rootKey = Array("\\\\".utf8)
-            }
-        case .posix:
-            guard p.first == UInt8(ascii: "/") else { return nil }
-            rootLength = 1; rootKey = [UInt8(ascii: "/")]
+    /// Segment keys for `@SET DIR` matching: Windows paths lowercased by Unicode's full default mapping, others exact.
+    var matchKeys: [Bytes] {
+        if isWindows {
+            return segments.map { Array(String(decoding: $0, as: UTF8.self).lowercased(with: nil).utf8) }
         }
-        var rest = Array(p[rootLength...])
-        if stripTrailingSeparators {
-            while let l = rest.last, isSep(l, k) { rest.removeLast() }
-        }
-        var segments: [[UInt8]] = []
-        if !rest.isEmpty {
-            var cur: [UInt8] = []
-            for b in rest {
-                if isSep(b, k) { segments.append(cur); cur = [] } else { cur.append(b) }
-            }
-            segments.append(cur)
-        }
-        let cmp = k == .windows ? segments.map { windowsLower($0) } : segments
-        return ParsedPath(kind: k, isShare: isShare, rootKey: rootKey, driveLetter: driveLetter,
-                          rootLength: rootLength, segments: segments, cmpSegments: cmp)
+        return segments
     }
+}
 
-    var hasEmptySegment: Bool { segments.contains { $0.isEmpty } }
-    var hasDotSegment: Bool { segments.contains { $0 == [0x2E] || $0 == [0x2E, 0x2E] } }
-
-    func sameRoot(as o: ParsedPath) -> Bool { kind == o.kind && isShare == o.isShare && rootKey == o.rootKey }
-
-    /// Whether `self` (a DIR) holds `path` strictly inside it.
-    func contains(_ path: ParsedPath) -> Bool {
-        guard sameRoot(as: path), cmpSegments.count < path.cmpSegments.count else { return false }
-        return Array(path.cmpSegments[0..<cmpSegments.count]) == cmpSegments
+private func splitSegments(_ rest: ArraySlice<UInt8>, windows: Bool) -> [Bytes] {
+    if rest.isEmpty { return [] }
+    var segs: [Bytes] = []
+    var cur = Bytes()
+    for b in rest {
+        if windows ? isWinSep(b) : b == 0x2F {
+            segs.append(cur); cur = Bytes()
+        } else {
+            cur.append(b)
+        }
     }
-    func equals(_ path: ParsedPath) -> Bool { sameRoot(as: path) && cmpSegments == path.cmpSegments }
+    segs.append(cur)
+    return segs
+}
+
+/// Decide the kind from the first characters. Returns nil for a path that is not absolute.
+/// `stripTrailingSeparators` is for a `@SET DIR`, whose trailing separators are ignored.
+func parsePath(_ u: Bytes, stripTrailingSeparators: Bool) -> ParsedPath? {
+    var kind: PathKind
+    var rootLen: Int
+    var drive: UInt8? = nil
+    if u.count >= 3, isAsciiLetter(u[0]), u[1] == 0x3A, isWinSep(u[2]) {
+        kind = .drive; rootLen = 3; drive = u[0] & 0xDF
+    } else if u.count >= 2, isWinSep(u[0]), isWinSep(u[1]) {
+        kind = .share; rootLen = 2
+    } else if u.count >= 1, u[0] == 0x2F {
+        kind = .posix; rootLen = 1
+    } else {
+        return nil
+    }
+    var rest = u[rootLen...]
+    if stripTrailingSeparators {
+        while let last = rest.last, (kind == .posix ? last == 0x2F : isWinSep(last)) { rest = rest.dropLast() }
+    }
+    return ParsedPath(kind: kind, driveLetter: drive, segments: splitSegments(rest, windows: kind != .posix))
+}
+
+/// A `@SET DIR` row, pre-digested for matching. `usable` is false where the spec says the DIR matches nothing.
+struct MemberDir {
+    let raw: Bytes
+    let parsed: ParsedPath?
+    let keys: [Bytes]
+    let usable: Bool
+
+    init(raw: Bytes) {
+        self.raw = raw
+        let p = parsePath(raw, stripTrailingSeparators: true)
+        self.parsed = p
+        guard let p else { keys = []; usable = false; return }
+        var ok = !raw.contains(0)
+        if p.segments.contains(where: { $0.isEmpty }) { ok = false }          // doubled separator after the root
+        if p.kind == .share && p.segments.count < 2 { ok = false }            // no server or no share name
+        keys = p.matchKeys
+        usable = ok
+    }
+}
+
+enum DirMatch { case under, equal, no }
+
+func match(path: ParsedPath, pathKeys: [Bytes], dir: MemberDir) -> DirMatch {
+    guard dir.usable, let d = dir.parsed, d.kind == path.kind else { return .no }
+    if d.kind == .drive && d.driveLetter != path.driveLetter { return .no }
+    if pathKeys.count < dir.keys.count { return .no }
+    for i in 0..<dir.keys.count where dir.keys[i] != pathKeys[i] { return .no }
+    return pathKeys.count == dir.keys.count ? .equal : .under
+}
+
+/// Why a file row's path is refused, or nil when it passes every per-row path rule.
+func fileRowPathProblem(_ raw: Bytes, parsed: ParsedPath?) -> String? {
+    if raw.contains(TAB) { return "path holds a tab" }
+    if raw.contains(CR) { return "path holds a carriage return" }
+    if raw.contains(0) { return "path holds a NUL" }
+    guard let p = parsed else { return "path is not absolute" }
+    let nameSegments: ArraySlice<Bytes>
+    switch p.kind {
+    case .share:
+        if p.segments.count < 2 || p.segments[0].isEmpty || p.segments[1].isEmpty { return "share path has no server or no share name" }
+        nameSegments = p.segments[2...]
+    default:
+        nameSegments = p.segments[0...]
+    }
+    if nameSegments.isEmpty { return "path is a root with no file name" }
+    for s in nameSegments {
+        if s.isEmpty { return "path has an empty segment (doubled or trailing separator)" }
+        if s == [0x2E] { return "path has a '.' segment" }
+        if s == [0x2E, 0x2E] { return "path has a '..' segment" }
+    }
+    return nil
+}
+
+/// Where the file lands under <output>: folder names then the file name, joined with the destination's separator.
+func destinationComponents(_ p: ParsedPath) -> [Bytes] {
+    switch p.kind {
+    case .posix: return p.segments
+    case .drive: return [[p.driveLetter!]] + p.segments
+    case .share: return [Array("UNC".utf8)] + p.segments
+    }
+}
+
+/// Does `a` run through `b` as a folder: `b` starts with `a` exactly, then a separator of `b`'s kind.
+func runsThrough(_ a: Bytes, _ b: Bytes, bIsWindows: Bool) -> Bool {
+    if a.count >= b.count { return false }
+    if b[0..<a.count] != a[...] { return false }
+    let next = b[a.count]
+    return bIsWindows ? isWinSep(next) : next == 0x2F
 }
