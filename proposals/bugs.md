@@ -197,6 +197,21 @@ deleted `proposals/audit-restore-2026-11-04.md`, in git history.</sub>
 - **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
   where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
   non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.
+- **A UTF-16 `exclude.txt` with LF endings silently matches nothing.** It is read as UTF-8, so
+  every pattern is NUL-laden garbage: no `#excluded` row, exit 0, `tree --excluded` says "Nothing
+  was excluded", and the `@CLIENT EXCLUDE` rows record the garbage. Nothing on the read path
+  recognizes UTF-16 or a NUL. With CRLF endings the same file is refused, but only because the CR
+  trips `unusableExcludeError`, whose message shows the patterns as spaced characters and advises
+  writing `?`. Run on Windows and Linux.
+- **A trailing `# comment` on a pattern line is part of the pattern.** `top.log # keep this out`
+  matches nothing, silently. [guide/exclude.md](../guide/exclude.md) says only that lines starting
+  with `#` are comments, so this is documented by implication. It is listed because a pattern a
+  user reads as right does nothing, and no `#excluded` row is there to miss. Run on Linux.
+- **NTFS alternate data streams aren't backed up, and the guide doesn't say so.** Only a file's
+  main stream is read: exit 0, and no row for the stream. [guide/backup.md](../guide/backup.md)
+  says everything under each directory is backed up, and no page in `guide/` mentions streams.
+  Low harm, since `Zone.Identifier` is the common one, but that sentence needs a carve-out. Run on
+  Windows.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

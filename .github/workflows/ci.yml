@@ -124,12 +124,14 @@ jobs:
   # same-repo PR before merge — no manual approval, no "should I run it?" decision —
   # which covers the day-to-day case where forgetting is the real risk. It does NOT
   # run on push-to-main (redundant: the PR already tested that commit), on fork
-  # PRs, nor on Dependabot PRs (`if` below): GitHub withholds this repo's
+  # PRs, nor on a run Dependabot started (`if` below): GitHub withholds this repo's
   # secrets/OIDC from both by design (a fork gets none; a `dependabot[bot]` run gets
   # only the separate Dependabot secrets store), so the job physically can't assume
-  # the role — it stays green on the mocked-seam tier instead. A fork PR is a rare,
-  # attention-getting event — to run the real round-trip on one, reproduce its
-  # commits as a branch in this repo, which makes it a same-repo PR and runs here.
+  # the role — it stays green on the mocked-seam tier instead. `gh pr update-branch`
+  # on a Dependabot PR makes the actor you, so that run does get the real round-trip.
+  # A fork PR is a rare, attention-getting event — to run the real round-trip on one,
+  # reproduce its commits as a branch in this repo, which makes it a same-repo PR and
+  # runs here.
   #
   # Auth is short-lived OIDC (no stored keys). The approval Environment was REMOVED
   # (auto-run), so the OIDC token's `sub` is no longer

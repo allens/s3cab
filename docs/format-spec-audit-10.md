@@ -6,8 +6,9 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 and [Windows](format-spec-audit-12.md); restores on [Linux](format-spec-audit-13.md),
 [macOS](format-spec-audit-14.md) and [Windows](format-spec-audit-15.md).
 
-- **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/linux/s3cab-backup.py), Python with
-  boto3. Its notes, logs and test tools stay with the run, outside the repo.
+- **Program:**
+  [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/2bb756af41f5deedd1fa265cdc5b8dac9a152ec1/scripts/cleanroom/backup/linux/s3cab-backup.py),
+  Python with boto3. Its notes, logs and test tools stay with the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** 1 move flagged, a heredoc writing the session's own notes file; the judge found it
   harmless.

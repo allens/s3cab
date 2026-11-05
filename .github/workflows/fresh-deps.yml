@@ -9,7 +9,7 @@
 #
 # ci.yml structurally cannot cover this: it runs `npm ci` against our lockfile, the
 # unit tier mocks the `s3.mjs` seam so it never speaks to S3 (ADR-0019), and
-# `s3 integration` is skipped on Dependabot PRs because GitHub withholds this repo's
+# `s3 integration` is skipped on runs Dependabot starts: GitHub withholds this repo's
 # secrets from them. Net: the dependency that matters most is the one nothing
 # exercises at the version users get. For a backup tool that is a real exposure — a
 # fault in the S3 write path damages an object or a snapshot file, and the user
