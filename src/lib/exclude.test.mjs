@@ -169,6 +169,19 @@ describe("compileExcludePatterns", () => {
     );
   });
 
+  it("collapses a `..` in a pattern on every kind of root", () => {
+    const pattern = "a/../logs/";
+    assert.equal(
+      compileExcludePatterns("/root", [pattern], "linux")("/root/logs", true),
+      pattern,
+    );
+    const drive = compileExcludePatterns("C:\\root", [pattern], "win32");
+    assert.equal(drive("C:\\root\\logs", true), pattern);
+    const share = "\\\\nas\\share\\root";
+    const onShare = compileExcludePatterns(share, [pattern], "win32");
+    assert.equal(onShare(`${share}\\logs`, true), pattern);
+  });
+
   it(
     "treats the platform separator as a path separator, in patterns and paths",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
