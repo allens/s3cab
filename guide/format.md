@@ -52,7 +52,7 @@ and nothing else below needs special handling. (A set's `.info` file has
   characters that some line splitters break on, which cuts a path in half and never says
   why. A file with CRLF endings is refused whole: its heading row's last field then ends
   in a CR, and so does its `.`. A [deletion record](#valid-and-invalid-files) is distrusted
-  instead, and its well-formed rows still count.
+  instead, and its well-formed rows before any `.`, each ended by an LF, still count.
 - **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
   naive `split("\t")` safe, and it is why no field in a snapshot holds a real tab, LF or CR
   (a path with one is [refused at backup time](#what-is-deliberately-not-stored), and
@@ -753,9 +753,9 @@ runs through a `DIR` with no file row under it breaks nothing. On Windows,
 name one file: s3cab never writes more than one of them, and a hand-edited file that holds
 several meets the destination's rules instead (see [reading](#reading)). So do `C:\P\a` and
 `C:/P/a/b.txt`: the first row in the file that lands restores, and a later one is reported as a
-collision or as in the way, exit 1. After an exact prefix, though, any separator of the
-path's kind counts: `C:\P\a` runs through `C:\P\a/c.txt`, and both rows are refused. A POSIX
-path's only separator is `/`.
+collision or as in the way, exit 1, unless its hash was already found missing or withheld.
+After an exact prefix, though, any separator of the path's kind counts: `C:\P\a` runs through
+`C:\P\a/c.txt`, and both rows are refused. A POSIX path's only separator is `/`.
 
 **How a `@SET DIR` matches a path**, since a file row under none is refused. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
 claim `…\trees\edgeX\file.txt`. Decide first whether the `DIR` is a
@@ -807,9 +807,10 @@ alone, not on the `@SET DIR` it is under or on the other rows restored. In detai
   restored.
   A destination this restore has already written is another matter: two rows landing on one
   file is a collision, so the first row in the file that lands restores, and each later one
-  is reported, exit 1. A row that landed nothing doesn't claim the destination, and the next
-  row for it restores, unless it names a hash already found missing or withheld, which
-  s3cab doesn't fetch again.
+  is reported as a collision, exit 1. A row that landed nothing doesn't claim the destination,
+  and the next row for it restores. The exception, before or after a row lands, is a row
+  naming a hash already found missing or withheld: s3cab doesn't fetch it again and reports
+  it as that, so a deliberately deleted one leaves the exit status alone.
   Something in the way is reported, exit 1:
   - a folder where a file should land;
   - a file where one of its folders should be;
@@ -906,8 +907,8 @@ of three things:
   end with the `.`, has anything after it, or holds a blank line or an unknown type starting
   with neither `@` nor `#`. Each means the file isn't what it claims, was cut short, or comes
   from a newer s3cab, and restoring part of it would pass for a full restore. A deletion
-  record is the exception: it is distrusted instead (below), and its well-formed rows still
-  count.
+  record is the exception: it is distrusted instead (below), and its well-formed rows before
+  any `.`, each ended by an LF, still count.
 - **Refuse one path, restore the rest, and exit nonzero** for a malformed file row, or a
   file row whose path breaks one of the path rules above. Where a rule is about two file rows
   (one path in both, or one running through the other), **both rows are refused, so no
@@ -940,11 +941,12 @@ names would look unused and be deleted.
 its object counts as not deleted, and its absence is reported as unexplained damage with a
 nonzero exit. That is the safe direction: a damaged record can
 never make missing content look intentional. The well-formed rows of an invalid record
-still explain an absence, even in one with no heading row or no `.`; a first line that
-isn't the heading row is read as a row. Decode each line on its own: an LF byte is never
-part of another character, so a line that isn't UTF-8 is one wrong line, wherever the bad
-bytes sit, and the lines around it still read. A record listed but gone by the time it is
-read is invalid too, and explains nothing.
+still explain an absence, even in one with no heading row or no `.`, as long as they come
+before any `.` and end with an LF: a row after the `.`, or a last row with no LF, explains
+nothing. A first line that isn't the heading row is read as a row. Decode each line on its
+own: an LF byte is never part of another character, so a line that isn't UTF-8 is one wrong
+line, wherever the bad bytes sit, and the lines around it still read. A record listed but
+gone by the time it is read is invalid too, and explains nothing.
 
 While any record file is invalid, `backup` and `status` check
 what the bucket actually holds rather than trust an earlier snapshot's word, and `cleanup`
@@ -1018,7 +1020,7 @@ For a restorer, or anything else that reads the files.
   sets out: refuse the whole file, refuse one path and carry on, or ignore the row. A snapshot
   whose first line isn't the [heading row](#the-columns), all five fields, or whose last line
   isn't the `.`, is refused whole; a deletion record is distrusted instead, and its
-  well-formed rows still count.
+  well-formed rows before any `.`, each ended by an LF, still count.
 - Check that each file row falls inside a `@SET DIR`, [matched by whole segments](#paths).
   On a [Windows path](#paths), ignore case by the mapping given there. Where it lands is
   your tool's decision.
@@ -1031,9 +1033,9 @@ For a restorer, or anything else that reads the files.
   hashes to that key. The hash decides: s3cab never compares the size column with the
   download.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
-  read as one set, well-formed rows only. A hash a record lists, in a row dated after the
-  snapshot's `START`, the last if it repeats, was [deliberately deleted](#the-deletion-record);
-  any other miss is damage, and so is a
+  read as one set, only well-formed rows before any `.`, each ended by an LF. A hash a record
+  lists, in a row dated after the snapshot's `START`, the last `START` if that row repeats,
+  was [deliberately deleted](#the-deletion-record); any other miss is damage, and so is a
   download that doesn't hash to its key, which s3cab doesn't fetch again for any later row
   naming that hash. A miss is a 404 whose S3 error code is `NoSuchKey`, or `NotFound`,
   which some providers send. A HEAD's 404 has no body, so no code, and libraries name it
@@ -1062,8 +1064,9 @@ For a restorer, or anything else that reads the files.
   first is skipped, unless asked to overwrite, and a skip alone exits 0, though it checks
   nothing about the file. The second is two rows landing on one file, however differently
   their paths are spelled: the first row in the file that lands restores, and each later one
-  is reported, exit 1. s3cab checks the destination first, and fetches nothing for a row it
-  skips.
+  is reported as a collision, exit 1, unless its hash was already found missing or withheld,
+  when it's reported as that. s3cab checks the destination first, and fetches nothing for a
+  row it skips.
 - Set each restored file's modification time to the stored one, [to the
   millisecond](#paths). s3cab sets its access time to the same instant.
 - Read each time back:
@@ -1218,7 +1221,7 @@ For a restorer, or anything else that reads the files.
   hash to its key is still worth writing, clearly flagged, or better withheld. s3cab's:
   - of paths the destination holds as one file, by letter case or by macOS's Unicode
     normalization, the first row in the file that lands restores and each later one is
-    reported, exit 1;
+    reported as a collision, exit 1, unless its hash was already found missing or withheld;
   - a file where the destination already has a folder of that name in another case, or
     the reverse, is in the way, and reported the same way;
   - a name the destination won't create is reported, exit 1, and the rest restore;
