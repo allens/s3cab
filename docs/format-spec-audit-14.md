@@ -6,10 +6,11 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 [macOS](format-spec-audit-11.md) and [Windows](format-spec-audit-12.md); restores on
 [Linux](format-spec-audit-13.md), macOS (this run) and [Windows](format-spec-audit-15.md).
 
-- **Program:** [`swiftrestore/`](../scripts/cleanroom/restorers/swiftrestore/), Swift with
-  Foundation and CryptoKit, and the system's libcurl and zlib through a bridging header; no S3
-  library. It is the reconcile phase's program; its notes, logs and test tools stay with the run,
-  outside the repo.
+- **Program:**
+  [`swiftrestore/`](https://github.com/allens/s3cab/tree/2bb756af41f5deedd1fa265cdc5b8dac9a152ec1/scripts/cleanroom/restorers/swiftrestore),
+  Swift with Foundation and CryptoKit, and the system's libcurl and zlib through a bridging header;
+  no S3 library. It is the reconcile phase's program; its notes, logs and test tools stay with the
+  run, outside the repo.
 - **Checker:** the spec-only phase's restorer matches, and so does the reconcile phase's. The
   spec-only verdict is the evidence about the format.
 - **Audit:** 4 moves flagged: one writing the session's own Swift source, and three runs of its own

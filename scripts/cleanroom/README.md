@@ -16,7 +16,7 @@ or merely costs the implementer an afternoon.
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
 boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
 SDK), [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK), and
-two real sets. On Opus 5.5 at `xhigh` (2026-10-22): backups on
+three real sets. On Opus 5.5 at `xhigh` (2026-10-22): backups on
 [Linux](../../docs/format-spec-audit-4.md), [macOS](../../docs/format-spec-audit-5.md)
 and [Windows](../../docs/format-spec-audit-6.md), restores on
 [Linux](../../docs/format-spec-audit-7.md), [macOS](../../docs/format-spec-audit-8.md)
@@ -25,6 +25,11 @@ backups on [Linux](../../docs/format-spec-audit-10.md),
 [macOS](../../docs/format-spec-audit-11.md) and [Windows](../../docs/format-spec-audit-12.md),
 restores on [Linux](../../docs/format-spec-audit-13.md),
 [macOS](../../docs/format-spec-audit-14.md) and [Windows](../../docs/format-spec-audit-15.md).
+On Fable 5.1 at `xhigh` again (2026-11-04 and 2026-11-05): backups on
+[Linux](../../docs/format-spec-audit-16.md), [macOS](../../docs/format-spec-audit-17.md) and
+[Windows](../../docs/format-spec-audit-18.md), restores on
+[Linux](../../docs/format-spec-audit-19.md), [macOS](../../docs/format-spec-audit-20.md) and
+[Windows](../../docs/format-spec-audit-21.md).
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 
@@ -214,7 +219,7 @@ evidence the spec got better. Every reader is still Claude, as was s3cab's
 author, so a gap they all fill the same way can still pass the byte-for-byte
 comparison.
 
-**What a run costs**, measured on real set 3 (Fable 5.1 at `xhigh`, in CI, 2026-10-23): a
+**What a run costs**, measured on the Fable 5.1 set of 2026-10-23 (at `xhigh`, in CI): a
 backup ran 35 to 46 minutes and a restore 58 to 70. One backup used about 24% of a Max 5x
 plan's 5-hour window, 4% of its weekly Fable allowance and 2% of its weekly allowance across
 all models. A restore's share wasn't measured; it runs longer, so it likely costs more.
@@ -299,9 +304,10 @@ followed from the first line. `--max-budget-usd` caps the spend of each phase at
 list prices, on a subscription too, where it stops the call with `budget_exhausted`.
 A resumed phase counts only its own spend, though the `total_cost_usd` it reports
 includes the phase before. So the cap has to clear the costliest phase on the dearest
-model: real set 1's Windows restore would have come to about $63 at Fable 5.1's rates
-for both phases together, so either phase alone is under that. $150 clears it, and is
-the most one phase could cost if a run were ever billed at API rates by mistake.
+model: the Windows restore of the first real set, not recorded, would have come to about
+$63 at Fable 5.1's rates for both phases together, so either phase alone is under that.
+$150 clears it, and is the most one phase could cost if a run were ever billed at API
+rates by mistake.
 `--restricted` drops
 every tool `--tools` doesn't name, the web tools among them, so the list holds what
 past runs used, with the platform's one shell: `PowerShell` on Windows, where `Bash`
