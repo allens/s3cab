@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   lstatSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   symlinkSync,
@@ -133,10 +134,11 @@ describe("writeFileAtomic", () => {
 
 describe("copyFileAtomic", () => {
   const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+  const hash = createHash("sha256").update("what landed").digest("hex");
 
   it("replaces a link at the destination rather than writing through it", async (t) => {
     await using dir = await mkTmpDir();
-    writeFileSync(join(dir.path, "source"), "restored");
+    writeFileSync(join(dir.path, "source"), "what landed");
     writeFileSync(join(dir.path, "elsewhere"), "precious");
     try {
       symlinkSync(join(dir.path, "elsewhere"), join(dir.path, "dest"), "file");
@@ -148,10 +150,85 @@ describe("copyFileAtomic", () => {
       throw error;
     }
 
-    await copyFileAtomic(join(dir.path, "source"), join(dir.path, "dest"));
+    const copied = await copyFileAtomic(
+      join(dir.path, "source"),
+      join(dir.path, "dest"),
+      { hash },
+    );
 
+    assert.equal(copied, true);
     assert.equal(readFileSync(join(dir.path, "elsewhere"), "utf8"), "precious");
     assert.ok(lstatSync(join(dir.path, "dest")).isFile());
-    assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "restored");
+    assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "what landed");
+  });
+
+  // Each a source `restore` landed and something else changed since: the
+  // answer is `false`, never a throw, with nothing landed and no temp left.
+  for (const [
+    what,
+    plant,
+  ] of /** @type {[string, (source: string) => void][]} */ ([
+    [
+      "doesn't hash to the expected digest",
+      (source) => writeFileSync(source, "changed since it landed"),
+    ],
+    ["isn't there", () => {}],
+    ["is a folder now", (source) => mkdirSync(source)],
+  ])) {
+    it(`answers false for a source that ${what}, and lands nothing`, async () => {
+      await using dir = await mkTmpDir();
+      plant(join(dir.path, "source"));
+
+      const copied = await copyFileAtomic(
+        join(dir.path, "source"),
+        join(dir.path, "dest"),
+        { hash },
+      );
+
+      assert.equal(copied, false);
+      assert.deepEqual(
+        readdirSync(dir.path).filter((name) => name !== "source"),
+        [],
+      );
+    });
+  }
+
+  // The destination's folder doesn't exist, so a copy that reads the device
+  // fails at its temp instead of reading forever.
+  it(
+    "answers false for a source that is a device now, before reading it",
+    { skip: process.platform === "win32" && "no /dev/zero" },
+    async () => {
+      await using dir = await mkTmpDir();
+      symlinkSync("/dev/zero", join(dir.path, "source"));
+
+      const copied = await copyFileAtomic(
+        join(dir.path, "source"),
+        join(dir.path, "nowhere", "dest"),
+        { hash },
+      );
+
+      assert.equal(copied, false);
+    },
+  );
+
+  it("still throws for a destination the filesystem refuses", async () => {
+    await using dir = await mkTmpDir();
+    writeFileSync(join(dir.path, "source"), "what landed");
+
+    await assert.rejects(
+      () =>
+        copyFileAtomic(
+          join(dir.path, "source"),
+          join(dir.path, "n".repeat(300)),
+          { hash },
+        ),
+      // The rename's, which is how `restore` tells a refused name.
+      (/** @type {NodeJS.ErrnoException} */ error) =>
+        ["ENOENT", "ENAMETOOLONG"].includes(error.code ?? "") &&
+        typeof error.path === "string",
+    );
+
+    assert.deepEqual(readdirSync(dir.path), ["source"]);
   });
 });
