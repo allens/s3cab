@@ -1,10 +1,11 @@
 # The format-spec clean-room audit, run 19: restore on Linux, Fable 5.1 at xhigh (2026-11-04)
 
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.1 at
-`xhigh`, all reading the spec as of [PR #491](https://github.com/allens/s3cab/pull/491), dated
-2026-10-30. The set is runs 16–21: backups on [Linux](format-spec-audit-16.md),
-[macOS](format-spec-audit-17.md) and [Windows](format-spec-audit-18.md); restores on Linux (this
-run), [macOS](format-spec-audit-20.md) and [Windows](format-spec-audit-21.md).
+`xhigh`, all reading the spec of 2026-10-30, as of
+[PR #491](https://github.com/allens/s3cab/pull/491). The set is runs 16–21: backups on
+[Linux](format-spec-audit-16.md), [macOS](format-spec-audit-17.md) and
+[Windows](format-spec-audit-18.md); restores on Linux (this run), [macOS](format-spec-audit-20.md)
+and [Windows](format-spec-audit-21.md).
 
 - **Program:** [`crestore/`](../scripts/cleanroom/restorers/crestore/), C with OpenSSL and zlib, and
   libcurl declared by hand since its header isn't packaged there; no S3 library. The reconcile phase

@@ -1,10 +1,11 @@
 # The format-spec clean-room audit, run 21: restore on Windows, Fable 5.1 at xhigh (2026-11-05)
 
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.1 at
-`xhigh`, all reading the spec as of [PR #491](https://github.com/allens/s3cab/pull/491), dated
-2026-10-30. The set is runs 16–21: backups on [Linux](format-spec-audit-16.md),
-[macOS](format-spec-audit-17.md) and [Windows](format-spec-audit-18.md); restores on
-[Linux](format-spec-audit-19.md), [macOS](format-spec-audit-20.md) and Windows (this run).
+`xhigh`, all reading the spec of 2026-10-30, as of
+[PR #491](https://github.com/allens/s3cab/pull/491). The set is runs 16–21: backups on
+[Linux](format-spec-audit-16.md), [macOS](format-spec-audit-17.md) and
+[Windows](format-spec-audit-18.md); restores on [Linux](format-spec-audit-19.md),
+[macOS](format-spec-audit-20.md) and Windows (this run).
 
 - **Program:** [`csrestore/`](../scripts/cleanroom/restorers/csrestore/), C# 5 built with the
   `csc.exe` that ships with .NET Framework 4, and no S3 library. The reconcile phase left it

@@ -1,10 +1,11 @@
 # The format-spec clean-room audit, run 16: backup on Linux, Fable 5.1 at xhigh (2026-11-04)
 
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.1 at
-`xhigh`, all reading the spec as of [PR #491](https://github.com/allens/s3cab/pull/491), dated
-2026-10-30. The set is runs 16–21: backups on Linux (this run), [macOS](format-spec-audit-17.md) and
-[Windows](format-spec-audit-18.md); restores on [Linux](format-spec-audit-19.md),
-[macOS](format-spec-audit-20.md) and [Windows](format-spec-audit-21.md).
+`xhigh`, all reading the spec of 2026-10-30, as of
+[PR #491](https://github.com/allens/s3cab/pull/491). The set is runs 16–21: backups on Linux (this
+run), [macOS](format-spec-audit-17.md) and [Windows](format-spec-audit-18.md); restores on
+[Linux](format-spec-audit-19.md), [macOS](format-spec-audit-20.md) and
+[Windows](format-spec-audit-21.md).
 
 - **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/linux/s3cab-backup.py), Python with
   boto3. Its notes, logs and test tools stay with the run, outside the repo.

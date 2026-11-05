@@ -1,10 +1,11 @@
 # The format-spec clean-room audit, run 20: restore on macOS, Fable 5.1 at xhigh (2026-11-04)
 
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.1 at
-`xhigh`, all reading the spec as of [PR #491](https://github.com/allens/s3cab/pull/491), dated
-2026-10-30. The set is runs 16–21: backups on [Linux](format-spec-audit-16.md),
-[macOS](format-spec-audit-17.md) and [Windows](format-spec-audit-18.md); restores on
-[Linux](format-spec-audit-19.md), macOS (this run) and [Windows](format-spec-audit-21.md).
+`xhigh`, all reading the spec of 2026-10-30, as of
+[PR #491](https://github.com/allens/s3cab/pull/491). The set is runs 16–21: backups on
+[Linux](format-spec-audit-16.md), [macOS](format-spec-audit-17.md) and
+[Windows](format-spec-audit-18.md); restores on [Linux](format-spec-audit-19.md), macOS (this run)
+and [Windows](format-spec-audit-21.md).
 
 - **Program:** [`swiftrestore/`](../scripts/cleanroom/restorers/swiftrestore/), Swift with
   Foundation and CryptoKit, and the system's libcurl and zlib through a bridging header; no S3
@@ -18,7 +19,8 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 
 Below the rule: the spec-only phase's report verbatim, which provably predates every reference, then
 the *Differences from the reference* section the reconcile phase added, verbatim. The few lines the
-reconcile phase changed elsewhere in the report are left out.
+reconcile phase changed elsewhere in the report are left out. Among them, it corrected this
+report's count of the bucket: 36 snapshots, 30 of them restored, not 42 and 36.
 
 ---
 
