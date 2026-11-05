@@ -173,8 +173,30 @@ size, which let the review's second pin land beside it: a deletion record subtra
 trusted baseline only while its object is absent (presence wins), a path the stubbed HEAD had
 never let the model tier reach.</sub>
 
+<sub>An **adversarial audit of `restore` and `extract`** (2026-11-04, Claude Fable 5.1, reading
+`202171e0`; brief: a write outside the place asked for, or exit 0 over a wrong tree) found three
+defects, **all fixed 2026-11-05** by [ADR-0116](../docs/adr/0116-restore-rechecks-its-target.md),
+each needing something else writing in the output folder. **No attack from a snapshot alone
+worked.** Run on Windows 11 (NTFS) and WSL2 (ext4) through the real reader and writes, faked only
+at the bucket: `..`, `.`, empty and trailing segments in every path form, NUL, tab and CR (the
+reader refuses them); a POSIX name holding `\` under a Windows output (`placeUnder`); dot- and
+space-only names, which land verbatim inside `out`; NTFS streams (`putsColonInName`); `\\?\`,
+`\\.\` and `//?/GLOBALROOT`; `@SET DIR` games; the 8.3 short name of a junction; a junction or
+symlink at a folder or a file before the run, with and without `--overwrite`; case and NFC/NFD
+twins; objects that lie about their bytes or size; absences with and without a deletion record;
+`--from-file` oddities; `extract --name` values and item spellings; exit codes; and an in-place
+cross-OS restore. **From reading only, not a run:** macOS, Windows 10, FAT/exFAT, paths past
+`MAX_PATH`, and a symlink owned by another user under `protected_symlinks`. The full list is the
+deleted `proposals/audit-restore-2026-11-04.md`, in git history.</sub>
+
 **Open:**
 
+- **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
+  from `realpathSync.native(step.dest)`, rather than a per-file report. Needs something else
+  writing in the output folder, and it is loud, so low.
+- **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
+  where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
+  non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.
 - **A UTF-16 `exclude.txt` with LF endings silently matches nothing.** It is read as UTF-8, so
   every pattern is NUL-laden garbage: no `#excluded` row, exit 0, `tree --excluded` says "Nothing
   was excluded", and the `@CLIENT EXCLUDE` rows record the garbage. Nothing on the read path

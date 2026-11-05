@@ -1179,8 +1179,15 @@ For a restorer, or anything else that reads the files.
   at all, and `linkat` with `AT_EMPTY_PATH` gives it one, unprivileged on Linux 6.17; it
   needs a directory that already exists. `mkdir -p` and `rename` both follow a link at a
   folder position, so check each folder between the output folder and the file with
-  `lstat`, which doesn't follow it; `stat` does. `openat` with `O_DIRECTORY | O_NOFOLLOW`
-  fails on a link with `ENOTDIR`, so `lstat` first to say what is in the way. To
+  `lstat`, which doesn't follow it; `stat` does. Check before each file you write, not once
+  per folder: something else writing in the output folder can swap a folder for a link while
+  the restore runs. `openat` with `O_DIRECTORY | O_NOFOLLOW` fails on a link with `ENOTDIR`,
+  so `lstat` first to say what is in the way. A temp file whose name can be predicted may
+  already be a link, and opening it to write follows one, so remove what is there and create
+  it exclusively (`O_CREAT | O_EXCL`). Remove it first even so: NTFS's exclusive `CREATE_NEW`
+  goes through a link whose target doesn't exist, and creates the target. A second row holding
+  the same content can be copied from where the first landed, but something may have changed
+  that file since, so hash what you copy. To
   tell a file that was there before from one this restore wrote, under any spelling, keep
   each written file's identity, its device and inode or Windows' file ID (from
   `GetFileInformationByHandle`: the volume serial number and the file index); s3cab keeps
