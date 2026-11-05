@@ -70,7 +70,7 @@ export function compileExcludePatterns(
   const matchers = patterns.map((pattern) => ({
     pattern,
     regex: new RegExp(
-      `^${globSource(posix.normalize(spell(join(root, pattern))), escapes)}$`,
+      `^${globSource(spell(join(root, pattern)), escapes)}$`,
       flags,
     ),
   }));

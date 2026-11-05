@@ -152,6 +152,36 @@ describe("compileExcludePatterns", () => {
     );
   });
 
+  it("matches beneath a network share as beneath a drive letter", () => {
+    const share = "\\\\nas\\share\\photos";
+    const excluded = compileExcludePatterns(
+      share,
+      ["**\\Thumbs.db", "**/.git/", "*.tmp"],
+      "win32",
+    );
+    assert.equal(excluded(`${share}\\2024\\Thumbs.db`, false), "**\\Thumbs.db");
+    assert.equal(excluded(`${share}\\.git`, true), "**/.git/");
+    assert.equal(excluded(`${share}\\scratch.tmp`, false), "*.tmp");
+    // Still anchored to the member directory.
+    assert.equal(
+      excluded("\\\\nas\\share\\other\\scratch.tmp", false),
+      undefined,
+    );
+  });
+
+  it("collapses a `..` in a pattern on every kind of root", () => {
+    const pattern = "a/../logs/";
+    assert.equal(
+      compileExcludePatterns("/root", [pattern], "linux")("/root/logs", true),
+      pattern,
+    );
+    const drive = compileExcludePatterns("C:\\root", [pattern], "win32");
+    assert.equal(drive("C:\\root\\logs", true), pattern);
+    const share = "\\\\nas\\share\\root";
+    const onShare = compileExcludePatterns(share, [pattern], "win32");
+    assert.equal(onShare(`${share}\\logs`, true), pattern);
+  });
+
   it(
     "treats the platform separator as a path separator, in patterns and paths",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
