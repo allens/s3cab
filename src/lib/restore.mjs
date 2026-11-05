@@ -389,8 +389,8 @@ export function selectTargets({ entries, refused }, set, name, filters) {
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
- * first such path is restored; each later one is reported `collided` with
- * **exit 1** rather than silently overwriting it — detection keyed on the
+ * first such path to land is restored; each later one is reported `collided`
+ * with **exit 1** rather than silently overwriting it — detection keyed on the
  * filesystem's own equivalence, never on string folding (ADR-0086).
  * @param {object} args
  * @param {BackupSet} args.set
