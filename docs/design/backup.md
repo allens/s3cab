@@ -306,16 +306,17 @@ object — present, but failing `writeFileAtomic`'s digest check (`IntegrityErro
 the same way under its own `corrupt` heading: nothing is written for it, and the bad bytes are
 discarded rather than left in the temp. A name the destination filesystem **refuses** degrades
 too, under `refused` — NTFS answers a forbidden character with `ENOENT`, ext4 a component past
-255 bytes with `ENAMETOOLONG`, from the directory, the download or a dedup copy. A failed
-`copyFile` names its *source* in `path` whichever side failed, so a refused name and a source
-deleted mid-run are the same `ENOENT`; the source's presence tells them apart, and only a
-vanished source is worth a fetch. A `:` on a Windows-shaped
+255 bytes with `ENAMETOOLONG`, from the directory, the download or a dedup copy. A refused
+name and a source deleted mid-run are the same `ENOENT`; the source's presence tells them
+apart, and only a vanished source is worth a fetch. A `:` on a Windows-shaped
 destination never gets that far: NTFS doesn't refuse one but reads it as a stream separator (a
 copy succeeds into the hidden stream), so `planRestore` refuses it before anything is written.
 Those three are the whole degrade; an operational error (network,
 credentials, a full disk) is wrong about the run rather than one file, and still aborts.
 Once content shared by several paths has landed, every later path sharing it is copied from
-where it last landed rather than downloaded again. An absent or corrupt object is the same
+where it last landed rather than downloaded again, under the same digest check, and fetched
+after all if that file has changed since ([ADR-0116](../adr/0116-restore-rechecks-its-target.md)).
+An absent or corrupt object is the same
 casualty for every path sharing it, recorded without asking the bucket again. A refused or
 collided name is the path's failure, not the content's, and lands nothing: the next path
 sharing that content fetches it, unless it has already landed elsewhere.

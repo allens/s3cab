@@ -154,4 +154,32 @@ describe("copyFileAtomic", () => {
     assert.ok(lstatSync(join(dir.path, "dest")).isFile());
     assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "restored");
   });
+
+  it("rejects a source that doesn't hash to the expected digest, and lands nothing", async () => {
+    await using dir = await mkTmpDir();
+    writeFileSync(join(dir.path, "source"), "changed since it landed");
+    const hash = createHash("sha256").update("what landed").digest("hex");
+
+    await assert.rejects(
+      () =>
+        copyFileAtomic(join(dir.path, "source"), join(dir.path, "dest"), {
+          hash,
+        }),
+      IntegrityError,
+    );
+
+    assert.deepEqual(readdirSync(dir.path), ["source"]);
+  });
+
+  it("rejects a source that isn't there with the error `restore` recognizes", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      () => copyFileAtomic(join(dir.path, "gone"), join(dir.path, "dest")),
+      (/** @type {NodeJS.ErrnoException} */ error) =>
+        error.code === "ENOENT" && typeof error.path === "string",
+    );
+
+    assert.deepEqual(readdirSync(dir.path), []);
+  });
 });

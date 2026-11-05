@@ -295,7 +295,9 @@ backups of it are refused from then on.
   stick, rounds them, so restore says how many files came back up to 2 seconds off and still
   succeeds; a time further off is listed per file, and the run exits non-zero.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
-  copied, or a directory you'd moved — is fetched once and copied locally to the rest.
+  copied, or a directory you'd moved — is fetched once and copied locally to the rest. Each
+  copy is checked against the same hash, so if something changes the first file while the
+  restore runs, the next path is fetched again rather than copied from it.
 - **Two names this disk can't tell apart restore as one — loudly.** A backup made on a
   case-sensitive system can hold both `file.txt` and `File.txt`, but Windows (and macOS, by
   default) treats those as the same file. The first is restored; each later one is listed as a

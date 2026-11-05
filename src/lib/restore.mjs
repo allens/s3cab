@@ -350,7 +350,9 @@ export function selectTargets({ entries, refused }, set, name, filters) {
  * Each object is fetched and integrity-checked by `getObject` (its SHA-256
  * must match the snapshot's hash), then given the snapshot's mtime — required, since
  * the snapshot diff is mtime-based. Content shared across several paths (moved
- * or duplicated files) is downloaded once and copied to the rest.
+ * or duplicated files) is downloaded once and copied to the rest, under the same
+ * check: a file that has changed since it landed no longer is that content, so
+ * the path it would have been copied to is fetched instead.
  *
  * The snapshot-last upload invariant means every referenced object should exist,
  * so there is no pre-flight — but when one is **absent from the bucket anyway**
@@ -526,7 +528,11 @@ export async function restoreTargets({
       corrupt.push(step.dest);
     } else if (
       outDir !== undefined &&
-      linkedFolder(step.dest, outDir, linkedFolders)
+      linkedFolder(
+        step.dest,
+        outDir,
+        step.action === "write" ? new Map() : linkedFolders,
+      )
     ) {
       blocked.push(step.dest);
     } else if (step.action === "skip") {
@@ -548,14 +554,19 @@ export async function restoreTargets({
         mkdirSync(dirname(step.dest), { recursive: true });
         if (from !== undefined) {
           try {
-            await copyFileAtomic(from, step.dest);
+            await copyFileAtomic(from, step.dest, { hash: step.hash });
           } catch (error) {
-            // A refused name and a source gone since it was written are the
-            // same ENOENT. Whether the source is still there tells
-            // them apart: if it is, the name was refused, and the catch below
-            // says so; only a vanished source is worth a fetch, which would
-            // otherwise download the whole object just to be refused.
-            if (!isRefusedName(error) || existsSync(from)) {
+            // A source changed since it landed says nothing about the object,
+            // so this isn't `corrupt`, and this path still gets the content. A
+            // refused name and a source gone since it was written are the same
+            // ENOENT. Whether the source is still there tells them apart: if it
+            // is, the name was refused, and the catch below says so; only a
+            // vanished source is worth a fetch, which would otherwise download
+            // the whole object just to be refused.
+            if (
+              !(error instanceof IntegrityError) &&
+              (!isRefusedName(error) || existsSync(from))
+            ) {
               throw error;
             }
             await getObject(set.bucket, step.hash, step.dest);
@@ -602,10 +613,9 @@ export async function restoreTargets({
         const when = new Date(step.mtime);
         // NTFS can't hold a time before 1601 at all: an earlier one is EINVAL,
         // and 1601 itself is FILETIME 0, which Windows takes as "leave the time
-        // alone". Either way the file is left with the restore's own time, and
+        // alone". Either way the file keeps the time it was written, and is
         // reported like any other time not kept rather than stopping the
-        // restore. Not left as it is: a dedup copy starts with its source's
-        // time, which may be one `lstat` misreads on Windows (below).
+        // restore.
         let settable = platform !== "win32" || when.getTime() > NTFS_EPOCH_MS;
         try {
           await utimes(step.dest, when, when);
@@ -614,11 +624,6 @@ export async function restoreTargets({
             throw error;
           }
           settable = false;
-        }
-        if (!settable) {
-          // eslint-disable-next-line no-restricted-syntax -- a stand-in mtime set on the file, not a recorded instant; what is reported is read back from `lstat` below
-          const now = new Date();
-          await utimes(step.dest, now, now);
         }
         // `utimes` succeeds for a time the filesystem can't hold and stores
         // another, so only reading it back shows it. Compared at the millisecond:
@@ -792,9 +797,10 @@ function isRefusedName(error) {
  * Whether something already on disk is in the way of `dest`. Measured on NTFS
  * and ext4: a file where one of its folders should be is `EEXIST` from the
  * `mkdir` when it is the file's own folder, `ENOTDIR` when it is one further
- * up, on both; a folder where the file should be is `EPERM` on NTFS and
- * `EISDIR` on ext4, named for the *source* of the rename either way, and so
- * on NTFS is a directory link or junction, even one whose folder is gone.
+ * up, on both, as is a folder at the file's temp name; a folder where the file
+ * should be is `EPERM` on NTFS and `EISDIR` on ext4, named for the *source* of
+ * the rename either way, and so on NTFS is a directory link or junction, even
+ * one whose folder is gone.
  * `EPERM` is also plain permission denied, so that answer counts only when
  * `dest` really is a folder, or a link.
  * @param {unknown} error
@@ -818,9 +824,11 @@ function isInTheWay(error, dest) {
  * layout and are followed. Node's `lstat` calls a junction a link too.
  * @param {string} dest - A destination `reroot` or `extractTo` built under `outDir`
  * @param {string} outDir - `resolve(--output)`, the prefix they joined onto
- * @param {Map<string, boolean>} known - This run's answers per folder, so a
- *   re-run that skips every file still `lstat`s each folder once. Sound because
- *   restore never makes a link.
+ * @param {Map<string, boolean>} known - Answers to reuse, which go stale when
+ *   something else swaps a folder for a link mid-run. So a row that writes
+ *   nothing shares the run's, where a stale one can only misreport it, and a
+ *   write asks afresh. Not fresh for all: on NTFS that takes a re-run skipping
+ *   20,000 files 6 folders deep from under a second to 5 (ADR-0116).
  * @returns {boolean}
  */
 function linkedFolder(dest, outDir, known) {

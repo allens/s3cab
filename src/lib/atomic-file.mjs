@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, open, rename, rm } from "node:fs/promises";
+import { open, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { IntegrityError } from "./error.mjs";
@@ -27,7 +27,7 @@ import { IntegrityError } from "./error.mjs";
  * filesystem refuses, which only the rename finds out, after the whole
  * download — because the caller may carry on past it (`restore` does), and
  * would otherwise finish with a temp beside every file it couldn't place. Only
- * a process that dies mid-write leaves one, and a retry overwrites it.
+ * a process that dies mid-write leaves one, and a retry removes it.
  * `destPath`'s parent directory must already exist (the temp file is a
  * sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
@@ -37,14 +37,28 @@ import { IntegrityError } from "./error.mjs";
  * @returns {Promise<void>}
  * @throws {IntegrityError} The content hashes differently from `hash` (nothing
  *   is left at `destPath` or in the temp)
+ * @throws {NodeJS.ErrnoException} `EEXIST`: a folder sits at the temp's name
  */
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
   const hasher = hash ? createHash("sha256") : undefined;
-  await land(destPath, async (tmpPath) => {
+  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
+  // the name pushes a legal name near the filesystem's 255 limit past it.
+  const nameDigest = createHash("sha256")
+    .update(basename(destPath))
+    .digest("hex")
+    .slice(0, 16);
+  const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
+  try {
+    // Derived from the name, so whatever is there is a dead run's leftover or
+    // something planted, and a link or hard link must not carry the bytes out
+    // of this folder (ADR-0116). `wx` alone isn't enough: NTFS's exclusive open
+    // goes through a link whose target doesn't exist, creating the target
+    // (measured; ext4 refuses). So it is removed first, not on `EEXIST`.
+    await rm(tmpPath, { force: true }).catch(() => {});
     // Opened before any byte flows, not `createWriteStream(tmpPath)`: that opens
     // lazily, so `pipeline` can reject before the temp exists, and the open
-    // creates it after `land` has cleaned up.
-    const fd = await open(tmpPath, "w").catch((error) => {
+    // creates it after the cleanup below has run.
+    const fd = await open(tmpPath, "wx").catch((error) => {
       // Nothing else will read `source`, and an S3 body left open keeps its
       // connection.
       source.destroy();
@@ -64,8 +78,8 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
       );
     } catch (error) {
       // Once `pipeline` rejects, the stream lets go of the file in its own time,
-      // and `land` can't remove the temp until it has. A failed close is
-      // dropped here: the error that stopped the download is the one to report.
+      // and the cleanup below can't remove the temp until it has. A failed close
+      // is dropped here: the error that stopped the download is the one to report.
       await fd.close().catch(() => {});
       throw error;
     }
@@ -79,39 +93,6 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
         );
       }
     }
-  });
-}
-
-/**
- * Copy the file at `from` to `destPath` atomically, the same way: into the
- * sibling temp, then renamed into place. Not a plain `copyFile` onto
- * `destPath`, which writes *through* a link already there, into wherever it
- * points (measured on NTFS and ext4), where the rename replaces the link.
- * @param {string} from - An existing file
- * @param {string} destPath - Where to write the copy (parent must exist)
- * @returns {Promise<void>}
- */
-export const copyFileAtomic = (from, destPath) =>
-  land(destPath, (tmpPath) => copyFile(from, tmpPath));
-
-/**
- * Run `write` against a temp sibling of `destPath`, then rename the temp into
- * place; on any failure remove the temp and rethrow.
- * @param {string} destPath
- * @param {(tmpPath: string) => Promise<void>} write - Must not settle until it
- *   has finished with `tmpPath`, or the cleanup can run before the temp exists
- */
-async function land(destPath, write) {
-  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
-  // the name pushes a legal name near the filesystem's 255 limit past it.
-  // Derived from the name, so a retry still overwrites its own leftover.
-  const nameDigest = createHash("sha256")
-    .update(basename(destPath))
-    .digest("hex")
-    .slice(0, 16);
-  const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
-  try {
-    await write(tmpPath);
     await rename(tmpPath, destPath);
   } catch (error) {
     // The cleanup's own failure is dropped: the caller needs the error that
@@ -119,4 +100,23 @@ async function land(destPath, write) {
     await rm(tmpPath, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Copy the file at `from` to `destPath` the way `writeFileAtomic` lands a
+ * download, digest check included. Not `copyFile`, which can't say what it read
+ * (ADR-0116), and writes *through* a link already at its destination.
+ * @param {string} from - An existing file
+ * @param {string} destPath - Where to write the copy (parent must exist)
+ * @param {object} [options]
+ * @param {string} [options.hash] - Expected content hash (lowercase hex)
+ * @returns {Promise<void>}
+ * @throws {IntegrityError} `from` hashes differently from `hash` (nothing is
+ *   left at `destPath` or in the temp)
+ */
+export async function copyFileAtomic(from, destPath, { hash } = {}) {
+  // Opened here, not `createReadStream(from)`: that opens lazily, and a failed
+  // open would be an uncaught 'error' before `pipeline` is listening.
+  const source = await open(from);
+  await writeFileAtomic(destPath, source.createReadStream(), { hash });
 }

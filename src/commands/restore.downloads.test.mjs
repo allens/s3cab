@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -8,7 +9,6 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import * as fsPromises from "node:fs/promises";
@@ -35,16 +35,27 @@ import { IntegrityError } from "../lib/error.mjs";
 
 const BUCKET = "my-backups";
 
-/** Hash → what `getObject` does with it; anything absent here downloads fine. */
+// A test names content by a short label, which is also its bytes; the code under
+// test sees the label's real digest, since a dedup copy is checked against it.
+/** @type {Map<string, string>} Digest → label. */
+const labels = new Map();
+/** @param {string} label */
+const digestOf = (label) => {
+  const digest = createHash("sha256").update(label).digest("hex");
+  labels.set(digest, label);
+  return digest;
+};
+
+/** Label → what `getObject` does with it; anything absent here downloads fine. */
 /** @type {Map<string, Error>} */
 let failures = new Map();
-/** @type {string[]} Hashes `getObject` was actually asked for, in order. */
+/** @type {string[]} Labels `getObject` was actually asked for, in order. */
 let fetched = [];
-/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
+/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records, by label */
 let deletionRecords = new Map();
 /** How many times the records were fetched — laziness evidence (0 on a clean run). */
 let recordReads = 0;
-/** @type {(hash: string, landed: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
+/** @type {(label: string, landed: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
 let afterFetch = () => {};
 /** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
 let keeps = (mtime) => mtime;
@@ -82,6 +93,12 @@ mock.module("../lib/remote.mjs", {
       refused: new Map(),
       instant: "2026-07-19T12:00:00.000Z",
       ...snapshot,
+      entries: new Map(
+        [...snapshot.entries].map(([path, row]) => [
+          path,
+          { ...row, hash: digestOf(row.hash) },
+        ]),
+      ),
     }),
   },
 });
@@ -92,17 +109,17 @@ mock.module("../lib/objects.mjs", {
       /** @type {string} */ hash,
       /** @type {string} */ destPath,
     ) => {
-      fetched.push(hash);
-      const failure = failures.get(hash);
+      const label = /** @type {string} */ (labels.get(hash));
+      fetched.push(label);
+      const failure = failures.get(label);
       if (failure) {
         throw failure;
       }
       // Landed the way the real getObject lands it, so a name the disk refuses
       // fails where it really does (the rename, after the download) and leaves
-      // what it really leaves. The digest check is the one part skipped: these
-      // hashes are labels, not digests.
-      await writeFileAtomic(destPath, Readable.from(hash));
-      afterFetch(hash, destPath);
+      // what it really leaves.
+      await writeFileAtomic(destPath, Readable.from(label), { hash });
+      afterFetch(label, destPath);
     },
   },
 });
@@ -114,7 +131,15 @@ mock.module("../lib/deletion-record.mjs", {
   exports: {
     readDeletionRecords: async () => {
       recordReads++;
-      return { deleted: deletionRecords, invalid: [] };
+      return {
+        deleted: new Map(
+          [...deletionRecords].map(([label, record]) => [
+            digestOf(label),
+            record,
+          ]),
+        ),
+        invalid: [],
+      };
     },
   },
 });
@@ -235,10 +260,6 @@ describe("restore reads each modification time back", () => {
       }
       return mtime;
     };
-    // A download lands with the current time, so without this a file left
-    // untouched would pass for one set to the restore's own.
-    const old = new Date("2000-01-01T00:00:00.000Z");
-    afterFetch = (_hash, landed) => utimesSync(landed, old, old);
     const started = Date.now();
 
     const result = await restore([], { all: true, set: "photos", output });
@@ -286,7 +307,7 @@ describe("restore reads each modification time back", () => {
     { skip: process.platform === "win32" ? false : "a Windows-only time" },
     async () => {
       // `later` lands first with 2300, which isn't read back; `early` is copied
-      // from it, so it starts with 2300 too, which Node reads back wrapped.
+      // from it, and must not start with that 2300, which Node reads back wrapped.
       snapshot = {
         entries: new Map([
           [
@@ -1213,6 +1234,38 @@ describe("restore when something on disk is in the way", () => {
     assert.ok(lstatSync(dest("b.txt")).isFile());
     assert.equal(readFileSync(dest("b.txt"), "utf8"), "bbb");
     assert.equal(readFileSync(dest("a.txt"), "utf8"), "aaa");
+  });
+
+  it("reports a folder at a file's temp name as in the way, rather than stopping", async () => {
+    const name = createHash("sha256").update("gone.txt").digest("hex");
+    mkdirSync(join(output, "data", `.${name.slice(0, 16)}.s3cab-tmp`), {
+      recursive: true,
+    });
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.deepEqual(result.blocked, [dest("gone.txt")]);
+    assert.deepEqual(result.restored, [
+      dest("first.txt"),
+      dest("gone-copy.txt"),
+      dest("last.txt"),
+    ]);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("reports a copied file as missing when its source has changed and its object is gone", async () => {
+    afterFetch = (label) => {
+      if (label === "bbb") {
+        writeFileSync(dest("gone.txt"), "changed");
+        failures.set("bbb", named("NoSuchKey"));
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.deepEqual(result.missing, [dest("gone-copy.txt")]);
+    assert.ok(!existsSync(dest("gone-copy.txt")));
+    assert.equal(process.exitCode, 1);
   });
 
   it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {
