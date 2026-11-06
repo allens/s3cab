@@ -252,7 +252,7 @@ kind's lock is there.
 - A run whose `BY`, `OS` and `PIDNS` are the lock's own may remove the lock once its process
   (its `PID`) is gone. A `PIDNS` absent on both sides matches.
 - A lock whose `OS` or `PIDNS` differs, whose `OS` is absent, or whose `PID` is absent or
-  isn't a positive whole number in decimal digits, is never judged.
+  isn't a whole number from 1 up, in decimal digits with no leading zero, is never judged.
 - Any other leftover is removed by a person who knows the run is dead; in s3cab, `unlock`.
 - Like `.info`, these are rules for tools that follow the spec, not enforcement: anyone
   holding the bucket's write keys can ignore them.
@@ -409,7 +409,8 @@ A reader still decompresses what it is given, not what was promised:
   included, even when the text before it looks whole. So does a method other than deflate,
   or a zero byte before the first stream.
 - **A stream's header may hold its optional fields**, an extra field, a name, a comment or a
-  header CRC, as its flags say, and a reader reads past them.
+  header CRC, as its flags say, and a reader reads past them, checking the header CRC. A
+  wrong one, or a reserved flag bit set, is damage.
 
 The [five reading rules](#reading-the-text-five-rules-that-hold-everywhere) apply here in
 full — encoding, LF splitting, no escaping, never trimming the last field, and five fields
@@ -637,7 +638,7 @@ can go stale later without the row being wrong.
 | `@SNAPSHOT START` | the instant the run started, before any member directory was walked (column 4), and the time zone the name was minted in |
 | `@SNAPSHOT FILES` | the number of file rows |
 | `@SNAPSHOT SIZE` | the sum of the size column, then a [readable form](#canonical-form) in parentheses |
-| `@SNAPSHOT FINISH` | the instant the last file's row was written, before the snapshot is uploaded (column 4), and how long the run took to get there (`9s`, `12m 21s`, `3h 04m`) |
+| `@SNAPSHOT FINISH` | the instant the last row before `FILES` was written, before the snapshot is uploaded (column 4), and how long the run took to get there (`9s`, `12m 21s`, `3h 04m`) |
 
 Any other `@CLIENT` row belongs to the tool `@CLIENT NAME` names, and only that tool gives it
 a meaning; s3cab's are in [backing up](backup.md#what-a-set-backs-up) and
@@ -895,10 +896,10 @@ first is what tells it the rows it read are all of them.)
 The line before it, in a snapshot, is `@SNAPSHOT FINISH`. Its instant is when the last row
 before `FILES` was written, and s3cab itself doesn't read it back. It's there for you, with
 the run's duration beside it. A tool that hashes first and writes the file afterwards takes it
-when the last file was done, so in its file the rest is written later. In s3cab's, read the
-instant as an upper bound: the column holds milliseconds and the clock is finer, so the
-figure is rounded **up** — everything in the file was written at or before the moment it
-names, never after. Two snapshots of an unchanged set, taken on the same machine by
+when the last file was done, so its rows are written later. In s3cab's, read the instant as
+an upper bound: the column holds milliseconds and the clock is finer, so the figure is
+rounded **up** — every row before `FILES` was written at or before the moment it names,
+never after. Two snapshots of an unchanged set, taken on the same machine by
 the same s3cab, therefore differ in `@SNAPSHOT NAME`, `START` and `FINISH`, and nowhere else.
 A deletion record has no finish instant: each `#deleted` row has its own.
 
@@ -1226,8 +1227,8 @@ For a restorer, or anything else that reads the files.
   `link` then `unlink`. Linux's `O_TMPFILE` lets a download be hashed before it has a name
   at all, and `linkat` with `AT_EMPTY_PATH` gives it one, unprivileged on Linux 6.17; it
   needs a directory that already exists, so until you have made the file's folders, use the
-  nearest one that exists on the way to the file: `<output>` if it exists, otherwise the
-  nearest folder above it. s3cab makes a file's folders first, downloads beside the destination,
+  deepest folder on the way to the file that already exists, checked like any other for a
+  link. s3cab makes a file's folders first, downloads beside the destination,
   and removes what it made if the file fails. `mkdir -p` and `rename` both follow a link at a
   folder position, so check each folder between the output folder and the file with
   `lstat`, which doesn't follow it; `stat` does. Check before each file you write, not once
@@ -1539,7 +1540,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   - with a console, it returns for a live process, and the process gets nothing;
   - with no console, as under a scheduler, it raises winerror 6 for a live process, which a
     tool reading any error as gone takes for dead;
-  - `signal.CTRL_BREAK_EVENT`, 1, is a console event too;
+  - `signal.CTRL_BREAK_EVENT`, 1, is a console event too: with a console it stops a live
+    process that leads its own process group and doesn't ignore the event, and with no
+    console it raises winerror 6;
   - any other signal terminates the process.
 
   Ask `OpenProcess` with `PROCESS_QUERY_LIMITED_INFORMATION` instead. Error 87 means gone, and

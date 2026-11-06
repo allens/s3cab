@@ -319,7 +319,7 @@ export const ROWS = {
   },
   "@SNAPSHOT FINISH": {
     title: "`@SNAPSHOT FINISH`",
-    text: "When the last file's row was written, in UTC, and how long the run took to get there.",
+    text: "When the last row before `FILES` was written, in UTC, and how long the run took to get there.",
     section: "The whole-snapshot rows",
     columns: "property",
   },
