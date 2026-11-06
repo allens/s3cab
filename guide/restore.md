@@ -295,12 +295,14 @@ backups of it are refused from then on.
   stick, rounds them, so restore says how many files came back up to 2 seconds off and still
   succeeds; a time further off is listed per file, and the run exits non-zero.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
-  copied, or a directory you'd moved — is fetched once and copied locally to the rest.
+  copied, or a directory you'd moved — is fetched once and copied locally to the rest. Each
+  copy is checked against the same hash, so if something changes the first file while the
+  restore runs, the next path is fetched again rather than copied from it.
 - **Two names this disk can't tell apart restore as one — loudly.** A backup made on a
   case-sensitive system can hold both `file.txt` and `File.txt`, but Windows (and macOS, by
-  default) treats those as the same file. The first is restored; each later one is listed as a
-  collision and the run exits non-zero, never silently overwritten. To keep both, restore a
-  colliding path into its own `--output` directory.
+  default) treats those as the same file. The first in the snapshot that can be restored is;
+  each later one is listed as a collision and the run exits non-zero, never silently
+  overwritten. To keep both, restore a colliding path into its own `--output` directory.
 - **A name this disk refuses is listed, not fatal.** A backup made on Linux can hold names
   Windows refuses — a control character, or any of `: ? * | < > "` — and one made on Windows
   can hold a long name in a non-Latin script that is too long for Linux, which counts bytes.
