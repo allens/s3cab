@@ -309,16 +309,19 @@ describe("listLocks, removeLock, describeLock", () => {
       "locks/upload-20261027T140205.123Z",
       "COMMAND=backup\nBY=other@LAPTOP\nSTARTED=2026-10-27T14:02:05.123Z\n",
     );
-    store.set(
-      "locks/upload-20261027T140300.000Z",
-      "COMMAND=backup\nBY=other@LAPTOP\nPID=soon\nSTARTED=2026-10-27T14:03:00.000Z\n",
-    );
+    const bad = ["soon", "-5", "0", "012", "1e3", "0x10", "1.0", "1.5"];
+    for (const [i, pid] of bad.entries()) {
+      store.set(
+        `locks/upload-20261027T14030${i}.000Z`,
+        `COMMAND=backup\nBY=other@LAPTOP\nPID=${pid}\nSTARTED=2026-10-27T14:03:00.000Z\n`,
+      );
+    }
 
     const locks = await listLocks("b");
 
     assert.deepEqual(
       locks.map(({ pid }) => pid),
-      [undefined, undefined],
+      Array(bad.length + 1).fill(undefined),
     );
   });
 

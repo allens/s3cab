@@ -214,7 +214,8 @@ on a machine laid out differently. The same goes for paths and a `--from-file` l
 lands at its full path, however you named it.
 
 Files already under the directory are skipped like anywhere else, and `--overwrite` replaces
-them, so the directory needn't be empty.
+them, so the directory needn't be empty. A skip doesn't look inside the file, though: to be
+sure of every file, restore into an empty one.
 
 Reach for it when:
 

@@ -137,10 +137,10 @@ a tag cannot ship a known high-severity advisory in the first place.
 runtime deps only, so a dev-scoped advisory cannot reach a user. But the tag build *runs* the
 whole dev tree (esbuild, the test runner, every transitive install script) on a runner holding
 the OIDC publish credential. That is the one moment dev-scoped supply-chain surface matters, and
-the gate is deliberately blind to it. Nothing else covers it either: GitHub's default auto-triage
-rule dismisses dev-scoped alerts the second they're raised, so Dependabot never opens a PR for
-one, and version updates only bump direct dependencies — a transitive pin that still satisfies
-its parent's range never moves on its own.
+the gate is deliberately blind to it. Nothing else covers it reliably. A dev-scoped alert may get
+a Dependabot PR, be dismissed on sight by GitHub's auto-triage preset (so no PR), or sit open
+because no fix fits its parent's range. And version updates only bump direct dependencies — a
+transitive pin that still satisfies its parent's range never moves on its own.
 
 So run a bare `npm audit` before you tag, and read it for **class, not count**:
 
