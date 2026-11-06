@@ -117,7 +117,6 @@ const kindOf = (id) =>
  */
 function parseLock(id, kind, text) {
   const fields = infoFields(text);
-  const pid = Number(fields.PID);
   return {
     id,
     kind,
@@ -126,7 +125,9 @@ function parseLock(id, kind, text) {
     by: fields.BY ?? "",
     os: fields.OS,
     pidns: fields.PIDNS,
-    pid: fields.PID && Number.isInteger(pid) ? pid : undefined,
+    pid: /^[1-9][0-9]*$/.test(fields.PID ?? "")
+      ? Number(fields.PID)
+      : undefined,
     started: fields.STARTED ?? "",
   };
 }
