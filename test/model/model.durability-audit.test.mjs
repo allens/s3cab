@@ -18,10 +18,10 @@ import {
   writeSet,
 } from "./harness/seam.mjs";
 
-// The 2026-11-05 durability audit's defects
-// (proposals/audit-durability-fable-2026-11-05.md), each pinned by the
-// behaviour the audit says is right, so every one fails until it is fixed.
-// Deterministic Tier 1 encodings, in the shape of model.findings.test.mjs.
+// The 2026-11-05 durability audits' defects (proposals/bugs.md rolls them up;
+// ADR-0117, ADR-0112 and ADR-0064 hold the decisions), each pinned by the
+// behaviour the audit says is right. Deterministic Tier 1 encodings, in the
+// shape of model.findings.test.mjs.
 
 const BUCKET = "model-bucket";
 

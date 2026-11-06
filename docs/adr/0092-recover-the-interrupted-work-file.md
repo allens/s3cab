@@ -104,9 +104,12 @@ file with delete sharing, so another process renames or deletes it there as on P
 `withSnapshotFile` now takes the file's identity (`dev` + `ino`, from the volume's file index on
 Windows) from its own handle when it opens the lock, and checks the name still means that file
 before the final rename, the parking rename and the failure-path unlink; when it doesn't, the run
-refuses with `workFileTakenError` and publishes nothing. Its hashes aren't lost: they are in the
-file the `--resume` run adopted, which the next run reads. The check-then-rename window is
-microseconds against a pass of minutes — accepted, as is the user staying the liveness check.
+refuses with `workFileTakenError` and publishes nothing; a run interrupted after the takeover
+still exits as a stop (`InterruptedError`), with nothing to park. The hashes it had written when
+the `--resume` run adopted its file are in that file, which the next run reads; the rows written
+after the adoption, or all of them when the file was deleted rather than resumed, are hashed
+again. The check-then-rename window is microseconds against a pass of minutes — accepted, as is
+the user staying the liveness check.
 
 That is also why the error is the surface. There is no state in which a user needs `--resume`
 without having just been told about it: they meet the leftover file by being refused, and the

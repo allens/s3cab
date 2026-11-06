@@ -705,6 +705,7 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: false,
       backedUp: "20260701T0900",
       toUpload: 12,
     });
@@ -717,10 +718,11 @@ describe("renderStatus", () => {
     );
   });
 
-  it("says 'up to date' only when the latest snapshot is the backed-up one", () => {
+  it("says 'up to date' only when the latest snapshot is backed up", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: true,
       backedUp: "20260704T1000",
       toUpload: 0,
     });
@@ -733,6 +735,7 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: false,
       backedUp: "20260701T0900",
       toUpload: 0,
     });
@@ -743,10 +746,26 @@ describe("renderStatus", () => {
     );
   });
 
+  it("doesn't call a backed-up snapshot not backed up because the bucket holds a newer one", () => {
+    // Another machine backed the set up since: this machine's latest is in
+    // the bucket, and `backup` here would be refused anyway (not the holder).
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "20260701T0900",
+      snapshotBackedUp: true,
+      backedUp: "20260704T1000",
+      toUpload: 0,
+    });
+    assert.match(text, /\n {2}backed up {9}20260704T1000\n/);
+    assert.doesNotMatch(text, /not backed up/);
+    assert.match(text, /\n {2}up to date$/);
+  });
+
   it("prints 'never' when never backed up", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: false,
       backedUp: null,
       toUpload: 0,
     });
@@ -872,7 +891,7 @@ describe("renderVerify", () => {
     );
     assert.match(
       text,
-      /\/a\.txt {3}archived {3}\(in the DEEP_ARCHIVE storage class, which a restore can't read\)/,
+      /\/a\.txt {3}archived {3}\(in the DEEP_ARCHIVE storage class; a restore can't read it until it's moved back to an instant-access class\)/,
     );
   });
 
@@ -1554,6 +1573,28 @@ describe("renderUpload", () => {
         "\n" +
         "To try again:\n" +
         "  s3cab backup photos",
+    );
+  });
+
+  it("names the compare that shows the rest of a cut error list, as backup's report does", () => {
+    // ADR-0078 §2 allows the cut only because the rest are one local compare
+    // away; `--since` defaults to the snapshot before this one.
+    const errors = Array.from({ length: 12 }, (_, i) => ({
+      path: `/photos/locked-${i}.psd`,
+      reason: "EBUSY",
+    }));
+    const text = renderUpload({
+      mode: "snapshot",
+      set: "photos",
+      snapshot: "20260704T1000",
+      candidates: 2,
+      uploaded: 2,
+      errors,
+    });
+    assert.match(text, /\n {4}and 2 more\n/);
+    assert.match(
+      text,
+      /\nTo see the details:\n {2}s3cab compare photos --until 20260704T1000$/,
     );
   });
 

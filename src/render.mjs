@@ -32,7 +32,7 @@ import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { COARSEST_DISK_MS } from "./lib/restore.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
-import { setHasFindings } from "./lib/verify.mjs";
+import { setHasFindings, verifyHasFindings } from "./lib/verify.mjs";
 import {
   bold,
   cyan,
@@ -743,21 +743,28 @@ export function renderProp(props) {
  * Render `status` — what is backed up and what a backup would upload
  * (docs/design/backup.md). A short record: the set, its latest local snapshot (the
  * upload target), the latest remote snapshot (or `never`), and the verdict.
- * `up to date` is said only when the latest snapshot *is* the backed-up one —
- * the question guide/getting-started.md says `status` asks — never of an
- * object count alone: a snapshot whose objects are all stored is still not
- * backed up until the snapshot itself is, and that is the line a user reads
- * before deciding whether to run `backup`
+ * `up to date` is said only when the latest snapshot *is* backed up — the
+ * question guide/getting-started.md says `status` asks — never of an object
+ * count alone: a snapshot whose objects are all stored is still not backed up
+ * until the snapshot itself is, and that is the line a user reads before
+ * deciding whether to run `backup`
  * ([ADR-0117](../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  * @param {StatusReport} report
  * @returns {string}
  */
-export function renderStatus({ set, snapshot, backedUp, toUpload }) {
+export function renderStatus({
+  set,
+  snapshot,
+  snapshotBackedUp,
+  backedUp,
+  toUpload,
+}) {
   const objects = `${countOf(toUpload, "object")} to upload`;
   let verdict;
-  if (backedUp === snapshot) {
-    // Content a `delete` removed since is the one way the backed-up snapshot
-    // still has objects to upload.
+  if (snapshotBackedUp) {
+    // A backed-up snapshot still has objects to upload when a `delete` removed
+    // content since, or when the bucket's latest is another machine's and the
+    // count is against that.
     verdict = toUpload === 0 ? "up to date" : objects;
   } else {
     verdict = `latest snapshot not backed up — ${toUpload === 0 ? "its objects are all stored" : objects}`;
@@ -791,16 +798,16 @@ export function renderVerify(result, { color = false } = {}) {
   const findingSets = sets.filter(setHasFindings);
   const objectsChecked = sets.reduce((n, s) => n + s.referencedObjects, 0);
 
-  // A bucket with no set is exit 1 too (the command's call): "all verified"
-  // can't be said of nothing, and the likely story is the wrong bucket.
-  const verdict =
-    sets.length === 0
+  // The verdict is the exit code's rule (`verifyHasFindings`), worded: a
+  // bucket with no set is `nothing to verify`, the likely story being the
+  // wrong bucket.
+  const verdict = !verifyHasFindings(result)
+    ? paint((t) => bold(green(t)))("all verified ✓")
+    : sets.length === 0
       ? paint((t) => bold(red(t)))("nothing to verify ✗")
-      : findingSets.length
-        ? paint((t) => bold(red(t)))(
-            `${countOf(findingSets.length, "set")} with findings ✗`,
-          )
-        : paint((t) => bold(green(t)))("all verified ✓");
+      : paint((t) => bold(red(t)))(
+          `${countOf(findingSets.length, "set")} with findings ✗`,
+        );
 
   const head =
     `${bucket}: ${countOf(sets.length, "set")}, ` +
@@ -902,9 +909,11 @@ const problemLabel = (problem) =>
  * The parenthetical detail for a problem row: which snapshots reference a
  * `missing` file (it can't be restored), why an `invalid` row was refused and
  * in which snapshot, the storage class an `archived` file's content sits in
- * (a lifecycle rule put it there; a restore can't read it until it is brought
- * back), or the recorded-vs-stored byte counts for a `wrong-size` one (a
- * truncated/overwritten upload or a torn snapshot file).
+ * (a lifecycle rule put it there; a restore can't read it, and the finding
+ * stands, until it is moved back to an instant-access class — `verifySet` says
+ * why a temporary restored copy doesn't clear it), or the recorded-vs-stored
+ * byte counts for a `wrong-size` one (a truncated/overwritten upload or a torn
+ * snapshot file).
  * @param {SetReport["problems"][number]} p
  * @returns {string}
  */
@@ -916,7 +925,7 @@ function problemDetail(p) {
     return `(${p.reason}, in snapshot ${p.snapshots.join(", ")})`;
   }
   if (p.problem === "archived") {
-    return `(in the ${p.storageClass} storage class, which a restore can't read)`;
+    return `(in the ${p.storageClass} storage class; a restore can't read it until it's moved back to an instant-access class)`;
   }
   return `(recorded ${formatCount(p.recordedSize ?? 0)} bytes, stored ${formatCount(p.storedSize ?? 0)})`;
 }
@@ -1331,18 +1340,26 @@ export function renderUpload(result, { color = false } = {}) {
     // failed backup names, and the first report the user sees of that pass,
     // so the files it couldn't read are listed here as the run report would
     // have. The fix is a fresh backup — this snapshot is published as it is.
-    return [
-      line,
-      ``,
-      `Couldn't be backed up:`,
-      painter(color)((text) => bold(red(text)))(
-        `  Errors  ${formatCount(errors.length)}`,
-      ),
-      ...failedFileLines(errors),
-      ``,
-      `To try again:`,
-      `  ${shellCommand(`s3cab backup ${set}`, color)}`,
-    ].join("\n");
+    const blocks = [
+      [
+        line,
+        ``,
+        `Couldn't be backed up:`,
+        painter(color)((text) => bold(red(text)))(
+          `  Errors  ${formatCount(errors.length)}`,
+        ),
+        ...failedFileLines(errors),
+      ].join("\n"),
+      `To try again:\n  ${shellCommand(`s3cab backup ${set}`, color)}`,
+    ];
+    // The rest of a cut list is one `compare` away, as under `backup`'s report
+    // (`ERRORS_SHOWN`); `--since` defaults to the snapshot before this one.
+    if (errors.length > ERRORS_SHOWN) {
+      blocks.push(
+        `To see the details:\n  ${shellCommand(`s3cab compare ${set} --until ${snapshot}`, color)}`,
+      );
+    }
+    return blocks.join("\n\n");
   }
   if (result.mode === "dir") {
     const { set, dir, candidates, uploaded, skipped } = result;

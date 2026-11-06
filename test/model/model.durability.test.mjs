@@ -25,9 +25,10 @@ import {
 const { status } = await import("../../src/commands/status.mjs");
 const { renderStatus, renderVerify } = await import("../../src/render.mjs");
 
-// proposals/audit-durability-2026-11-05.md, a defect per test. Each is red
-// until its defect is fixed, asserting what should be true, on the outcome the
-// user reads rather than on one fix's shape.
+// The 2026-11-05 durability audits' defects (proposals/bugs.md rolls them up;
+// ADR-0117 and ADR-0092 hold the decisions), a defect per test, each asserting
+// what should be true of the outcome the user reads rather than of one fix's
+// shape.
 
 const BUCKET = "model-bucket";
 
@@ -192,7 +193,7 @@ describe("durability audit", () => {
 
     const report = await status("photos");
 
-    assert.notEqual(report.snapshot, report.backedUp);
+    assert.equal(report.snapshotBackedUp, false);
     assert.doesNotMatch(renderStatus(report), /up to date/);
   });
 });

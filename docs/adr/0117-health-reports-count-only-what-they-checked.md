@@ -57,13 +57,19 @@ report says what it didn't.**
    request. `GLACIER_IR`, which s3cab writes ([0066](0066-glacier-ir-storage-tier.md)), reads
    at once and is not one. `INTELLIGENT_TIERING`'s archive access tiers are invisible to a
    LIST — only a HEAD's `x-amz-archive-status` shows them — so verify doesn't see those; 0042
-   keeps verify to one LIST, and a HEAD per object is what it rejects.
-3. **`status` says `up to date` only when the latest local snapshot is the backed-up one** —
-   the question [guide/getting-started.md](../../guide/getting-started.md) says `status`
-   asks. Otherwise it says `latest snapshot not backed up`, followed by the objects a backup
-   would send or `its objects are all stored`: the snapshot itself is what's missing, and
-   that is the line a user reads before deciding whether to run `backup`. A test blessed
-   `backedUp: null, toUpload: 0` as `up to date`; it now reads `never`.
+   keeps verify to one LIST, and a HEAD per object is what it rejects. For the same reason
+   the finding stands until the object is moved back to an instant-access class: a
+   `RestoreObject` request lands a temporary readable copy the LIST doesn't show, and the
+   copy expires.
+3. **`status` says `up to date` only when the latest local snapshot is in the bucket** — the
+   question [guide/getting-started.md](../../guide/getting-started.md) says `status` asks.
+   In the bucket, not the bucket's latest: another machine's later backup of the set, or a
+   newest local snapshot file removed by hand, leaves the bucket newer than this machine with
+   nothing of this machine's missing. Otherwise it says `latest snapshot not backed up`,
+   followed by the objects a backup would send or `its objects are all stored`: the snapshot
+   itself is what's missing, and that is the line a user reads before deciding whether to
+   run `backup`. A test blessed `backedUp: null, toUpload: 0` as `up to date`; it now reads
+   `never`.
 4. **`upload` of a snapshot exits 1 over `#error` rows and lists them**, under `backup`'s
    `Couldn't be backed up` heading with the same `backup` retry, so a snapshot with a file it
    couldn't read never exits 0 from any command that publishes it. The rule in

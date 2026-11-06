@@ -1,6 +1,6 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { setHasFindings, verifySet } from "../lib/verify.mjs";
+import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
 
 /** @import { SetReport } from "../lib/verify.mjs" */
 
@@ -35,7 +35,7 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * never writes to the bucket and keeps no local state. **Exit 1** when any set
  * has findings (via `process.exitCode`, so the report still prints) — and when
  * there was nothing to check: a bucket with no sets, or a set whose snapshots
- * are all gone (`setHasFindings`). A clean run verified at least one snapshot
+ * are all gone (`verifyHasFindings`). A clean run verified at least one snapshot
  * and returns 0; "all verified" is never said of nothing
  * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  *
@@ -63,18 +63,19 @@ export async function verify(bucket) {
   // can only bump the orphan count, never fake a missing object.
   const { referencedBySet, stored, deleted } = await scanBucket(bucket);
 
-  const reports = [...referencedBySet]
-    .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
-    .sort((a, b) => a.set.localeCompare(b.set));
+  const result = {
+    bucket,
+    sets: [...referencedBySet]
+      .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
+      .sort((a, b) => a.set.localeCompare(b.set)),
+  };
 
-  // Any finding in any set → exit 1 (ADR-0042), and so does a bucket with no
-  // set at all: a cron job pointed at the wrong bucket must not read as a
-  // clean backup. Set process.exitCode rather than throw, so the report still
-  // prints to stdout (the entry point renders a returned result even when the
-  // exit code is nonzero).
-  if (reports.length === 0 || reports.some(setHasFindings)) {
+  // Any finding → exit 1 (ADR-0042, ADR-0117). Set process.exitCode rather
+  // than throw, so the report still prints to stdout (the entry point renders
+  // a returned result even when the exit code is nonzero).
+  if (verifyHasFindings(result)) {
     process.exitCode = 1;
   }
 
-  return { bucket, sets: reports };
+  return result;
 }

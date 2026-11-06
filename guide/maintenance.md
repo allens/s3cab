@@ -62,7 +62,7 @@ The findings on a file:
 | -------------- | --------------------------------------------------------------------------- |
 | **missing**    | a snapshot references content that isn't in the store — that file won't restore |
 | **wrong size** | the content is stored, but not at the size recorded for it — it's damaged    |
-| **archived**   | the content is stored, but a lifecycle rule moved it to an archive storage class (`GLACIER`, `DEEP_ARCHIVE`) that a restore can't read until it's brought back |
+| **archived**   | the content is stored, but a lifecycle rule moved it to an archive storage class (`GLACIER`, `DEEP_ARCHIVE`) that a restore can't read; the finding stays until it's moved back to an instant-access class — a temporary restored copy doesn't clear it |
 
 Two more are about a set's snapshots rather than its files. One reports a snapshot that
 **couldn't be read** at all. That one matters beyond the set it names: if s3cab can't read a

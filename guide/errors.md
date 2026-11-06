@@ -254,15 +254,16 @@ command again with `--resume` to carry on from the file hashes already worked ou
 over instead, delete the work file the message names. See
 [stopping part way](backup.md#stopping-part-way). If something *was* still running, that run
 ends without publishing anything and says another run took its work file; the hashes it had
-worked out are in the file you resumed from, so nothing is lost but its time.
+written when you resumed are in the file you resumed from, and the rest are worked out again.
 
 ### Couldn't finish this snapshot — another run took its work file while it was still being written (a --resume of this set, or the file was deleted), so nothing was published.
 
 This run was still working when a second run of the same set was given `--resume`, or its
 work file was deleted — both on the word that nothing was running. It stops here rather than
-record the other run's half-written file as its snapshot. Nothing is lost but its time: the
-hashes it had worked out are in the file the other run adopted. Wait for that run to finish,
-then run the same command again.
+record the other run's half-written file as its snapshot. If the file was resumed, the hashes
+this run had written by then are in it, and the next run reuses them; the hashes written after
+that, or all of them if the file was deleted, are worked out again. Wait for that run to
+finish, then run the same command again.
 
 ### Couldn't finish backing up — sending your files to the cloud stopped part-way (…).
 

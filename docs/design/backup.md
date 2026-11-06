@@ -643,8 +643,11 @@ problem kinds:
    so recorded and stored sizes are directly comparable; both sizes ride the row.)
 3. **`archived`** — the object is stored, but the LIST's `StorageClass` is `GLACIER` or
    `DEEP_ARCHIVE`, which no plain GET reads: a lifecycle rule moved it, and `restore` fails on
-   it as on a missing one until it is brought back. One row per path, naming the class
-   ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)).
+   it as on a missing one. One row per path, naming the class
+   ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). The finding
+   clears when the object is moved back to an instant-access class, not when a restore request
+   lands a temporary readable copy: the LIST still says the archive class, and telling the copy
+   apart is a HEAD per object, which ADR-0042 rules out.
 
 **Unreadable snapshots** stay *outside* `problems` (they aren't file-shaped — a corrupt
 snapshot file has no file list to annotate, only a lost restore point). A snapshot that fails

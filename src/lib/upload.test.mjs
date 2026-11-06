@@ -8,10 +8,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, join, parse, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
+import { gzipSync } from "node:zlib";
 import { ChangedWhileReadError, ContentMismatchError } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
+import { HEADING, formatLine } from "./snapshot-file.mjs";
 import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -103,9 +105,14 @@ mock.module("./deletion-record.mjs", {
 /** @type {Error | undefined} what the holder check refuses with, if it does */
 let notHeld;
 // The holder check is set-marker.mjs's, unit-tested there; what matters here is
-// that the manifest PUT waits on it.
+// that the manifest PUT waits on it. The layout parser remote.mjs takes from
+// the same module is the real one, imported after the s3 mock so it binds the
+// fake rather than the SDK (a mock registered after the real module is cached
+// still serves every later importer — measured).
+const { parseSnapshotsKey } = await import("./set-marker.mjs");
 mock.module("./set-marker.mjs", {
   exports: {
+    parseSnapshotsKey,
     assertHeld: async () => {
       callOrder.push("assertHeld");
       if (notHeld) {
@@ -1066,6 +1073,42 @@ describe("uploadSnapshot under the upload lock", () => {
       /Snapshot '20250115T0000' not found/,
     );
     assert.deepEqual(lockCalls, []);
+  });
+});
+
+describe("uploadSnapshot over a row the reader refused", () => {
+  it("reports the refused path among the errors, as it does an #error row (ADR-0101)", async () => {
+    // A refused path is one no restore will produce from this snapshot, so the
+    // upload reports it like a file the pass couldn't read: the caller lists
+    // it and exits 1, never a clean retry. The reader folds refused rows into
+    // `errors`; this pins that the upload passes them on.
+    await using dir = await mkTmpDir();
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    const path = resolve(dir.path, "content", "photo.raw");
+    const name = "20250115T1030";
+    writeFileSync(
+      join(snapshotDir, `${name}.tsv.gz`),
+      gzipSync(
+        HEADING +
+          formatLine("@SET", "DIR", "", "", parse(path).root) +
+          formatLine("-", "not-a-hash", "5", "2026-01-01T00:00:00.000Z", path) +
+          ".\n",
+      ),
+    );
+
+    const result = await uploadSnapshotOf({
+      bucket: "b",
+      set: "s",
+      snapshotDir,
+      name,
+      claimPath: join(snapshotDir, "claim"),
+    });
+
+    assert.deepEqual(result.errors, [
+      { path, reason: "its hash isn't 64 lowercase hex digits" },
+    ]);
+    assert.equal(result.candidates, 0);
   });
 });
 

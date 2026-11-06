@@ -71,8 +71,12 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => ({ deleted: new Map(), invalid: [] }),
   },
 });
+// The real layout parser, for remote.mjs: imported after the s3 mock so it
+// binds the fake, not the SDK (see upload.test.mjs).
+const { parseSnapshotsKey } = await import("./set-marker.mjs");
 mock.module("./set-marker.mjs", {
   exports: {
+    parseSnapshotsKey,
     assertHeld: async () => {
       events.push("assertHeld");
     },

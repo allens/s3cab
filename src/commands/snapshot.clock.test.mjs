@@ -10,7 +10,7 @@ import { snapshot } from "./snapshot.mjs";
 
 /** @import { TestContext } from "node:test" */
 
-// proposals/audit-durability-2026-11-05.md. guide/format.md names the end of
+// The clock warning (ADR-0072 check A). guide/format.md names the end of
 // daylight saving and a move to another zone as the ways a later snapshot sorts
 // first, and promises a warning. Both keep the true instant moving forward.
 

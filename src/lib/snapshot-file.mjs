@@ -37,6 +37,7 @@ import { userAtMachine } from "./user-at-machine.mjs";
 /** @import { ExclusionRecord, WalkError } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
+/** @import { BigIntStats } from "node:fs" */
 /** @import { AssertionError } from "node:assert" */
 
 // The snapshot TSV — this module is its sole writer and parser. The layout is
@@ -240,14 +241,30 @@ const interruptedError = () =>
  * the two remedies `inProgressError` offers on the user's word that nothing is
  * running. Renaming by name from here would publish the other run's
  * half-written file under this snapshot's name (or delete it, on the failure
- * path), so this run gives up instead. Its hashes aren't lost to a `--resume`:
- * they are in the file that run adopted, which the next run reads.
+ * path), so this run gives up instead. A `--resume` run adopted the hashes
+ * this run had written by then, and the next run reads them from its file;
+ * the rows written after that, or every row when the file was deleted, are
+ * hashed again.
  */
 const workFileTakenError = () =>
   new Error(
     `Couldn't finish this snapshot — another run took its work file while it ` +
       `was still being written (a --resume of this set, or the file was ` +
       `deleted), so nothing was published.\n\n` +
+      `Wait for that run to finish, then run the same command again.`,
+  );
+
+/**
+ * The stop a parked snapshot ends with when there is nothing to park: the user
+ * interrupted a run whose work file another run had taken. Still the user's
+ * stop, so still `InterruptedError` and its exit code (ADR-0067), not the
+ * failure above — a wrapper keyed on the interrupted exit must see one.
+ */
+const interruptedTakenError = () =>
+  new InterruptedError(
+    `Snapshot stopped. The file hashes computed so far couldn't be saved for ` +
+      `the next run: another run took this run's work file while it was still ` +
+      `being written (a --resume of this set, or the file was deleted).\n\n` +
       `Wait for that run to finish, then run the same command again.`,
   );
 
@@ -291,7 +308,7 @@ const workFileTakenError = () =>
  * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
- * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
+ * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost (unless another run took its work file, which the message says)
  */
 export async function withSnapshotFile(
   snapshotDir,
@@ -326,17 +343,38 @@ export async function withSnapshotFile(
 
   // `dev`+`ino` is the identity the handle keeps whatever the name does; on
   // Windows both come from the volume's file index, by `fstat` and `stat`
-  // alike. `bigint` so a 64-bit index survives.
-  const { dev, ino } = await fd.stat({ bigint: true });
+  // alike. `bigint` so a 64-bit index survives. The lock is held and nothing
+  // is written yet, so a failure here releases it as every later one does.
+  /** @type {BigIntStats} */
+  let identity;
+  try {
+    identity = await fd.stat({ bigint: true });
+  } catch (error) {
+    await fd.close();
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+  const { dev, ino } = identity;
+
+  /**
+   * Whether the lock name still means this run's file: `false` once a
+   * `--resume` run or a `del` took it (another file there, or none). A stat
+   * that fails for any other reason answers neither way and is thrown: the
+   * rename it guards would meet the same fault, and reading it as a takeover
+   * would leave this run's lock behind.
+   */
   const ownsWorkFile = async () => {
-    const now = await stat(tmpPath, { bigint: true }).catch(() => undefined);
-    return now?.dev === dev && now?.ino === ino;
-  };
-  const assertOwnsWorkFile = async () => {
-    const owns = await ownsWorkFile();
-    if (!owns) {
-      throw workFileTakenError();
+    /** @type {BigIntStats} */
+    let now;
+    try {
+      now = await stat(tmpPath, { bigint: true });
+    } catch (error) {
+      if (isENOENT(error)) {
+        return false;
+      }
+      throw error;
     }
+    return now.dev === dev && now.ino === ino;
   };
 
   const chunkSize = 128 * 1024; // 128 KB
@@ -395,12 +433,18 @@ export async function withSnapshotFile(
       // replaces on Windows too — see `recoverWorkFile`), and replacing is
       // always right, since a resumed run re-records every row the file it
       // replaces held, making each parked file a superset.
-      await assertOwnsWorkFile();
+      const owns = await ownsWorkFile();
+      if (!owns) {
+        throw interruptedTakenError();
+      }
       await rename(tmpPath, parkedPath);
       throw interruptedError();
     }
 
-    await assertOwnsWorkFile();
+    const owns = await ownsWorkFile();
+    if (!owns) {
+      throw workFileTakenError();
+    }
     await rename(tmpPath, snapshotPath);
 
     // Delete the parked lookup on *success*, not on read: while a resumed run is
@@ -416,9 +460,14 @@ export async function withSnapshotFile(
     // unlink an open file), so a *failed* run never wedges the next one.
     // Best-effort: a failed unlink must not mask the real error. Only this
     // run's own file: on the parked path the temp is already renamed away, and
-    // after a takeover the name is another run's live file.
-    const owns = await ownsWorkFile();
-    if (owns) {
+    // after a takeover the name is another run's live file. When the check
+    // itself fails, the unlink is tried anyway: a lock left behind costs the
+    // next run, and the name is this run's unless something took it.
+    const taken = await ownsWorkFile().then(
+      (owns) => !owns,
+      () => false,
+    );
+    if (!taken) {
       await unlink(tmpPath).catch(() => {});
     }
     throw error;

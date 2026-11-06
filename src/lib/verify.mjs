@@ -55,9 +55,12 @@ const ARCHIVE_CLASSES = new Set(["GLACIER", "DEEP_ARCHIVE"]);
  *    `reason`: no restore will produce this path from that snapshot.
  *  - **archived** — the object is stored, but in a storage class a GET can't
  *    read (`ARCHIVE_CLASSES`): a bucket lifecycle rule moved it to an archive
- *    tier, and `restore` would fail on it exactly as on a missing one, until it
- *    is restored from the archive or moved back. Every path referencing it is
- *    a problem, as for missing; the size check is moot.
+ *    tier, and `restore` would fail on it exactly as on a missing one. Every
+ *    path referencing it is a problem, as for missing; the size check is moot.
+ *    The finding clears when the object is moved back to an instant-access
+ *    class, not when a `RestoreObject` request lands a temporary readable
+ *    copy: the LIST still says the archive class, the copy expires, and
+ *    telling the two apart is a HEAD per object, which ADR-0042 rules out.
  *
  * A set with **no snapshot checked** (`snapshotsChecked` 0, and none
  * unreadable) is a finding in itself — `setHasFindings` — because nothing
@@ -167,8 +170,9 @@ export function verifySet(name, referencedResult, stored, deleted = new Map()) {
 
 /**
  * A single set's verify report: how much was checked, plus a flat per-path
- * `problems` list and any `unreadableSnapshots`. Empty across both means the set
- * verified clean. `problems` is one row per broken *file* (not per object): a
+ * `problems` list and any `unreadableSnapshots`. Empty across both, with at
+ * least one snapshot checked, means the set verified clean — `setHasFindings`
+ * is the one rule. `problems` is one row per broken *file* (not per object): a
  * missing object referenced by five paths yields five rows — the user thinks in
  * files, and hashes never surface (docs/design/backup.md, ADR-0042).
  * `unreadableSnapshots` stays separate because it is not file-shaped — a corrupt
@@ -202,3 +206,15 @@ export const setHasFindings = (report) =>
   report.problems.length > 0 ||
   report.unreadableSnapshots.length > 0 ||
   report.snapshotsChecked === 0;
+
+/**
+ * Whether a verify run has any finding — its exit code, and the one rule the
+ * command and its renderer both ask so the two can't drift: a set with
+ * findings, or no set at all. "All verified" can't be said of nothing, and a
+ * bucket with no set is most likely the wrong bucket
+ * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
+ * @param {{ sets: SetReport[] }} result
+ * @returns {boolean}
+ */
+export const verifyHasFindings = ({ sets }) =>
+  sets.length === 0 || sets.some(setHasFindings);

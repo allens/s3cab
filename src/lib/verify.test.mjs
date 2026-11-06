@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
-import { setHasFindings, verifySet } from "./verify.mjs";
+import { setHasFindings, verifyHasFindings, verifySet } from "./verify.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 /** @import { SnapshotRows } from "../../test/helpers/enumeration.mjs" */
@@ -277,6 +277,19 @@ describe("verifySet", () => {
       { path: "/b.txt", problem: "invalid", snapshots: ["s1"], reason },
     ]);
     assert.equal(setHasFindings(report), true);
+  });
+
+  it("a run is clean only with a set, and every set clean (ADR-0117)", () => {
+    // The one rule the command's exit code and the renderer's verdict share.
+    const clean = verifySet(
+      "photos",
+      enumerated({ s1: { "/a.txt": ["aa", 1] } }),
+      new Map([["aa", { size: 1 }]]),
+    );
+    const empty = verifySet("docs", enumerated({}), new Map());
+    assert.equal(verifyHasFindings({ sets: [] }), true);
+    assert.equal(verifyHasFindings({ sets: [clean] }), false);
+    assert.equal(verifyHasFindings({ sets: [clean, empty] }), true);
   });
 
   it("a set with no snapshot read is a finding, not a clean set", () => {

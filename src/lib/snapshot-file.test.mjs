@@ -1383,6 +1383,32 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
 
     assert.ok(!existsSync(resolve(dir.path, "20260623T1000.tsv.gz")));
   });
+
+  it("still ends as a stop, not a failure, when the user interrupts a run whose file was taken", async () => {
+    // Ctrl+C after the takeover: nothing to park, but the exit is the user's
+    // stop (130, ADR-0067), not an error a wrapper would count as a failure.
+    await using dir = await mkTmpDir();
+    const lock = resolve(dir.path, ".snapshot.tsv.gz");
+    const theirs = "the other run's half-written file";
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "20260623T1000", async (s) => {
+        renameSync(lock, resolve(dir.path, ".snapshot.lookup.tsv.gz"));
+        writeFileSync(lock, theirs);
+        process.emit("SIGINT", "SIGINT");
+        s.end("x");
+      }),
+      (/** @type {Error} */ error) => {
+        assert.ok(error instanceof InterruptedError, "a stop, not a failure");
+        assert.match(error.message, /couldn't be saved/);
+        assert.match(error.message, /another run took this run's work file/);
+        return true;
+      },
+    );
+
+    assert.equal(readFileSync(lock, "utf8"), theirs, "their file is untouched");
+    assert.ok(!existsSync(resolve(dir.path, "20260623T1000.tsv.gz")));
+  });
 });
 
 // Park-on-interrupt (ADR-0067): a graceful stop ends the writer cleanly and
