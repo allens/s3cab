@@ -268,8 +268,10 @@ snapshot, a hash is deliberately gone only when a row lists it with an instant l
 the snapshot's `@SNAPSHOT START`, compared as text:
 - the object was in the bucket when that snapshot was uploaded, so an older row doesn't
   explain the miss, and the miss is damage;
-- the two instants come from two machines' clocks, so a clock that puts a real deletion
-  before the backup makes it read as damage, the safe side;
+- the two instants come from two machines' clocks: a deleting clock that is slow puts a real
+  deletion before the backup, so it reads as damage, the safe side; one that is fast puts it
+  after a backup that stored the content again, so a later loss of that object reads as
+  deliberate — a limit of the record, which no reader can correct;
 - a snapshot with no `START` has nothing to compare, and its miss is damage too;
 - a `START` that isn't a real instant in the 24-character form counts as none;
 - s3cab's `verify` asks this of every snapshot that references the hash.
@@ -527,8 +529,8 @@ A row's first character says what it is: `@` a property of the whole file, `-` a
 - **`#excluded`** is an entry the writer left out on purpose, and **`#error`** one it
   couldn't check or read, or a [link](#links) leading out of the backup. Neither is in the
   backup, so both leave the size and time columns blank, even where the writer knew them;
-  the row says why. Any `#error` row makes s3cab's `backup` and `snapshot` exit 1, after
-  the snapshot is written and, by `backup`, uploaded.
+  the row says why. Any `#error` row makes s3cab's `backup`, `snapshot` and `upload` exit 1,
+  after the snapshot is written and, by `backup` or `upload`, uploaded.
 - **Leaving entries out is optional**, and how a tool chooses them is its own business; s3cab
   uses [exclude patterns](exclude.md). Anything a writer leaves out on purpose gets an
   `#excluded` row, except its own working folders.
@@ -1202,7 +1204,8 @@ For a restorer, or anything else that reads the files.
   - a name the destination won't create is reported, exit 1, and the rest restore;
   - a download that doesn't hash to its key is withheld.
 - **Storage class.** A bucket lifecycle rule that moves `objects/` to an archive tier breaks
-  a plain download for every tool, s3cab included.
+  a plain download for every tool, s3cab included; s3cab's `verify` reports an object the
+  listing shows in `GLACIER` or `DEEP_ARCHIVE` as `archived`.
 
 ### Writing a snapshot
 

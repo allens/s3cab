@@ -84,6 +84,42 @@ describe("verifySet with a deletion record", () => {
   });
 });
 
+describe("verifySet with an archived object", () => {
+  it("flags every path of an object in an archive tier as archived — a restore can't read it", () => {
+    // A lifecycle rule moved the object to Glacier: it is stored, at the
+    // right size, and a GET fails on it until it is restored from the
+    // archive, so every file whose content it holds is a finding.
+    const referenced = enumerated({
+      s1: { "/a.txt": ["aaa", 10], "/copy/a.txt": ["aaa", 10] },
+    });
+    const stored = new Map([["aaa", { size: 10, storageClass: "GLACIER" }]]);
+    const report = verifySet("photos", referenced, stored);
+
+    assert.deepEqual(report.problems, [
+      {
+        path: "/a.txt",
+        problem: "archived",
+        snapshots: ["s1"],
+        storageClass: "GLACIER",
+      },
+      {
+        path: "/copy/a.txt",
+        problem: "archived",
+        snapshots: ["s1"],
+        storageClass: "GLACIER",
+      },
+    ]);
+    assert.equal(setHasFindings(report), true);
+  });
+
+  it("reads GLACIER_IR as stored — instant retrieval, the class s3cab itself writes", () => {
+    const referenced = enumerated({ s1: { "/a.txt": ["aaa", 10] } });
+    const stored = new Map([["aaa", { size: 10, storageClass: "GLACIER_IR" }]]);
+    const report = verifySet("photos", referenced, stored);
+    assert.deepEqual(report.problems, []);
+  });
+});
+
 describe("verifySet", () => {
   it("reports no problems when every referenced path is stored at its size", () => {
     const referenced = enumerated({
@@ -240,6 +276,15 @@ describe("verifySet", () => {
     assert.deepEqual(report.problems, [
       { path: "/b.txt", problem: "invalid", snapshots: ["s1"], reason },
     ]);
+    assert.equal(setHasFindings(report), true);
+  });
+
+  it("a set with no snapshot read is a finding, not a clean set", () => {
+    // Its marker is in the bucket and its snapshots are gone: nothing was
+    // verified, which a `verify || alert` cron job exists to notice.
+    const report = verifySet("photos", enumerated({}), new Map());
+    assert.equal(report.snapshotsChecked, 0);
+    assert.deepEqual(report.problems, []);
     assert.equal(setHasFindings(report), true);
   });
 

@@ -128,6 +128,16 @@ describe("listStoredObjects", () => {
     );
     assert.deepEqual(out, [{ hash: "aaa", size: 0 }]);
   });
+
+  it("carries the LIST's storage class, for verify's archive-tier check", async () => {
+    listedObjects = [
+      { Key: "objects/aaa", Size: 10, StorageClass: "DEEP_ARCHIVE" },
+    ];
+    const out = await Array.fromAsync(listStoredObjects("my-bucket"));
+    assert.deepEqual(out, [
+      { hash: "aaa", size: 10, storageClass: "DEEP_ARCHIVE" },
+    ]);
+  });
 });
 
 describe("getObject", () => {

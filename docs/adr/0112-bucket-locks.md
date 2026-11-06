@@ -129,8 +129,12 @@ typed bucket name. Then:
    away every backup that starts meanwhile: that is the drain below, an admin's choice, not a side
    effect.
 4. **Cleanup only: top up.** List `snapshots/` again and read every snapshot key that was not in
-   the listing the plan was built from: by key, never by name or time, because a snapshot is
-   named for its start and lands hours later. Their objects leave the orphan plan and join the
+   the listing the plan was built from, or whose bytes have changed since — the LIST's ETag:
+   by key and ETag, never by name or time, because a snapshot is named for its start and lands
+   hours later, and a key can be re-published with different rows inside the window (`forget`
+   then `backup --debug` in the same minute, or two machines sharing a minute name — measured
+   2026-11-05, when a key alone let the re-published snapshot's objects be deleted). Their
+   objects leave the orphan plan and join the
    set compaction keeps rows for, and cleanup's damage checks apply to them: one that is
    unreadable, or has a refused row, aborts the run. No snapshot can land now, so this is final.
 5. **Delete:**

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -1313,6 +1320,68 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
       },
     );
     assert.match(path, /20260623T1000\.tsv\.gz$/);
+  });
+
+  // A run that takes a *live* run's work file — `--resume`'s rename, or the
+  // `del` the in-progress error offers — leaves the live run writing a file
+  // the lock name no longer means. Renaming by name from there would publish
+  // the other run's half-written file under this snapshot's name, on Windows
+  // too (Node opens with delete sharing).
+  it("refuses to publish when another run took its work file, and leaves that run's file alone", async () => {
+    await using dir = await mkTmpDir();
+    const lock = resolve(dir.path, ".snapshot.tsv.gz");
+    const parked = resolve(dir.path, ".snapshot.lookup.tsv.gz");
+    const theirs = "the other run's half-written file";
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "20260623T1000", async (s) => {
+        // What a `--resume` run does while this one is still writing: adopts
+        // the work file (`recoverWorkFile`) and opens its own at the lock name.
+        renameSync(lock, parked);
+        writeFileSync(lock, theirs);
+        s.end("x");
+      }),
+      /another run took its work file/,
+    );
+
+    assert.equal(readFileSync(lock, "utf8"), theirs, "their file is untouched");
+    assert.ok(
+      !existsSync(resolve(dir.path, "20260623T1000.tsv.gz")),
+      "nothing was published",
+    );
+  });
+
+  it("deletes nothing of another run's when it fails after the takeover", async () => {
+    await using dir = await mkTmpDir();
+    const lock = resolve(dir.path, ".snapshot.tsv.gz");
+    const theirs = "the other run's half-written file";
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "20260623T1000", async () => {
+        renameSync(lock, resolve(dir.path, ".snapshot.lookup.tsv.gz"));
+        writeFileSync(lock, theirs);
+        throw new Error("member directory vanished");
+      }),
+      /vanished/,
+    );
+
+    // The failure path releases the lock by unlinking — only its own file.
+    assert.equal(readFileSync(lock, "utf8"), theirs, "their file is untouched");
+  });
+
+  it("refuses when its work file was deleted mid-run, publishing nothing", async () => {
+    await using dir = await mkTmpDir();
+    const lock = resolve(dir.path, ".snapshot.tsv.gz");
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "20260623T1000", async (s) => {
+        unlinkSync(lock);
+        s.end("x");
+      }),
+      /another run took its work file/,
+    );
+
+    assert.ok(!existsSync(resolve(dir.path, "20260623T1000.tsv.gz")));
   });
 });
 

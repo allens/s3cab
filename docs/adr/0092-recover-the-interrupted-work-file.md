@@ -94,6 +94,20 @@ PID and age heuristics for that reason and the refusal stands: **the user is the
 They know whether another s3cab is running on this machine; s3cab can only guess, and a wrong guess
 is two writers on one file.
 
+**Amended 2026-11-05: a wrong guess costs the earlier run its snapshot, never the store.** What
+two writers did was measured, on Windows and Linux: the earlier run finished by renaming the lock
+*name* into place, and with the `--resume` run's half-written file now at that name it published
+that file — unparsed, and exit 0 on a first backup, which reads the new file back only to compare
+it with a baseline — and unlinked its own rows, now in the parked file. The `inProgressError`
+comment that said Windows blocks this through the open handle was false: Node opens the work
+file with delete sharing, so another process renames or deletes it there as on POSIX.
+`withSnapshotFile` now takes the file's identity (`dev` + `ino`, from the volume's file index on
+Windows) from its own handle when it opens the lock, and checks the name still means that file
+before the final rename, the parking rename and the failure-path unlink; when it doesn't, the run
+refuses with `workFileTakenError` and publishes nothing. Its hashes aren't lost: they are in the
+file the `--resume` run adopted, which the next run reads. The check-then-rename window is
+microseconds against a pass of minutes — accepted, as is the user staying the liveness check.
+
 That is also why the error is the surface. There is no state in which a user needs `--resume`
 without having just been told about it: they meet the leftover file by being refused, and the
 refusal names both ways out.
@@ -129,6 +143,8 @@ The unlock is the half the user wanted; the hashes they explicitly asked to thro
 
 **A work file from a *different, still-running* s3cab can be adopted if the user says so.** That is
 the cost of making the user the liveness check, and it is the same cost 0048 already accepted for
-`del`. The outcome is no worse than deleting it: both runs then write, and the loser's rename fails.
-*Reading* a file another run owns is the accepted cost; **deleting** its hashes is not, which is why
-two `--resume` runs settle their race on the rename rather than on a check (decision 3).
+`del`. The outcome is no worse than deleting it: both runs then write, and the earlier one refuses
+at its rename (`workFileTakenError`, the 2026-11-05 amendment above) rather than publish the
+adopter's file. *Reading* a file another run owns is the accepted cost; **deleting** its hashes is
+not, which is why two `--resume` runs settle their race on the rename rather than on a check
+(decision 3).

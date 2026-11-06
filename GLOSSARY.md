@@ -256,7 +256,8 @@ The porcelain verb that checks backups are complete and undamaged without downlo
 anything: every object a set's snapshots reference must exist in the object store, at its
 recorded size. Takes the repository's *bucket* (`s3cab verify <bucket>`, ADR-0042) and checks
 every set sharing it, answering "is this backup restorable?" with findings reported per set —
-and it never writes to the remote.
+and it never writes to the remote. A set with no snapshots, or a bucket with no set, is a
+finding, never a pass (ADR-0117).
 _Avoid_: check, fsck, audit, scrub, validate.
 
 **Forget** (the command):

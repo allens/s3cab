@@ -238,8 +238,9 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
       // prefix — the union scan cleanup (and verify) mark from
       // (lib/remote.mjs) — so restore's set-scoped `snapshots/<set>/`
       // listings stay honest and the damage lands as cleanup's bad sweep,
-      // as the brief's bug would. (verify shares the blinded scan, but with
-      // the store healthy pre-cleanup both verdicts are clean either way.)
+      // as the brief's bug would. (verify shares the blinded scan, and would
+      // trip first: a set it sees no snapshot of is a finding, ADR-0117 — so
+      // the sequence has no verify step, to keep this the cleanup's catch.)
       FakeS3.prototype.listObjects =
         /**
          * @this {FakeS3}
@@ -262,12 +263,10 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
       // are there for the shrinker to remove.
       const steps = /** @type {Step[]} */ ([
         { kind: "create-set", machine: 0, set: "col", seedFiles: [3, 5] },
-        { kind: "verify" },
         { kind: "backup", machine: 0, set: "col" },
         { kind: "mutate", set: "col", file: "f2.txt", content: 6 },
         { kind: "restore", machine: 0, set: "col", index: 0 },
         { kind: "snapshot", machine: 0, set: "col" },
-        { kind: "verify" },
         { kind: "cleanup" },
         { kind: "restore", machine: 0, set: "col", index: 0 },
       ]);

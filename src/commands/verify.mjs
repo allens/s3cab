@@ -33,8 +33,11 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  *
  * **No side effects — read-only:** verify runs on List+Get credentials alone; it
  * never writes to the bucket and keeps no local state. **Exit 1** when any set
- * has findings (via `process.exitCode`, so the report still prints); a clean run
- * returns 0.
+ * has findings (via `process.exitCode`, so the report still prints) — and when
+ * there was nothing to check: a bucket with no sets, or a set whose snapshots
+ * are all gone (`setHasFindings`). A clean run verified at least one snapshot
+ * and returns 0; "all verified" is never said of nothing
+ * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  *
  * **Orphans are not verify's concern.** Objects no snapshot references
  * (`stored − referenced`) are a *reclamation* matter, never an integrity one —
@@ -64,10 +67,12 @@ export async function verify(bucket) {
     .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
     .sort((a, b) => a.set.localeCompare(b.set));
 
-  // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than
-  // throw, so the report still prints to stdout (the entry point renders a
-  // returned result even when the exit code is nonzero).
-  if (reports.some(setHasFindings)) {
+  // Any finding in any set → exit 1 (ADR-0042), and so does a bucket with no
+  // set at all: a cron job pointed at the wrong bucket must not read as a
+  // clean backup. Set process.exitCode rather than throw, so the report still
+  // prints to stdout (the entry point renders a returned result even when the
+  // exit code is nonzero).
+  if (reports.length === 0 || reports.some(setHasFindings)) {
     process.exitCode = 1;
   }
 

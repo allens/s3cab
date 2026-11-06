@@ -9,7 +9,7 @@ import {
   isENOENT,
 } from "./error.mjs";
 import { fileProps, statProps } from "./file-props.mjs";
-import { plural } from "./format.mjs";
+import { countOf, plural } from "./format.mjs";
 import { holdUploadLock } from "./locks.mjs";
 import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
@@ -22,6 +22,7 @@ import { shellCommand } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
+ * @import { CompareError } from "./compare.mjs"
  * @import { Props, RowTransform, SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs"
  * @import { Transfer } from "./s3.mjs"
  * @import { BackupSet } from "./sets.mjs"
@@ -606,7 +607,7 @@ export function uploadSet(set, { rehash, resume, debug } = {}) {
         failure,
       } = uploader.result();
       if (failure) {
-        throw uploadFailedError(failure, set.name, name);
+        throw uploadFailedError(failure, set.name, name, pass.errors.length);
       }
       if (drifted.length > 0) {
         throw fileChangedError(drifted, set.name);
@@ -632,18 +633,27 @@ export function uploadSet(set, { rehash, resume, debug } = {}) {
  * re-reading the set (ADR-0069). A named factory (heavy, actionable message —
  * error.mjs taxonomy), worded per ADR-0030: the user's goal first, the cause in
  * a parenthetical, the fix as a copy-pasteable command.
+ *
+ * The run report never prints on this path, so the files the pass couldn't
+ * read are counted here — otherwise the retry it names is the first the user
+ * hears of them, and only because `upload` lists them and exits 1.
  * @param {Error} cause - The upload failure that stopped the transfers
  * @param {string} set - The set being backed up
  * @param {string} name - The snapshot that was written locally
+ * @param {number} unread - Files the pass couldn't read (its `#error` rows)
  * @returns {Error}
  */
-const uploadFailedError = (cause, set, name) =>
+const uploadFailedError = (cause, set, name, unread) =>
   new Error(
     `Couldn't finish backing up — sending your files to the cloud stopped ` +
       `part-way (${cause.message}).\n\n` +
       `The snapshot of what's on this computer is saved, so nothing has to be ` +
-      `read or hashed again. Once the problem is sorted, carry on from where it ` +
-      `stopped:\n` +
+      `read or hashed again` +
+      (unread > 0
+        ? ` (it holds nothing for ${countOf(unread, "file")} that couldn't ` +
+          `be read; the upload lists them)`
+        : "") +
+      `. Once the problem is sorted, carry on from where it stopped:\n` +
       `  ${shellCommand(`s3cab upload ${set} --snapshot ${name}`)}`,
     { cause },
   );
@@ -751,13 +761,20 @@ const nameTakenError = (set, name, uri) =>
  * @param {string} args.name - The snapshot name to upload, e.g. `20260612T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead
- * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}
+ * @returns {Promise<{ name: string, candidates: number, uploaded: number, errors: CompareError[] }>}
  *   `candidates` = objects considered for upload; `uploaded` = those actually
- *   transferred (the rest were no-ops the conditional PUT found already present).
+ *   transferred (the rest were no-ops the conditional PUT found already present);
+ *   `errors` = the files the snapshot holds nothing for (its `#error` rows, and
+ *   any row the reader refused), each with the reason recorded — published
+ *   all the same, and the caller's to report, as `backup` reports the pass's.
  */
 export async function uploadSnapshot(set, { name, since }) {
   const { bucket, snapshotsDir: snapshotDir } = set;
-  const { entries: target } = await readSnapshot(snapshotDir, name);
+  const { entries: target, errors: unread } = await readSnapshot(
+    snapshotDir,
+    name,
+  );
+  const errors = [...unread].map(([path, reason]) => ({ path, reason }));
 
   /** @type {SnapshotEntries | undefined} */
   let baseline;
@@ -799,7 +816,7 @@ export async function uploadSnapshot(set, { name, since }) {
         claimPath: set.claimPath,
       });
 
-      return { name, candidates, uploaded };
+      return { name, candidates, uploaded, errors };
     },
   );
 }

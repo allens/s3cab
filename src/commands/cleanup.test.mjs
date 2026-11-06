@@ -50,7 +50,7 @@ let compactResult = { files: 0, rows: 0, trimmed: 0 };
 mock.module("../lib/bucket-scan.mjs", {
   exports: {
     scanBucket: async () => ({
-      snapshotFiles: new Map([["photos", ["s1.tsv.gz"]]]),
+      snapshotFiles: new Map([["photos", new Map([["s1.tsv.gz", '"e1"']])]]),
       referencedBySet,
       stored: new Map(storedObjects.map(({ hash, size }) => [hash, { size }])),
       deleted: deletionRecords,

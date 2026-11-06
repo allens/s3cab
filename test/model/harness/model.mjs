@@ -60,6 +60,7 @@ export const sha256 = (/** @type {Buffer | string} */ content) =>
   crypto.hash("sha256", Buffer.from(content), "hex");
 
 const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
+const MARKER_KEY = /^snapshots\/([^/]+)\.info$/;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
@@ -386,9 +387,11 @@ export class RepoModel {
 
   /**
    * Whether `verify` should find problems, computed the way verify defines
-   * them (ADR-0042/ADR-0064): a referenced hash that is neither stored nor
-   * explained by a deletion record, a stored size ≠ a recorded size, or a
-   * manifest the parser can't read.
+   * them (ADR-0042/ADR-0064/ADR-0117): a referenced hash that is neither
+   * stored nor explained by a deletion record, a stored size ≠ a recorded
+   * size, a manifest the parser can't read — and nothing to check at all: a
+   * set whose marker is there with no manifest under it, or a bucket with no
+   * set, since "all verified" is never said of nothing.
    * @returns {Promise<{ findings: string[], expectExit1: boolean }>}
    */
   async expectedVerifyFindings() {
@@ -397,6 +400,17 @@ export class RepoModel {
     const deleted = await this.deletedHashes();
     /** @type {string[]} */
     const findings = [];
+    const sets = new Set(manifests.map((manifest) => manifest.set));
+    for (const { key } of await this.backend.listAll(this.bucket)) {
+      const set = MARKER_KEY.exec(key)?.[1];
+      if (set !== undefined && !sets.has(set)) {
+        sets.add(set);
+        findings.push(`${set}: no snapshots`);
+      }
+    }
+    if (sets.size === 0) {
+      findings.push("nothing to verify: the bucket has no set");
+    }
     for (const manifest of manifests) {
       for (const error of manifest.parseErrors) {
         findings.push(
