@@ -159,7 +159,11 @@ export class FakeS3 {
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     );
     for (const [key, { bytes }] of entries) {
-      yield { Key: key, Size: bytes.length };
+      // The ETag as S3 computes it for a single-part PUT: the quoted MD5 of
+      // the bytes — so two republications of a key tell apart by content, as
+      // `readNewSnapshots` relies on.
+      const ETag = `"${createHash("md5").update(bytes).digest("hex")}"`;
+      yield { Key: key, Size: bytes.length, ETag };
     }
   }
 

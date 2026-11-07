@@ -7,7 +7,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { open, rename, unlink } from "node:fs/promises";
+import { open, rename, stat, unlink } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -37,6 +37,7 @@ import { userAtMachine } from "./user-at-machine.mjs";
 /** @import { ExclusionRecord, WalkError } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
+/** @import { BigIntStats } from "node:fs" */
 /** @import { AssertionError } from "node:assert" */
 
 // The snapshot TSV — this module is its sole writer and parser. The layout is
@@ -235,6 +236,39 @@ const interruptedError = () =>
   );
 
 /**
+ * The file at the lock name is no longer the one this run opened: a `--resume`
+ * run adopted it while this run was still writing, or someone deleted it —
+ * the two remedies `inProgressError` offers on the user's word that nothing is
+ * running. Renaming by name from here would publish the other run's
+ * half-written file under this snapshot's name (or delete it, on the failure
+ * path), so this run gives up instead. A `--resume` run adopted the hashes
+ * this run had written by then, and the next run reads them from its file;
+ * the rows written after that, or every row when the file was deleted, are
+ * hashed again.
+ */
+const workFileTakenError = () =>
+  new Error(
+    `Couldn't finish this snapshot — another run took its work file while it ` +
+      `was still being written (a --resume of this set, or the file was ` +
+      `deleted), so nothing was published.\n\n` +
+      `Wait for that run to finish, then run the same command again.`,
+  );
+
+/**
+ * The stop a parked snapshot ends with when there is nothing to park: the user
+ * interrupted a run whose work file another run had taken. Still the user's
+ * stop, so still `InterruptedError` and its exit code (ADR-0067), not the
+ * failure above — a wrapper keyed on the interrupted exit must see one.
+ */
+const interruptedTakenError = () =>
+  new InterruptedError(
+    `Snapshot stopped. The file hashes computed so far couldn't be saved for ` +
+      `the next run: another run took this run's work file while it was still ` +
+      `being written (a --resume of this set, or the file was deleted).\n\n` +
+      `Wait for that run to finish, then run the same command again.`,
+  );
+
+/**
  * Execute a callback with a managed snapshot file write stream, writing into
  * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/`, resolved by the
  * caller). The FileHandle is automatically disposed when the callback completes.
@@ -246,6 +280,16 @@ const interruptedError = () =>
  * renaming it into place; any failure releases it by unlinking, so a leftover
  * temp file can only mean a killed/crashed run — `inProgressError` tells the
  * user the exact fix. Never auto-broken (no age or PID heuristics).
+ *
+ * Both of those act on the lock *name*, and the name can stop meaning this
+ * run's file part-way: a `--resume` run renames it aside and opens its own
+ * under the same name, a `del` removes it — Node opens with delete sharing, so
+ * Windows lets both through as POSIX does. So the file's identity is taken
+ * from the open handle, and the rename and the unlink first check the name
+ * still means this file; when it doesn't, this run refuses
+ * (`workFileTakenError`) rather than publish, or delete, another run's file.
+ * A check-then-rename leaves a window of microseconds, against the minutes a
+ * resumed pass takes — accepted.
  *
  * A *graceful interrupt* is the third release path (ADR-0067): the callback is
  * asked to stop through the `AbortSignal` it is handed, and the work file is
@@ -264,7 +308,7 @@ const interruptedError = () =>
  * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
- * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
+ * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost (unless another run took its work file, which the message says)
  */
 export async function withSnapshotFile(
   snapshotDir,
@@ -296,6 +340,42 @@ export async function withSnapshotFile(
     }
     throw error;
   }
+
+  // `dev`+`ino` is the identity the handle keeps whatever the name does; on
+  // Windows both come from the volume's file index, by `fstat` and `stat`
+  // alike. `bigint` so a 64-bit index survives. The lock is held and nothing
+  // is written yet, so a failure here releases it as every later one does.
+  /** @type {BigIntStats} */
+  let identity;
+  try {
+    identity = await fd.stat({ bigint: true });
+  } catch (error) {
+    await fd.close();
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+  const { dev, ino } = identity;
+
+  /**
+   * Whether the lock name still means this run's file: `false` once a
+   * `--resume` run or a `del` took it (another file there, or none). A stat
+   * that fails for any other reason answers neither way and is thrown: the
+   * rename it guards would meet the same fault, and reading it as a takeover
+   * would leave this run's lock behind.
+   */
+  const ownsWorkFile = async () => {
+    /** @type {BigIntStats} */
+    let now;
+    try {
+      now = await stat(tmpPath, { bigint: true });
+    } catch (error) {
+      if (isENOENT(error)) {
+        return false;
+      }
+      throw error;
+    }
+    return now.dev === dev && now.ino === ino;
+  };
 
   const chunkSize = 128 * 1024; // 128 KB
 
@@ -353,10 +433,18 @@ export async function withSnapshotFile(
       // replaces on Windows too — see `recoverWorkFile`), and replacing is
       // always right, since a resumed run re-records every row the file it
       // replaces held, making each parked file a superset.
+      const owns = await ownsWorkFile();
+      if (!owns) {
+        throw interruptedTakenError();
+      }
       await rename(tmpPath, parkedPath);
       throw interruptedError();
     }
 
+    const owns = await ownsWorkFile();
+    if (!owns) {
+      throw workFileTakenError();
+    }
     await rename(tmpPath, snapshotPath);
 
     // Delete the parked lookup on *success*, not on read: while a resumed run is
@@ -370,9 +458,18 @@ export async function withSnapshotFile(
   } catch (error) {
     // Release the lock on any failure (after the close above — Windows can't
     // unlink an open file), so a *failed* run never wedges the next one.
-    // Best-effort: a failed unlink must not mask the real error. On the parked
-    // path the temp is already renamed away, so this is a no-op.
-    await unlink(tmpPath).catch(() => {});
+    // Best-effort: a failed unlink must not mask the real error. Only this
+    // run's own file: on the parked path the temp is already renamed away, and
+    // after a takeover the name is another run's live file. When the check
+    // itself fails, the unlink is tried anyway: a lock left behind costs the
+    // next run, and the name is this run's unless something took it.
+    const taken = await ownsWorkFile().then(
+      (owns) => !owns,
+      () => false,
+    );
+    if (!taken) {
+      await unlink(tmpPath).catch(() => {});
+    }
     throw error;
   }
 }
@@ -487,9 +584,12 @@ export function assertNoWorkFile(snapshotDir) {
  * The lock-held error `withSnapshotFile` raises when the snapshot temp file
  * already exists (ADR-0048): either another snapshot/backup of this set is
  * running right now, or a crashed run left the file behind. Never auto-broken —
- * both remedies are gated on "if nothing is running": on POSIX, taking a *live*
- * run's file and re-running can corrupt the store (Windows blocks it via the
- * open handle).
+ * both remedies are gated on "if nothing is running": taking a *live* run's
+ * file costs that run its snapshot, on every platform (Windows does not block
+ * it — Node opens the file with delete sharing, so the rename and the delete
+ * both go through, as on POSIX). The live run notices and refuses to publish
+ * (`workFileTakenError`), so the store is safe; the user's word is what keeps
+ * their own run from being the loss.
  *
  * **Two remedies, recovery first** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)):
  * the work file holds the hashes the dead run had already worked out, which on a

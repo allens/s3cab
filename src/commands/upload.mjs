@@ -13,6 +13,7 @@ import { shellCommand } from "../lib/style.mjs";
 import { uploadDir, uploadFile, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
+/** @import { CompareError } from "../lib/compare.mjs" */
 /** @import { Drift, FileChange } from "../lib/upload.mjs" */
 
 /**
@@ -72,6 +73,8 @@ import { prop } from "./prop.mjs";
  * @property {string} snapshot - The snapshot name that was uploaded
  * @property {number} candidates - Objects considered for upload (not in the baseline)
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
+ * @property {CompareError[]} errors - Files the snapshot holds nothing for (its `#error`
+ *   rows), each with the reason it records; the run exits 1 when there are any
  *
  * @typedef {Object} DirUploadResult
  * @property {"dir"} mode - Folder-seed upload (objects only, no snapshot)
@@ -227,16 +230,25 @@ export async function upload(setName, options = {}) {
   console.warn(`Uploading '${set.name}/${snapshotName}' to '${set.bucket}':`);
   // uploadSnapshot reads the target first, so a missing --snapshot fails fast
   // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
-  const { candidates, uploaded } = await uploadSnapshot(set, {
+  const { candidates, uploaded, errors } = await uploadSnapshot(set, {
     name: snapshotName,
     since,
   });
+  // A `#error` row is a file the snapshot holds nothing for, so the run exits
+  // 1 as `backup` and `snapshot` do for the pass that wrote it: this is the
+  // retry a failed backup names, and `s3cab upload … && notify-ok` must not
+  // record success for a backup that omitted files. Not a throw — the snapshot
+  // is published and the report prints.
+  if (errors.length > 0) {
+    process.exitCode = 1;
+  }
   return {
     mode: "snapshot",
     set: set.name,
     snapshot: snapshotName,
     candidates,
     uploaded,
+    errors,
   };
 }
 

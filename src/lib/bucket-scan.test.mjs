@@ -3,6 +3,7 @@ import { describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @import { Readable } from "node:stream" */
+/** @import { _Object } from "@aws-sdk/client-s3" */
 
 // The scan's one job is the *order* of its three reads (see the module header),
 // so that is what this pins — through the real remote.mjs / objects.mjs /
@@ -17,8 +18,8 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 /** Every LIST prefix asked for, in the order the requests began. */
 /** @type {string[]} */
 let listed = [];
-/** What each prefix's LIST yields — keys only; sizes where set. */
-/** @type {Record<string, { Key: string, Size?: number }[]>} */
+/** What each prefix's LIST yields — keys; sizes, classes and ETags where set. */
+/** @type {Record<string, _Object[]>} */
 let keysByPrefix = {};
 /** The deletion record's body, when a test stores one. */
 /** @type {Record<string, string>} */
@@ -72,8 +73,10 @@ describe("scanBucket", () => {
     // Every read has something to find, so the order is not an artifact of an
     // empty phase returning early.
     keysByPrefix = {
-      "snapshots/": [{ Key: "snapshots/photos/20260612T0915.tsv.gz" }],
-      "objects/": [{ Key: "objects/aaa", Size: 10 }],
+      "snapshots/": [
+        { Key: "snapshots/photos/20260612T0915.tsv.gz", ETag: '"e1"' },
+      ],
+      "objects/": [{ Key: "objects/aaa", Size: 10, StorageClass: "STANDARD" }],
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
     textByUri["s3://b/objects.deleted-1.tsv"] =
@@ -85,12 +88,16 @@ describe("scanBucket", () => {
 
     assert.deepEqual(listed, ["snapshots/", "objects/", "objects.deleted-"]);
     assert.deepEqual([...scan.referencedBySet.keys()], ["photos"]);
-    // The listing the top-up will diff against: every key, by set.
+    // The listing the top-up will diff against: every key, by set, with the
+    // bytes' identity.
     assert.deepEqual(
       scan.snapshotFiles,
-      new Map([["photos", ["20260612T0915.tsv.gz"]]]),
+      new Map([["photos", new Map([["20260612T0915.tsv.gz", '"e1"']])]]),
     );
-    assert.deepEqual(scan.stored, new Map([["aaa", { size: 10 }]]));
+    assert.deepEqual(
+      scan.stored,
+      new Map([["aaa", { size: 10, storageClass: "STANDARD" }]]),
+    );
     assert.deepEqual(
       scan.deleted,
       new Map([["b".repeat(64), { deletedOn: "2026-08-22T11:04:55.120Z" }]]),

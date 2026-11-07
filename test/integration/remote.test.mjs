@@ -65,7 +65,7 @@ describe("remote snapshot listing (real bucket)", () => {
     // A set with no remote snapshot yet diffs against an empty lookup, so every
     // target hash is a candidate (its first backup uploads everything).
     assert.deepEqual(await readLatestRemoteSnapshot(bucket, set), {
-      name: undefined,
+      names: [],
       lookup: new Map(),
     });
   });

@@ -151,7 +151,13 @@ s3cab delete --bucket <bucket> <path>... [-n|--dry-run] [-f|--force] [--everywhe
   later was uploaded with the object present (objects first, snapshot last), so if the
   object is gone now, the row isn't why. `verify`, `cleanup`'s interlock and `forget`'s
   loss count all take the rows through `explainingDeletions`; `restore` compares its one
-  snapshot. Skewed clocks, and a snapshot with no `START`, read as damage: the safe side.
+  snapshot. A snapshot with no `START` reads as damage. A skewed clock cuts both ways: a
+  deleting machine whose clock is *slow* dates its row before the backup, so a real deletion
+  reads as damage — the safe side; one whose clock is *fast*, or an `upload --snapshot` of an
+  old snapshot after the delete, dates the row after a backup that stored the content again,
+  so a later real loss of that object reads as expected (measured 2026-11-05, in the model
+  tier). Known and open: the fix is the record saying when content was stored again, a format
+  change, listed in [proposals/bugs.md](../../proposals/bugs.md).
   `backup`'s baseline subtraction stays date-blind, since a stale row there costs only a
   re-upload.
 

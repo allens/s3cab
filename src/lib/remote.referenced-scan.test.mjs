@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { describe, it, mock } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 import { gzipSync } from "node:zlib";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { HEADING } from "./snapshot-file.mjs";
@@ -21,6 +21,11 @@ import { HEADING } from "./snapshot-file.mjs";
 let onGetStream;
 /** @type {string[]} */
 let snapshotKeys;
+/** @type {Record<string, string>} each key's ETag, where a test sets one */
+let etags = {};
+beforeEach(() => {
+  etags = {};
+});
 
 // The scan's two reads, and nothing else: the listing it walks and the bodies it
 // pulls. `isObjectNotFound` is left to the stencil's default — the real
@@ -29,13 +34,14 @@ mock.module("./s3.mjs", {
   exports: s3Seam({
     listObjects: async function* () {
       for (const Key of snapshotKeys) {
-        yield { Key };
+        yield { Key, ETag: etags[Key] };
       }
     },
     getStream: (/** @type {string} */ uri) => onGetStream(uri),
   }),
 });
-const { referencedObjects } = await import("./remote.mjs");
+const { listSnapshotFiles, readNewSnapshots, referencedObjects } =
+  await import("./remote.mjs");
 
 const BUCKET = "b";
 /** @param {string} set @param {string} name */
@@ -140,6 +146,86 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     const bySet = await referencedObjects(BUCKET);
     assert.deepEqual([...bySet.keys()], ["s"]);
     assert.equal(bySet.get("s")?.snapshotsChecked, 1);
+  });
+
+  it("enumerates a set whose marker is listed with nothing under it — nothing checked, not absent", async () => {
+    // A set whose snapshots are all gone is still a set: `verify` reports it
+    // rather than passing a set it never looked at (ADR-0117).
+    snapshotKeys = ["snapshots/s.info"];
+
+    const bySet = await referencedObjects(BUCKET);
+    assert.deepEqual([...bySet.keys()], ["s"]);
+    assert.equal(bySet.get("s")?.snapshotsChecked, 0);
+    assert.deepEqual(bySet.get("s")?.unreadable, []);
+  });
+
+  it("registers no set for a stray key that isn't a canonical set's", async () => {
+    // Keys a console can make beside the real ones: none may become a phantom
+    // set that `verify` reports as `no snapshots` on every run.
+    snapshotKeys = [
+      "snapshots/.info",
+      "snapshots/Photos.info",
+      "snapshots/notes.old.info",
+      "snapshots/readme.txt",
+      "snapshots/",
+    ];
+
+    const bySet = await referencedObjects(BUCKET);
+    assert.deepEqual([...bySet.keys()], []);
+  });
+
+  it("keeps a canonical folder with no valid snapshot in it as a set with none", async () => {
+    // `snapshots/old-copy/readme.txt` is a set as far as `list --remote` is
+    // concerned, so verify reports it rather than passing over it.
+    snapshotKeys = ["snapshots/old-copy/readme.txt"];
+
+    const bySet = await referencedObjects(BUCKET);
+    assert.deepEqual([...bySet.keys()], ["old-copy"]);
+    assert.equal(bySet.get("old-copy")?.snapshotsChecked, 0);
+  });
+});
+
+// The listing diff behind cleanup's top-up (ADR-0112 step 4): what appeared
+// since the scan's listing, by key *and* by the bytes under it.
+describe("readNewSnapshots (mocked s3)", () => {
+  const republished = key("s", "20250601T0800");
+
+  it("reads a snapshot republished under a name the earlier listing saw, by its ETag", async () => {
+    // A `forget` and a backup in the same minute put other bytes under the
+    // same key; by key alone the top-up would skip it and its objects would
+    // be deleted as orphans.
+    snapshotKeys = [republished];
+    etags = { [republished]: '"v1"' };
+    onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
+    const known = await listSnapshotFiles(BUCKET);
+    etags = { [republished]: '"v2"' };
+
+    const added = await readNewSnapshots(BUCKET, known);
+
+    assert.equal(added.get("s")?.snapshotsChecked, 1);
+  });
+
+  it("reads nothing when every key still holds the bytes the listing saw", async () => {
+    snapshotKeys = [republished];
+    etags = { [republished]: '"v1"' };
+    onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
+    const known = await listSnapshotFiles(BUCKET);
+
+    const added = await readNewSnapshots(BUCKET, known);
+
+    assert.equal(added.size, 0);
+  });
+
+  it("reads a key again when the store lists it with no ETag", async () => {
+    // With nothing to compare the bytes by, the key alone would decide — the
+    // comparison this guard exists to replace — so the key is read again.
+    snapshotKeys = [republished];
+    onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
+    const known = await listSnapshotFiles(BUCKET);
+
+    const added = await readNewSnapshots(BUCKET, known);
+
+    assert.equal(added.get("s")?.snapshotsChecked, 1);
   });
 
   it("still rethrows an operational error (aborts the scan)", async () => {

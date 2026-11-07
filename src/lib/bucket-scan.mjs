@@ -5,6 +5,8 @@ import { listSnapshotFiles, readReferencedObjects } from "./remote.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 /** @import { InvalidRecord, RecordedDeletion } from "./deletion-record.mjs" */
+/** @import { SnapshotListing } from "./remote.mjs" */
+/** @import { StoredObject } from "./objects.mjs" */
 
 // The read-side composition of a repository's three layouts — `snapshots/`
 // (remote.mjs), `objects/` (objects.mjs) and the root-level deletion record
@@ -42,13 +44,13 @@ import { listSnapshotFiles, readReferencedObjects } from "./remote.mjs";
  * What a whole-bucket scan reads, in the order it read it. `stored` is
  * materialized rather than streamed because both consumers ask "is this hash
  * stored?" per referenced object (CLAUDE.md's consumer-decides stance), and
- * carries the LIST's `Size` for `verify`'s cross-check. `snapshotFiles` is the
- * listing step 1 read, kept so `cleanup`'s top-up can read only what appeared
- * since (ADR-0112).
+ * carries the LIST's `Size` for `verify`'s cross-check and its `StorageClass`
+ * for the archive-tier check. `snapshotFiles` is the listing step 1 read, kept
+ * so `cleanup`'s top-up can read only what appeared since (ADR-0112).
  * @typedef {Object} BucketScan
- * @property {Map<string, string[]>} snapshotFiles - The `snapshots/` listing, set name → files (`listSnapshotFiles`)
+ * @property {SnapshotListing} snapshotFiles - The `snapshots/` listing, set name → files (`listSnapshotFiles`)
  * @property {Map<string, ReferencedResult>} referencedBySet - The referenced enumeration per set name (`referencedObjects`)
- * @property {Map<string, { size: number }>} stored - Every stored object: hash → LIST size
+ * @property {Map<string, Omit<StoredObject, "hash">>} stored - Every stored object: hash → its LIST size and storage class
  * @property {Map<string, RecordedDeletion>} deleted - The deletion rows that explain an absence (`explainingDeletions`): hash → when it was deliberately deleted
  * @property {InvalidRecord[]} invalidRecords - The deletion record files that aren't valid (ADR-0101)
  */
@@ -69,8 +71,8 @@ export async function scanBucket(bucket) {
 
   /** @type {BucketScan["stored"]} */
   const stored = new Map();
-  for await (const { hash, size } of listStoredObjects(bucket)) {
-    stored.set(hash, { size });
+  for await (const { hash, size, storageClass } of listStoredObjects(bucket)) {
+    stored.set(hash, { size, storageClass });
   }
 
   const { deleted, invalid } = await readDeletionRecords(bucket);

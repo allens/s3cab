@@ -628,7 +628,7 @@ report answers "is *this backup* restorable?" per set even though you named a bu
 **unreadable snapshots**, all computed from the two enumerations already in hand (zero
 extra requests). The check runs per referenced *path* (a hash under many paths yields many
 rows) so the model is 1:1 with what a user restores; **hashes never surface**, and the
-`--json` and human views share the one shape (ADR-0042, ADR-0043). Two
+`--json` and human views share the one shape (ADR-0042, ADR-0043). Three
 problem kinds:
 
 1. **`missing`** — the file's content hash is absent from `objects/`: the broken
@@ -641,6 +641,13 @@ problem kinds:
    the file(s) that disagree with storage. No ambiguous-size skip, no separate conflict
    category: a genuinely wrong recorded size can no longer hide. (Objects are stored raw,
    so recorded and stored sizes are directly comparable; both sizes ride the row.)
+3. **`archived`** — the object is stored, but the LIST's `StorageClass` is `GLACIER` or
+   `DEEP_ARCHIVE`, which no plain GET reads: a lifecycle rule moved it, and `restore` fails on
+   it as on a missing one. One row per path, naming the class
+   ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). The finding
+   clears when the object is moved back to an instant-access class, not when a restore request
+   lands a temporary readable copy: the LIST still says the archive class, and telling the copy
+   apart is a HEAD per object, which ADR-0042 rules out.
 
 **Unreadable snapshots** stay *outside* `problems` (they aren't file-shaped — a corrupt
 snapshot file has no file list to annotate, only a lost restore point). A snapshot that fails
@@ -657,9 +664,12 @@ threaten restorability — so orphan reporting lives in `cleanup`'s non-destruct
 (above), where the unreadable-snapshot caveat is a hard safety gate rather than the
 advisory `orphanObjectsExact` upper-bound flag it once was in verify. That move is why
 verify's result no longer carries a stored-object total or an orphan count (ADR-0042).
-**Exit 1 when any set has findings** (0 = verified clean; 2 stays bad
-input), so `s3cab verify <bucket> || alert` is the cron idiom — no dedicated exit code until
-a script actually needs to distinguish "damaged" from "check failed".
+**Exit 1 when any set has findings, or when nothing was checked** — a bucket with no set
+(`nothing to verify ✗`), a set whose snapshots are gone (`no snapshots`,
+[ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)) — (0 = at least one
+snapshot read and verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is
+the cron idiom — no dedicated exit code until a script actually needs to distinguish
+"damaged" from "check failed".
 
 **Remote read-only, no side effects:** verify never writes to the bucket — it runs on
 List+Get credentials alone — and keeps no local state. (It used to rewrite a per-bucket

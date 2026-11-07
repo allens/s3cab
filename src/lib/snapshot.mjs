@@ -196,7 +196,7 @@ export async function readBaseline(set, { rehash, resume }) {
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
- * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below
+ * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `name` for the clock-went-backwards warning below
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
@@ -206,7 +206,7 @@ export async function generateSnapshot(
   set,
   { baseline, through, transfer, debug } = {},
 ) {
-  const { lookup, previous: sizes, instant: previousInstant } = baseline ?? {};
+  const { lookup, previous: sizes, name: previousName } = baseline ?? {};
   // From here, not from the first hashed row: the walk is part of what the
   // report calls scanning, and on a big set it is minutes of it.
   const startedAt = performance.now();
@@ -215,7 +215,7 @@ export async function generateSnapshot(
   // spellings the file needs, which therefore cannot disagree (ADR-0072).
   const moment = snapshotMoment();
   const { name } = moment;
-  warnIfClockWentBack(moment, previousInstant);
+  warnIfClockWentBack(moment, previousName);
   // The pass announces itself once, here, so the line that follows carries no
   // constant text at all — it was spending a dozen columns four times a second
   // repeating a label that never changed, and those columns are what the file
@@ -750,26 +750,22 @@ function fitPath(path, room) {
  * this says it out loud at the one moment the fault is *created*, rather than
  * leaving someone to find it when they are restoring.
  *
- * Compares true instants, not names, so it cannot mis-fire on a name that merely
- * looks odd; and it catches every cause, including a clock that is simply wrong.
+ * Compares the **names**, because the names are what sort: a name that sorts
+ * before its predecessor's is the fault, whatever the instants say. Not the
+ * instants — in both knowable cases the instant goes *forward* while the name
+ * goes back (the hour after the clocks go back, a flight west), so an instant
+ * comparison was silent on exactly the two cases this exists for and caught
+ * only a clock set back. A name read as a naive datetime is ambiguous for an
+ * hour a year, which is why the names aren't the *ordering*'s answer
+ * (ADR-0072); here the ambiguity is the thing being warned about.
  *
  * **Warns, never blocks.** A clock oddity must not stop a backup — least of all
  * while travelling, which is one of the two ways to get here.
- *
- * Silent whenever the predecessor cannot answer — the condition is
- * `previousInstant`, not "is this a first run". Usually there is no predecessor
- * at all; a predecessor whose file carries no `@SNAPSHOT START` row reaches here
- * the same way, since `Snapshot` leaves the instant absent rather than guessing
- * it. Guessing from the names instead would reintroduce exactly the ambiguity
- * this check exists to see through.
- * @param {{ name: string, instant: string }} moment - The snapshot about to be written
- * @param {string} [previousInstant] - The predecessor's instant, if it has one
+ * @param {{ name: string }} moment - The snapshot about to be written
+ * @param {string} [previousName] - The predecessor's name, if there is one
  */
-function warnIfClockWentBack({ name, instant }, previousInstant) {
-  if (
-    !previousInstant ||
-    Temporal.Instant.compare(instant, previousInstant) >= 0
-  ) {
+function warnIfClockWentBack({ name }, previousName) {
+  if (!previousName || name >= previousName) {
     return;
   }
   console.warn(

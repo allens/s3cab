@@ -705,24 +705,72 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: false,
       backedUp: "20260701T0900",
       toUpload: 12,
     });
     assert.match(text, /^photos\n/);
     assert.match(text, /\n {2}latest snapshot {3}20260704T1000\n/);
     assert.match(text, /\n {2}backed up {9}20260701T0900\n/);
-    assert.match(text, /\n {2}12 objects to upload$/);
+    assert.match(
+      text,
+      /\n {2}latest snapshot not backed up — 12 objects to upload$/,
+    );
   });
 
-  it("collapses to 'up to date' at zero and 'never' when never backed up", () => {
+  it("says 'up to date' only when the latest snapshot is backed up", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
+      snapshotBackedUp: true,
+      backedUp: "20260704T1000",
+      toUpload: 0,
+    });
+    assert.match(text, /\n {2}up to date$/);
+  });
+
+  it("never says 'up to date' of a snapshot that isn't backed up, even with nothing to upload", () => {
+    // Every object is stored (a backup that died between its last object and
+    // the snapshot, say) — the snapshot itself is still not in the bucket.
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "20260704T1000",
+      snapshotBackedUp: false,
+      backedUp: "20260701T0900",
+      toUpload: 0,
+    });
+    assert.doesNotMatch(text, /up to date/);
+    assert.match(
+      text,
+      /\n {2}latest snapshot not backed up — its objects are all stored$/,
+    );
+  });
+
+  it("doesn't call a backed-up snapshot not backed up because the bucket holds a newer one", () => {
+    // Another machine backed the set up since: this machine's latest is in
+    // the bucket, and `backup` here would be refused anyway (not the holder).
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "20260701T0900",
+      snapshotBackedUp: true,
+      backedUp: "20260704T1000",
+      toUpload: 0,
+    });
+    assert.match(text, /\n {2}backed up {9}20260704T1000\n/);
+    assert.doesNotMatch(text, /not backed up/);
+    assert.match(text, /\n {2}up to date$/);
+  });
+
+  it("prints 'never' when never backed up", () => {
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "20260704T1000",
+      snapshotBackedUp: false,
       backedUp: null,
       toUpload: 0,
     });
     assert.match(text, /\n {2}backed up {9}never\n/);
-    assert.match(text, /\n {2}up to date$/);
+    assert.match(text, /\n {2}latest snapshot not backed up — /);
   });
 });
 
@@ -804,6 +852,46 @@ describe("renderVerify", () => {
     assert.match(
       text,
       /reports\/q1\.xlsx {9}wrong size {3}\(recorded 24,102 bytes, stored 24,000\)/,
+    );
+  });
+
+  it("never calls a bucket with no set verified — nothing was checked", () => {
+    const text = renderVerify({ bucket: "b", sets: [] }, { color: false });
+    assert.equal(text, "b: 0 sets, 0 objects checked — nothing to verify ✗");
+  });
+
+  it("names a set with no snapshot to check as a finding", () => {
+    const text = renderVerify(
+      { bucket: "b", sets: [report({ set: "photos", snapshotsChecked: 0 })] },
+      { color: false },
+    );
+    assert.match(text, /— 1 set with findings ✗\n/);
+    assert.match(text, /\n {2}photos {3}no snapshots$/);
+  });
+
+  it("says which storage class an archived file's content sits in", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "music",
+            problems: [
+              {
+                path: "/a.txt",
+                problem: "archived",
+                snapshots: ["2026-06-01"],
+                storageClass: "DEEP_ARCHIVE",
+              },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.match(
+      text,
+      /\/a\.txt {3}archived {3}\(in the DEEP_ARCHIVE storage class; a restore can't read it until it's moved back to an instant-access class\)/,
     );
   });
 
@@ -1436,6 +1524,7 @@ describe("renderUpload", () => {
       snapshot: "20260704T1000",
       candidates: 120,
       uploaded: 3,
+      errors: [],
     });
     assert.equal(
       text,
@@ -1451,8 +1540,62 @@ describe("renderUpload", () => {
       snapshot: "20260704T1000",
       candidates: 0,
       uploaded: 0,
+      errors: [],
     });
     assert.match(text, /already up to date, nothing new to upload\.$/);
+  });
+
+  it("lists the files a published snapshot holds nothing for, as backup's report would", () => {
+    // The retry a failed backup names publishes the pass's `#error` rows; the
+    // backup's own report never printed, so this is the first the user sees
+    // of them. Same block as `renderBackup`'s, and the fix is a fresh backup.
+    const text = renderUpload({
+      mode: "snapshot",
+      set: "photos",
+      snapshot: "20260704T1000",
+      candidates: 2,
+      uploaded: 2,
+      errors: [
+        {
+          path: "D:\\Photos\\locked.psd",
+          reason:
+            "EBUSY: resource busy or locked, open 'D:\\Photos\\locked.psd'",
+        },
+      ],
+    });
+    assert.equal(
+      text,
+      "Uploaded snapshot '20260704T1000' to 'photos': uploaded 2 objects.\n" +
+        "\n" +
+        "Couldn't be backed up:\n" +
+        "  Errors  1\n" +
+        "    D:\\Photos\\locked.psd  (EBUSY: resource busy or locked)\n" +
+        "\n" +
+        "To try again:\n" +
+        "  s3cab backup photos",
+    );
+  });
+
+  it("names the compare that shows the rest of a cut error list, as backup's report does", () => {
+    // ADR-0078 §2 allows the cut only because the rest are one local compare
+    // away; `--since` defaults to the snapshot before this one.
+    const errors = Array.from({ length: 12 }, (_, i) => ({
+      path: `/photos/locked-${i}.psd`,
+      reason: "EBUSY",
+    }));
+    const text = renderUpload({
+      mode: "snapshot",
+      set: "photos",
+      snapshot: "20260704T1000",
+      candidates: 2,
+      uploaded: 2,
+      errors,
+    });
+    assert.match(text, /\n {4}and 2 more\n/);
+    assert.match(
+      text,
+      /\nTo see the details:\n {2}s3cab compare photos --until 20260704T1000$/,
+    );
   });
 
   it("reports a folder seed's content line under a 'Seeded' headline", () => {

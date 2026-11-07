@@ -189,6 +189,64 @@ cross-OS restore. **From reading only, not a run:** macOS, Windows 10, FAT/exFAT
 `MAX_PATH`, and a symlink owned by another user under `protected_symlinks`. The full list is the
 deleted `proposals/audit-restore-2026-11-04.md`, in git history.</sub>
 
+<sub>Two **cold durability audits** (2026-11-05: one on Claude Opus 5.5 reading `4fb7dd7f`, one
+begun on Opus 5.5 and measured on Claude Fable 5.1 reading `e55eb35a`; brief: the 2026-08-12 one
+plus *a health or status report that says all is well over a store that can't restore*)
+contributed eight entries, one found by both, **seven fixed 2026-11-05** and one recorded as an
+open limit below. Each was pinned by a failing test, in the model-based suite
+([test/model/model.durability.test.mjs](../test/model/model.durability.test.mjs),
+[test/model/model.durability-audit.test.mjs](../test/model/model.durability-audit.test.mjs)) or
+beside its command ([src/commands/snapshot.clock.test.mjs](../src/commands/snapshot.clock.test.mjs)),
+each now asserting the correct behaviour. The one lost backup: a run finishing beside a
+`--resume` run renamed the lock *name* into place, so it published the resumed run's
+half-written file — exit 0 on a first backup, the long pass most likely to look stuck — and
+unlinked its own rows; the comment saying Windows blocks this through the open handle was
+measured false (Node opens with delete sharing). `withSnapshotFile` now takes the work file's
+identity from its own handle and refuses, publishing nothing, when the name no longer means that
+file ([ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md), amended). The four
+health reports that lied, settled by
+[ADR-0117](../docs/adr/0117-health-reports-count-only-what-they-checked.md): `verify` said "all
+verified ✓", exit 0, over an empty bucket and over a set whose every snapshot was gone
+(`readReferencedObjects` dropped a set with no names before anything reported it) — now exit 1,
+`nothing to verify ✗` and a `no snapshots` finding, a set not yet backed up reading the same on
+purpose; `verify` passed an object a lifecycle rule had moved to `GLACIER` or `DEEP_ARCHIVE`,
+where `restore` fails — the LIST's storage class now reaches a per-path `archived` finding;
+`status` said "up to date" whenever nothing was left to upload, the latest snapshot not in the
+bucket (a rename or deletion whose objects were all stored) — now only when the latest snapshot
+*is* the backed-up one; and `upload --snapshot` exited 0 over `#error` rows, so the retry a failed
+backup names hid the file it couldn't read — `upload` now lists them and exits 1, and the
+upload-failed error counts them. The one silent loss in `cleanup`: its top-up compared the two
+`snapshots/` listings by key, so a key re-published with different rows inside its scan-to-lock
+window (`forget` then `backup --debug` in the same minute) kept its stale references and the new
+rows' objects were deleted — now by key and ETag ([ADR-0112](../docs/adr/0112-bucket-locks.md)
+step 4). And the clock warning compared true instants, which move *forward* at the end of
+daylight saving and on a move west, the two cases [guide/format.md](../guide/format.md) names —
+it now compares the names, which are what sort
+([ADR-0072](../docs/adr/0072-timestamps-utc-in-files-local-in-names.md) check A). **Ruled
+out**, by running unless noted: hostile snapshot bodies (zero bytes, a cut gzip, garbage after
+the trailer, two members, plain text, an unknown row type), each a `verify` finding, a `restore`
+refusal and a succeeding next backup; 300 fuzzed odd names restored byte-identical, with tab, LF,
+CR and invalid UTF-8 refused loudly; nested and doubled roots refused; process death at every
+request boundary of backup, multipart, cleanup and forget (`test:crash`, 21/21 on the real
+bucket), `--resume` then restoring byte-identically; a mid-transfer mutation, an incomplete
+multipart, drift mid-backup and a manifest PUT with a lost response (ADR-0083/0084); Ctrl+C at
+the last row parks and publishes nothing; parked rows feed only the lookup, never `stored`;
+`takeover`'s crash points and a differing same-name local snapshot; `forget` holder-gated and
+never touching objects; the deletion record's record-first order, presence winning on HEAD,
+compaction merging before it deletes; same size and mtime (ADR-0094); random 40-step sequences,
+300 seeds across Windows and WSL. **Not defects, worth knowing**: `verify` is silent on an
+invalid deletion record (`cleanup` refuses on it, and a missing object then reads as damage);
+`verify` is green on a snapshot with `#error` rows by design; the trailer's `FILES`/`SIZE` aren't
+checked (gzip's CRC makes damage unreachable there, and the values are for people); while a
+baseline is trusted, `backup` doesn't re-upload an object lost to outside damage (ADR-0084's
+trade; `verify` catches it); a first backup over a key already holding wrong-size bytes uploads
+nothing, and `verify` flags it; a damaged remote snapshot pulled by `takeover` makes every later
+`backup` fail loudly; a file over about 160 GiB exceeds 10,000 parts and fails loudly;
+`test:crash` runs only by hand, not in CI. **Read only, not run**: macOS; the eight against a
+real bucket (none depends on anything S3 does); a kill between the work file's rename and the
+manifest PUT with a second run started in the gap; a bucket name that doesn't exist;
+`INTELLIGENT_TIERING`'s archive tiers, which a LIST can't show.</sub>
+
 **Open:**
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
@@ -197,6 +255,20 @@ deleted `proposals/audit-restore-2026-11-04.md`, in git history.</sub>
 - **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
   where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
   non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.
+- **A deleting machine's fast clock, or an `upload --snapshot` of an old snapshot, makes a later
+  real loss read as deliberate.** A `#deleted` row explains an absence when its instant is later
+  than every referencing snapshot's `START`, so a row dated after a backup that stored the
+  content again — `delete` from a clock 10 minutes fast, then the holder's `backup` of the same
+  file at true time +5; or an old snapshot uploaded after the delete — covers that object for
+  good: lost afterwards, `verify` says "deleted … expected, not damage", exit 0, and `restore`
+  exits 0 without it (the control at +15 reads `missing`). A `delete` whose DELETE pass fails
+  after its record is written leaves the same shape, a row for a present object.
+  [guide/format.md](../guide/format.md) and
+  [ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md) say so; the fix is the
+  record saying when content was stored again — a format change, open pre-1.0. Pinned as a
+  `todo` in
+  [test/model/model.durability-audit.test.mjs](../test/model/model.durability-audit.test.mjs).
+  Run in the model tier, Windows and WSL.
 - **A UTF-16 `exclude.txt` with LF endings silently matches nothing.** It is read as UTF-8, so
   every pattern is NUL-laden garbage: no `#excluded` row, exit 0, `tree --excluded` says "Nothing
   was excluded", and the `@CLIENT EXCLUDE` rows record the garbage. Nothing on the read path

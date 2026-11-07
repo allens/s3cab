@@ -94,21 +94,32 @@ export async function getObject(bucket, hash, destPath) {
 }
 
 /**
- * Yield every stored object as `{ hash, size }` — the bare SHA-256 of each key
- * under `objects/` (prefix stripped) with its LIST `Size`. The one enumeration
- * of the object store, from which the hash-only listing (`listObjectHashes`)
- * and the whole-bucket scan (`scanBucket`, bucket-scan.mjs — `verify`'s size
- * cross-check and `cleanup`'s orphan sweep) draw: a LIST already returns each
- * key with its size, so `verify` gets sizes with no per-object HEAD
- * (docs/design/backup.md). Not the LIST's `LastModified`: an object's age
- * decides nothing — what keeps an in-flight backup's objects safe from
- * `cleanup` is the locks (ADR-0112), not a grace window.
+ * What one `objects/` LIST row says about a stored object: its hash (the key,
+ * prefix stripped), its `Size`, and its `StorageClass` — absent where the LIST
+ * carries none, which the SDK types allow and some S3-compatible stores do.
+ * @typedef {Object} StoredObject
+ * @property {string} hash
+ * @property {number} size
+ * @property {string} [storageClass]
+ */
+
+/**
+ * Yield every stored object (`StoredObject`) — the bare SHA-256 of each key
+ * under `objects/` (prefix stripped) with its LIST `Size` and `StorageClass`.
+ * The one enumeration of the object store, from which the hash-only listing
+ * (`listObjectHashes`) and the whole-bucket scan (`scanBucket`,
+ * bucket-scan.mjs — `verify`'s size and archive-tier checks and `cleanup`'s
+ * orphan sweep) draw: a LIST already returns each key with both, so `verify`
+ * gets them with no per-object HEAD (docs/design/backup.md). Not the LIST's
+ * `LastModified`: an object's age decides nothing — what keeps an in-flight
+ * backup's objects safe from `cleanup` is the locks (ADR-0112), not a grace
+ * window.
  * @param {string} bucket - The repository's S3 bucket
- * @yields {{ hash: string, size: number }} A stored object's hash and size
- * @returns {AsyncGenerator<{ hash: string, size: number }>}
+ * @yields {StoredObject} A stored object's hash, size and storage class
+ * @returns {AsyncGenerator<StoredObject>}
  */
 export async function* listStoredObjects(bucket) {
-  for await (const { Key, Size } of listObjects(
+  for await (const { Key, Size, StorageClass } of listObjects(
     `s3://${bucket}/${OBJECTS_PREFIX}`,
   )) {
     // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
@@ -116,7 +127,7 @@ export async function* listStoredObjects(bucket) {
     // phantom stored object.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
     if (hash) {
-      yield { hash, size: Size ?? 0 };
+      yield { hash, size: Size ?? 0, storageClass: StorageClass };
     }
   }
 }

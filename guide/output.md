@@ -76,7 +76,7 @@ A few things worth knowing:
   | Code | Means |
   | ---- | ----- |
   | `0`   | success — including a restore whose only gaps are deliberate deletions |
-  | `1`   | a runtime failure, or findings: `verify` found problems, `restore` couldn't produce a file, `backup` or `snapshot` couldn't read one |
+  | `1`   | a runtime failure, or findings: `verify` found problems or had nothing to check, `restore` couldn't produce a file, `backup`, `snapshot` or `upload` couldn't read one |
   | `2`   | bad input — a usage error, an unknown flag, an invalid name |
   | `127` | unknown command |
   | `130` | interrupted (Ctrl+C) |
