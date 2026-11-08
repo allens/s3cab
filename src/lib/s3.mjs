@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  GetBucketVersioningCommand,
   GetObjectCommand,
   HeadObjectCommand,
   paginateListObjectsV2,
@@ -1035,8 +1036,25 @@ export async function getBytes(uri) {
 }
 
 /**
+ * Whether a bucket keeps the old versions of what is deleted or overwritten
+ * (ADR-0118). S3 reports no status at all for a bucket that never had it on.
+ * @param {string} bucket
+ * @returns {Promise<"enabled" | "suspended" | "never-enabled">}
+ */
+export async function bucketVersioning(bucket) {
+  const { Status } = await client().send(
+    new GetBucketVersioningCommand({ Bucket: bucket }),
+  );
+  if (Status === "Enabled") {
+    return "enabled";
+  }
+  return Status === "Suspended" ? "suspended" : "never-enabled";
+}
+
+/**
  * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
- * `ListBucket` plus per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
+ * `ListBucket` and `GetBucketVersioning` (which `verify` reads, ADR-0118) plus
+ * per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
  * so a failed multipart upload can clear its parts. **AWS-only** — the
  * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
  *
@@ -1045,7 +1063,7 @@ export async function getBytes(uri) {
  * carries), and docs/integration-testing.md §1 builds the test identity's policy
  * on it. That one grants more, so a verb missing here passes the integration
  * suite unnoticed. The two statements split because the object actions target
- * `…/*` while bucket-level `ListBucket` targets the bare bucket ARN.
+ * `…/*` while the bucket-level actions target the bare bucket ARN.
  *
  * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
  * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete
@@ -1059,9 +1077,9 @@ export const bucketPolicy = (bucketName) => ({
   Version: "2012-10-17",
   Statement: [
     {
-      Sid: "ListBucket",
+      Sid: "BucketAccess",
       Effect: "Allow",
-      Action: ["s3:ListBucket"],
+      Action: ["s3:ListBucket", "s3:GetBucketVersioning"],
       Resource: [`arn:aws:s3:::${bucketName}`],
     },
     {

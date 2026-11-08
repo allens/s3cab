@@ -88,9 +88,9 @@ describe("conformance: store semantics", () => {
       assert.deepEqual(listed, []);
 
       // …while the bucket retains a recoverable noncurrent version behind a
-      // delete marker. No s3cab code path checks versioning is on
-      // (proposals/engine-robustness.md) — this pins what that backstop
-      // actually holds, and that it is invisible through the seam.
+      // delete marker. s3cab only reports whether versioning is on
+      // (`verify`, ADR-0118) — this pins what that backstop actually holds,
+      // and that it is invisible through the seam.
       const { versions, deleteMarkers } = await real.listVersions(bucket, key);
       assert.equal(
         versions.length,

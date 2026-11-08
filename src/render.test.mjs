@@ -788,11 +788,15 @@ const report = (over) => ({
   ...over,
 });
 
+/** A bucket whose versioning is on, which verify reports nothing about. */
+const VERSIONED = { state: /** @type {const} */ ("enabled") };
+
 describe("renderVerify", () => {
   it("headlines a clean run green and prints no per-set blocks", () => {
     const text = renderVerify(
       {
         bucket: "photos-bucket",
+        versioning: VERSIONED,
         sets: [
           report({ set: "docs", referencedObjects: 40 }),
           report({ set: "music", referencedObjects: 4002 }),
@@ -811,6 +815,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "photos-bucket",
+        versioning: VERSIONED,
         sets: [
           report({ set: "docs", referencedObjects: 40 }),
           report({
@@ -856,13 +861,20 @@ describe("renderVerify", () => {
   });
 
   it("never calls a bucket with no set verified — nothing was checked", () => {
-    const text = renderVerify({ bucket: "b", sets: [] }, { color: false });
+    const text = renderVerify(
+      { bucket: "b", versioning: VERSIONED, sets: [] },
+      { color: false },
+    );
     assert.equal(text, "b: 0 sets, 0 objects checked — nothing to verify ✗");
   });
 
   it("names a set with no snapshot to check as a finding", () => {
     const text = renderVerify(
-      { bucket: "b", sets: [report({ set: "photos", snapshotsChecked: 0 })] },
+      {
+        bucket: "b",
+        versioning: VERSIONED,
+        sets: [report({ set: "photos", snapshotsChecked: 0 })],
+      },
       { color: false },
     );
     assert.match(text, /— 1 set with findings ✗\n/);
@@ -873,6 +885,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "music",
@@ -899,6 +912,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "music",
@@ -925,6 +939,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "music",
@@ -956,6 +971,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "music",
@@ -978,6 +994,7 @@ describe("renderVerify", () => {
   it("emits no ANSI without colour, and colours the verdict + set name with it", () => {
     const data = {
       bucket: "b",
+      versioning: VERSIONED,
       sets: [
         report({
           set: "docs",
@@ -999,6 +1016,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "media",
@@ -1036,6 +1054,7 @@ describe("renderVerify", () => {
     const text = renderVerify(
       {
         bucket: "b",
+        versioning: VERSIONED,
         sets: [
           report({
             set: "media",
@@ -1062,6 +1081,74 @@ describe("renderVerify", () => {
       { color: false },
     );
     assert.match(text, /3 deletions, latest 2026-07-19/);
+  });
+
+  it("says nothing about versioning that is on", () => {
+    const text = renderVerify(
+      { bucket: "b", versioning: VERSIONED, sets: [report({ set: "docs" })] },
+      { color: false },
+    );
+    assert.doesNotMatch(text, /versioning/);
+  });
+
+  it("headlines suspended versioning as the finding when every set is clean (ADR-0118)", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        versioning: { state: "suspended" },
+        sets: [report({ set: "docs", referencedObjects: 3 })],
+      },
+      { color: false },
+    );
+    assert.equal(
+      text,
+      "b: 1 set, 3 objects checked — versioning suspended ✗\n\n" +
+        "  versioning   suspended — forget, delete and cleanup can't be undone until it's back on " +
+        "(https://s3cab.plantegral.com/guide/maintenance)",
+    );
+  });
+
+  it("keeps the set count in the headline when sets have findings too", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        versioning: { state: "suspended" },
+        sets: [report({ set: "photos", snapshotsChecked: 0 })],
+      },
+      { color: false },
+    );
+    assert.match(
+      text,
+      /— 1 set with findings ✗\n\n {2}versioning {3}suspended — /,
+    );
+  });
+
+  it("notes versioning that is off or unreadable under a clean verdict", () => {
+    const off = renderVerify(
+      {
+        bucket: "b",
+        versioning: { state: "never-enabled" },
+        sets: [report({ set: "docs" })],
+      },
+      { color: false },
+    );
+    assert.match(
+      off,
+      /all verified ✓\n\n {2}versioning {3}off — forget, delete and cleanup can't be undone \(https:/,
+    );
+
+    const unknown = renderVerify(
+      {
+        bucket: "b",
+        versioning: { state: "unknown", reason: "AccessDenied" },
+        sets: [report({ set: "docs" })],
+      },
+      { color: false },
+    );
+    assert.match(
+      unknown,
+      /all verified ✓\n\n {2}versioning {3}couldn't check \(AccessDenied\)$/,
+    );
   });
 });
 

@@ -444,11 +444,15 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
 });
 
 describe("bucketPolicy", () => {
-  it("scopes object actions to …/* and ListBucket to the bare bucket ARN", () => {
+  it("scopes object actions to …/* and bucket actions to the bare bucket ARN", () => {
     const { Statement } = bucketPolicy("my-backups");
-    const list = Statement.find((s) => s.Action.includes("s3:ListBucket"));
+    const bucket = Statement.find((s) => s.Action.includes("s3:ListBucket"));
     const objects = Statement.find((s) => s.Action.includes("s3:GetObject"));
-    assert.deepEqual(list?.Resource, ["arn:aws:s3:::my-backups"]);
+    assert.deepEqual(bucket?.Action, [
+      "s3:ListBucket",
+      "s3:GetBucketVersioning",
+    ]);
+    assert.deepEqual(bucket?.Resource, ["arn:aws:s3:::my-backups"]);
     assert.deepEqual(objects?.Resource, ["arn:aws:s3:::my-backups/*"]);
   });
 
@@ -459,6 +463,7 @@ describe("bucketPolicy", () => {
     assert.deepEqual([...actions].sort(), [
       "s3:AbortMultipartUpload",
       "s3:DeleteObject",
+      "s3:GetBucketVersioning",
       "s3:GetObject",
       "s3:ListBucket",
       "s3:PutObject",

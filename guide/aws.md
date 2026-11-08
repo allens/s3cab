@@ -176,7 +176,8 @@ markers, but can never _permanently destroy_ your content or history.**
 
 The generated policy grants exactly:
 
-- `s3:ListBucket` on the bucket, and
+- `s3:ListBucket` and `s3:GetBucketVersioning` on the bucket — the second lets
+  `verify` check that versioning is on — and
 - `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` /
   `s3:AbortMultipartUpload` on its objects. The last lets a large upload that
   failed partway clear the parts it already sent.

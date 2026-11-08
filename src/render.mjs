@@ -50,7 +50,7 @@ import {
 /** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
-/** @import { SetReport } from "./lib/verify.mjs" */
+/** @import { SetReport, Versioning } from "./lib/verify.mjs" */
 /** @import { VerifyResult } from "./commands/verify.mjs" */
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
@@ -780,7 +780,8 @@ export function renderStatus({
 /**
  * Render `verify` (ADR-0042, ADR-0043) — file-centric integrity findings whose
  * headline mirrors the exit code: green `all verified ✓` (exit 0) vs red `N sets
- * with findings ✗` (exit 1). The scale figure is the *referenced* objects checked
+ * with findings ✗` or `versioning suspended ✗` (exit 1), then a line about the
+ * bucket's versioning unless it is on. The scale figure is the *referenced* objects checked
  * (not the stored total — orphans are `cleanup`'s concern now). Only sets with
  * findings get a block; each `problems` row maps 1:1 to a line (hashes never
  * surface — the user thinks in files). Paths print as stored (absolute): verify
@@ -792,7 +793,7 @@ export function renderStatus({
  * @returns {string}
  */
 export function renderVerify(result, { color = false } = {}) {
-  const { bucket, sets } = result;
+  const { bucket, sets, versioning } = result;
   const paint = painter(color);
 
   const findingSets = sets.filter(setHasFindings);
@@ -805,9 +806,11 @@ export function renderVerify(result, { color = false } = {}) {
     ? paint((t) => bold(green(t)))("all verified ✓")
     : sets.length === 0
       ? paint((t) => bold(red(t)))("nothing to verify ✗")
-      : paint((t) => bold(red(t)))(
-          `${countOf(findingSets.length, "set")} with findings ✗`,
-        );
+      : findingSets.length > 0
+        ? paint((t) => bold(red(t)))(
+            `${countOf(findingSets.length, "set")} with findings ✗`,
+          )
+        : paint((t) => bold(red(t)))("versioning suspended ✗");
 
   const head =
     `${bucket}: ${countOf(sets.length, "set")}, ` +
@@ -839,6 +842,10 @@ export function renderVerify(result, { color = false } = {}) {
     });
 
   const parts = [head];
+  const versioningLine = versioningNote(versioning, paint);
+  if (versioningLine) {
+    parts.push(versioningLine);
+  }
   if (deletedLines.length) {
     parts.push(deletedLines.join("\n"));
   }
@@ -846,6 +853,35 @@ export function renderVerify(result, { color = false } = {}) {
     parts.push(...findingSets.map((set) => setFindings(set, paint)));
   }
   return parts.join("\n\n");
+}
+
+const VERSIONING_GUIDE = "https://s3cab.plantegral.com/guide/maintenance";
+
+/**
+ * verify's line about the bucket's versioning (ADR-0118), or nothing when it
+ * is on. Suspended is a finding, so its label is red like a set with findings;
+ * the other two are notes.
+ * @param {Versioning} versioning
+ * @param {(colourise: (t: string) => string) => (t: string) => string} paint
+ * @returns {string | undefined}
+ */
+function versioningNote(versioning, paint) {
+  switch (versioning.state) {
+    case "enabled":
+      return undefined;
+    case "suspended":
+      return (
+        `  ${paint(red)("versioning")}   suspended — forget, delete and cleanup ` +
+        `can't be undone until it's back on (${VERSIONING_GUIDE})`
+      );
+    case "never-enabled":
+      return (
+        `  versioning   off — forget, delete and cleanup can't be undone ` +
+        `(${VERSIONING_GUIDE})`
+      );
+    case "unknown":
+      return `  versioning   couldn't check (${versioning.reason})`;
+  }
 }
 
 /**

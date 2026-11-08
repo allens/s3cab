@@ -38,8 +38,8 @@ import {
 //
 // Not here: the mid-transfer mutation and backup-exit-0 cases (both fixed,
 // their tests flipped) live in model.hostile.test.mjs (hostile-tree cases); the
-// versioning-never-checked entry (engine-robustness.md) needs a real
-// versioned bucket and belongs to Tier 2 (see CAPABILITIES.md, "versioning").
+// versioning-never-checked entry, closed by ADR-0118, is pinned in
+// src/commands/verify.test.mjs and test/integration/s3.test.mjs.
 
 const BUCKET = "model-bucket";
 

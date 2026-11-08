@@ -208,13 +208,25 @@ export const setHasFindings = (report) =>
   report.snapshotsChecked === 0;
 
 /**
+ * The bucket's versioning as `verify` found it
+ * ([ADR-0118](../../docs/adr/0118-verify-reports-bucket-versioning.md)):
+ * `unknown` when the read failed, with the code the server gave as `reason`.
+ * @typedef {{ state: "enabled" | "suspended" | "never-enabled" } | { state: "unknown", reason: string }} Versioning
+ */
+
+/**
  * Whether a verify run has any finding — its exit code, and the one rule the
  * command and its renderer both ask so the two can't drift: a set with
- * findings, or no set at all. "All verified" can't be said of nothing, and a
- * bucket with no set is most likely the wrong bucket
+ * findings, no set at all, or a bucket whose versioning was switched off.
+ * "All verified" can't be said of nothing, and a bucket with no set is most
+ * likely the wrong bucket
  * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
- * @param {{ sets: SetReport[] }} result
+ * Versioning that is off for good, or couldn't be read, is not a finding: an
+ * alarm on every run gets ignored (ADR-0118).
+ * @param {{ sets: SetReport[], versioning: Versioning }} result
  * @returns {boolean}
  */
-export const verifyHasFindings = ({ sets }) =>
-  sets.length === 0 || sets.some(setHasFindings);
+export const verifyHasFindings = ({ sets, versioning }) =>
+  sets.length === 0 ||
+  sets.some(setHasFindings) ||
+  versioning.state === "suspended";
