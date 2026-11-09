@@ -30,11 +30,11 @@ that never had it on. Some S3-compatible providers have no versioning to report.
    the grant), and an alarm that fires on every run trains the user to ignore it, the reason
    [0064](0064-path-scoped-delete-deletion-record.md) keeps deliberate deletions out of the exit
    code.
-3. **A refusal is reported, not thrown.** When the server refuses with an error code
-   (`AccessDenied`, `NotImplemented`), the note names it and the rest of the report stands: an
-   identity without the new grant must not lose the check it already had. Any other failure, such
-   as a dropped link, fails `verify` as it would during the scan: a passing failure reported as a
-   note would hide a suspended bucket behind exit 0.
+3. **A lasting refusal is reported, not thrown.** When the server refuses with `AccessDenied` or
+   `NotImplemented`, the note names it and the rest of the report stands: an identity without the
+   new grant must not lose the check it already had. Any other failure, such as a dropped link, a
+   `SlowDown` or an expired token, fails `verify` as it would during the scan: a passing failure
+   reported as a note would hide a suspended bucket behind exit 0.
 4. **`bucketPolicy()` grants `s3:GetBucketVersioning`** on the bucket. It reads a setting and
    writes nothing, so 0033's property, that a leaked everyday key can never permanently destroy
    anything, is untouched. `s3:PutBucketVersioning` stays ungranted.
