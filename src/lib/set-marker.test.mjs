@@ -24,8 +24,13 @@ mock.module("./s3.mjs", {
     },
   }),
 });
-const { assertHeld, listRemoteSets, parseInfo, readSetConfig } =
-  await import("./set-marker.mjs");
+const {
+  assertHeld,
+  listRemoteSets,
+  parseInfo,
+  parseSnapshotsKey,
+  readSetConfig,
+} = await import("./set-marker.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -62,6 +67,46 @@ describe("parseInfo", () => {
   });
 });
 
+describe("parseSnapshotsKey", () => {
+  it("reads a set's marker, a file under its folder, and the folder itself", () => {
+    assert.deepEqual(parseSnapshotsKey("snapshots/photos.info"), {
+      set: "photos",
+    });
+    assert.deepEqual(
+      parseSnapshotsKey("snapshots/photos/20260612T0915.tsv.gz"),
+      {
+        set: "photos",
+        file: "20260612T0915.tsv.gz",
+      },
+    );
+    assert.deepEqual(parseSnapshotsKey("snapshots/photos/"), {
+      set: "photos",
+      file: "",
+    });
+    assert.deepEqual(parseSnapshotsKey("snapshots/photos/old/x"), {
+      set: "photos",
+      file: "old/x",
+    });
+  });
+
+  it("reads nothing into a key that isn't a canonical set's", () => {
+    // Each is a key a console can make and none is a set: an empty name, a
+    // case or a dot the name rule refuses, the prefix itself, a bare name.
+    for (const key of [
+      "snapshots/.info",
+      "snapshots/Photos.info",
+      "snapshots/notes.old.info",
+      "snapshots/photos.info/x",
+      "snapshots/Not A Set/x",
+      "snapshots/",
+      "snapshots/photos",
+      "objects/photos.info",
+    ]) {
+      assert.equal(parseSnapshotsKey(key), undefined, key);
+    }
+  });
+});
+
 describe("listRemoteSets", () => {
   it("finds every set under snapshots/, one with only a marker included", async () => {
     remoteText = {
@@ -69,6 +114,7 @@ describe("listRemoteSets", () => {
       "s3://b/snapshots/photos.info": "",
       "s3://b/snapshots/docs.info": "",
       "s3://b/snapshots/Not A Set/x": "",
+      "s3://b/snapshots/notes.old.info": "",
     };
 
     assert.deepEqual(await listRemoteSets("b"), ["docs", "photos"]);

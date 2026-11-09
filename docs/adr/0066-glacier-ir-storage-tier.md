@@ -84,6 +84,8 @@ overlap.
 - **Archive tiers remain deferred.** Glacier Flexible / Deep Archive would force `restore` (and
   `verify`) to become two-phase (initiate → wait hours → download) — a command-shape change, not a
   config knob. That is a separate future epic, tracked in
-  [proposals/storage-tiers.md](../../proposals/storage-tiers.md); nothing here forecloses it.
+  [proposals/storage-tiers.md](../../proposals/storage-tiers.md); nothing here forecloses it. An
+  object a lifecycle rule has already moved there is a `verify` finding, `archived`
+  ([0117](0117-health-reports-count-only-what-they-checked.md)), not something a restore reads.
 - **Pinned, not just present.** `src/lib/s3.test.mjs` now asserts the upload's storage-class header
   is specifically `GLACIER_IR`, so an accidental revert to Intelligent-Tiering fails the suite.

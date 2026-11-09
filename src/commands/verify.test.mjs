@@ -68,6 +68,22 @@ describe("verify command", () => {
     assert.equal(process.exitCode, savedExitCode);
   });
 
+  it("exits 1 on a bucket with no set — 'all verified' is never said of nothing", async () => {
+    const result = await verify("my-backups");
+
+    assert.deepEqual(result.sets, []);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("a set with no snapshot to check is a finding (exit 1)", async () => {
+    referencedBySet = enumeration({ photos: {} });
+
+    const result = await verify("my-backups");
+
+    assert.equal(result.sets[0]?.snapshotsChecked, 0);
+    assert.equal(process.exitCode, 1);
+  });
+
   it("does not report orphans — they are cleanup's concern, not verify's", async () => {
     // `orphan` is stored but referenced by no snapshot. verify simply ignores it
     // (no orphan count, no exactness flag on the result); its result is just

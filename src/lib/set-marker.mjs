@@ -24,6 +24,27 @@ import { userAtMachine } from "./user-at-machine.mjs";
 export const remoteInfoKey = (set) => `snapshots/${set}.info`;
 
 /**
+ * What a key under `snapshots/` is: a set's marker (`snapshots/<set>.info`,
+ * no `file`) or a key under its folder (`snapshots/<set>/<file>`, `file` empty
+ * for the folder marker a console makes). Only a canonical name
+ * (`[a-z0-9-]+`, ADR-0024) is a set's, so a stray key — `snapshots/.info`,
+ * `snapshots/Photos.info`, a note dropped in the console — is `undefined`
+ * rather than a phantom set. The one reader of the layout: `listRemoteSets`
+ * and remote.mjs's `listSnapshotFiles` both go through it.
+ * @param {string} key
+ * @returns {{ set: string, file?: string } | undefined}
+ */
+export function parseSnapshotsKey(key) {
+  const match = /^snapshots\/([a-z0-9-]+)(\.info|\/(.*))$/s.exec(key);
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return match[3] === undefined
+    ? { set: match[1] }
+    : { set: match[1], file: match[3] };
+}
+
+/**
  * The S3 key prefix of s3cab's copy of a set's config, `.s3cab/sets/<set>/`.
  * @param {string} set
  * @returns {string}
@@ -277,8 +298,7 @@ export async function readSetConfig(bucket, set) {
 /**
  * The names of the sets in a bucket, sorted: every `snapshots/<set>/` folder
  * and `snapshots/<set>.info` marker, so a set with a marker and no snapshots
- * yet counts too. Only `[a-z0-9-]+` names count, so a stray key made in a
- * console can't pass for a set.
+ * yet counts too (`parseSnapshotsKey` says what counts).
  * @param {string} bucket
  * @returns {Promise<string[]>}
  */
@@ -286,9 +306,9 @@ export async function listRemoteSets(bucket) {
   /** @type {Set<string>} */
   const names = new Set();
   for await (const { Key } of listObjects(`s3://${bucket}/snapshots/`)) {
-    const match = /^snapshots\/([a-z0-9-]+)(?:\/|\.info$)/.exec(Key ?? "");
-    if (match?.[1]) {
-      names.add(match[1]);
+    const set = parseSnapshotsKey(Key ?? "")?.set;
+    if (set) {
+      names.add(set);
     }
   }
   return [...names].sort();

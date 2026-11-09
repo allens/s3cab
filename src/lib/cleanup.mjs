@@ -33,6 +33,7 @@ import { readNewSnapshots } from "./remote.mjs";
 import { shellCommand, styleEnabled } from "./style.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
+/** @import { SnapshotListing } from "./remote.mjs" */
 
 /**
  * The deletion plan `cleanup` acts on, computed from the two enumerations already
@@ -261,7 +262,7 @@ export function topUp(plan, stored, added) {
  * @param {string} bucket - The repository's S3 bucket
  * @param {object} scan - What the scan read, and the plan made from it
  * @param {CleanupPlan} scan.plan
- * @param {Map<string, string[]>} scan.snapshotFiles - The scan's `snapshots/` listing
+ * @param {SnapshotListing} scan.snapshotFiles - The scan's `snapshots/` listing
  * @param {Map<string, { size: number }>} scan.stored - The scan's store LIST
  * @param {{ wait?: boolean }} [options] - `wait` for running uploads instead of refusing
  * @returns {Promise<Reclaimed>}

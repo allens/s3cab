@@ -27,8 +27,11 @@ It's cheap and safe to run often:
 - **No downloads.** It compares listings, so there's no egress and no bill to speak of — it
   never fetches your file contents.
 - **Read-only.** It never writes to the bucket, and needs only list + read permission.
-- **Scriptable.** It exits non-zero if any set has findings, so `s3cab verify my-backups ||
-  alert` is the whole cron job.
+- **Scriptable.** It exits non-zero if any set has findings — or if there was nothing to
+  check: a bucket with no set at all (`nothing to verify ✗`, most likely the wrong bucket
+  name), or a set with no snapshots. So `s3cab verify my-backups || alert` is the whole cron
+  job. A set you've set up but not yet backed up counts as "no snapshots" until its first
+  backup.
 
 The operand is the **bucket**, not a set — one repository checked per run — because the cost
 is one listing of the whole store either way. Findings are still reported per set:
@@ -53,16 +56,20 @@ my-backups: 3 sets, 8,462 objects checked — 1 set with findings ✗
     /home/me/Photos/report.pdf   wrong size   (recorded 1,250,000 bytes, stored 0)
 ```
 
-Two kinds of finding:
+The findings on a file:
 
 | Finding        | Meaning                                                                     |
 | -------------- | --------------------------------------------------------------------------- |
 | **missing**    | a snapshot references content that isn't in the store — that file won't restore |
 | **wrong size** | the content is stored, but not at the size recorded for it — it's damaged    |
+| **archived**   | the content is stored, but a lifecycle rule moved it to an archive storage class (`GLACIER`, `DEEP_ARCHIVE`) that a restore can't read; the finding stays until it's moved back to an instant-access class — a temporary restored copy doesn't clear it |
 
-A third line reports a snapshot that **couldn't be read** at all. That one matters beyond the
-set it names: if s3cab can't read a snapshot, it doesn't know what that snapshot referenced —
-which is why `cleanup` refuses to run at all until it's resolved (see below).
+Two more are about a set's snapshots rather than its files. One reports a snapshot that
+**couldn't be read** at all. That one matters beyond the set it names: if s3cab can't read a
+snapshot, it doesn't know what that snapshot referenced — which is why `cleanup` refuses to
+run at all until it's resolved (see below). The other, **no snapshots**, reports a set that is
+in the bucket with no snapshots at all — set up and never backed up, or every snapshot gone —
+so there is nothing to restore from and nothing to verify.
 
 Findings are rare and mean something genuinely went wrong — a bucket edited by another tool,
 a lifecycle rule that expired live objects, or storage damage. Versioning is what gets you out

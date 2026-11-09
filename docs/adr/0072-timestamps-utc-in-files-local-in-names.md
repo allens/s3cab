@@ -139,10 +139,12 @@ sort can invert** — affecting `restore`'s default snapshot, `compare`'s defaul
 `--latest`. This is knowingly accepted, not overlooked. It is now *explicable* (the zone is in
 the file) rather than mysterious, and two checks catch it where it is created:
 
-- **A. Clock-went-backwards, in `snapshot`/`backup`.** The baseline is already read and its header
-  now carries a true instant, so if "now" is earlier than it, the clock has moved back and the
-  snapshot about to be written will sort before its predecessor. **Warn, never block** — a clock
-  oddity must not stop a backup.
+- **A. Clock-went-backwards, in `snapshot`/`backup`.** The baseline is already read, so if the
+  name about to be written sorts before the baseline's, the local clock has gone back and the
+  new snapshot will sort before its predecessor. **Warn, never block** — a clock oddity must not
+  stop a backup. (Amended 2026-11-05: it compared the headers' true instants, which move
+  *forward* in both cases this ADR names — the DST fold and a move west — so neither warned.
+  The fault is created at the name, and names are what sort, so names are what it compares.)
 - **B. Ordering sanity, in `compare`.** It reads both headers, so it can confirm `since` really is
   older than `until` and say so when the names disagree with the instants, rather than silently
   rendering a backwards diff. (Not available on `snapshot`'s fused fast path, where the baseline

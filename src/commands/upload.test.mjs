@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
 import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 
+/** @import { CompareError } from "../lib/compare.mjs" */
 /** @import { Drift, FileChange } from "../lib/upload.mjs" */
 
 // Offline tests for `upload`'s command surface (ADR-0044): the fail-fast flag
@@ -36,6 +37,8 @@ let uploadSnapshotCalls = [];
 let uploadDirCalls = [];
 /** @type {Drift[]} what the faked seeder reports skipping */
 let dirSkipped = [];
+/** @type {CompareError[]} the `#error` rows the faked snapshot upload reports */
+let snapshotErrors = [];
 /** @type {{ uploaded: boolean, change?: FileChange }} what the faked single-file upload reports */
 let fileResult = { uploaded: true };
 /** @type {Error | undefined} what the faked hashing throws */
@@ -76,7 +79,12 @@ mock.module("../lib/upload.mjs", {
       /** @type {Record<string, unknown>} */ args,
     ) => {
       uploadSnapshotCalls.push([set, args]);
-      return { name: args.name, candidates: 5, uploaded: 2 };
+      return {
+        name: args.name,
+        candidates: 5,
+        uploaded: 2,
+        errors: snapshotErrors,
+      };
     },
     uploadDir: async (
       /** @type {object} */ set,
@@ -97,6 +105,7 @@ beforeEach(() => {
   uploadSnapshotCalls = [];
   uploadDirCalls = [];
   dirSkipped = [];
+  snapshotErrors = [];
   fileResult = { uploaded: true };
   propError = undefined;
 });
@@ -237,7 +246,27 @@ describe("upload --snapshot (a snapshot's objects)", () => {
       snapshot: "20260102T0900",
       candidates: 5,
       uploaded: 2,
+      errors: [],
     });
+  });
+
+  it("exits 1 when the snapshot holds nothing for a file — published, reported, and not a success", async () => {
+    // The retry a failed backup names publishes the pass's `#error` rows, so
+    // `s3cab upload … && notify-ok` must say what `backup` would have.
+    const saved = process.exitCode;
+    process.exitCode = 0;
+    snapshotErrors = [{ path: "/photos/locked.psd", reason: "EBUSY" }];
+    try {
+      const result = await upload("photos", { snapshot: "20260102T0900" });
+
+      assert.equal(process.exitCode, 1);
+      assert.deepEqual(
+        result.mode === "snapshot" && result.errors,
+        snapshotErrors,
+      );
+    } finally {
+      process.exitCode = saved;
+    }
   });
 
   it("omits --since when none is given (uploader then LISTs)", async () => {

@@ -18,6 +18,7 @@ import {
   addSnapshotReferences,
   isCorruptSnapshotError,
 } from "./referenced.mjs";
+import { parseSnapshotsKey } from "./set-marker.mjs";
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
 /** @import { ReferencedResult } from "./referenced.mjs" */
@@ -109,29 +110,31 @@ export async function deleteRemoteSnapshot(bucket, set, name) {
 /**
  * Read a set's latest remote snapshot into a lookup for diffing — where
  * `status`'s "what would a backup upload" diff starts (docs/design/backup.md).
- * Lists the set's remote snapshots, reads the newest, and returns its entries; a
- * set with no remote snapshot yet (before its first backup) yields an **empty
- * lookup**, so every target hash becomes a candidate.
+ * Lists the set's remote snapshots, reads the newest, and returns its entries
+ * with the listing; a set with no remote snapshot yet (before its first
+ * backup) yields an **empty lookup**, so every target hash becomes a candidate.
  *
- * Returns just the lookup the diff needs, not the whole `Snapshot`: the
- * empty-when-none rule and the `.entries` extraction live here once. `status`
- * uses it for its read-only remote comparison; `backup` itself diffs against the
- * **local** previous snapshot (single-owner model — see upload.mjs), not
- * this. `restore`, which also needs the `@SET DIR` rows, calls `readRemoteSnapshot`
- * directly.
+ * Returns the lookup the diff needs, not the whole `Snapshot`: the
+ * empty-when-none rule and the `.entries` extraction live here once. The
+ * listing comes back with it because `status` answers two questions of one
+ * LIST — which snapshot is the bucket's latest, and whether the local latest
+ * is in the bucket at all. `backup` itself diffs against the **local** previous
+ * snapshot (single-owner model — see upload.mjs), not this. `restore`, which
+ * also needs the `@SET DIR` rows, calls `readRemoteSnapshot` directly.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @returns {Promise<{ name: string | undefined, lookup: SnapshotEntries }>}
- *   `name` = the latest remote snapshot's name (undefined if never backed up);
- *   `lookup` = its entries (an empty Map for a first backup).
+ * @returns {Promise<{ names: string[], lookup: SnapshotEntries }>}
+ *   `names` = the set's remote snapshot names, newest first (empty if never
+ *   backed up); `lookup` = the newest one's entries (an empty Map for a first backup).
  */
 export async function readLatestRemoteSnapshot(bucket, set) {
-  const [name] = await listRemoteSnapshots(bucket, set);
+  const names = await listRemoteSnapshots(bucket, set);
+  const [name] = names;
   if (!name) {
-    return { name: undefined, lookup: new Map() };
+    return { names, lookup: new Map() };
   }
   const snapshot = await readRemoteSnapshot(bucket, set, name);
-  return { name, lookup: snapshot.entries };
+  return { names, lookup: snapshot.entries };
 }
 
 /**
@@ -224,34 +227,43 @@ export async function referencedObjects(bucket) {
 }
 
 /**
- * One LIST of `snapshots/`, grouped by set — the path segment after the
- * prefix (`snapshots/<set>/<name>.tsv.gz`), a canonical `[a-z0-9-]+` segment
- * (ADR-0024), so the split is unambiguous. Every key is kept, valid snapshot
- * name or not: the listing is what a later one is compared against
- * (`readNewSnapshots`), and a filter applied to both sides changes nothing.
+ * A `snapshots/` listing: set name → the files under its folder, each with the
+ * LIST's `ETag` — the bytes' identity, which is what tells a snapshot republished
+ * under a name a `forget` freed from the one the listing saw
+ * ([ADR-0112](../../docs/adr/0112-bucket-locks.md) step 4) — or `undefined`
+ * where the store lists none, which `readNewSnapshots` reads as changed. A set
+ * whose `<set>.info` marker or folder is listed is present even with no files,
+ * so a set whose snapshots are all gone is still a set to report on, not an
+ * absence.
+ * @typedef {Map<string, Map<string, string | undefined>>} SnapshotListing
+ */
+
+/**
+ * One LIST of `snapshots/`, grouped by set, read by set-marker.mjs's
+ * `parseSnapshotsKey`: only a canonical set name counts, and a stray key is
+ * dropped rather than registered as a phantom set. Under a set's folder every
+ * key is kept, valid snapshot name or not: the listing is what a later one is
+ * compared against (`readNewSnapshots`), and a filter applied to both sides
+ * changes nothing.
  * @param {string} bucket - The repository's S3 bucket
- * @returns {Promise<Map<string, string[]>>} set name → the files under its folder
+ * @returns {Promise<SnapshotListing>}
  */
 export async function listSnapshotFiles(bucket) {
-  /** @type {Map<string, string[]>} */
+  /** @type {SnapshotListing} */
   const filesBySet = new Map();
-  for await (const { Key } of listObjects(
+  for await (const { Key, ETag } of listObjects(
     `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
   )) {
-    if (!Key) {
+    const entry = parseSnapshotsKey(Key ?? "");
+    if (!entry) {
       continue;
     }
-    const rest = Key.slice(SNAPSHOTS_PREFIX.length);
-    const slash = rest.indexOf("/");
-    if (slash <= 0) {
-      continue;
-    } // a `<set>.info` marker, the `snapshots/` folder marker, or a stray key
-    const set = rest.slice(0, slash);
-    const file = rest.slice(slash + 1);
-    if (!file) {
-      continue;
-    } // a `snapshots/<set>/` folder marker
-    filesBySet.getOrInsertComputed(set, () => []).push(file);
+    // The set exists whether or not its folder has anything in it: its
+    // marker, or the folder itself, registers it.
+    const files = filesBySet.getOrInsertComputed(entry.set, () => new Map());
+    if (entry.file) {
+      files.set(entry.file, ETag);
+    }
   }
   return filesBySet;
 }
@@ -259,18 +271,18 @@ export async function listSnapshotFiles(bucket) {
 /**
  * Read the snapshots a `listSnapshotFiles` listing names, set by set — the
  * enumeration `referencedObjects` documents, from a listing already in hand.
+ * A set the listing names with no snapshot to read is enumerated all the same,
+ * with `snapshotsChecked` 0: `verify` reports it, rather than passing a set it
+ * never looked at.
  * @param {string} bucket - The repository's S3 bucket
- * @param {Map<string, string[]>} filesBySet - The listing (`listSnapshotFiles`)
+ * @param {SnapshotListing} filesBySet - The listing (`listSnapshotFiles`)
  * @returns {Promise<Map<string, ReferencedResult>>} referenced enumeration per set name
  */
 export async function readReferencedObjects(bucket, filesBySet) {
   /** @type {Map<string, ReferencedResult>} */
   const bySet = new Map();
   for (const [set, files] of filesBySet) {
-    const names = snapshotNames(files); // valid snapshot names, newest first
-    if (names.length === 0) {
-      continue;
-    } // a set folder with no real snapshots
+    const names = snapshotNames([...files.keys()]); // valid snapshot names, newest first
     bySet.set(set, await readSetReferenced(bucket, set, names));
   }
   return bySet;
@@ -281,21 +293,29 @@ export async function readReferencedObjects(bucket, filesBySet) {
  * ([ADR-0112](../../docs/adr/0112-bucket-locks.md)): a backup that finished
  * between a cleanup's scan and its delete lock published a snapshot the scan
  * never read, whose objects would otherwise be deleted as orphans. LISTs
- * `snapshots/` again and reads only the keys `known` lacks, grouped by set
- * like `referencedObjects`. A key that vanished since is not here: it was
- * forgotten, and its references with it.
+ * `snapshots/` again and reads every key `known` lacks — or holds under a
+ * different `ETag`: a `forget` and a backup in the same minute republish a
+ * name the scan read with other bytes under it, and by key alone that
+ * snapshot's objects would go. A key the store lists with no ETag, on either
+ * side, is read again: with nothing to compare, the key alone would decide,
+ * silently. Grouped by set like `referencedObjects`. A key that vanished
+ * since is not here: it was forgotten, and its references with it.
  * @param {string} bucket - The repository's S3 bucket
- * @param {Map<string, string[]>} known - The earlier listing (`listSnapshotFiles`)
+ * @param {SnapshotListing} known - The earlier listing (`listSnapshotFiles`)
  * @returns {Promise<Map<string, ReferencedResult>>} the new snapshots' references, per set name
  */
 export async function readNewSnapshots(bucket, known) {
   const current = await listSnapshotFiles(bucket);
-  /** @type {Map<string, string[]>} */
+  /** @type {SnapshotListing} */
   const added = new Map();
   for (const [set, files] of current) {
-    const seen = new Set(known.get(set) ?? []);
-    const fresh = files.filter((file) => !seen.has(file));
-    if (fresh.length > 0) {
+    const seen = known.get(set);
+    const fresh = new Map(
+      [...files].filter(
+        ([file, etag]) => etag === undefined || seen?.get(file) !== etag,
+      ),
+    );
+    if (fresh.size > 0) {
       added.set(set, fresh);
     }
   }

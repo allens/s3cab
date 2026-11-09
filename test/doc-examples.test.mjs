@@ -779,6 +779,7 @@ const CLOUD = [
       printed("status", {
         set: "photos",
         snapshot: TIDY,
+        snapshotBackedUp: true,
         backedUp: TIDY,
         toUpload: 0,
       }),

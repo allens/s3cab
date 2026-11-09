@@ -173,7 +173,8 @@ First, `assertHeld`, as `backup` does.
    **[atomic]**, then LIST `locks/` **[atomic]**, removing any lock of this machine's whose
    process is gone. An `upload-` lock means remove the own lock and refuse, naming each; with
    `--wait`, remove it, sleep `WAIT_MS`, and write it again. Write first, look second.
-8. Top up: LIST `snapshots/` again and read every key the scan's listing lacked; their objects
+8. Top up: LIST `snapshots/` again and read every key the scan's listing lacked, or listed
+   with another ETag; their objects
    leave the orphan plan and join the reference set, and step 5's checks apply to them. No
    snapshot can land from here on, so the plan is final.
 9. DELETE each orphan. **[multi-step]** across orphans; each **[atomic]**.

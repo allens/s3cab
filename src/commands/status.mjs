@@ -18,7 +18,12 @@ import {
  *
  * `status` does not take a snapshot (it is read-only), so it reports against the
  * latest *existing* local snapshot — run `snapshot` first to reflect newer
- * on-disk changes. `toUpload` is deliberately the target-vs-latest-remote diff —
+ * on-disk changes. Whether that snapshot is backed up is whether its name is
+ * among the bucket's, not whether it is the bucket's latest: another machine's
+ * later backup of the set, or a newest local file removed by hand, leaves the
+ * bucket newer than this machine with nothing of this machine's missing from it
+ * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
+ * `toUpload` is deliberately the target-vs-latest-remote diff —
  * "what is new since your last backup", a property of the two snapshots that
  * reads the same on any machine — not a prediction of the exact bytes the next
  * `backup` will push: `backup` diffs against the local previous snapshot and the
@@ -29,6 +34,7 @@ import {
  * @typedef {Object} StatusReport
  * @property {string} set - The set reported on
  * @property {string} snapshot - Latest local snapshot (the upload target)
+ * @property {boolean} snapshotBackedUp - Whether `snapshot` is in the bucket
  * @property {string | null} backedUp - Latest remote snapshot (null if never backed up)
  * @property {number} toUpload - Objects a backup would upload
  *
@@ -48,7 +54,7 @@ export async function status(setName) {
   }
   const { entries: target } = await readSnapshot(snapshotDir, localName);
 
-  const { name: remoteName, lookup: remote } = await readLatestRemoteSnapshot(
+  const { names: remoteNames, lookup: remote } = await readLatestRemoteSnapshot(
     set.bucket,
     set.name,
   );
@@ -62,7 +68,8 @@ export async function status(setName) {
   return {
     set: set.name,
     snapshot: localName,
-    backedUp: remoteName ?? null,
+    snapshotBackedUp: remoteNames.includes(localName),
+    backedUp: remoteNames.at(0) ?? null,
     toUpload: plan.size,
   };
 }

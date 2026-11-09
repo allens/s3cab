@@ -32,7 +32,7 @@ import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { COARSEST_DISK_MS } from "./lib/restore.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
-import { setHasFindings } from "./lib/verify.mjs";
+import { setHasFindings, verifyHasFindings } from "./lib/verify.mjs";
 import {
   bold,
   cyan,
@@ -742,19 +742,38 @@ export function renderProp(props) {
 /**
  * Render `status` — what is backed up and what a backup would upload
  * (docs/design/backup.md). A short record: the set, its latest local snapshot (the
- * upload target), the latest remote snapshot (or `never`), and the object count a
- * backup would upload — collapsing to `up to date` at zero.
+ * upload target), the latest remote snapshot (or `never`), and the verdict.
+ * `up to date` is said only when the latest snapshot *is* backed up — the
+ * question guide/getting-started.md says `status` asks — never of an object
+ * count alone: a snapshot whose objects are all stored is still not backed up
+ * until the snapshot itself is, and that is the line a user reads before
+ * deciding whether to run `backup`
+ * ([ADR-0117](../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  * @param {StatusReport} report
  * @returns {string}
  */
-export function renderStatus({ set, snapshot, backedUp, toUpload }) {
-  const upload =
-    toUpload === 0 ? "up to date" : `${countOf(toUpload, "object")} to upload`;
+export function renderStatus({
+  set,
+  snapshot,
+  snapshotBackedUp,
+  backedUp,
+  toUpload,
+}) {
+  const objects = `${countOf(toUpload, "object")} to upload`;
+  let verdict;
+  if (snapshotBackedUp) {
+    // A backed-up snapshot still has objects to upload when a `delete` removed
+    // content since, or when the bucket's latest is another machine's and the
+    // count is against that.
+    verdict = toUpload === 0 ? "up to date" : objects;
+  } else {
+    verdict = `latest snapshot not backed up — ${toUpload === 0 ? "its objects are all stored" : objects}`;
+  }
   return [
     set,
     `  latest snapshot   ${snapshot}`,
     `  backed up         ${backedUp ?? "never"}`,
-    `  ${upload}`,
+    `  ${verdict}`,
   ].join("\n");
 }
 
@@ -779,11 +798,16 @@ export function renderVerify(result, { color = false } = {}) {
   const findingSets = sets.filter(setHasFindings);
   const objectsChecked = sets.reduce((n, s) => n + s.referencedObjects, 0);
 
-  const verdict = findingSets.length
-    ? paint((t) => bold(red(t)))(
-        `${countOf(findingSets.length, "set")} with findings ✗`,
-      )
-    : paint((t) => bold(green(t)))("all verified ✓");
+  // The verdict is the exit code's rule (`verifyHasFindings`), worded: a
+  // bucket with no set is `nothing to verify`, the likely story being the
+  // wrong bucket.
+  const verdict = !verifyHasFindings(result)
+    ? paint((t) => bold(green(t)))("all verified ✓")
+    : sets.length === 0
+      ? paint((t) => bold(red(t)))("nothing to verify ✗")
+      : paint((t) => bold(red(t)))(
+          `${countOf(findingSets.length, "set")} with findings ✗`,
+        );
 
   const head =
     `${bucket}: ${countOf(sets.length, "set")}, ` +
@@ -833,7 +857,7 @@ export function renderVerify(result, { color = false } = {}) {
  * @returns {string}
  */
 function setFindings(report, paint) {
-  const { set, problems, unreadableSnapshots } = report;
+  const { set, problems, unreadableSnapshots, snapshotsChecked } = report;
 
   const phrase = [];
   if (problems.length) {
@@ -841,6 +865,10 @@ function setFindings(report, paint) {
   }
   if (unreadableSnapshots.length) {
     phrase.push("could not fully check");
+  } else if (snapshotsChecked === 0) {
+    // The set's marker is there and its snapshots are not: nothing to restore
+    // from, and nothing this run could verify.
+    phrase.push("no snapshots");
   }
   const heading = `  ${paint(red)(set)}   ${phrase.join("; ")}`;
 
@@ -880,8 +908,12 @@ const problemLabel = (problem) =>
 /**
  * The parenthetical detail for a problem row: which snapshots reference a
  * `missing` file (it can't be restored), why an `invalid` row was refused and
- * in which snapshot, or the recorded-vs-stored byte counts for a `wrong-size`
- * one (a truncated/overwritten upload or a torn snapshot file).
+ * in which snapshot, the storage class an `archived` file's content sits in
+ * (a lifecycle rule put it there; a restore can't read it, and the finding
+ * stands, until it is moved back to an instant-access class — `verifySet` says
+ * why a temporary restored copy doesn't clear it), or the recorded-vs-stored
+ * byte counts for a `wrong-size` one (a truncated/overwritten upload or a torn
+ * snapshot file).
  * @param {SetReport["problems"][number]} p
  * @returns {string}
  */
@@ -891,6 +923,9 @@ function problemDetail(p) {
   }
   if (p.problem === "invalid") {
     return `(${p.reason}, in snapshot ${p.snapshots.join(", ")})`;
+  }
+  if (p.problem === "archived") {
+    return `(in the ${p.storageClass} storage class; a restore can't read it until it's moved back to an instant-access class)`;
   }
   return `(recorded ${formatCount(p.recordedSize ?? 0)} bytes, stored ${formatCount(p.storedSize ?? 0)})`;
 }
@@ -1006,16 +1041,8 @@ export function renderBackup(result, { color = false } = {}) {
     if (errors.length) {
       lines.push(
         paint((text) => bold(red(text)))(row(["Errors", errors.length])),
+        ...failedFileLines(errors),
       );
-      // A link's name and target may hold a tab, CR or LF (ADR-0103).
-      for (const error of errors.slice(0, ERRORS_SHOWN)) {
-        lines.push(
-          `    ${withVisibleControls(error.path)}  (${withVisibleControls(errorReason(error))})`,
-        );
-      }
-      if (errors.length > ERRORS_SHOWN) {
-        lines.push(`    and ${formatCount(errors.length - ERRORS_SHOWN)} more`);
-      }
     }
     blocks.push(lines.join("\n"));
   }
@@ -1081,6 +1108,27 @@ export function renderBackup(result, { color = false } = {}) {
  * all of them would.
  */
 const ERRORS_SHOWN = 10;
+
+/**
+ * The failed files a report names, each with its reason, up to `ERRORS_SHOWN`
+ * and then a count of the rest — under `backup`'s `Couldn't be backed up`
+ * block, and `upload --snapshot`'s, which publishes the same `#error` rows.
+ * @param {CompareError[]} errors
+ * @returns {string[]}
+ */
+function failedFileLines(errors) {
+  // A link's name and target may hold a tab, CR or LF (ADR-0103).
+  const lines = errors
+    .slice(0, ERRORS_SHOWN)
+    .map(
+      (error) =>
+        `    ${withVisibleControls(error.path)}  (${withVisibleControls(errorReason(error))})`,
+    );
+  if (errors.length > ERRORS_SHOWN) {
+    lines.push(`    and ${formatCount(errors.length - ERRORS_SHOWN)} more`);
+  }
+  return lines;
+}
 
 /**
  * Whether the report's `compare` command has anything behind it the report
@@ -1279,12 +1327,39 @@ function objectUploadLine(head, candidates, uploaded) {
  */
 export function renderUpload(result, { color = false } = {}) {
   if (result.mode === "snapshot") {
-    const { set, snapshot, candidates, uploaded } = result;
-    return objectUploadLine(
+    const { set, snapshot, candidates, uploaded, errors } = result;
+    const line = objectUploadLine(
       `Uploaded snapshot '${snapshot}' to '${set}'`,
       candidates,
       uploaded,
     );
+    if (errors.length === 0) {
+      return line;
+    }
+    // The snapshot's `#error` rows, in `backup`'s words: this is the retry a
+    // failed backup names, and the first report the user sees of that pass,
+    // so the files it couldn't read are listed here as the run report would
+    // have. The fix is a fresh backup — this snapshot is published as it is.
+    const blocks = [
+      [
+        line,
+        ``,
+        `Couldn't be backed up:`,
+        painter(color)((text) => bold(red(text)))(
+          `  Errors  ${formatCount(errors.length)}`,
+        ),
+        ...failedFileLines(errors),
+      ].join("\n"),
+      `To try again:\n  ${shellCommand(`s3cab backup ${set}`, color)}`,
+    ];
+    // The rest of a cut list is one `compare` away, as under `backup`'s report
+    // (`ERRORS_SHOWN`); `--since` defaults to the snapshot before this one.
+    if (errors.length > ERRORS_SHOWN) {
+      blocks.push(
+        `To see the details:\n  ${shellCommand(`s3cab compare ${set} --until ${snapshot}`, color)}`,
+      );
+    }
+    return blocks.join("\n\n");
   }
   if (result.mode === "dir") {
     const { set, dir, candidates, uploaded, skipped } = result;

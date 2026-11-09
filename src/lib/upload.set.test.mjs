@@ -10,6 +10,7 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @import { UploadLockArgs } from "../../test/helpers/lock-seam.mjs" */
+/** @import { CompareError } from "./compare.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { SnapshotBaseline } from "./snapshot.mjs" */
@@ -37,6 +38,8 @@ let baseline;
 let baselineCalls = [];
 /** @type {SnapshotRow[]} the rows the faked pass streams through the uploader */
 let rows = [];
+/** @type {CompareError[]} the files the faked pass couldn't read */
+let passErrors = [];
 /** @type {Record<string, unknown> | undefined} the options `generateSnapshot` got */
 let generateOptions;
 /** @type {UploadLockArgs[]} what the lock was asked to hold */
@@ -68,8 +71,12 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => ({ deleted: new Map(), invalid: [] }),
   },
 });
+// The real layout parser, for remote.mjs: imported after the s3 mock so it
+// binds the fake, not the SDK (see upload.test.mjs).
+const { parseSnapshotsKey } = await import("./set-marker.mjs");
 mock.module("./set-marker.mjs", {
   exports: {
+    parseSnapshotsKey,
     assertHeld: async () => {
       events.push("assertHeld");
     },
@@ -111,7 +118,7 @@ mock.module("./snapshot.mjs", {
         bytes: 0,
         hashedFiles: rows.length,
         hashedBytes: 0,
-        errors: [],
+        errors: passErrors,
         elapsedMs: 9,
         roots: [],
       };
@@ -165,6 +172,7 @@ beforeEach(() => {
   baseline = { previousErrors: new Map() }; // a first backup
   baselineCalls = [];
   rows = [];
+  passErrors = [];
   generateOptions = undefined;
   lockCalls = [];
 });
@@ -275,6 +283,23 @@ describe("uploadSet (the fused pass)", () => {
 
     assert.ok(!events.includes(`put:${manifestUri}`), "no manifest");
     assert.equal(events.at(-1), "unlock", "the lock is released on failure");
+  });
+
+  it("counts the files the pass couldn't read in the upload-failed error", async () => {
+    // The run report that would have named them never prints on this path,
+    // and the retry it points at is the first the user hears of them.
+    await using dir = await mkTmpDir();
+    const { set } = await fixture(dir.path);
+    passErrors = [{ path: "/data/locked.pst", reason: "EBUSY" }];
+    putError = new Error("connection reset");
+
+    await assert.rejects(uploadSet(set), (/** @type {Error} */ error) => {
+      assert.match(
+        error.message,
+        /holds nothing for 1 file that couldn't be read; the upload lists them/,
+      );
+      return true;
+    });
   });
 
   it("raises the drift error, not the resume advice — a drifted file needs a fresh backup", async () => {
