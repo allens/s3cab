@@ -1797,6 +1797,22 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
       });
     });
 
+    it("rethrows a server error that outlasted the SDK's retries", async () => {
+      // A suspended bucket must not hide behind a passing 5xx on exit 0.
+      versioningAnswer = { status: 500, body: errorXml("InternalError") };
+      await assert.rejects(bucketVersioning("bucket"), {
+        name: "InternalError",
+      });
+    });
+
+    it("rethrows a credential rejection with the relay's advice", async () => {
+      versioningAnswer = { status: 400, body: errorXml("ExpiredToken") };
+      await assert.rejects(
+        bucketVersioning("bucket"),
+        /credentials have expired/,
+      );
+    });
+
     it("rethrows a failure that carries no S3 error code", async () => {
       // An answer the SDK can't parse stands in for a dropped link, which the
       // relay would retry for two minutes before throwing the same way.

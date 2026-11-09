@@ -6,7 +6,6 @@ import {
   paginateListObjectsV2,
   PutObjectCommand,
   S3Client,
-  S3ServiceException,
   ServerSideEncryption,
   StorageClass,
 } from "@aws-sdk/client-s3";
@@ -1042,14 +1041,20 @@ export async function getBytes(uri) {
  * @typedef {{ state: "enabled" | "suspended" | "never-enabled" } | { state: "unknown", reason: string }} Versioning
  */
 
+// The refusals of GetBucketVersioning that won't go away on a rerun: an
+// identity without the grant, a provider without versioning (ADR-0118). Matched
+// on the code (ADR-0037); a provider that refuses with another lasting code
+// fails `verify` until its code is added here.
+const LASTING_REFUSALS = ["AccessDenied", "NotImplemented"];
+
 /**
  * Whether a bucket keeps the old versions of what is deleted or overwritten
  * (ADR-0118). S3 reports no status at all for a bucket that never had it on.
  *
- * A refusal the server names (`AccessDenied`, `NotImplemented`) is a lasting
- * state, so it is answered as `unknown` rather than thrown. Anything else, such
- * as a dropped link, rethrows: answering it as `unknown` would let a passing
- * failure hide a suspended bucket.
+ * A lasting refusal (`LASTING_REFUSALS`) is answered as `unknown` rather than
+ * thrown. Anything else rethrows, a dropped link, `SlowDown` and an expired
+ * token included: answering a passing failure as `unknown` would hide a
+ * suspended bucket behind exit 0.
  * @param {string} bucket
  * @returns {Promise<Versioning>}
  */
@@ -1061,13 +1066,10 @@ export async function bucketVersioning(bucket) {
       new GetBucketVersioningCommand({ Bucket: bucket }),
     ));
   } catch (error) {
-    // The relay wraps the refusals it has advice for (AccessDenied) and passes
-    // the rest through raw.
+    // The relay rewords AccessDenied and keeps the SDK's error as `cause`.
     const refusal =
-      Error.isError(error) && error.cause instanceof S3ServiceException
-        ? error.cause
-        : error;
-    if (!(refusal instanceof S3ServiceException)) {
+      Error.isError(error) && Error.isError(error.cause) ? error.cause : error;
+    if (!Error.isError(refusal) || !LASTING_REFUSALS.includes(refusal.name)) {
       throw error;
     }
     return { state: "unknown", reason: refusal.name };
