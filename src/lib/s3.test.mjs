@@ -1770,6 +1770,9 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       "the bar was drawn",
     );
     assert.match(written.at(-1) ?? "", /guide\/aws\n$/);
+    // The error thrown says why the run stopped; the abort's reason, the
+    // refusal here, isn't printed on top of it.
+    assert.doesNotMatch(written.join(""), /don't have permission/);
   });
 
   // ——— putText, the string twin. Its params come from putObjectParams, so the

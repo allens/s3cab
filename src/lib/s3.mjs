@@ -766,10 +766,10 @@ export async function putFile(path, uri, options = {}) {
   //
   // The digest is compared when the stream ends, before lib-storage has the
   // last part: it sends a single PUT, or completes a multipart upload, only
-  // after the body has ended, and on a throw from it this aborts the multipart
-  // upload. So a mismatch stores nothing, even if the process dies the moment
-  // after. Not a check after `done()` and a delete: a crash between the two
-  // left the wrong bytes under the key.
+  // after the body has ended. When the body throws, `putFile` aborts the
+  // multipart upload (below). So a mismatch stores nothing, even if the
+  // process dies the moment after. Not a check after `done()` and a delete: a
+  // crash between the two left the wrong bytes under the key.
   /** @type {ContentMismatchError | undefined} */
   let mismatch;
   const source = createReadStream(path);
@@ -846,6 +846,7 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
+    const present = noClobber && isPreconditionFailed(error);
     // Any failure once a multipart upload is open, the mismatch included, or
     // its parts stay stored, and billed. The no-clobber refusal is one: it
     // comes only at Complete, with every part sent.
@@ -866,12 +867,17 @@ export async function putFile(path, uri, options = {}) {
         if (!gone) {
           // Cleared first, or disposal closes a bar the warning replaced.
           progress.clear();
+          // When `error` is rethrown below, its message follows and says why,
+          // and the abort mostly failed the same way (network, sign-in), at
+          // length, so its reason is left out rather than printed twice.
+          const reason =
+            mismatch || present ? `${errorText(abortError)}\n\n` : "";
           // `statusLine`, not `console.warn`: a run's line may be mid-draw.
           statusLine(
             process.stderr,
             `Parts of an unfinished upload are left in the bucket, still billed: ` +
               `s3cab couldn't cancel them (${path}).\n\n` +
-              `${errorText(abortError)}\n\n` +
+              reason +
               `A rule for unfinished uploads clears them; without one they stay ` +
               `for good. To give the bucket one:\n` +
               `  https://s3cab.plantegral.com/guide/aws`,
@@ -886,7 +892,7 @@ export async function putFile(path, uri, options = {}) {
       }
       throw mismatch;
     }
-    if (noClobber && isPreconditionFailed(error)) {
+    if (present) {
       progress.clear();
       return false;
     }
