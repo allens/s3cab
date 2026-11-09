@@ -1,6 +1,7 @@
 import {
   AbortMultipartUploadCommand,
   DeleteObjectCommand,
+  GetBucketVersioningCommand,
   GetObjectCommand,
   HeadObjectCommand,
   paginateListObjectsV2,
@@ -1074,8 +1075,54 @@ export async function getBytes(uri) {
 }
 
 /**
+ * A bucket's versioning: S3's two states, `never-enabled` for a bucket that
+ * never had it on, and `unknown` with the code the server refused the read with.
+ * @typedef {{ state: "enabled" | "suspended" | "never-enabled" } | { state: "unknown", reason: string }} Versioning
+ */
+
+// The refusals of GetBucketVersioning that won't go away on a rerun: an
+// identity without the grant, a provider without versioning (ADR-0118). Matched
+// on the code (ADR-0037); a provider that refuses with another lasting code
+// fails `verify` until its code is added here.
+const LASTING_REFUSALS = ["AccessDenied", "NotImplemented"];
+
+/**
+ * Whether a bucket keeps the old versions of what is deleted or overwritten
+ * (ADR-0118). S3 reports no status at all for a bucket that never had it on.
+ *
+ * A lasting refusal (`LASTING_REFUSALS`) is answered as `unknown` rather than
+ * thrown. Anything else rethrows, a dropped link, `SlowDown` and an expired
+ * token included: answering a passing failure as `unknown` would hide a
+ * suspended bucket behind exit 0.
+ * @param {string} bucket
+ * @returns {Promise<Versioning>}
+ */
+export async function bucketVersioning(bucket) {
+  /** @type {string | undefined} */
+  let status;
+  try {
+    ({ Status: status } = await client().send(
+      new GetBucketVersioningCommand({ Bucket: bucket }),
+    ));
+  } catch (error) {
+    // The relay rewords AccessDenied and keeps the SDK's error as `cause`.
+    const refusal =
+      Error.isError(error) && Error.isError(error.cause) ? error.cause : error;
+    if (!Error.isError(refusal) || !LASTING_REFUSALS.includes(refusal.name)) {
+      throw error;
+    }
+    return { state: "unknown", reason: refusal.name };
+  }
+  if (status === "Enabled") {
+    return { state: "enabled" };
+  }
+  return { state: status === "Suspended" ? "suspended" : "never-enabled" };
+}
+
+/**
  * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
- * `ListBucket` plus per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
+ * `ListBucket` and `GetBucketVersioning` (which `verify` reads, ADR-0118) plus
+ * per-object `Get`/`Put`/`Delete`, and `AbortMultipartUpload`
  * so a failed multipart upload can clear its parts. **AWS-only** — the
  * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
  *
@@ -1084,7 +1131,7 @@ export async function getBytes(uri) {
  * carries), and docs/integration-testing.md §1 builds the test identity's policy
  * on it. That one grants more, so a verb missing here passes the integration
  * suite unnoticed. The two statements split because the object actions target
- * `…/*` while bucket-level `ListBucket` targets the bare bucket ARN.
+ * `…/*` while the bucket-level actions target the bare bucket ARN.
  *
  * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
  * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete
@@ -1098,9 +1145,9 @@ export const bucketPolicy = (bucketName) => ({
   Version: "2012-10-17",
   Statement: [
     {
-      Sid: "ListBucket",
+      Sid: "BucketAccess",
       Effect: "Allow",
-      Action: ["s3:ListBucket"],
+      Action: ["s3:ListBucket", "s3:GetBucketVersioning"],
       Resource: [`arn:aws:s3:::${bucketName}`],
     },
     {

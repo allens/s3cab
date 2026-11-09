@@ -27,11 +27,14 @@ It's cheap and safe to run often:
 - **No downloads.** It compares listings, so there's no egress and no bill to speak of — it
   never fetches your file contents.
 - **Read-only.** It never writes to the bucket, and needs only list + read permission.
-- **Scriptable.** It exits non-zero if any set has findings — or if there was nothing to
-  check: a bucket with no set at all (`nothing to verify ✗`, most likely the wrong bucket
-  name), or a set with no snapshots. So `s3cab verify my-backups || alert` is the whole cron
-  job. A set you've set up but not yet backed up counts as "no snapshots" until its first
-  backup.
+  Permission to read the bucket's versioning setting (`s3:GetBucketVersioning` on AWS) adds
+  the versioning check below; without it, that line says it couldn't check.
+- **Scriptable.** It exits non-zero if any set has findings, if the bucket's
+  [versioning](#versioning-why-any-of-this-is-safe) has been switched off — or if there was
+  nothing to check: a bucket with no set at all (`nothing to verify ✗`, most likely the wrong
+  bucket name), or a set with no snapshots. So `s3cab verify my-backups || alert` is the
+  whole cron job. A set you've set up but not yet backed up counts as "no snapshots" until
+  its first backup.
 
 The operand is the **bucket**, not a set — one repository checked per run — because the cost
 is one listing of the whole store either way. Findings are still reported per set:
@@ -70,6 +73,25 @@ snapshot, it doesn't know what that snapshot referenced — which is why `cleanu
 run at all until it's resolved (see below). The other, **no snapshots**, reports a set that is
 in the bucket with no snapshots at all — set up and never backed up, or every snapshot gone —
 so there is nothing to restore from and nothing to verify.
+
+`verify` also asks the bucket whether [versioning](#versioning-why-any-of-this-is-safe) is
+on, and says nothing when it is. The rest of the time it adds a `versioning` line under the
+headline:
+
+- **suspended** — versioning was on and has been switched off. This is a finding: `forget`,
+  `delete` and `cleanup` can't be undone until it's back on, and nothing else will tell you.
+  When every set is clean the headline reads `versioning suspended ✗`.
+- **off** — versioning has never been on for this bucket. A note, not a finding.
+- **couldn't check** — the bucket refused to say, with its reason in parentheses. A note,
+  not a finding:
+  - `NotImplemented` usually means a provider that doesn't offer versioning.
+  - `AccessDenied` means your credentials lack `s3:GetBucketVersioning`. For an identity
+    `s3cab aws` set up before s3cab needed it, run `s3cab aws <bucket>` again and redeploy
+    the identity stack it writes. For any other (an SSO permission set, a provider's key),
+    add the permission to its policy yourself.
+
+A note leaves the exit code alone, since a state that won't change shouldn't ring the alarm on
+every run.
 
 Findings are rare and mean something genuinely went wrong — a bucket edited by another tool,
 a lifecycle rule that expired live objects, or storage damage. Versioning is what gets you out
@@ -469,7 +491,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in.
 
 **Turn on bucket versioning.** `s3cab aws` does it for you; if you made the bucket by hand,
 do it yourself. It is the single thing that converts every mistake on this page from permanent
-to recoverable.
+to recoverable. `verify` tells you when it's off ([above](#is-my-backup-still-good-verify)).
 
 With versioning on, `forget`, `delete`, and `cleanup` all issue **soft** deletes:
 S3 writes a delete marker and the bytes live on as a noncurrent version. So a `cleanup`

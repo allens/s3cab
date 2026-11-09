@@ -14,6 +14,7 @@ import {
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import {
+  bucketVersioning,
   clientConfig,
   deleteObject,
   getStream,
@@ -24,7 +25,8 @@ import { bucket } from "../helpers/integration.mjs";
 
 /** @import { Readable } from "node:stream" */
 
-// putFile's multipart path against real S3 (S3 test strategy, ADR-0019). The
+// putFile's multipart path and the versioning read against real S3 (S3 test
+// strategy, ADR-0019). The
 // loopback fake in src/lib/s3.test.mjs pins what requests lib-storage makes; a
 // fake can't prove *S3's* answers — that a multipart body lands intact, that a
 // HEAD skip means what we think, that parts-in-flight are invisible to HEAD —
@@ -250,5 +252,15 @@ describe("putFile multipart (real bucket)", () => {
         other.destroy();
       }
     }
+  });
+});
+
+describe("bucketVersioning (real bucket)", () => {
+  it("reads the bucket's state under the test identity's grant", async () => {
+    const versioning = await bucketVersioning(bucket);
+    assert.ok(
+      ["enabled", "suspended", "never-enabled"].includes(versioning.state),
+      `unexpected answer: ${JSON.stringify(versioning)}`,
+    );
   });
 });

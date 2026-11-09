@@ -600,11 +600,11 @@ the [format spec](../../guide/format.md)), not implementation choice:
   The blast-radius boundary is soft-vs-permanent, **not** delete-vs-no-delete — so cleanup
   runs on that same everyday key and the `aws` policy helper needs no everyday/elevated
   split. (Per-prefix append-only scoping was weighed and parked in ADR-0033 §2.)
-- **Versioned buckets (document only — decided):** s3cab neither requires nor manages
-  bucket versioning / Object Lock. User docs will recommend enabling versioning as
-  ransomware protection, and note the interplay: on a versioned bucket
+- **Versioned buckets (decided):** s3cab neither requires nor manages bucket versioning /
+  Object Lock; `verify` only reports whether versioning is on
+  ([ADR-0118](../adr/0118-verify-reports-bucket-versioning.md)). User docs recommend enabling
+  it as ransomware protection, and note the interplay: on a versioned bucket
   `forget`/`cleanup` create delete markers, so true reclamation needs a lifecycle rule.
-  Revisit when cleanup is built.
 
 ### `verify` (settled 2026-07-03, **built**)
 
@@ -655,7 +655,8 @@ to decompress or parse is a *finding*, and verify **continues** (dying on the fi
 would hide the rest); an S3 *request* failure (network/auth/throttle) is an ordinary
 operational error and aborts.
 
-**Report and exit:** the JSON result (ADR-0010 house style) is `{ bucket, sets }` — for each
+**Report and exit:** the JSON result (ADR-0010 house style) is `{ bucket, versioning, sets }` —
+the bucket's versioning state ([ADR-0118](../adr/0118-verify-reports-bucket-versioning.md)), and for each
 set, snapshots and referenced objects checked, that set's `problems` list (path, problem
 kind, referencing snapshot(s), and recorded/stored sizes for a wrong-size), and its
 unreadable snapshots. **Orphans are not reported here.** Objects no snapshot references
@@ -664,7 +665,8 @@ threaten restorability — so orphan reporting lives in `cleanup`'s non-destruct
 (above), where the unreadable-snapshot caveat is a hard safety gate rather than the
 advisory `orphanObjectsExact` upper-bound flag it once was in verify. That move is why
 verify's result no longer carries a stored-object total or an orphan count (ADR-0042).
-**Exit 1 when any set has findings, or when nothing was checked** — a bucket with no set
+**Exit 1 when any set has findings, when the bucket's versioning is suspended (on once,
+switched off since — ADR-0118), or when nothing was checked** — a bucket with no set
 (`nothing to verify ✗`), a set whose snapshots are gone (`no snapshots`,
 [ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)) — (0 = at least one
 snapshot read and verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is
@@ -672,7 +674,7 @@ the cron idiom — no dedicated exit code until a script actually needs to disti
 "damaged" from "check failed".
 
 **Remote read-only, no side effects:** verify never writes to the bucket — it runs on
-List+Get credentials alone — and keeps no local state. (It used to rewrite a per-bucket
+List+Get credentials and `GetBucketVersioning` — and keeps no local state. (It used to rewrite a per-bucket
 objects cache from the completed LIST; that cache was dropped with the change-detection
 simplification, so there is nothing local left to heal —
 [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md).) Its whole

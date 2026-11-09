@@ -76,12 +76,13 @@ implements the same surface over the SDK.
 ### `versioning`
 
 The bucket retains noncurrent object versions; DELETE writes a delete marker
-rather than erasing bytes. s3cab never *checks* this (a known gap — see
-proposals/bugs.md), so the capability gates tests of what versioning does to
-s3cab's view: delete markers in LIST, `objectExists` on a marker, restore of
-an overwritten-then-deleted key.
+rather than erasing bytes. s3cab only asks whether it is on (`verify`,
+ADR-0118); the capability gates tests of what versioning does to s3cab's view:
+delete markers in LIST, `objectExists` on a marker, restore of an
+overwritten-then-deleted key.
 
-- Fake: **no** (unversioned hard delete, deliberately).
+- Fake: **no** (unversioned hard delete, deliberately), so its
+  `bucketVersioning` answers `never-enabled`.
 - Tier 2 bucket (`test-s3cab-<owner>-conformance`): **yes** — the conformance
   provisioning convention creates it versioned, with `s3:PutBucketVersioning`
   denied so a test cannot un-version it.

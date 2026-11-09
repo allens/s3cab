@@ -545,6 +545,7 @@ const setReport = (set, report = {}) => ({
  */
 const verifyResult = (photos) => ({
   bucket,
+  versioning: { state: "enabled" },
   sets: [photos, setReport("documents"), setReport("music")],
 });
 

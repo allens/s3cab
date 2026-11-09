@@ -12,6 +12,7 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   authNotice,
   bucketPolicy,
+  bucketVersioning,
   clientConfig,
   formatUploadProgress,
   isNetworkError,
@@ -445,11 +446,15 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
 });
 
 describe("bucketPolicy", () => {
-  it("scopes object actions to …/* and ListBucket to the bare bucket ARN", () => {
+  it("scopes object actions to …/* and bucket actions to the bare bucket ARN", () => {
     const { Statement } = bucketPolicy("my-backups");
-    const list = Statement.find((s) => s.Action.includes("s3:ListBucket"));
+    const bucket = Statement.find((s) => s.Action.includes("s3:ListBucket"));
     const objects = Statement.find((s) => s.Action.includes("s3:GetObject"));
-    assert.deepEqual(list?.Resource, ["arn:aws:s3:::my-backups"]);
+    assert.deepEqual(bucket?.Action, [
+      "s3:ListBucket",
+      "s3:GetBucketVersioning",
+    ]);
+    assert.deepEqual(bucket?.Resource, ["arn:aws:s3:::my-backups"]);
     assert.deepEqual(objects?.Resource, ["arn:aws:s3:::my-backups/*"]);
   });
 
@@ -460,6 +465,7 @@ describe("bucketPolicy", () => {
     assert.deepEqual([...actions].sort(), [
       "s3:AbortMultipartUpload",
       "s3:DeleteObject",
+      "s3:GetBucketVersioning",
       "s3:GetObject",
       "s3:ListBucket",
       "s3:PutObject",
@@ -1223,7 +1229,7 @@ const AWS_VARS = [
   "AWS_REGION",
 ];
 
-describe("putFile / putText (fake S3 on loopback)", () => {
+describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
   /** @type {Server} */
   let server;
   /** @type {string[]} The requests the fake S3 received, in order — normalized to
@@ -1244,6 +1250,8 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   let failPartNumber;
   /** @type {number} The status for an AbortMultipartUpload. */
   let deleteStatus;
+  /** @type {{ status: number, body: string }} The answer to GetBucketVersioning. */
+  let versioningAnswer;
   /** @type {string} */
   let dir;
   /** @type {string} */
@@ -1297,6 +1305,13 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     server = createServer(async (request, response) => {
       const [path, query = ""] = (request.url ?? "").split("?");
       const params = new URLSearchParams(query);
+      if (params.has("versioning")) {
+        response.writeHead(versioningAnswer.status, {
+          "content-type": "application/xml",
+        });
+        response.end(versioningAnswer.body);
+        return;
+      }
       const partNumber = params.get("partNumber");
       // One normalized line per operation. The uploadId *value* is noise (the
       // fake mints it), as is the SDK's ?x-id= tag; the query *keys* are what
@@ -1815,5 +1830,70 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       putFile(multipartFile, "s3://bucket/key", { noClobber: true }),
     );
     assert.deepEqual(seen, ["HEAD /bucket/key"]);
+  });
+
+  describe("bucketVersioning", () => {
+    /** S3's answer, with `status` the inside of its VersioningConfiguration. */
+    const configuration = (/** @type {string} */ status) => ({
+      status: 200,
+      body:
+        `<?xml version="1.0" encoding="UTF-8"?><VersioningConfiguration ` +
+        `xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${status}</VersioningConfiguration>`,
+    });
+
+    it("reads Enabled and Suspended as S3 reports them", async () => {
+      versioningAnswer = configuration("<Status>Enabled</Status>");
+      assert.deepEqual(await bucketVersioning("bucket"), { state: "enabled" });
+      versioningAnswer = configuration("<Status>Suspended</Status>");
+      assert.deepEqual(await bucketVersioning("bucket"), {
+        state: "suspended",
+      });
+    });
+
+    it("reads no status as a bucket that never had it", async () => {
+      versioningAnswer = configuration("");
+      assert.deepEqual(await bucketVersioning("bucket"), {
+        state: "never-enabled",
+      });
+    });
+
+    it("answers a refusal the relay rewords by the code underneath", async () => {
+      versioningAnswer = { status: 403, body: errorXml("AccessDenied") };
+      assert.deepEqual(await bucketVersioning("bucket"), {
+        state: "unknown",
+        reason: "AccessDenied",
+      });
+    });
+
+    it("answers a refusal the relay passes through by its own code", async () => {
+      versioningAnswer = { status: 501, body: errorXml("NotImplemented") };
+      assert.deepEqual(await bucketVersioning("bucket"), {
+        state: "unknown",
+        reason: "NotImplemented",
+      });
+    });
+
+    it("rethrows a server error that outlasted the SDK's retries", async () => {
+      // A suspended bucket must not hide behind a passing 5xx on exit 0.
+      versioningAnswer = { status: 500, body: errorXml("InternalError") };
+      await assert.rejects(bucketVersioning("bucket"), {
+        name: "InternalError",
+      });
+    });
+
+    it("rethrows a credential rejection with the relay's advice", async () => {
+      versioningAnswer = { status: 400, body: errorXml("ExpiredToken") };
+      await assert.rejects(
+        bucketVersioning("bucket"),
+        /credentials have expired/,
+      );
+    });
+
+    it("rethrows a failure that carries no S3 error code", async () => {
+      // An answer the SDK can't parse stands in for a dropped link, which the
+      // relay would retry for two minutes before throwing the same way.
+      versioningAnswer = { status: 200, body: "<VersioningConfiguration>" };
+      await assert.rejects(bucketVersioning("bucket"));
+    });
   });
 });

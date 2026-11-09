@@ -5,6 +5,7 @@ import { setHasFindings, verifyHasFindings, verifySet } from "./verify.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 /** @import { SnapshotRows } from "../../test/helpers/enumeration.mjs" */
+/** @import { Versioning } from "./s3.mjs" */
 
 // Pure unit tests for verify's diff core — the per-path `problems` model — with
 // no S3 (the S3 reads are integration-tested via test/integration/remote.test.mjs
@@ -287,9 +288,35 @@ describe("verifySet", () => {
       new Map([["aa", { size: 1 }]]),
     );
     const empty = verifySet("docs", enumerated({}), new Map());
-    assert.equal(verifyHasFindings({ sets: [] }), true);
-    assert.equal(verifyHasFindings({ sets: [clean] }), false);
-    assert.equal(verifyHasFindings({ sets: [clean, empty] }), true);
+    const versioning = { state: /** @type {const} */ ("enabled") };
+    assert.equal(verifyHasFindings({ sets: [], versioning }), true);
+    assert.equal(verifyHasFindings({ sets: [clean], versioning }), false);
+    assert.equal(verifyHasFindings({ sets: [clean, empty], versioning }), true);
+  });
+
+  it("of the versioning states, only suspended is a finding (ADR-0118)", () => {
+    const clean = verifySet(
+      "photos",
+      enumerated({ s1: { "/a.txt": ["aa", 1] } }),
+      new Map([["aa", { size: 1 }]]),
+    );
+    /** @type {Versioning[]} */
+    const quiet = [
+      { state: "enabled" },
+      { state: "never-enabled" },
+      { state: "unknown", reason: "AccessDenied" },
+    ];
+    for (const versioning of quiet) {
+      assert.equal(
+        verifyHasFindings({ sets: [clean], versioning }),
+        false,
+        versioning.state,
+      );
+    }
+    assert.equal(
+      verifyHasFindings({ sets: [clean], versioning: { state: "suspended" } }),
+      true,
+    );
   });
 
   it("a set with no snapshot read is a finding, not a clean set", () => {
