@@ -1,7 +1,9 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import { requireArg } from "../lib/error.mjs";
+import { bucketVersioning } from "../lib/s3.mjs";
 import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
 
+/** @import { Versioning } from "../lib/s3.mjs" */
 /** @import { SetReport } from "../lib/verify.mjs" */
 
 /**
@@ -31,12 +33,18 @@ import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
  * that order, which is the scan's safety property, not this command's
  * (lib/bucket-scan.mjs).
  *
- * **No side effects — read-only:** verify runs on List+Get credentials alone; it
- * never writes to the bucket and keeps no local state. **Exit 1** when any set
- * has findings (via `process.exitCode`, so the report still prints) — and when
- * there was nothing to check: a bucket with no sets, or a set whose snapshots
- * are all gone (`verifyHasFindings`). A clean run verified at least one snapshot
- * and returns 0; "all verified" is never said of nothing
+ * It also reads the bucket's **versioning**, the backstop that makes `forget`,
+ * `delete` and `cleanup` undoable
+ * ([ADR-0118](../../docs/adr/0118-verify-reports-bucket-versioning.md)).
+ *
+ * **No side effects — read-only:** verify runs on List+Get credentials, plus
+ * `GetBucketVersioning` for the versioning line (without it, the line says it
+ * couldn't check); it never writes to the bucket and keeps no local state. **Exit 1** when any set
+ * has findings (via `process.exitCode`, so the report still prints), when the
+ * bucket's versioning is suspended — and when there was nothing to check: a
+ * bucket with no sets, or a set whose snapshots are all gone
+ * (`verifyHasFindings`). A clean run verified at least one snapshot and
+ * returns 0; "all verified" is never said of nothing
  * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  *
  * **Orphans are not verify's concern.** Objects no snapshot references
@@ -44,11 +52,11 @@ import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
  * they can't threaten restorability — so they moved to `cleanup`'s
  * non-destructive mode, where the unreadable-snapshot caveat is a real safety
  * gate rather than an advisory flag (ADR-0042,
- * [docs/design/backup.md](../../docs/design/backup.md)). verify's result
- * is therefore just `{ bucket, sets }`.
+ * [docs/design/backup.md](../../docs/design/backup.md)).
  *
  * @typedef {Object} VerifyResult
  * @property {string} bucket
+ * @property {Versioning} versioning - The bucket's versioning state
  * @property {SetReport[]} sets - Per-set reports (the flat per-path `problems`
  *   list plus any unreadable snapshots), sorted by set name
  *
@@ -62,9 +70,11 @@ export async function verify(bucket) {
   // that order (lib/bucket-scan.mjs), so a backup or a `delete` landing mid-run
   // can only bump the orphan count, never fake a missing object.
   const { referencedBySet, stored, deleted } = await scanBucket(bucket);
+  const versioning = await bucketVersioning(bucket);
 
   const result = {
     bucket,
+    versioning,
     sets: [...referencedBySet]
       .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
       .sort((a, b) => a.set.localeCompare(b.set)),

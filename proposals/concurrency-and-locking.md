@@ -10,9 +10,6 @@ never overlap, the grace window is gone, and the tests that pinned both races no
 refusal. The item numbers below are kept as other documents cite them. What ADR-0112 leaves of
 item 3 is under its old number.
 
-**Versioning backstops a mistaken delete only if versioning is on, and no code path checks** —
-see the entry in [engine-robustness.md](engine-robustness.md).
-
 ## 2. Stale temp-file recovery (the local half)
 
 A crashed or interrupted snapshot leaves `.snapshot.tsv.gz` behind, and every later snapshot

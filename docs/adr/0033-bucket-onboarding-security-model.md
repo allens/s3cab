@@ -18,10 +18,11 @@ single source of truth, emitted by `s3cab aws` and referenced by
 
 ## 1. One everyday identity, explicit-verb least privilege
 
-The policy grants exactly `s3:ListBucket` on the bucket plus `s3:GetObject` / `s3:PutObject` /
-`s3:DeleteObject` / `s3:AbortMultipartUpload` on its objects — **explicit verbs, never the
-`s3:*Object` wildcard.** The two statements split because the object actions target `…/*` while
-bucket-level `ListBucket` targets the bare bucket ARN. One identity covers the common case; no
+The policy grants exactly `s3:ListBucket` and `s3:GetBucketVersioning`
+([0118](0118-verify-reports-bucket-versioning.md)) on the bucket plus `s3:GetObject` /
+`s3:PutObject` / `s3:DeleteObject` / `s3:AbortMultipartUpload` on its objects — **explicit verbs,
+never the `s3:*Object` wildcard.** The two statements split because the object actions target
+`…/*` while the bucket-level actions target the bare bucket ARN. One identity covers the common case; no
 extra users are minted.
 
 `AbortMultipartUpload` is not covered by `PutObject`. Without it, a multipart upload that fails

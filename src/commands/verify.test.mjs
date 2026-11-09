@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
+/** @import { S3Seam } from "../../test/helpers/s3-seam.mjs" */
 
 // Offline tests for verify's command orchestration — the glue on top of the pure
-// diff. The bucket scan (`scanBucket`) is faked at the lib seam so the per-set
-// report, the { bucket, sets } shape, and the exit-code side effect are locked
-// down without a bucket; its referenced enumeration is built by the shared
+// diff. The bucket scan (`scanBucket`) is faked at the lib seam, and the
+// versioning read at s3.mjs, so the per-set report, the result's shape, and the
+// exit-code side effect are locked down without a bucket; its referenced
+// enumeration is built by the shared
 // `enumeration` fixture (paths spelled `/data/<hash>` so the reported paths read
 // back to their hash). The scan's own read order is pinned in
 // lib/bucket-scan.test.mjs, the real S3 path by test/integration/remote.test.mjs's
@@ -21,6 +24,12 @@ let referencedBySet = new Map();
 let storedObjects = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** @type {S3Seam["bucketVersioning"]} */
+let bucketVersioning = async () => ({ state: "enabled" });
+
+mock.module("../lib/s3.mjs", {
+  exports: s3Seam({ bucketVersioning: (bucket) => bucketVersioning(bucket) }),
+});
 
 mock.module("../lib/bucket-scan.mjs", {
   exports: {
@@ -41,6 +50,7 @@ beforeEach(() => {
   referencedBySet = new Map();
   storedObjects = [];
   deletionRecords = new Map();
+  bucketVersioning = async () => ({ state: "enabled" });
 });
 afterEach(() => {
   process.exitCode = savedExitCode; // never leak a set exit code to the runner
@@ -86,8 +96,8 @@ describe("verify command", () => {
 
   it("does not report orphans — they are cleanup's concern, not verify's", async () => {
     // `orphan` is stored but referenced by no snapshot. verify simply ignores it
-    // (no orphan count, no exactness flag on the result); its result is just
-    // { bucket, sets }, and a stored-but-unreferenced object is not a finding.
+    // (no orphan count, no exactness flag on the result), and a
+    // stored-but-unreferenced object is not a finding.
     referencedBySet = enumeration({
       photos: { s1: { "/data/aaa": ["aaa", 10] } },
     });
@@ -98,7 +108,11 @@ describe("verify command", () => {
 
     const result = await verify("my-backups");
 
-    assert.deepEqual(Object.keys(result).sort(), ["bucket", "sets"]);
+    assert.deepEqual(Object.keys(result).sort(), [
+      "bucket",
+      "sets",
+      "versioning",
+    ]);
     assert.equal(process.exitCode, savedExitCode); // clean → untouched
   });
 
@@ -196,5 +210,59 @@ describe("verify command", () => {
       ["docs", "photos"], // sorted by set name
     );
     assert.equal(process.exitCode, savedExitCode); // clean → untouched
+  });
+
+  describe("bucket versioning (ADR-0118)", () => {
+    beforeEach(() => {
+      referencedBySet = enumeration({
+        photos: { s1: { "/data/aaa": ["aaa", 10] } },
+      });
+      storedObjects = [{ hash: "aaa", size: 10 }];
+    });
+
+    it("exits 1 when it was switched off, though every set is clean", async () => {
+      bucketVersioning = async () => ({ state: "suspended" });
+
+      const result = await verify("my-backups");
+
+      assert.deepEqual(result.versioning, { state: "suspended" });
+      assert.deepEqual(result.sets[0]?.problems, []);
+      assert.equal(process.exitCode, 1);
+    });
+
+    it("reports a bucket that never had it without touching the exit code", async () => {
+      bucketVersioning = async () => ({ state: "never-enabled" });
+
+      const result = await verify("my-backups");
+
+      assert.deepEqual(result.versioning, { state: "never-enabled" });
+      assert.equal(process.exitCode, savedExitCode);
+    });
+
+    it("reports a refused read and keeps the rest of the report", async () => {
+      bucketVersioning = async () => ({
+        state: "unknown",
+        reason: "AccessDenied",
+      });
+
+      const result = await verify("my-backups");
+
+      assert.deepEqual(result.versioning, {
+        state: "unknown",
+        reason: "AccessDenied",
+      });
+      assert.equal(result.sets[0]?.set, "photos");
+      assert.equal(process.exitCode, savedExitCode);
+    });
+
+    it("fails when the read fails any other way, as the scan would", async () => {
+      // A dropped link must not pass for a lasting state: a suspended bucket
+      // would go unreported on exit 0.
+      bucketVersioning = async () => {
+        throw new Error("Couldn't reach the cloud");
+      };
+
+      await assert.rejects(verify("my-backups"), /Couldn't reach the cloud/);
+    });
   });
 });

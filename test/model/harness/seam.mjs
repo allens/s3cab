@@ -71,6 +71,7 @@ mock.module("../../../src/lib/s3.mjs", {
       backendHolder.current.deleteObject(uri),
     objectSize: (/** @type {string} */ uri) =>
       backendHolder.current.objectSize(uri),
+    bucketVersioning: () => backendHolder.current.bucketVersioning(),
     isObjectNotFound,
     isPreconditionFailed,
   },

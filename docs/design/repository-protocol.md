@@ -282,8 +282,9 @@ a description of the protocol rather than a running defect list:
   ([proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md)).
 - The conditional-write backstop off-AWS — [s3-provider-compatibility.md](s3-provider-compatibility.md),
   Finding 3 item 5.
-- Bucket versioning is recommended by every guide and **checked by no code path** —
-  [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
+- Bucket versioning is recommended by every guide and only *reported* when it is off: `verify`
+  notes a bucket that never had it and fails on one where it was switched off, but nothing stops
+  a delete on either — [ADR-0118](../adr/0118-verify-reports-bucket-versioning.md).
 - A truncated stored snapshot object reading as a shorter valid snapshot — **closed 2026-08-14** by
   [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s trailer, now a lone `.` line: a prefix cut
   either loses it or tears a row. (Independently found 2026-08-11; the audit did not catch this one,

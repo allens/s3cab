@@ -38,6 +38,7 @@
  * @typedef {Pick<
  *   typeof import("../../src/lib/s3.mjs"),
  *   | "bucketPolicy"
+ *   | "bucketVersioning"
  *   | "deleteObject"
  *   | "getBytes"
  *   | "getStream"
@@ -86,8 +87,9 @@ const noSuchKey = (uri) =>
  */
 export function s3Seam(overrides = {}) {
   return {
-    // An empty store: nothing stored, nothing to read.
+    // An empty store: nothing stored, nothing to read, a fresh bucket's settings.
     listObjects: async function* () {},
+    bucketVersioning: async () => ({ state: "never-enabled" }),
     getText: async () => undefined,
     getBytes: async () => undefined,
     objectSize: async () => undefined,
