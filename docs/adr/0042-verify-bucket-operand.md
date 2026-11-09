@@ -23,7 +23,8 @@ the full design (finding classes, report, ordering invariant) is in
 > concern, not an integrity one — they can't threaten restorability — so verify no longer
 > computes them, and the upper-bound exactness flag is gone with them; in `cleanup` the
 > unreadable-snapshot caveat is a real safety gate (never delete what a snapshot you couldn't
-> read might reference), not an advisory hint. **verify's result is now just `{ bucket, sets }`.**
+> read might reference), not an advisory hint. **verify's result is now
+`{ bucket, versioning, sets }`** (`versioning` from [0118](0118-verify-reports-bucket-versioning.md)).
 > See [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md).
 
 ## Context
@@ -70,12 +71,13 @@ catch. So one run = one bucket LIST, always.
   **Superseded 2026-07-05 (see the banner):** orphan reporting moved to `cleanup`'s
   non-destructive mode. Orphans are a reclamation concern, not an integrity one, so verify no
   longer computes `stored − referenced` or carries the `orphanObjectsExact` upper-bound flag;
-  its result is `{ bucket, sets }`. In `cleanup` the unreadable-snapshot caveat is a hard
+  its result is `{ bucket, versioning, sets }`. In `cleanup` the unreadable-snapshot caveat is a hard
   safety gate (never sweep what an unreadable snapshot might reference), not a hint.
 - **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad input) —
   `s3cab verify <bucket> || alert` is the cron idiom. No dedicated exit code until a
   script actually needs "damaged" vs "check failed".
-- **Remote read-only** — verify never writes to the bucket; it runs on List+Get credentials.
+- **Remote read-only** — verify never writes to the bucket; it runs on List+Get credentials,
+  plus `GetBucketVersioning` for [0118](0118-verify-reports-bucket-versioning.md)'s versioning line.
   (It originally *also* rewrote a per-bucket objects cache from the completed LIST, to warm
   the next backup and heal a poisoned cache. That cache was **dropped** by
   [ADR-0045](0045-change-detection-local-baseline-list-fallback.md), so verify now keeps no

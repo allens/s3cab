@@ -26,8 +26,9 @@ It's cheap and safe to run often:
 
 - **No downloads.** It compares listings, so there's no egress and no bill to speak of — it
   never fetches your file contents.
-- **Read-only.** It never writes to the bucket, and needs only list + read permission, plus
-  permission to read the bucket's versioning setting (`s3:GetBucketVersioning` on AWS).
+- **Read-only.** It never writes to the bucket, and needs only list + read permission.
+  Permission to read the bucket's versioning setting (`s3:GetBucketVersioning` on AWS) adds
+  the versioning check below; without it, that line says it couldn't check.
 - **Scriptable.** It exits non-zero if any set has findings, if the bucket's
   [versioning](#versioning-why-any-of-this-is-safe) has been switched off — or if there was
   nothing to check: a bucket with no set at all (`nothing to verify ✗`, most likely the wrong
@@ -80,11 +81,14 @@ headline:
 - **suspended** — versioning was on and has been switched off. This is a finding: `forget`,
   `delete` and `cleanup` can't be undone until it's back on, and nothing else will tell you.
   When every set is clean the headline reads `versioning suspended ✗`.
-- **off** — the bucket never had it, which includes providers that don't offer it. A note,
-  not a finding.
-- **couldn't check** — the read was refused, with the reason in parentheses. `AccessDenied`
-  usually means an identity set up before s3cab needed this permission: run
-  `s3cab aws <bucket>` again and redeploy the identity stack it writes. A note, not a finding.
+- **off** — versioning has never been on for this bucket. A note, not a finding.
+- **couldn't check** — the bucket refused to say, with its reason in parentheses. A note,
+  not a finding:
+  - `NotImplemented` usually means a provider that doesn't offer versioning.
+  - `AccessDenied` means your credentials lack `s3:GetBucketVersioning`. For an identity
+    `s3cab aws` set up before s3cab needed it, run `s3cab aws <bucket>` again and redeploy
+    the identity stack it writes. For any other (an SSO permission set, a provider's key),
+    add the permission to its policy yourself.
 
 A note leaves the exit code alone, since a state that won't change shouldn't ring the alarm on
 every run.
