@@ -766,7 +766,7 @@ export async function putFile(path, uri, options = {}) {
   //
   // The digest is compared when the stream ends, before lib-storage has the
   // last part: it sends a single PUT, or completes a multipart upload, only
-  // after the body has ended, and on a throw from it aborts the multipart
+  // after the body has ended, and on a throw from it this aborts the multipart
   // upload. So a mismatch stores nothing, even if the process dies the moment
   // after. Not a check after `done()` and a delete: a crash between the two
   // left the wrong bytes under the key.
@@ -802,6 +802,9 @@ export async function putFile(path, uri, options = {}) {
     },
     partSize,
     queueSize,
+    // Its own abort covers a failed part but not a failed Complete, so the one
+    // below covers both, once.
+    leavePartsOnError: true,
   });
 
   // Two ways to show a transfer, and the caller picks by whether it wants the
@@ -843,19 +846,9 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
-    if (mismatch) {
-      // lib-storage rethrows the body's error only after its abort, so a failed
-      // abort, or a part that failed alongside, would otherwise replace it.
-      // Not a warning that parts were left: after a clean abort, the error can
-      // be a sibling part's, and nothing here tells the two apart.
-      if (error !== mismatch) {
-        mismatch.cause = error;
-      }
-      throw mismatch;
-    }
-    // lib-storage aborts a multipart upload when a part fails, but not when its
-    // Complete fails, so the parts would stay stored, and billed. That includes
-    // the no-clobber refusal, which comes only at Complete, with every part sent.
+    // Any failure once a multipart upload is open, the mismatch included, or
+    // its parts stay stored, and billed. The no-clobber refusal is one: it
+    // comes only at Complete, with every part sent.
     if (upload.uploadId) {
       const { Bucket, Key } = parseS3Uri(uri);
       try {
@@ -871,6 +864,8 @@ export async function putFile(path, uri, options = {}) {
         const gone =
           Error.isError(abortError) && abortError.name === "NoSuchUpload";
         if (!gone) {
+          // Cleared first, or disposal closes a bar the warning replaced.
+          progress.clear();
           // `statusLine`, not `console.warn`: a run's line may be mid-draw.
           statusLine(
             process.stderr,
@@ -884,12 +879,19 @@ export async function putFile(path, uri, options = {}) {
         }
       }
     }
+    if (mismatch) {
+      // A part that failed alongside can reach here in its place.
+      if (error !== mismatch) {
+        mismatch.cause = error;
+      }
+      throw mismatch;
+    }
     if (noClobber && isPreconditionFailed(error)) {
       progress.clear();
       return false;
     }
-    // A real failure keeps its bar: disposal closes the line, so the error
-    // prints below the transfer it belongs to rather than over it.
+    // A real failure keeps its bar, unless a warning replaced it: disposal
+    // closes the line, so the error prints below the transfer it belongs to.
     throw error;
   }
 

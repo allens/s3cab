@@ -27,6 +27,7 @@ import {
 /** @import { S3ClientConfig } from "@aws-sdk/client-s3" */
 /** @import { Server } from "node:http" */
 /** @import { AddressInfo } from "node:net" */
+/** @import { TestContext } from "node:test" */
 
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
@@ -1260,6 +1261,21 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   const errorXml = (/** @type {string} */ code) =>
     `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${code}</Message></Error>`;
 
+  /**
+   * Collect what the rest of the test writes to stderr, instead of printing it.
+   * @param {TestContext} t
+   * @returns {string[]}
+   */
+  const captureStderr = (t) => {
+    /** @type {string[]} */
+    const written = [];
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    return written;
+  };
+
   before(async () => {
     dir = mkdtempSync(join(tmpdir(), "s3cab-putfile-"));
     file = join(dir, "big.bin");
@@ -1534,17 +1550,12 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     const digest = createHash("sha256")
       .update(Buffer.alloc(PART_SIZE + 1))
       .digest("hex");
-    /** @type {string[]} */
-    const written = [];
     const wasTTY = process.stderr.isTTY;
     process.stderr.isTTY = true;
     t.after(() => {
       process.stderr.isTTY = wasTTY;
     });
-    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
-      written.push(String(chunk));
-      return true;
-    });
+    const written = captureStderr(t);
     await putFile(multipartFile, "s3://bucket/key", { sha256: digest });
     assert.ok(
       written.some((text) => / of .*bigger\.bin/.test(text)),
@@ -1552,23 +1563,24 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     );
   });
 
-  it("still reports the mismatch when the abort that follows it is refused", async () => {
-    // An identity without s3:AbortMultipartUpload: lib-storage's error would be
-    // the abort's AccessDenied, which reads as a transport failure.
+  it("still reports the mismatch when the abort that follows it is refused, and warns", async (t) => {
+    // An identity without s3:AbortMultipartUpload.
     deleteStatus = 403;
+    const written = captureStderr(t);
     await assert.rejects(
       putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
       (/** @type {Error} */ error) => {
         assert.equal(error.name, "ContentMismatchError");
-        // The abort's AccessDenied, as s3cab's client words it.
-        assert.match(
-          /** @type {Error} */ (error.cause).message,
-          /don't have permission/,
-        );
+        assert.equal(error.cause, undefined);
         return true;
       },
     );
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    // The abort's AccessDenied, as s3cab's client words it.
+    assert.match(
+      written.join(""),
+      /Parts of an unfinished upload[^]*don't have permission/,
+    );
   });
 
   it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
@@ -1678,12 +1690,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   it("multipart race: a refused abort is a warning, and the file still reads as present", async (t) => {
     completeStatus = 412;
     deleteStatus = 403;
-    /** @type {string[]} */
-    const written = [];
-    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
-      written.push(String(chunk));
-      return true;
-    });
+    const written = captureStderr(t);
     const wrote = await putFile(multipartFile, "s3://bucket/key", {
       noClobber: true,
     });
@@ -1699,12 +1706,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   it("multipart race: an upload already gone when aborted is no warning", async (t) => {
     completeStatus = 412;
     deleteStatus = 404;
-    /** @type {string[]} */
-    const written = [];
-    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
-      written.push(String(chunk));
-      return true;
-    });
+    const written = captureStderr(t);
     const wrote = await putFile(multipartFile, "s3://bucket/key", {
       noClobber: true,
     });
@@ -1733,25 +1735,41 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       // about the wire, not the wording.
       (/** @type {any} */ error) => error.cause?.name === "AccessDenied",
     );
-    // lib-storage aborts, then putFile does too; on S3 the second finds the
-    // upload gone. Orphaned parts bill forever.
-    assert.ok(seen.includes("DELETE /bucket/key?uploadId"));
+    // Exactly one: putFile's. Two means lib-storage's own abort is back on
+    // (`leavePartsOnError`), costing a second network wait on a dead link.
+    assert.deepEqual(
+      seen.filter((line) => line.startsWith("DELETE ")),
+      ["DELETE /bucket/key?uploadId"],
+    );
   });
 
   it("a Complete refused for another reason aborts the upload too, and still fails", async (t) => {
     completeStatus = 400;
-    /** @type {string[]} */
-    const written = [];
-    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
-      written.push(String(chunk));
-      return true;
-    });
+    const written = captureStderr(t);
     await assert.rejects(putFile(multipartFile, "s3://bucket/key", {}), {
       name: "InvalidPart",
     });
-    // lib-storage doesn't abort after a failed Complete.
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
     assert.doesNotMatch(written.join(""), /Parts of an unfinished upload/);
+  });
+
+  it("a warning on the failure path replaces the bar, with nothing drawn after it", async (t) => {
+    completeStatus = 400;
+    deleteStatus = 403;
+    const wasTTY = process.stderr.isTTY;
+    process.stderr.isTTY = true;
+    t.after(() => {
+      process.stderr.isTTY = wasTTY;
+    });
+    const written = captureStderr(t);
+    await assert.rejects(putFile(multipartFile, "s3://bucket/key", {}), {
+      name: "InvalidPart",
+    });
+    assert.ok(
+      written.some((text) => / of .*bigger\.bin/.test(text)),
+      "the bar was drawn",
+    );
+    assert.match(written.at(-1) ?? "", /guide\/aws\n$/);
   });
 
   // ——— putText, the string twin. Its params come from putObjectParams, so the
