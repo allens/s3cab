@@ -34,10 +34,10 @@ passes it: under `objects/` the key *is* the digest.
 2. **The digest is compared before the upload completes, and a mismatch throws
    `ContentMismatchError` with nothing stored.** The comparison runs when the body ends, inside the
    stream handed to lib-storage, which sends a single PUT, or completes a multipart upload, only
-   after the body has ended, and aborts the multipart upload when the body throws. So the wrong
-   bytes are never visible under the key, even to a run killed a moment later. Not a check after
-   the transfer and a delete of what it stored: a crash between the two left the corrupt object
-   for every later run's conditional PUT to trust.
+   after the body has ended. When the body throws, `putFile` aborts the multipart upload. So the
+   wrong bytes are never visible under the key, even to a run killed a moment later. Not a check
+   after the transfer and a delete of what it stored: a crash between the two left the corrupt
+   object for every later run's conditional PUT to trust.
 3. **A forced overwrite (`upload --file --force`) is held to the same check**, and on a mismatch
    the key keeps whatever it held, since nothing was sent to replace it.
 4. **`uploadObjects` catches the type and records a `"changed"` drift** — the same fact as the
@@ -51,14 +51,14 @@ passes it: under `objects/` the key *is* the digest.
    no-clobber file meets the HEAD preflight first, and a held key skips it unread. Both outcomes
    store nothing wrong; the file's change goes unreported only when its old bytes are stored
    already.
-6. **A mismatch survives the abort.** lib-storage rethrows the body's error only after its
-   `AbortMultipartUpload`, so a refused abort, or a part that failed alongside, would replace it.
-   `putFile` keeps the mismatch and rethrows it, the other error as its `cause`. The everyday
-   policy grants `s3:AbortMultipartUpload` ([0033](0033-bucket-onboarding-security-model.md)), so
-   the abort normally succeeds. Where it doesn't (an older identity, a hand-written policy), the
-   parts stay until the bucket's lifecycle rule for incomplete uploads clears them, and only
-   `S3CAB_DEBUG` shows why. Not a warning saying so: after a clean abort, the other error can be
-   a sibling part's, so the warning would sometimes be false.
+6. **A mismatch survives the abort.** `putFile` sends the abort itself, with lib-storage's own
+   turned off (`leavePartsOnError`), since that one covers a failed part but not a failed
+   Complete. So a refused abort can't replace the mismatch: `putFile` warns that the parts are
+   left, billed, and still throws the mismatch, a part that failed alongside as its `cause`. The
+   everyday policy grants `s3:AbortMultipartUpload`
+   ([0033](0033-bucket-onboarding-security-model.md)), so the abort normally succeeds. Where it
+   doesn't (an older identity, a hand-written policy), the parts stay until the bucket's
+   lifecycle rule for incomplete uploads clears them, or for good without one.
 
 Not `x-amz-checksum-sha256`, which would have S3 refuse the mismatch itself: it covers a single
 PUT only, since S3 has no whole-object SHA-256 for a multipart upload, and S3-compatible
@@ -76,9 +76,9 @@ content-addressed, is written immediately before its upload, and is not user-wri
 - A PUT that applies but loses its response, is retried
   ([0068](0068-network-retries-above-the-sdk.md)), and collects a 412 from its own success stored
   bytes that already passed the check, so "already present" is true of them too.
-- **The guard rests on lib-storage's order**: the last part held until the body ends, and an abort
-  when it throws. A unit test pins it on the wire (no PUT, no Complete, an Abort), so an SDK
-  upgrade that changes it fails there.
+- **The guard rests on lib-storage's order**: the last part held until the body ends. A unit test
+  pins it on the wire (no PUT, no Complete, one Abort), so an SDK upgrade that changes it fails
+  there.
 - A run killed during a multipart upload, mismatched or not, leaves its parts uncompleted:
   invisible, never an object, and billed until the bucket's lifecycle rule for incomplete
   uploads clears them.

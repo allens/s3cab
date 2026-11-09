@@ -28,6 +28,7 @@ import {
 /** @import { S3ClientConfig } from "@aws-sdk/client-s3" */
 /** @import { Server } from "node:http" */
 /** @import { AddressInfo } from "node:net" */
+/** @import { TestContext } from "node:test" */
 
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
@@ -1268,6 +1269,21 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
   const errorXml = (/** @type {string} */ code) =>
     `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${code}</Message></Error>`;
 
+  /**
+   * Collect what the rest of the test writes to stderr, instead of printing it.
+   * @param {TestContext} t
+   * @returns {string[]}
+   */
+  const captureStderr = (t) => {
+    /** @type {string[]} */
+    const written = [];
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    return written;
+  };
+
   before(async () => {
     dir = mkdtempSync(join(tmpdir(), "s3cab-putfile-"));
     file = join(dir, "big.bin");
@@ -1365,7 +1381,13 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
               `<Key>key</Key><ETag>"abc"</ETag></CompleteMultipartUploadResult>`,
           );
         } else {
-          xml(completeStatus, errorXml("PreconditionFailed"));
+          // Any other status is a refusal that isn't the no-clobber guard's.
+          xml(
+            completeStatus,
+            errorXml(
+              completeStatus === 412 ? "PreconditionFailed" : "InvalidPart",
+            ),
+          );
         }
       } else if (request.method === "DELETE") {
         // AbortMultipartUpload.
@@ -1373,8 +1395,12 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
           response.writeHead(204);
           response.end();
         } else {
-          // Non-retryable, so a failing abort is one request, not three.
-          xml(deleteStatus, errorXml("AccessDenied"));
+          // Non-retryable, so a failing abort is one request, not three. A 404
+          // is the upload already gone.
+          xml(
+            deleteStatus,
+            errorXml(deleteStatus === 404 ? "NoSuchUpload" : "AccessDenied"),
+          );
         }
       } else if (putStatus === 200) {
         response.writeHead(200, { etag: '"abc"' });
@@ -1539,17 +1565,12 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
     const digest = createHash("sha256")
       .update(Buffer.alloc(PART_SIZE + 1))
       .digest("hex");
-    /** @type {string[]} */
-    const written = [];
     const wasTTY = process.stderr.isTTY;
     process.stderr.isTTY = true;
     t.after(() => {
       process.stderr.isTTY = wasTTY;
     });
-    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
-      written.push(String(chunk));
-      return true;
-    });
+    const written = captureStderr(t);
     await putFile(multipartFile, "s3://bucket/key", { sha256: digest });
     assert.ok(
       written.some((text) => / of .*bigger\.bin/.test(text)),
@@ -1557,23 +1578,24 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
     );
   });
 
-  it("still reports the mismatch when the abort that follows it is refused", async () => {
-    // An identity without s3:AbortMultipartUpload: lib-storage's error would be
-    // the abort's AccessDenied, which reads as a transport failure.
+  it("still reports the mismatch when the abort that follows it is refused, and warns", async (t) => {
+    // An identity without s3:AbortMultipartUpload.
     deleteStatus = 403;
+    const written = captureStderr(t);
     await assert.rejects(
       putFile(multipartFile, "s3://bucket/key", { sha256: stale }),
       (/** @type {Error} */ error) => {
         assert.equal(error.name, "ContentMismatchError");
-        // The abort's AccessDenied, as s3cab's client words it.
-        assert.match(
-          /** @type {Error} */ (error.cause).message,
-          /don't have permission/,
-        );
+        assert.equal(error.cause, undefined);
         return true;
       },
     );
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    // The abort's AccessDenied, as s3cab's client words it.
+    assert.match(
+      written.join(""),
+      /Parts of an unfinished upload[^]*don't have permission/,
+    );
   });
 
   it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
@@ -1675,14 +1697,37 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
     // The cost of losing this race is inherent: every part was already sent
     // before the guard could answer. (Why the preflight exists at all.)
     assert.ok(seen.includes("PUT /bucket/key?partNumber=2"));
-    // Pins a known limitation: lib-storage only auto-aborts on a *part*
-    // failure, so a failed Complete leaves the multipart upload open and its
-    // parts billed until aborted. The systemic answer is a bucket lifecycle
-    // rule — s3cab-provisioned buckets get one (bucketResources, lib/aws.mjs),
-    // and bring-your-own-bucket users are told to add it (guide/aws.md). If
-    // this assertion ever flips to an abort being sent, that guidance can
-    // soften.
-    assert.ok(!seen.some((line) => line.startsWith("DELETE ")));
+    // lib-storage doesn't abort a refused Complete, so putFile does: the parts
+    // would otherwise stay stored, and billed.
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+  });
+
+  it("multipart race: a refused abort is a warning, and the file still reads as present", async (t) => {
+    completeStatus = 412;
+    deleteStatus = 403;
+    const written = captureStderr(t);
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, false);
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    const said = written.join("");
+    assert.match(said, /Parts of an unfinished upload are left in the bucket/);
+    // The abort's AccessDenied, as s3cab's client words it, says what to fix.
+    assert.match(said, /don't have permission/);
+    assert.match(said, /https:\/\/s3cab\.plantegral\.com\/guide\/aws/);
+  });
+
+  it("multipart race: an upload already gone when aborted is no warning", async (t) => {
+    completeStatus = 412;
+    deleteStatus = 404;
+    const written = captureStderr(t);
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, false);
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    assert.doesNotMatch(written.join(""), /Parts of an unfinished upload/);
   });
 
   it("force (noClobber off): no preflight, no condition, even at multipart size", async () => {
@@ -1705,13 +1750,44 @@ describe("putFile / putText / bucketVersioning (fake S3 on loopback)", () => {
       // about the wire, not the wording.
       (/** @type {any} */ error) => error.cause?.name === "AccessDenied",
     );
-    // lib-storage's leavePartsOnError defaults to false; putFile inherits that
-    // silently, so this is the assertion keeping the auto-abort we rely on —
-    // orphaned parts bill forever.
+    // Exactly one: putFile's. Two means lib-storage's own abort is back on
+    // (`leavePartsOnError`), costing a second network wait on a dead link.
     assert.deepEqual(
       seen.filter((line) => line.startsWith("DELETE ")),
       ["DELETE /bucket/key?uploadId"],
     );
+  });
+
+  it("a Complete refused for another reason aborts the upload too, and still fails", async (t) => {
+    completeStatus = 400;
+    const written = captureStderr(t);
+    await assert.rejects(putFile(multipartFile, "s3://bucket/key", {}), {
+      name: "InvalidPart",
+    });
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    assert.doesNotMatch(written.join(""), /Parts of an unfinished upload/);
+  });
+
+  it("a warning on the failure path replaces the bar, with nothing drawn after it", async (t) => {
+    completeStatus = 400;
+    deleteStatus = 403;
+    const wasTTY = process.stderr.isTTY;
+    process.stderr.isTTY = true;
+    t.after(() => {
+      process.stderr.isTTY = wasTTY;
+    });
+    const written = captureStderr(t);
+    await assert.rejects(putFile(multipartFile, "s3://bucket/key", {}), {
+      name: "InvalidPart",
+    });
+    assert.ok(
+      written.some((text) => / of .*bigger\.bin/.test(text)),
+      "the bar was drawn",
+    );
+    assert.match(written.at(-1) ?? "", /guide\/aws\n$/);
+    // The error thrown says why the run stopped; the abort's reason, the
+    // refusal here, isn't printed on top of it.
+    assert.doesNotMatch(written.join(""), /don't have permission/);
   });
 
   // ——— putText, the string twin. Its params come from putObjectParams, so the

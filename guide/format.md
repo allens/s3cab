@@ -1584,7 +1584,10 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **Not overwriting.** `If-None-Match: *` makes a PUT refuse an existing key with 412, and
   can't be raced the way HEAD then PUT can. boto3 1.34, the version Ubuntu 24.04 packages,
   has no `IfNoneMatch` parameter: add the header in a `before-call` event handler for
-  `PutObject` and `CompleteMultipartUpload`.
+  `PutObject` and `CompleteMultipartUpload`. A multipart upload is refused only at
+  `CompleteMultipartUpload`, after every part is sent, and AWS leaves the upload open, its
+  parts stored and billed: abort it then, as s3cab does. Other S3-compatible stores are
+  untested.
 - **Content type.** Python's `mimetypes` reports a `.tsv.gz` file's encoding as `gzip`, and a
   tool that passes that on sets the header the checklist rules out.
 - **`Content-Encoding: aws-chunked`.** boto3 1.36 and later send it on every upload by

@@ -1,4 +1,5 @@
 import {
+  AbortMultipartUploadCommand,
   DeleteObjectCommand,
   GetBucketVersioningCommand,
   GetObjectCommand,
@@ -33,7 +34,7 @@ import { customEndpoint, envSource } from "./env.mjs";
 import { ContentMismatchError, errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
 import { enterNetworkWait, leaveNetworkWait } from "./network-status.mjs";
-import { createProgress } from "./progress.mjs";
+import { createProgress, statusLine } from "./progress.mjs";
 import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
@@ -766,10 +767,10 @@ export async function putFile(path, uri, options = {}) {
   //
   // The digest is compared when the stream ends, before lib-storage has the
   // last part: it sends a single PUT, or completes a multipart upload, only
-  // after the body has ended, and on a throw from it aborts the multipart
-  // upload. So a mismatch stores nothing, even if the process dies the moment
-  // after. Not a check after `done()` and a delete: a crash between the two
-  // left the wrong bytes under the key.
+  // after the body has ended. When the body throws, `putFile` aborts the
+  // multipart upload (below). So a mismatch stores nothing, even if the
+  // process dies the moment after. Not a check after `done()` and a delete: a
+  // crash between the two left the wrong bytes under the key.
   /** @type {ContentMismatchError | undefined} */
   let mismatch;
   const source = createReadStream(path);
@@ -802,6 +803,9 @@ export async function putFile(path, uri, options = {}) {
     },
     partSize,
     queueSize,
+    // Its own abort covers a failed part but not a failed Complete, so the one
+    // below covers both, once.
+    leavePartsOnError: true,
   });
 
   // Two ways to show a transfer, and the caller picks by whether it wants the
@@ -843,24 +847,59 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
+    const present = noClobber && isPreconditionFailed(error);
+    // Any failure once a multipart upload is open, the mismatch included, or
+    // its parts stay stored, and billed. The no-clobber refusal is one: it
+    // comes only at Complete, with every part sent.
+    if (upload.uploadId) {
+      const { Bucket, Key } = parseS3Uri(uri);
+      try {
+        await client().send(
+          new AbortMultipartUploadCommand({
+            Bucket,
+            Key,
+            UploadId: upload.uploadId,
+          }),
+        );
+      } catch (abortError) {
+        // NoSuchUpload: the upload is gone already, completed or aborted.
+        const gone =
+          Error.isError(abortError) && abortError.name === "NoSuchUpload";
+        if (!gone) {
+          // Cleared first, or disposal closes a bar the warning replaced.
+          progress.clear();
+          // When `error` is rethrown below, its message follows and says why,
+          // and the abort mostly failed the same way (network, sign-in), at
+          // length, so its reason is left out rather than printed twice.
+          const reason =
+            mismatch || present ? `${errorText(abortError)}\n\n` : "";
+          // `statusLine`, not `console.warn`: a run's line may be mid-draw.
+          statusLine(
+            process.stderr,
+            `Parts of an unfinished upload are left in the bucket, still billed: ` +
+              `s3cab couldn't cancel them (${path}).\n\n` +
+              reason +
+              `A rule for unfinished uploads clears them; without one they stay ` +
+              `for good. To give the bucket one:\n` +
+              `  https://s3cab.plantegral.com/guide/aws`,
+          );
+        }
+      }
+    }
     if (mismatch) {
-      // lib-storage rethrows the body's error only after its abort, so a failed
-      // abort, or a part that failed alongside, would otherwise replace it.
-      // Not a warning that parts were left: after a clean abort, the error can
-      // be a sibling part's, and nothing here tells the two apart.
+      // A part that failed alongside can reach here in its place.
       if (error !== mismatch) {
         mismatch.cause = error;
       }
       throw mismatch;
-    } else if (noClobber && isPreconditionFailed(error)) {
-      // Already present — no upload, and nothing to leave behind.
+    }
+    if (present) {
       progress.clear();
       return false;
-    } else {
-      // A real failure keeps its bar: disposal closes the line, so the error
-      // prints below the transfer it belongs to rather than over it.
-      throw error;
     }
+    // A real failure keeps its bar, unless a warning replaced it: disposal
+    // closes the line, so the error prints below the transfer it belongs to.
+    throw error;
   }
 
   // The bar was *live* progress, not a record — wipe it now the transfer is

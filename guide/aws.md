@@ -180,7 +180,7 @@ The generated policy grants exactly:
   `verify` check that versioning is on — and
 - `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` /
   `s3:AbortMultipartUpload` on its objects. The last lets a large upload that
-  failed partway clear the parts it already sent.
+  failed partway, or turned out not to be needed, clear the parts it already sent.
 
 The `locks/` keys that keep backups and clean-ups apart
 ([looking after a backup](maintenance.md#locks-backups-and-clean-ups-take-turns)) are
