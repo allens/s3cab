@@ -852,44 +852,45 @@ export async function putFile(path, uri, options = {}) {
         mismatch.cause = error;
       }
       throw mismatch;
-    } else if (noClobber && isPreconditionFailed(error)) {
-      // Already present. A multipart upload is refused only at its completion,
-      // with every part sent, and lib-storage doesn't abort a refused Complete,
-      // so the parts stay stored, and billed, unless this aborts them.
-      progress.clear();
-      if (upload.uploadId) {
-        const { Bucket, Key } = parseS3Uri(uri);
-        try {
-          await client().send(
-            new AbortMultipartUploadCommand({
-              Bucket,
-              Key,
-              UploadId: upload.uploadId,
-            }),
+    }
+    // lib-storage aborts a multipart upload when a part fails, but not when its
+    // Complete fails, so the parts would stay stored, and billed. That includes
+    // the no-clobber refusal, which comes only at Complete, with every part sent.
+    if (upload.uploadId) {
+      const { Bucket, Key } = parseS3Uri(uri);
+      try {
+        await client().send(
+          new AbortMultipartUploadCommand({
+            Bucket,
+            Key,
+            UploadId: upload.uploadId,
+          }),
+        );
+      } catch (abortError) {
+        // NoSuchUpload: the upload is gone already, completed or aborted.
+        const gone =
+          Error.isError(abortError) && abortError.name === "NoSuchUpload";
+        if (!gone) {
+          // `statusLine`, not `console.warn`: a run's line may be mid-draw.
+          statusLine(
+            process.stderr,
+            `Parts of an unfinished upload are left in the bucket, still billed: ` +
+              `s3cab couldn't cancel them (${path}).\n\n` +
+              `${errorText(abortError)}\n\n` +
+              `A rule for unfinished uploads clears them; without one they stay ` +
+              `for good. To give the bucket one:\n` +
+              `  https://s3cab.plantegral.com/guide/aws`,
           );
-        } catch (abortError) {
-          // NoSuchUpload: a retried Complete whose first try landed, and that
-          // try is the object found present, so nothing was left open.
-          const gone =
-            Error.isError(abortError) && abortError.name === "NoSuchUpload";
-          if (!gone) {
-            // `statusLine`, not `console.warn`: a run's line may be mid-draw.
-            statusLine(
-              process.stderr,
-              `Couldn't cancel an upload that turned out not to be needed, so the ` +
-                `parts it sent stay in the bucket, and are billed, until the ` +
-                `bucket's rule for unfinished uploads clears them (the file was ` +
-                `already stored: ${path}).\n\n${errorText(abortError)}`,
-            );
-          }
         }
       }
-      return false;
-    } else {
-      // A real failure keeps its bar: disposal closes the line, so the error
-      // prints below the transfer it belongs to rather than over it.
-      throw error;
     }
+    if (noClobber && isPreconditionFailed(error)) {
+      progress.clear();
+      return false;
+    }
+    // A real failure keeps its bar: disposal closes the line, so the error
+    // prints below the transfer it belongs to rather than over it.
+    throw error;
   }
 
   // The bar was *live* progress, not a record — wipe it now the transfer is

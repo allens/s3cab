@@ -1350,7 +1350,13 @@ describe("putFile / putText (fake S3 on loopback)", () => {
               `<Key>key</Key><ETag>"abc"</ETag></CompleteMultipartUploadResult>`,
           );
         } else {
-          xml(completeStatus, errorXml("PreconditionFailed"));
+          // Any other status is a refusal that isn't the no-clobber guard's.
+          xml(
+            completeStatus,
+            errorXml(
+              completeStatus === 412 ? "PreconditionFailed" : "InvalidPart",
+            ),
+          );
         }
       } else if (request.method === "DELETE") {
         // AbortMultipartUpload.
@@ -1684,17 +1690,13 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     assert.equal(wrote, false);
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
     const said = written.join("");
-    assert.match(
-      said,
-      /Couldn't cancel an upload that turned out not to be needed/,
-    );
+    assert.match(said, /Parts of an unfinished upload are left in the bucket/);
     // The abort's AccessDenied, as s3cab's client words it, says what to fix.
     assert.match(said, /don't have permission/);
+    assert.match(said, /https:\/\/s3cab\.plantegral\.com\/guide\/aws/);
   });
 
   it("multipart race: an upload already gone when aborted is no warning", async (t) => {
-    // A retried Complete whose first try landed: the 412 is its own object,
-    // and the upload it completed is no longer there to abort.
     completeStatus = 412;
     deleteStatus = 404;
     /** @type {string[]} */
@@ -1708,7 +1710,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     });
     assert.equal(wrote, false);
     assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
-    assert.doesNotMatch(written.join(""), /Couldn't cancel/);
+    assert.doesNotMatch(written.join(""), /Parts of an unfinished upload/);
   });
 
   it("force (noClobber off): no preflight, no condition, even at multipart size", async () => {
@@ -1731,13 +1733,25 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       // about the wire, not the wording.
       (/** @type {any} */ error) => error.cause?.name === "AccessDenied",
     );
-    // lib-storage's leavePartsOnError defaults to false; putFile inherits that
-    // silently, so this is the assertion keeping the auto-abort we rely on —
-    // orphaned parts bill forever.
-    assert.deepEqual(
-      seen.filter((line) => line.startsWith("DELETE ")),
-      ["DELETE /bucket/key?uploadId"],
-    );
+    // lib-storage aborts, then putFile does too; on S3 the second finds the
+    // upload gone. Orphaned parts bill forever.
+    assert.ok(seen.includes("DELETE /bucket/key?uploadId"));
+  });
+
+  it("a Complete refused for another reason aborts the upload too, and still fails", async (t) => {
+    completeStatus = 400;
+    /** @type {string[]} */
+    const written = [];
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    await assert.rejects(putFile(multipartFile, "s3://bucket/key", {}), {
+      name: "InvalidPart",
+    });
+    // lib-storage doesn't abort after a failed Complete.
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    assert.doesNotMatch(written.join(""), /Parts of an unfinished upload/);
   });
 
   // ——— putText, the string twin. Its params come from putObjectParams, so the

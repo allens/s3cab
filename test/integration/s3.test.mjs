@@ -229,17 +229,26 @@ describe("putFile multipart (real bucket)", () => {
       );
       assert.deepEqual(Uploads, [], "no unfinished upload left behind");
     } finally {
-      // What a failing run leaves open is billed until aborted.
-      const { Uploads = [] } = await other.send(
-        new ListMultipartUploadsCommand({ Bucket: bucket, Prefix: Key }),
-      );
-      for (const { UploadId } of Uploads) {
-        await other.send(
-          new AbortMultipartUploadCommand({ Bucket: bucket, Key, UploadId }),
+      try {
+        // What a failing run leaves open is billed until aborted.
+        const { Uploads = [] } = await other.send(
+          new ListMultipartUploadsCommand({ Bucket: bucket, Prefix: Key }),
         );
+        for (const { UploadId } of Uploads) {
+          await other
+            .send(
+              new AbortMultipartUploadCommand({
+                Bucket: bucket,
+                Key,
+                UploadId,
+              }),
+            )
+            .catch(() => {});
+        }
+        await deleteObject(uri);
+      } finally {
+        other.destroy();
       }
-      await deleteObject(uri);
-      other.destroy();
     }
   });
 });
