@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import {
   AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   ListMultipartUploadsCommand,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
@@ -186,6 +188,58 @@ describe("putFile multipart (real bucket)", () => {
         .catch(() => {});
       await deleteObject(uri);
       client.destroy();
+    }
+  });
+
+  it("aborts the upload another writer beats to completion — no parts left", async (t) => {
+    // Two writers sending the same content: the other's PUT lands after this
+    // one's HEAD preflight, so S3 refuses only the CompleteMultipartUpload, with
+    // every part already sent, and leaves the upload open.
+    const raced = randomBytes(PART_SIZE + 1);
+    const racedHash = createHash("sha256").update(raced).digest("hex");
+    const racedFile = join(dir, "raced.bin");
+    writeFileSync(racedFile, raced);
+    const Key = `objects/${racedHash}`;
+    const uri = `s3://${bucket}/${Key}`;
+    const other = new S3Client(clientConfig());
+    const send = /** @type {(...args: any[]) => Promise<any>} */ (
+      S3Client.prototype.send
+    );
+    t.mock.method(
+      S3Client.prototype,
+      "send",
+      /** @this {S3Client} @param {any[]} args */
+      async function (...args) {
+        if (
+          this !== other &&
+          args[0] instanceof CompleteMultipartUploadCommand
+        ) {
+          await other.send(
+            new PutObjectCommand({ Bucket: bucket, Key, Body: raced }),
+          );
+        }
+        return send.apply(this, args);
+      },
+    );
+    try {
+      const wrote = await putFile(racedFile, uri, { noClobber: true });
+      assert.equal(wrote, false);
+      const { Uploads = [] } = await other.send(
+        new ListMultipartUploadsCommand({ Bucket: bucket, Prefix: Key }),
+      );
+      assert.deepEqual(Uploads, [], "no unfinished upload left behind");
+    } finally {
+      // What a failing run leaves open is billed until aborted.
+      const { Uploads = [] } = await other.send(
+        new ListMultipartUploadsCommand({ Bucket: bucket, Prefix: Key }),
+      );
+      for (const { UploadId } of Uploads) {
+        await other.send(
+          new AbortMultipartUploadCommand({ Bucket: bucket, Key, UploadId }),
+        );
+      }
+      await deleteObject(uri);
+      other.destroy();
     }
   });
 });

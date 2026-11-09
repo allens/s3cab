@@ -1,4 +1,5 @@
 import {
+  AbortMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -32,7 +33,7 @@ import { customEndpoint, envSource } from "./env.mjs";
 import { ContentMismatchError, errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
 import { enterNetworkWait, leaveNetworkWait } from "./network-status.mjs";
-import { createProgress } from "./progress.mjs";
+import { createProgress, statusLine } from "./progress.mjs";
 import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
@@ -852,8 +853,37 @@ export async function putFile(path, uri, options = {}) {
       }
       throw mismatch;
     } else if (noClobber && isPreconditionFailed(error)) {
-      // Already present — no upload, and nothing to leave behind.
+      // Already present. A multipart upload is refused only at its completion,
+      // with every part sent, and lib-storage doesn't abort a refused Complete,
+      // so the parts stay stored, and billed, unless this aborts them.
       progress.clear();
+      if (upload.uploadId) {
+        const { Bucket, Key } = parseS3Uri(uri);
+        try {
+          await client().send(
+            new AbortMultipartUploadCommand({
+              Bucket,
+              Key,
+              UploadId: upload.uploadId,
+            }),
+          );
+        } catch (abortError) {
+          // NoSuchUpload: a retried Complete whose first try landed, and that
+          // try is the object found present, so nothing was left open.
+          const gone =
+            Error.isError(abortError) && abortError.name === "NoSuchUpload";
+          if (!gone) {
+            // `statusLine`, not `console.warn`: a run's line may be mid-draw.
+            statusLine(
+              process.stderr,
+              `Couldn't cancel an upload that turned out not to be needed, so the ` +
+                `parts it sent stay in the bucket, and are billed, until the ` +
+                `bucket's rule for unfinished uploads clears them (the file was ` +
+                `already stored: ${path}).\n\n${errorText(abortError)}`,
+            );
+          }
+        }
+      }
       return false;
     } else {
       // A real failure keeps its bar: disposal closes the line, so the error

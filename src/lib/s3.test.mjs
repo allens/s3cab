@@ -1358,8 +1358,12 @@ describe("putFile / putText (fake S3 on loopback)", () => {
           response.writeHead(204);
           response.end();
         } else {
-          // Non-retryable, so a failing abort is one request, not three.
-          xml(deleteStatus, errorXml("AccessDenied"));
+          // Non-retryable, so a failing abort is one request, not three. A 404
+          // is the upload already gone.
+          xml(
+            deleteStatus,
+            errorXml(deleteStatus === 404 ? "NoSuchUpload" : "AccessDenied"),
+          );
         }
       } else if (putStatus === 200) {
         response.writeHead(200, { etag: '"abc"' });
@@ -1660,14 +1664,51 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     // The cost of losing this race is inherent: every part was already sent
     // before the guard could answer. (Why the preflight exists at all.)
     assert.ok(seen.includes("PUT /bucket/key?partNumber=2"));
-    // Pins a known limitation: lib-storage only auto-aborts on a *part*
-    // failure, so a failed Complete leaves the multipart upload open and its
-    // parts billed until aborted. The systemic answer is a bucket lifecycle
-    // rule — s3cab-provisioned buckets get one (bucketResources, lib/aws.mjs),
-    // and bring-your-own-bucket users are told to add it (guide/aws.md). If
-    // this assertion ever flips to an abort being sent, that guidance can
-    // soften.
-    assert.ok(!seen.some((line) => line.startsWith("DELETE ")));
+    // lib-storage doesn't abort a refused Complete, so putFile does: the parts
+    // would otherwise stay stored, and billed.
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+  });
+
+  it("multipart race: a refused abort is a warning, and the file still reads as present", async (t) => {
+    completeStatus = 412;
+    deleteStatus = 403;
+    /** @type {string[]} */
+    const written = [];
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, false);
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    const said = written.join("");
+    assert.match(
+      said,
+      /Couldn't cancel an upload that turned out not to be needed/,
+    );
+    // The abort's AccessDenied, as s3cab's client words it, says what to fix.
+    assert.match(said, /don't have permission/);
+  });
+
+  it("multipart race: an upload already gone when aborted is no warning", async (t) => {
+    // A retried Complete whose first try landed: the 412 is its own object,
+    // and the upload it completed is no longer there to abort.
+    completeStatus = 412;
+    deleteStatus = 404;
+    /** @type {string[]} */
+    const written = [];
+    t.mock.method(process.stderr, "write", (/** @type {string} */ chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, false);
+    assert.equal(seen.at(-1), "DELETE /bucket/key?uploadId");
+    assert.doesNotMatch(written.join(""), /Couldn't cancel/);
   });
 
   it("force (noClobber off): no preflight, no condition, even at multipart size", async () => {
