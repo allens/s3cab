@@ -25,7 +25,7 @@ let storedObjects = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
 /** @type {S3Seam["bucketVersioning"]} */
-let bucketVersioning = async () => "enabled";
+let bucketVersioning = async () => ({ state: "enabled" });
 
 mock.module("../lib/s3.mjs", {
   exports: s3Seam({ bucketVersioning: (bucket) => bucketVersioning(bucket) }),
@@ -50,7 +50,7 @@ beforeEach(() => {
   referencedBySet = new Map();
   storedObjects = [];
   deletionRecords = new Map();
-  bucketVersioning = async () => "enabled";
+  bucketVersioning = async () => ({ state: "enabled" });
 });
 afterEach(() => {
   process.exitCode = savedExitCode; // never leak a set exit code to the runner
@@ -221,7 +221,7 @@ describe("verify command", () => {
     });
 
     it("exits 1 when it was switched off, though every set is clean", async () => {
-      bucketVersioning = async () => "suspended";
+      bucketVersioning = async () => ({ state: "suspended" });
 
       const result = await verify("my-backups");
 
@@ -231,7 +231,7 @@ describe("verify command", () => {
     });
 
     it("reports a bucket that never had it without touching the exit code", async () => {
-      bucketVersioning = async () => "never-enabled";
+      bucketVersioning = async () => ({ state: "never-enabled" });
 
       const result = await verify("my-backups");
 
@@ -239,15 +239,11 @@ describe("verify command", () => {
       assert.equal(process.exitCode, savedExitCode);
     });
 
-    it("reports a refused read by the code it wraps, and keeps the rest of the report", async () => {
-      // s3.mjs's relay rethrows an AccessDenied as a plain Error whose cause is
-      // the SDK's error.
-      bucketVersioning = async () => {
-        const denied = Object.assign(new Error("not authorized"), {
-          name: "AccessDenied",
-        });
-        throw new Error("You're signed in, but…", { cause: denied });
-      };
+    it("reports a refused read and keeps the rest of the report", async () => {
+      bucketVersioning = async () => ({
+        state: "unknown",
+        reason: "AccessDenied",
+      });
 
       const result = await verify("my-backups");
 
@@ -259,20 +255,14 @@ describe("verify command", () => {
       assert.equal(process.exitCode, savedExitCode);
     });
 
-    it("reports an error the relay left alone by its own name", async () => {
+    it("fails when the read fails any other way, as the scan would", async () => {
+      // A dropped link must not pass for a lasting state: a suspended bucket
+      // would go unreported on exit 0.
       bucketVersioning = async () => {
-        throw Object.assign(new Error("not implemented"), {
-          name: "NotImplemented",
-        });
+        throw new Error("Couldn't reach the cloud");
       };
 
-      const result = await verify("my-backups");
-
-      assert.deepEqual(result.versioning, {
-        state: "unknown",
-        reason: "NotImplemented",
-      });
-      assert.equal(process.exitCode, savedExitCode);
+      await assert.rejects(verify("my-backups"), /Couldn't reach the cloud/);
     });
   });
 });

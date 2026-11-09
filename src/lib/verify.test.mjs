@@ -5,7 +5,7 @@ import { setHasFindings, verifyHasFindings, verifySet } from "./verify.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 /** @import { SnapshotRows } from "../../test/helpers/enumeration.mjs" */
-/** @import { Versioning } from "./verify.mjs" */
+/** @import { Versioning } from "./s3.mjs" */
 
 // Pure unit tests for verify's diff core — the per-path `problems` model — with
 // no S3 (the S3 reads are integration-tested via test/integration/remote.test.mjs

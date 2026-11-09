@@ -326,10 +326,10 @@ export class FakeS3 {
   /**
    * What S3 says of a bucket that never had versioning on, which is the truth
    * here: the fake has no "versioning" capability.
-   * @returns {Promise<"never-enabled">}
+   * @returns {Promise<{ state: "never-enabled" }>}
    */
   async bucketVersioning() {
-    return "never-enabled";
+    return { state: "never-enabled" };
   }
 
   // ── The harness's inspection interface (shared with the real backend) ───

@@ -194,10 +194,10 @@ describe("putFile multipart (real bucket)", () => {
 
 describe("bucketVersioning (real bucket)", () => {
   it("reads the bucket's state under the test identity's grant", async () => {
-    const state = await bucketVersioning(bucket);
+    const versioning = await bucketVersioning(bucket);
     assert.ok(
-      ["enabled", "suspended", "never-enabled"].includes(state),
-      `unexpected state: ${state}`,
+      ["enabled", "suspended", "never-enabled"].includes(versioning.state),
+      `unexpected answer: ${JSON.stringify(versioning)}`,
     );
   });
 });

@@ -3,7 +3,8 @@ import { requireArg } from "../lib/error.mjs";
 import { bucketVersioning } from "../lib/s3.mjs";
 import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
 
-/** @import { SetReport, Versioning } from "../lib/verify.mjs" */
+/** @import { Versioning } from "../lib/s3.mjs" */
+/** @import { SetReport } from "../lib/verify.mjs" */
 
 /**
  * Check that the backups in a bucket are complete and undamaged (docs/design/backup.md,
@@ -36,8 +37,9 @@ import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
  * `delete` and `cleanup` undoable
  * ([ADR-0118](../../docs/adr/0118-verify-reports-bucket-versioning.md)).
  *
- * **No side effects — read-only:** verify runs on List+Get credentials alone; it
- * never writes to the bucket and keeps no local state. **Exit 1** when any set
+ * **No side effects — read-only:** verify runs on List+Get credentials, plus
+ * `GetBucketVersioning` for the versioning line (without it, the line says it
+ * couldn't check); it never writes to the bucket and keeps no local state. **Exit 1** when any set
  * has findings (via `process.exitCode`, so the report still prints), when the
  * bucket's versioning is suspended — and when there was nothing to check: a
  * bucket with no sets, or a set whose snapshots are all gone
@@ -68,7 +70,7 @@ export async function verify(bucket) {
   // that order (lib/bucket-scan.mjs), so a backup or a `delete` landing mid-run
   // can only bump the orphan count, never fake a missing object.
   const { referencedBySet, stored, deleted } = await scanBucket(bucket);
-  const versioning = await readVersioning(bucket);
+  const versioning = await bucketVersioning(bucket);
 
   const result = {
     bucket,
@@ -86,27 +88,4 @@ export async function verify(bucket) {
   }
 
   return result;
-}
-
-/**
- * The bucket's versioning, with a failed read reported rather than thrown: an
- * identity deployed before `s3:GetBucketVersioning` was granted, or a provider
- * without the call, must not cost the user the rest of the report (ADR-0118).
- * @param {string} bucket
- * @returns {Promise<Versioning>}
- */
-async function readVersioning(bucket) {
-  try {
-    const state = await bucketVersioning(bucket);
-    return { state };
-  } catch (error) {
-    // s3.mjs's relay wraps a refusal in a long actionable message; the code it
-    // wraps (`AccessDenied`) says enough for a note.
-    const cause =
-      Error.isError(error) && Error.isError(error.cause) ? error.cause : error;
-    return {
-      state: "unknown",
-      reason: Error.isError(cause) ? cause.name : String(cause),
-    };
-  }
 }

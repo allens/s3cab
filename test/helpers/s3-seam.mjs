@@ -89,7 +89,7 @@ export function s3Seam(overrides = {}) {
   return {
     // An empty store: nothing stored, nothing to read, a fresh bucket's settings.
     listObjects: async function* () {},
-    bucketVersioning: async () => "never-enabled",
+    bucketVersioning: async () => ({ state: "never-enabled" }),
     getText: async () => undefined,
     getBytes: async () => undefined,
     objectSize: async () => undefined,

@@ -50,7 +50,8 @@ import {
 /** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
-/** @import { SetReport, Versioning } from "./lib/verify.mjs" */
+/** @import { SetReport } from "./lib/verify.mjs" */
+/** @import { Versioning } from "./lib/s3.mjs" */
 /** @import { VerifyResult } from "./commands/verify.mjs" */
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
@@ -880,7 +881,10 @@ function versioningNote(versioning, paint) {
         `(${VERSIONING_GUIDE})`
       );
     case "unknown":
-      return `  versioning   couldn't check (${versioning.reason})`;
+      return (
+        `  versioning   couldn't check (${versioning.reason}) — ` +
+        `see ${VERSIONING_GUIDE}`
+      );
   }
 }
 

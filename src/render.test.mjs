@@ -1147,7 +1147,7 @@ describe("renderVerify", () => {
     );
     assert.match(
       unknown,
-      /all verified ✓\n\n {2}versioning {3}couldn't check \(AccessDenied\)$/,
+      /all verified ✓\n\n {2}versioning {3}couldn't check \(AccessDenied\) — see https:\/\/s3cab\.plantegral\.com\/guide\/maintenance$/,
     );
   });
 });

@@ -21,7 +21,7 @@ that never had it on. Some S3-compatible providers have no versioning to report.
 
 1. **`verify` reads the bucket's versioning**, one `GetBucketVersioning` after the bucket scan,
    and reports one of four states: `enabled`, `suspended`, `never-enabled`, or `unknown` when the
-   read failed.
+   server refused the read.
 2. **Only `suspended` is a finding**, so only it makes `verify` exit 1 (user, 2026-11-08: "Only if
    suspended"). It means versioning was on and has been switched off: a change in the bucket, the
    kind `s3cab verify <bucket> || alert` exists to catch, and an early step for anyone setting out
@@ -30,9 +30,11 @@ that never had it on. Some S3-compatible providers have no versioning to report.
    the grant), and an alarm that fires on every run trains the user to ignore it, the reason
    [0064](0064-path-scoped-delete-deletion-record.md) keeps deliberate deletions out of the exit
    code.
-3. **A failed read is reported, never thrown.** The note names the code the server gave
-   (`AccessDenied`, `NotImplemented`), and the rest of the report stands: an identity without the
-   new grant must not lose the check it already had.
+3. **A refusal is reported, not thrown.** When the server refuses with an error code
+   (`AccessDenied`, `NotImplemented`), the note names it and the rest of the report stands: an
+   identity without the new grant must not lose the check it already had. Any other failure, such
+   as a dropped link, fails `verify` as it would during the scan: a passing failure reported as a
+   note would hide a suspended bucket behind exit 0.
 4. **`bucketPolicy()` grants `s3:GetBucketVersioning`** on the bucket. It reads a setting and
    writes nothing, so 0033's property, that a leaked everyday key can never permanently destroy
    anything, is untouched. `s3:PutBucketVersioning` stays ungranted.

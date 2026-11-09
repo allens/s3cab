@@ -6,6 +6,7 @@ import {
   paginateListObjectsV2,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
   ServerSideEncryption,
   StorageClass,
 } from "@aws-sdk/client-s3";
@@ -1036,19 +1037,45 @@ export async function getBytes(uri) {
 }
 
 /**
+ * A bucket's versioning: S3's two states, `never-enabled` for a bucket that
+ * never had it on, and `unknown` with the code the server refused the read with.
+ * @typedef {{ state: "enabled" | "suspended" | "never-enabled" } | { state: "unknown", reason: string }} Versioning
+ */
+
+/**
  * Whether a bucket keeps the old versions of what is deleted or overwritten
  * (ADR-0118). S3 reports no status at all for a bucket that never had it on.
+ *
+ * A refusal the server names (`AccessDenied`, `NotImplemented`) is a lasting
+ * state, so it is answered as `unknown` rather than thrown. Anything else, such
+ * as a dropped link, rethrows: answering it as `unknown` would let a passing
+ * failure hide a suspended bucket.
  * @param {string} bucket
- * @returns {Promise<"enabled" | "suspended" | "never-enabled">}
+ * @returns {Promise<Versioning>}
  */
 export async function bucketVersioning(bucket) {
-  const { Status } = await client().send(
-    new GetBucketVersioningCommand({ Bucket: bucket }),
-  );
-  if (Status === "Enabled") {
-    return "enabled";
+  /** @type {string | undefined} */
+  let status;
+  try {
+    ({ Status: status } = await client().send(
+      new GetBucketVersioningCommand({ Bucket: bucket }),
+    ));
+  } catch (error) {
+    // The relay wraps the refusals it has advice for (AccessDenied) and passes
+    // the rest through raw.
+    const refusal =
+      Error.isError(error) && error.cause instanceof S3ServiceException
+        ? error.cause
+        : error;
+    if (!(refusal instanceof S3ServiceException)) {
+      throw error;
+    }
+    return { state: "unknown", reason: refusal.name };
   }
-  return Status === "Suspended" ? "suspended" : "never-enabled";
+  if (status === "Enabled") {
+    return { state: "enabled" };
+  }
+  return { state: status === "Suspended" ? "suspended" : "never-enabled" };
 }
 
 /**
