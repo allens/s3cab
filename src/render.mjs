@@ -757,18 +757,30 @@ export function renderStatus({
   set,
   snapshot,
   snapshotBackedUp,
+  takenLater,
   backedUp,
   toUpload,
 }) {
   const objects = `${countOf(toUpload, "object")} to upload`;
   let verdict;
-  if (snapshotBackedUp) {
+  if (!snapshotBackedUp) {
+    // The same name above and below: the bucket's is another snapshot.
+    const why =
+      backedUp === snapshot
+        ? "the bucket's under that name is a different one"
+        : toUpload === 0
+          ? "its objects are all stored"
+          : objects;
+    verdict = `latest snapshot not backed up — ${why}`;
+  } else if (takenLater.length > 0) {
+    verdict =
+      `${takenLater.join(", ")} not backed up — taken later, under a name ` +
+      `that sorts earlier because the clock went back`;
+  } else {
     // A backed-up snapshot still has objects to upload when a `delete` removed
     // content since, or when the bucket's latest is another machine's and the
     // count is against that.
     verdict = toUpload === 0 ? "up to date" : objects;
-  } else {
-    verdict = `latest snapshot not backed up — ${toUpload === 0 ? "its objects are all stored" : objects}`;
   }
   return [
     set,

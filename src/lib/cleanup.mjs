@@ -30,6 +30,7 @@ import {
   unreadableSnapshots,
 } from "./referenced.mjs";
 import { readNewSnapshots } from "./remote.mjs";
+import { isSetName } from "./set-marker.mjs";
 import { shellCommand, styleEnabled } from "./style.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
@@ -57,6 +58,7 @@ import { shellCommand, styleEnabled } from "./style.mjs";
  * @property {number} missing - Referenced objects absent from the store (integrity fault)
  * @property {number} damaged - Stored objects whose recorded size disagrees with storage
  * @property {string[]} unreadable - `set/snapshot` names that would not read
+ * @property {string[]} emptySets - Sets with no snapshot read: what their snapshots referenced, if they had any, is in `orphanHashes`
  */
 
 /**
@@ -132,6 +134,16 @@ export function planCleanup(
     reclaimableBytes += size;
   }
 
+  // A set with no snapshot read — none was unreadable, or the run aborts on
+  // that first — can't say what it references. A folder whose name isn't a
+  // set's is no set, and holds only what was copied there.
+  const emptySets = [...referencedBySet]
+    .filter(
+      ([set, { snapshotsChecked, unreadable }]) =>
+        isSetName(set) && snapshotsChecked === 0 && unreadable.length === 0,
+    )
+    .map(([set]) => set);
+
   return {
     storedObjects: stored.size,
     referencedObjects: referencedAll.size,
@@ -141,8 +153,38 @@ export function planCleanup(
     missing,
     damaged,
     unreadable,
+    emptySets,
   };
 }
+
+/**
+ * Interlock #4: a set with no snapshots in the bucket — lost, or never backed
+ * up, which the bucket can't tell apart (ADR-0117) — references nothing, so
+ * everything only its lost snapshots held would be deleted, and with it the
+ * loss would become permanent. A set retired with `forget` has left the
+ * bucket, and isn't one.
+ * @param {string[]} sets - From the plan's `emptySets`
+ * @returns {Error}
+ */
+export const emptySetsError = (sets) => {
+  const one = sets.length === 1;
+  const set = one ? sets[0] : "<set>";
+  return new Error(
+    [
+      `Refusing to delete: ${one ? `backup set '${sets[0]}' has` : "these backup sets have"} ` +
+        `no snapshots in the bucket, so everything only ${one ? "its" : "their"} ` +
+        `snapshots referenced would look unused and be deleted` +
+        (one ? "." : ":"),
+      ...(one ? [] : sets.map((name) => `  ${name}`)),
+      ``,
+      `If ${one ? "its" : "a set's"} snapshots were lost, upload them again from ` +
+        `the machine that holds it, once for each:`,
+      `  ${shellCommand(`s3cab upload ${set} --snapshot <name>`, styleEnabled(process.stderr))}`,
+      `If ${one ? "it" : "a set"} hasn't been backed up yet, back it up first:`,
+      `  ${shellCommand(`s3cab backup ${set}`, styleEnabled(process.stderr))}`,
+    ].join("\n"),
+  );
+};
 
 /**
  * The `set/snapshot` names whose rows were refused (ADR-0101), each once —

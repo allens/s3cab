@@ -34,6 +34,10 @@ let fakeSet = { name: "photos", bucket: "b1", dir: "" };
 let remoteSnapshots = [];
 /** @type {[string, string, string][]} */
 let deleteCalls = [];
+/** @type {[string, string][]} the sets taken out of the bucket */
+let removedSets = [];
+/** @type {string[]} what each prompt asked */
+let prompts = [];
 /** @type {boolean} */
 let promptAnswer = false;
 /** @type {number} */
@@ -111,8 +115,9 @@ mock.module("../lib/objects.mjs", {
 });
 mock.module("../lib/prompt.mjs", {
   exports: {
-    promptYesNo: async () => {
+    promptYesNo: async (/** @type {string} */ question) => {
       promptCalls++;
+      prompts.push(question);
       return promptAnswer;
     },
   },
@@ -123,6 +128,12 @@ mock.module("../lib/set-marker.mjs", {
       if (notHeld) {
         throw notHeld;
       }
+    },
+    removeRemoteSet: async (
+      /** @type {string} */ bucket,
+      /** @type {string} */ set,
+    ) => {
+      removedSets.push([bucket, set]);
     },
   },
 });
@@ -159,6 +170,8 @@ beforeEach(() => {
   };
   remoteSnapshots = ["20260612T0915", "20260611T0915"];
   deleteCalls = [];
+  removedSets = [];
+  prompts = [];
   promptAnswer = false;
   promptCalls = 0;
   referencedCalls = 0;
@@ -232,6 +245,26 @@ describe("forget command", () => {
       snapshots: ["20260612T0915", "20260611T0915"],
       forgotten: true,
     });
+  });
+
+  it("takes the set out of the bucket with its last snapshot, after saying so", async () => {
+    // A set with nothing to restore from would otherwise fail verify and
+    // block cleanup forever (ADR-0117).
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+
+    assert.match(prompts[0] ?? "", /set leaves the bucket too[\s\S]*takeover/);
+    assert.deepEqual(removedSets, [["b1", "photos"]]);
+  });
+
+  it("leaves the set in the bucket while it has another snapshot", async () => {
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260611T0915"], { set: "photos" });
+
+    assert.doesNotMatch(prompts[0] ?? "", /leaves the bucket/);
+    assert.deepEqual(removedSets, []);
   });
 
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {

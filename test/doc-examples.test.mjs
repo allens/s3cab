@@ -781,6 +781,7 @@ const CLOUD = [
         set: "photos",
         snapshot: TIDY,
         snapshotBackedUp: true,
+        takenLater: [],
         backedUp: TIDY,
         toUpload: 0,
       }),

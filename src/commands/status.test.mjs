@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createReadStream } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
@@ -32,11 +32,13 @@ mock.module("../lib/s3.mjs", {
         .map((Key) => ({ Key }));
     },
     getBytes: async (/** @type {string} */ uri) => {
+      if (uri.endsWith(".tsv.gz")) {
+        return readFileSync(remoteSnapshotPath);
+      }
       const text = textByUri[uri];
       return text === undefined ? undefined : Buffer.from(text);
     },
     objectSize: async (/** @type {string} */ uri) => sizeByUri[uri],
-    getStream: async () => createReadStream(remoteSnapshotPath),
   }),
 });
 
@@ -143,6 +145,20 @@ describe("status", () => {
     const report = await status("photos");
 
     assert.equal(report.snapshot, "20261009T1300");
+    assert.equal(report.backedUp, NAME);
+    assert.equal(report.snapshotBackedUp, false);
+  });
+
+  it("doesn't count the latest local snapshot as backed up when the bucket's under its name is another (ADR-0084)", async () => {
+    // Two machines can mint one minute's name; a name alone proves nothing.
+    await using dir = await mkTmpDir();
+    await backedUpSet(dir.path);
+    remoteSnapshotPath = await writeSnapshot(join(dir.path, "other"), NAME, [
+      new File(["other"], "a.txt"),
+    ]);
+
+    const report = await status("photos");
+
     assert.equal(report.backedUp, NAME);
     assert.equal(report.snapshotBackedUp, false);
   });

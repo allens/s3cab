@@ -1,5 +1,6 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import {
+  emptySetsError,
   invalidRowSnapshots,
   invalidRowsError,
   planCleanup,
@@ -34,13 +35,15 @@ import { isInteractive, shellCommand } from "../lib/style.mjs";
  * destructive-command pattern
  * ([ADR-0064](../../docs/adr/0064-path-scoped-delete-deletion-record.md)) `delete`
  * also follows, here with the gentler y/N tier: cleanup removes only orphans,
- * never content a live snapshot references. Three damage interlocks
+ * never content a live snapshot references. Four damage interlocks
  * (docs/design/backup.md): an **unreadable snapshot, or one with a refused
  * row, aborts both modes** (its references are unknown, so the orphan numbers
  * would be lies — triage with `verify` first; ADR-0101), and **missing
  * objects make the act path refuse** (the repository is already losing data;
  * don't compound it), as does a **damaged deletion record** (compacting it
- * would lose rows, ADR-0101).
+ * would lose rows, ADR-0101) and a **set with no snapshots** (everything only
+ * its lost snapshots referenced would look orphaned; `forget` takes a retired
+ * set out of the bucket, so one left behind is damage, not intent).
  *
  * The scan and the plan run with no lock, so the preview costs a running
  * backup nothing; the deletes are `reclaim`'s (lib/cleanup.mjs), under the
@@ -192,6 +195,9 @@ export async function cleanup(bucket, options = {}) {
         `Check them with:\n` +
         `  ${shellCommand(`s3cab verify ${bucket}`)}`,
     );
+  }
+  if (plan.emptySets.length > 0) {
+    throw emptySetsError(plan.emptySets);
   }
 
   // Confirm on a TTY unless --force; a non-interactive run reached here only via

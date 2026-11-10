@@ -24,6 +24,14 @@ import { userAtMachine } from "./user-at-machine.mjs";
 export const remoteInfoKey = (set) => `snapshots/${set}.info`;
 
 /**
+ * Whether a name under `snapshots/` or `.s3cab/sets/` is a set's: only a
+ * canonical one (`[a-z0-9-]+`, ADR-0024) is.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export const isSetName = (name) => /^[a-z0-9-]+$/.test(name);
+
+/**
  * What a key under `snapshots/` is: a set's marker (`snapshots/<set>.info`,
  * no `file`) or a key under its folder (`snapshots/<set>/<file>`, `file` empty
  * for the folder marker a console makes). Only a canonical name
@@ -35,8 +43,8 @@ export const remoteInfoKey = (set) => `snapshots/${set}.info`;
  * @returns {{ set: string, file?: string } | undefined}
  */
 export function parseSnapshotsKey(key) {
-  const match = /^snapshots\/([a-z0-9-]+)(\.info|\/(.*))$/s.exec(key);
-  if (!match?.[1]) {
+  const match = /^snapshots\/([^/]+?)(\.info|\/(.*))$/s.exec(key);
+  if (!match?.[1] || !isSetName(match[1])) {
     return undefined;
   }
   return match[3] === undefined
@@ -312,4 +320,39 @@ export async function listRemoteSets(bucket) {
     }
   }
   return [...names].sort();
+}
+
+/**
+ * The sets s3cab's copy of a set's config names, one per `.s3cab/sets/<set>/`
+ * folder: what still says a set exists once everything under the prefix
+ * `snapshots/<set>` is gone, marker and folder alike, as a lifecycle rule or
+ * `aws s3 rm --recursive s3://<bucket>/snapshots/<set>` removes them.
+ * @param {string} bucket
+ * @returns {Promise<Set<string>>}
+ */
+export async function listConfiguredSets(bucket) {
+  /** @type {Set<string>} */
+  const names = new Set();
+  for await (const { Key } of listObjects(`s3://${bucket}/.s3cab/sets/`)) {
+    const set = /^\.s3cab\/sets\/([^/]+)\//.exec(Key ?? "")?.[1];
+    if (set && isSetName(set)) {
+      names.add(set);
+    }
+  }
+  return names;
+}
+
+/**
+ * Take a set out of the bucket once its last snapshot is gone: s3cab's copy
+ * of its config, then its marker, so a set whose snapshots `forget` removed on
+ * purpose is no longer one `verify` reports or `cleanup` refuses over. The
+ * marker goes last: a run stopped before it leaves a set `verify` still names.
+ * @param {string} bucket
+ * @param {string} set
+ * @returns {Promise<void>}
+ */
+export async function removeRemoteSet(bucket, set) {
+  await deleteObject(configUri(bucket, set, "dirs.txt"));
+  await deleteObject(configUri(bucket, set, "exclude.txt"));
+  await deleteObject(infoUri(bucket, set));
 }

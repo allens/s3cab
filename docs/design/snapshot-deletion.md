@@ -213,6 +213,11 @@ in **what is said, not in how much**: a distinct warning naming the set is likel
 someone than a longer list they scroll past. (The full list is in the file either way, never
 truncated.)
 
+It also **retires the set**: once no snapshot is left, `forget` removes the set's marker and
+config too, so `verify` and `cleanup` don't go on reporting a set with nothing to restore
+from ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). The prompt and
+the closing message say so, and that backing the set up again starts with `takeover`.
+
 ## Confirmation
 
 **One prompt covering the whole run**, on a TTY, after the summary. Non-interactive runs

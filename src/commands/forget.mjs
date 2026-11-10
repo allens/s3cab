@@ -15,7 +15,7 @@ import {
 } from "../lib/unrestorable.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { explainingDeletions } from "../lib/referenced.mjs";
-import { assertHeld } from "../lib/set-marker.mjs";
+import { assertHeld, removeRemoteSet } from "../lib/set-marker.mjs";
 import {
   deleteRemoteSnapshot,
   listRemoteSnapshots,
@@ -235,9 +235,19 @@ export async function forget(snapshots = [], options = {}) {
   // **One prompt covers the whole run** (docs/design/snapshot-deletion.md): N
   // prompts in a feature built for bulk work is the pattern that trains people to
   // hold down `y`. --force skips this with the check, the two travelling together.
+  // Forgetting a set's last snapshot takes the set out of the bucket too, so
+  // `verify` and `cleanup` stop reporting a set with nothing left to restore
+  // from (ADR-0117). Decided from the listing above: a snapshot that lands
+  // meanwhile stays readable, and the set's next backup asks for `takeover`.
+  const last = remote.every((name) => snapshots.includes(name));
   if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
-      `Forget ${describe(snapshots)} from set '${set.name}' (bucket ${set.bucket})? This cannot be undone.`,
+      `Forget ${describe(snapshots)} from set '${set.name}' (bucket ${set.bucket})? ` +
+        (last
+          ? `That is all of its snapshots, so the set leaves the bucket too, and ` +
+            `backing it up again starts with 's3cab takeover ${set.name}'. `
+          : ``) +
+        `This cannot be undone.`,
     );
     if (!ok) {
       // Cancelling is a normal outcome, not an error — exit 0. Guidance to
@@ -249,6 +259,9 @@ export async function forget(snapshots = [], options = {}) {
 
   for (const name of snapshots) {
     await deleteRemoteSnapshot(set.bucket, set.name, name);
+  }
+  if (last) {
+    await removeRemoteSet(set.bucket, set.name);
   }
 
   // The removal happened, so it earns an audit record — kept, unlike the
@@ -273,6 +286,10 @@ export async function forget(snapshots = [], options = {}) {
   console.warn(
     `Forgetting removes snapshots, not the objects they point at; ` +
       `reclaim unreferenced ones with:\n  ${shellCommand(`s3cab cleanup ${set.bucket}`)}\n\n` +
+      (last
+        ? `Set '${set.name}' had no other snapshot, so it has left the bucket too. ` +
+          `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}\n\n`
+        : ``) +
       `Record of this removal:\n  ${auditPath}`,
   );
 
