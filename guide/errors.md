@@ -448,9 +448,10 @@ anything more. Run `verify` to see what is missing. See
 ### Refusing to delete: backup set '…' has no snapshots in the bucket, so everything only its snapshots referenced would look unused and be deleted.
 
 The set is in the bucket, but none of its snapshots are, and the bucket can't say whether they
-were lost or never taken. If they were lost, upload each again with `upload --snapshot` from
-the machine that holds the set; if the set was never backed up, run `backup`. Retiring a set on
-purpose is forgetting its last snapshot, which takes it out of the bucket. See
+were lost or never taken. On the machine that holds the set, run `takeover` first, in case its
+marker went with the snapshots. Then, if they were lost, upload each again with
+`upload --snapshot`; if the set was never backed up, run `backup`. Retiring a set on purpose is
+forgetting its last snapshot, which takes it out of the bucket. See
 [the safety rules](maintenance.md#the-safety-rules).
 
 ## Using a command

@@ -1,6 +1,6 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import {
-  emptySetsError,
+  emptySetsMessage,
   invalidRowSnapshots,
   invalidRowsError,
   planCleanup,
@@ -149,10 +149,13 @@ export async function cleanup(bucket, options = {}) {
   // it isn't restated here. stderr carries only next-step guidance.
   if (dryRun) {
     console.warn(
-      orphanHashes.length > 0
-        ? `Dry run — nothing deleted. Re-run without --dry-run to reclaim ` +
+      plan.emptySets.length > 0
+        ? `Dry run — nothing deleted. ` +
+            emptySetsMessage(plan.emptySets, { dryRun: true })
+        : orphanHashes.length > 0
+          ? `Dry run — nothing deleted. Re-run without --dry-run to reclaim ` +
             `(add --force when there's no terminal).`
-        : `Dry run — no orphans to reclaim.`,
+          : `Dry run — no orphans to reclaim.`,
     );
     return report;
   }
@@ -197,7 +200,7 @@ export async function cleanup(bucket, options = {}) {
     );
   }
   if (plan.emptySets.length > 0) {
-    throw emptySetsError(plan.emptySets);
+    throw new Error(emptySetsMessage(plan.emptySets));
   }
 
   // Confirm on a TTY unless --force; a non-interactive run reached here only via

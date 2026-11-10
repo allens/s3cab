@@ -8,9 +8,11 @@
 // needs a twin here *and* an entry in seam.mjs's mock — the mock spreads the
 // real module, so a missing twin falls through to real time silently.
 //
-// Zone is pinned to UTC so generated names are deterministic on any machine.
-// The clock only ever moves forward (the runner advances it ≥1 minute per op);
-// tests that want the clock-went-backwards path set it backwards deliberately.
+// Zone is UTC so generated names are deterministic on any machine; a test that
+// wants a name sorting before an earlier one's changes `zone`, as daylight
+// saving's end or a move west does. The clock only ever moves forward (the
+// runner advances it ≥1 minute per op); tests that want the clock itself to go
+// backwards set it backwards deliberately.
 
 import { basicForm } from "../../../src/lib/format.mjs";
 
@@ -24,6 +26,7 @@ export class VirtualClock {
   /** @param {number} startMs - Virtual epoch ms the clock starts at */
   constructor(startMs) {
     this.ms = startMs;
+    this.zone = "UTC";
   }
 
   /** @returns {number} the current virtual time in epoch ms */
@@ -37,14 +40,14 @@ export class VirtualClock {
   }
 
   /**
-   * Drop-in for format.mjs's `localMoment`, minted from virtual time in UTC.
+   * Drop-in for format.mjs's `localMoment`, minted from virtual time in `zone`.
    * @param {"minutes" | "seconds"} smallestUnit
    * @returns {Moment}
    */
   localMoment(smallestUnit) {
     const zdt = Temporal.Instant.fromEpochMilliseconds(
       this.ms,
-    ).toZonedDateTimeISO("UTC");
+    ).toZonedDateTimeISO(this.zone);
     return {
       name: basicForm(zdt.toPlainDateTime().toString({ smallestUnit })),
       instant: zdt.toInstant().toString({ smallestUnit: "millisecond" }),

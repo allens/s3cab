@@ -42,6 +42,8 @@ let prompts = [];
 let promptAnswer = false;
 /** @type {number} */
 let promptCalls = 0;
+/** What happens in the bucket while the prompt waits for an answer. */
+let whilePrompting = () => {};
 /** @type {number} */
 let referencedCalls = 0;
 /** @type {Map<string, ReferencedResult>} */
@@ -89,6 +91,7 @@ mock.module("../lib/remote.mjs", {
       /** @type {string} */ name,
     ) => {
       deleteCalls.push([bucket, set, name]);
+      remoteSnapshots = remoteSnapshots.filter((other) => other !== name);
     },
   },
 });
@@ -118,6 +121,7 @@ mock.module("../lib/prompt.mjs", {
     promptYesNo: async (/** @type {string} */ question) => {
       promptCalls++;
       prompts.push(question);
+      whilePrompting();
       return promptAnswer;
     },
   },
@@ -174,6 +178,7 @@ beforeEach(() => {
   prompts = [];
   promptAnswer = false;
   promptCalls = 0;
+  whilePrompting = () => {};
   referencedCalls = 0;
   referenced = fakeReferenced();
   recorded = new Map();
@@ -265,6 +270,42 @@ describe("forget command", () => {
 
     assert.doesNotMatch(prompts[0] ?? "", /leaves the bucket/);
     assert.deepEqual(removedSets, []);
+  });
+
+  it("leaves the set in the bucket when a backup lands while the prompt is open", async () => {
+    stdin.isTTY = true;
+    promptAnswer = true;
+    whilePrompting = () => {
+      remoteSnapshots = [...remoteSnapshots, "20260613T0915"];
+    };
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+  });
+
+  it("takes out a set with no snapshots left, which a stopped forget leaves", async () => {
+    // Every snapshot went, and the run stopped before the set did: the names
+    // it was given are gone, and taking the set out is what is left to do.
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.match(prompts[0] ?? "", /no snapshots in bucket b1[\s\S]*takeover/);
+    assert.deepEqual(removedSets, [["b1", "photos"]]);
+    assert.deepEqual(deleteCalls, []);
+    assert.equal(referencedCalls, 0);
+    assert.equal(result.forgotten, true);
+  });
+
+  it("keeps a set with no snapshots left when the user declines", async () => {
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = false;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+    assert.equal(result.forgotten, false);
   });
 
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {

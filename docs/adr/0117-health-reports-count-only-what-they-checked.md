@@ -59,7 +59,8 @@ report says what it didn't.**
    which snapshots should exist — and for both the honest answer to "would I get it back?" is
    no. Its first backup clears it. **A set leaves the bucket with its last snapshot:**
    `forget` of every snapshot a set has also removes its marker and config, so retiring a set
-   on purpose leaves nothing to report, and the next backup of it starts with `takeover`.
+   on purpose leaves nothing to report. Backing it up again starts with `takeover` on a
+   machine that still has the set, or `setup` on any other.
 2. **An object in a storage class a plain GET can't read is a finding, `archived`**, one row
    per path that references it, naming the class. The classes are `GLACIER` and
    `DEEP_ARCHIVE`, the two S3 reports in a LIST and refuses to serve without a restore
@@ -81,8 +82,8 @@ report says what it didn't.**
    `its objects are all stored`: the snapshot itself is what's missing, and that is the line
    a user reads before deciding whether to run `backup`. A test blessed
    `backedUp: null, toUpload: 0` as `up to date`; it now reads `never`. "Latest" stays the
-   name-latest, as everywhere, but a local snapshot the bucket lacks whose file was written
-   after the latest's — a clock set back, daylight saving's repeated hour — is named as not
+   name-latest, as everywhere, but a local snapshot the bucket lacks whose recorded start is
+   after the latest's — daylight saving's repeated hour, a move west — is named as not
    backed up, so `up to date` is never said over the snapshot taken last.
 4. **`upload` of a snapshot exits 1 over `#error` rows and lists them**, under `backup`'s
    `Couldn't be backed up` heading with the same `backup` retry, so a snapshot with a file it
@@ -93,8 +94,9 @@ report says what it didn't.**
    is not the first a user hears of them.
 5. **`cleanup` refuses to delete while any set has no snapshots**, beside its missing-objects
    interlock: such a set references nothing, so everything only its lost snapshots referenced
-   would read as orphaned. The refusal names each set and both ways out — upload its
-   snapshots again from the machine that holds them, or back it up. A dry run still reports.
+   would read as orphaned. The refusal names each set and what to run on the machine that
+   holds it: `takeover`, in case the marker went with the snapshots, then upload its
+   snapshots again or back it up. A dry run still reports, and says a real run would refuse.
    A retired set can't trip it, since `forget` took it out of the bucket (§1).
 
 ## Considered and rejected
@@ -118,9 +120,11 @@ report says what it didn't.**
   name, and the bucket's is then not this machine's snapshot. The bucket's latest is read
   anyway for the upload count, so the comparison costs a GET only when the local latest isn't
   the bucket's latest.
-- **Ordering `status`'s latest by file time instead of by name.** Every other command picks
-  the latest by name; one that disagreed would report on a snapshot `backup` doesn't diff
-  against. Naming the later-taken one beside it keeps both true.
+- **Ordering `status`'s latest by when each was taken instead of by name.** Every other
+  command picks the latest by name; one that disagreed would report on a snapshot `backup`
+  doesn't diff against. Naming the later-taken one beside it keeps both true.
+- **Telling which was taken later by file time.** A pull writes the newest snapshot first, and
+  a copy rewrites every file's time, so an old snapshot would read as taken last.
 - **Letting `cleanup` treat a set with no snapshots as one that references nothing**, as a
   retired set legitimately does. The bucket can't tell retired from lost, so retiring now
   removes the set (§1), and an empty set left behind is damage.

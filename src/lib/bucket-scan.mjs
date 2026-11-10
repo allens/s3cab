@@ -3,7 +3,7 @@ import { listStoredObjects } from "./objects.mjs";
 import { explainingDeletions } from "./referenced.mjs";
 import { listSnapshotFiles, readReferencedObjects } from "./remote.mjs";
 import { listConfiguredSets } from "./set-marker.mjs";
-import { snapshotNames } from "./snapshot-file.mjs";
+import { snapshotFileName, snapshotNames } from "./snapshot-file.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 /** @import { InvalidRecord, RecordedDeletion } from "./deletion-record.mjs" */
@@ -49,9 +49,10 @@ import { snapshotNames } from "./snapshot-file.mjs";
  * carries the LIST's `Size` for `verify`'s cross-check and its `StorageClass`
  * for the archive-tier check. `snapshotFiles` is the listing step 1 read, kept
  * so `cleanup`'s top-up can read only what appeared since (ADR-0112) — less
- * each snapshot that vanished before it could be read: a key that comes back
- * holds rows this scan never saw, even under the same bytes, so the top-up must
- * read it.
+ * each snapshot the scan didn't read, unreadable or vanished before it could
+ * be read: a key that comes back holds rows this scan never saw, even under the
+ * same bytes, so the top-up must read it. (An unreadable one aborts `cleanup`
+ * before the top-up anyway.)
  *
  * A set is any canonical name with a marker, a folder, or s3cab's copy of its
  * config (`listConfiguredSets`), so a set whose `snapshots/<set>` keys all went
@@ -59,7 +60,7 @@ import { snapshotNames } from "./snapshot-file.mjs";
  * `referencedBySet` also holds any other folder under `snapshots/`, which only
  * `cleanup` reads (`SnapshotListing`); `isSetName` tells the two apart.
  * @typedef {Object} BucketScan
- * @property {SnapshotListing} snapshotFiles - The `snapshots/` listing, folder → files (`listSnapshotFiles`), less what vanished before it was read
+ * @property {SnapshotListing} snapshotFiles - The `snapshots/` listing, folder → files (`listSnapshotFiles`), less each snapshot the scan didn't read
  * @property {Map<string, ReferencedResult>} referencedBySet - The referenced enumeration per folder (`referencedObjects`)
  * @property {Map<string, Omit<StoredObject, "hash">>} stored - Every stored object: hash → its LIST size and storage class
  * @property {Map<string, RecordedDeletion>} deleted - The deletion rows that explain an absence (`explainingDeletions`): hash → when it was deliberately deleted
@@ -86,10 +87,9 @@ export async function scanBucket(bucket) {
     const { starts } = /** @type {ReferencedResult} */ (
       referencedBySet.get(set)
     );
-    for (const file of files.keys()) {
-      const [name] = snapshotNames([file]);
-      if (name !== undefined && !starts.has(name)) {
-        files.delete(file);
+    for (const name of snapshotNames(files.keys())) {
+      if (!starts.has(name)) {
+        files.delete(snapshotFileName(name));
       }
     }
   }

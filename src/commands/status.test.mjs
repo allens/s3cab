@@ -116,7 +116,7 @@ describe("status", () => {
     const report = await status("photos");
 
     assert.equal(report.backedUp, NAME);
-    assert.equal(report.snapshotBackedUp, true);
+    assert.equal(report.snapshotInBucket, "identical");
     assert.equal(report.toUpload, 0);
   });
 
@@ -132,7 +132,7 @@ describe("status", () => {
 
     assert.equal(report.snapshot, NAME);
     assert.equal(report.backedUp, newer);
-    assert.equal(report.snapshotBackedUp, true);
+    assert.equal(report.snapshotInBucket, "identical");
   });
 
   it("knows the latest local snapshot isn't backed up when only an older one is", async () => {
@@ -146,7 +146,7 @@ describe("status", () => {
 
     assert.equal(report.snapshot, "20261009T1300");
     assert.equal(report.backedUp, NAME);
-    assert.equal(report.snapshotBackedUp, false);
+    assert.equal(report.snapshotInBucket, "absent");
   });
 
   it("doesn't count the latest local snapshot as backed up when the bucket's under its name is another (ADR-0084)", async () => {
@@ -160,7 +160,21 @@ describe("status", () => {
     const report = await status("photos");
 
     assert.equal(report.backedUp, NAME);
-    assert.equal(report.snapshotBackedUp, false);
+    assert.equal(report.snapshotInBucket, "different");
+  });
+
+  it("says the bucket holds another snapshot under the latest local name when that name isn't the bucket's latest", async () => {
+    await using dir = await mkTmpDir();
+    await backedUpSet(dir.path);
+    keys.push("snapshots/photos/20261009T1300.tsv.gz");
+    remoteSnapshotPath = await writeSnapshot(join(dir.path, "other"), NAME, [
+      new File(["other"], "a.txt"),
+    ]);
+
+    const report = await status("photos");
+
+    assert.equal(report.backedUp, "20261009T1300");
+    assert.equal(report.snapshotInBucket, "different");
   });
 
   it("counts content a delete removed as needing upload, as backup would (ADR-0064)", async () => {

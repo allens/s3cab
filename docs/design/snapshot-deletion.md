@@ -216,7 +216,12 @@ truncated.)
 It also **retires the set**: once no snapshot is left, `forget` removes the set's marker and
 config too, so `verify` and `cleanup` don't go on reporting a set with nothing to restore
 from ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). The prompt and
-the closing message say so, and that backing the set up again starts with `takeover`.
+the closing message say so, and that backing the set up again starts with `takeover` on a
+machine that still has the set, or `setup` on any other. Whether any snapshot is left is
+listed again after the deletes, so a backup that landed while the prompt was open keeps its
+set. A set with no snapshot left — a `forget` that stopped before the set went, or a set never
+backed up — has nothing to delete but itself, so `forget` of it asks to take it out instead of
+refusing the names it was given.
 
 ## Confirmation
 

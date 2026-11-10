@@ -255,8 +255,9 @@ that the check was skipped, so a bypass never leaves a silent gap.
 
 Forgetting **every snapshot a set has retires the set**: it leaves the bucket too, so
 `verify` stops reporting it and its name is free again. The prompt says so before you answer.
-Backing it up again later starts with `s3cab takeover <set>`, from the same machine or
-another.
+Backing it up again later starts with `s3cab takeover <set>` on a machine that still has the
+set, or with `setup` on any other. If `forget` stops before the set has gone, run it again:
+with no snapshot left, it takes the set out of the bucket.
 
 `forget` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now

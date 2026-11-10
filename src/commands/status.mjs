@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadSet } from "../lib/env.mjs";
 import {
@@ -34,7 +34,7 @@ import {
  * ([ADR-0117](../../docs/adr/0117-health-reports-count-only-what-they-checked.md)).
  * Holding it means byte for byte, not by name: two machines can mint one
  * minute's name ([ADR-0084](../../docs/adr/0084-snapshot-identity-byte-equality.md)).
- * "Latest" is by name, as everywhere, but a snapshot written after it under a
+ * "Latest" is by name, as everywhere, but a snapshot started after it under a
  * name that sorts earlier — the clock went back — is reported too
  * (`takenLater`), so `up to date` is never said over a snapshot taken last.
  * `toUpload` is deliberately the target-vs-latest-remote diff —
@@ -48,8 +48,8 @@ import {
  * @typedef {Object} StatusReport
  * @property {string} set - The set reported on
  * @property {string} snapshot - Latest local snapshot (the upload target)
- * @property {boolean} snapshotBackedUp - Whether the bucket holds `snapshot`, byte for byte
- * @property {string[]} takenLater - Local snapshots the bucket doesn't hold, written after `snapshot` under names that sort before it
+ * @property {"identical" | "different" | "absent"} snapshotInBucket - What the bucket holds under `snapshot`'s name: it, byte for byte (backed up), another snapshot, or nothing
+ * @property {string[]} takenLater - Local snapshots the bucket doesn't hold, started after `snapshot` under names that sort before it; looked for only when `snapshot` is backed up
  * @property {string | null} backedUp - Latest remote snapshot (null if never backed up)
  * @property {number} toUpload - Objects a backup would upload
  *
@@ -67,9 +67,10 @@ export async function status(setName) {
         `Take one with: s3cab snapshot ${set.name}`,
     );
   }
-  const { entries: target } = await readSnapshot(snapshotDir, localName);
-  /** @param {string} name */
-  const localPath = (name) => join(snapshotDir, snapshotFileName(name));
+  const { entries: target, instant: start } = await readSnapshot(
+    snapshotDir,
+    localName,
+  );
 
   const {
     names: remoteNames,
@@ -77,30 +78,44 @@ export async function status(setName) {
     bytes: remoteLatest,
   } = await readLatestRemoteSnapshot(set.bucket, set.name);
 
-  let snapshotBackedUp = false;
-  if (localName === remoteNames.at(0)) {
-    const local = await readFile(localPath(localName));
-    snapshotBackedUp = remoteLatest !== undefined && local.equals(remoteLatest);
+  /** @type {StatusReport["snapshotInBucket"]} */
+  let snapshotInBucket = "absent";
+  if (localName === remoteNames.at(0) && remoteLatest !== undefined) {
+    const local = await readFile(
+      join(snapshotDir, snapshotFileName(localName)),
+    );
+    snapshotInBucket = local.equals(remoteLatest) ? "identical" : "different";
   } else if (remoteNames.includes(localName)) {
-    const match = await matchRemoteSnapshot(
+    snapshotInBucket = await matchRemoteSnapshot(
       set.bucket,
       set.name,
       localName,
       snapshotDir,
     );
-    snapshotBackedUp = match === "identical";
   }
 
-  // When each file was written says which was taken last where the names
-  // can't: daylight saving's repeated hour, or a move west, mints a name that
-  // sorts before one already taken.
-  const { mtimeMs: written } = await stat(localPath(localName));
+  // Which was taken last, where the names can't say: daylight saving's
+  // repeated hour, or a move west, mints a name that sorts before one already
+  // taken. Each snapshot's recorded start says; a file's mtime doesn't, since a
+  // pull writes the newest first and a copy rewrites them all. Instants compare
+  // as text (guide/format.md). A name is local time and no two zones are more
+  // than 26 hours apart, so only a snapshot named less than that before the
+  // latest can have started after it, and no other is read.
   /** @type {string[]} */
   const takenLater = [];
-  for (const name of older.filter((name) => !remoteNames.includes(name))) {
-    const { mtimeMs } = await stat(localPath(name));
-    if (mtimeMs > written) {
-      takenLater.push(name);
+  if (snapshotInBucket === "identical" && start) {
+    const latest = Temporal.PlainDateTime.from(localName);
+    for (const name of older) {
+      if (Temporal.PlainDateTime.from(name).until(latest).total("hours") > 26) {
+        break;
+      }
+      if (remoteNames.includes(name)) {
+        continue;
+      }
+      const { instant } = await readSnapshot(snapshotDir, name);
+      if (instant && instant > start) {
+        takenLater.push(name);
+      }
     }
   }
 
@@ -113,7 +128,7 @@ export async function status(setName) {
   return {
     set: set.name,
     snapshot: localName,
-    snapshotBackedUp,
+    snapshotInBucket,
     takenLater,
     backedUp: remoteNames.at(0) ?? null,
     toUpload: plan.size,

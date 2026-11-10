@@ -52,12 +52,15 @@ export function parseSnapshotsKey(key) {
     : { set: match[1], file: match[3] };
 }
 
+/** Where s3cab keeps its copy of every set's config, one folder per set. */
+const CONFIG_ROOT = ".s3cab/sets/";
+
 /**
  * The S3 key prefix of s3cab's copy of a set's config, `.s3cab/sets/<set>/`.
  * @param {string} set
  * @returns {string}
  */
-export const remoteConfigPrefix = (set) => `.s3cab/sets/${set}/`;
+export const remoteConfigPrefix = (set) => `${CONFIG_ROOT}${set}/`;
 
 /**
  * @param {string} bucket
@@ -333,9 +336,11 @@ export async function listRemoteSets(bucket) {
 export async function listConfiguredSets(bucket) {
   /** @type {Set<string>} */
   const names = new Set();
-  for await (const { Key } of listObjects(`s3://${bucket}/.s3cab/sets/`)) {
-    const set = /^\.s3cab\/sets\/([^/]+)\//.exec(Key ?? "")?.[1];
-    if (set && isSetName(set)) {
+  for await (const { Key = "" } of listObjects(
+    `s3://${bucket}/${CONFIG_ROOT}`,
+  )) {
+    const [set = "", ...rest] = Key.slice(CONFIG_ROOT.length).split("/");
+    if (rest.length > 0 && isSetName(set)) {
       names.add(set);
     }
   }
@@ -343,16 +348,21 @@ export async function listConfiguredSets(bucket) {
 }
 
 /**
- * Take a set out of the bucket once its last snapshot is gone: s3cab's copy
- * of its config, then its marker, so a set whose snapshots `forget` removed on
- * purpose is no longer one `verify` reports or `cleanup` refuses over. The
- * marker goes last: a run stopped before it leaves a set `verify` still names.
+ * Take a set out of the bucket once its last snapshot is gone: every key that
+ * names it apart from a snapshot — whatever is under s3cab's copy of its
+ * config, the folder key a console makes, then its marker — so a set whose
+ * snapshots `forget` removed on purpose is no longer one `verify` reports or
+ * `cleanup` refuses over. The marker goes last: a run stopped before it leaves
+ * a set its holder can still `forget` from.
  * @param {string} bucket
  * @param {string} set
  * @returns {Promise<void>}
  */
 export async function removeRemoteSet(bucket, set) {
-  await deleteObject(configUri(bucket, set, "dirs.txt"));
-  await deleteObject(configUri(bucket, set, "exclude.txt"));
+  const config = `s3://${bucket}/${remoteConfigPrefix(set)}`;
+  for await (const { Key = "" } of listObjects(config)) {
+    await deleteObject(`s3://${bucket}/${Key}`);
+  }
+  await deleteObject(`s3://${bucket}/snapshots/${set}/`);
   await deleteObject(infoUri(bucket, set));
 }

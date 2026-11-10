@@ -114,7 +114,8 @@ const auditMoment = () => localMoment("seconds");
  * scripted forget necessarily skips the check (the only non-interactive door,
  * `--force`, skips it). **Every** name is confirmed to exist before **any** is deleted, so a
  * typo gets a helpful error (and the prompt names real targets) rather than a
- * silent no-op (`DeleteObject` is idempotent) — and never a half-done run.
+ * silent no-op (`DeleteObject` is idempotent) — and never a half-done run. A set
+ * with no snapshot left is the exception: there is nothing to delete but the set.
  *
  * @typedef {Object} ForgetResult
  * @property {string} set - The set the snapshots belonged to
@@ -159,14 +160,18 @@ export async function forget(snapshots = [], options = {}) {
   // the whole selection up front is what stops a typo in the third name leaving
   // the first two already gone — the deletions below are not undoable.
   const remote = await listRemoteSnapshots(set.bucket, set.name);
+  // With no snapshot left, the named ones are gone whatever they were called:
+  // a `forget` that stopped before taking the set out of the bucket, or a set
+  // never backed up. Taking it out is all there is left to do.
+  if (remote.length === 0) {
+    return retire(set, snapshots, force);
+  }
   const missing = snapshots.filter((name) => !remote.includes(name));
   if (missing.length) {
     throw new Error(
       `${missing.length === 1 ? `Snapshot '${missing[0]}' is` : `Snapshots ${missing.map((n) => `'${n}'`).join(", ")} are`} ` +
         `not backed up for set '${set.name}'.\n` +
-        (remote.length
-          ? `Backed-up snapshots:\n${remote.map((n) => `  ${n}`).join("\n")}\n`
-          : `That set has no remote snapshots yet.\n`) +
+        `Backed-up snapshots:\n${remote.map((n) => `  ${n}`).join("\n")}\n` +
         `\nList them with:\n  ${shellCommand(`s3cab list ${set.name} --remote`)}`,
     );
   }
@@ -237,8 +242,7 @@ export async function forget(snapshots = [], options = {}) {
   // hold down `y`. --force skips this with the check, the two travelling together.
   // Forgetting a set's last snapshot takes the set out of the bucket too, so
   // `verify` and `cleanup` stop reporting a set with nothing left to restore
-  // from (ADR-0117). Decided from the listing above: a snapshot that lands
-  // meanwhile stays readable, and the set's next backup asks for `takeover`.
+  // from (ADR-0117).
   const last = remote.every((name) => snapshots.includes(name));
   if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
@@ -260,7 +264,11 @@ export async function forget(snapshots = [], options = {}) {
   for (const name of snapshots) {
     await deleteRemoteSnapshot(set.bucket, set.name, name);
   }
-  if (last) {
+  // Listed again rather than trusting `last`: a backup that landed while the
+  // prompt was open keeps its set.
+  const left = await listRemoteSnapshots(set.bucket, set.name);
+  const retired = left.length === 0;
+  if (retired) {
     await removeRemoteSet(set.bucket, set.name);
   }
 
@@ -286,13 +294,41 @@ export async function forget(snapshots = [], options = {}) {
   console.warn(
     `Forgetting removes snapshots, not the objects they point at; ` +
       `reclaim unreferenced ones with:\n  ${shellCommand(`s3cab cleanup ${set.bucket}`)}\n\n` +
-      (last
+      (retired
         ? `Set '${set.name}' had no other snapshot, so it has left the bucket too. ` +
           `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}\n\n`
         : ``) +
       `Record of this removal:\n  ${auditPath}`,
   );
 
+  return { set: set.name, snapshots, forgotten: true };
+}
+
+/**
+ * Take a set with no snapshots left out of the bucket, after asking on a TTY.
+ * Nothing is forgotten here, so no audit record is written.
+ * @param {ReturnType<typeof loadSet>} set
+ * @param {string[]} snapshots - The names given, none of them in the bucket
+ * @param {boolean} force - Skip the confirmation
+ * @returns {Promise<ForgetResult>}
+ */
+async function retire(set, snapshots, force) {
+  if (!force && isInteractive(process.stdin)) {
+    const ok = await promptYesNo(
+      `Set '${set.name}' has no snapshots in bucket ${set.bucket}. Take it out ` +
+        `of the bucket too? Backing it up again starts with ` +
+        `'s3cab takeover ${set.name}'.`,
+    );
+    if (!ok) {
+      console.warn("Cancelled — nothing was removed.");
+      return { set: set.name, snapshots, forgotten: false };
+    }
+  }
+  await removeRemoteSet(set.bucket, set.name);
+  console.warn(
+    `Set '${set.name}' had no snapshots left, so it has left the bucket. ` +
+      `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}`,
+  );
   return { set: set.name, snapshots, forgotten: true };
 }
 

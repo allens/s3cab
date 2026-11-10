@@ -756,17 +756,16 @@ export function renderProp(props) {
 export function renderStatus({
   set,
   snapshot,
-  snapshotBackedUp,
+  snapshotInBucket,
   takenLater,
   backedUp,
   toUpload,
 }) {
   const objects = `${countOf(toUpload, "object")} to upload`;
   let verdict;
-  if (!snapshotBackedUp) {
-    // The same name above and below: the bucket's is another snapshot.
+  if (snapshotInBucket !== "identical") {
     const why =
-      backedUp === snapshot
+      snapshotInBucket === "different"
         ? "the bucket's under that name is a different one"
         : toUpload === 0
           ? "its objects are all stored"

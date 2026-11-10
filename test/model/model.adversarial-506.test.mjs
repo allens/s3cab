@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  realpathSync,
+  renameSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -24,7 +30,7 @@ const { renderStatus, renderVerify } = await import("../../src/render.mjs");
 
 // An adversarial read of 9902ff4f (PR #506): each test asserts what that
 // commit says is now true, on an input or interleaving its own tests don't
-// reach. ADVERSARIAL-506.md at the repo root ranks them.
+// reach.
 
 const BUCKET = "model-bucket";
 
@@ -236,8 +242,8 @@ describe("adversarial read of PR #506", () => {
     writeFileSync(join(old, "o.txt"), "no longer wanted");
     const { snapshot: name } = await backup("old");
 
-    // The set is retired with s3cab's own command. No s3cab command removes
-    // `snapshots/old.info`, and no backup of it will ever come.
+    // The set is retired with s3cab's own command: forgetting its last
+    // snapshot, and no backup of it will ever come.
     await forget([name], { set: "old", force: true });
     await cleanup(BUCKET, { force: true });
 
@@ -265,8 +271,7 @@ describe("adversarial read of PR #506", () => {
     await backup("photos");
 
     // The user keeps last year's snapshot aside in a folder of their own
-    // naming before forgetting it from the live set. Before 9902ff4f the scan
-    // read every folder under `snapshots/`; now only `[a-z0-9-]+` ones.
+    // naming, which isn't a set's, before forgetting it from the live set.
     const bytes = await fake.peekBytes(
       BUCKET,
       `snapshots/photos/${first}.tsv.gz`,
@@ -292,10 +297,11 @@ describe("adversarial read of PR #506", () => {
     clockHolder.current.advance(105 * MINUTE_MS);
     const { snapshot: backedUp } = await backup("photos");
 
-    // The clocks go back an hour (snapshot.clock.test.mjs's first case), then
-    // a rename and an offline snapshot 25 minutes on: the newest snapshot, in
-    // no bucket, under a name that sorts before the backed-up one.
-    clockHolder.current.advance(-35 * MINUTE_MS);
+    // Daylight saving ends (snapshot.clock.test.mjs's first case): the clocks
+    // go back an hour, and a rename and an offline snapshot 25 minutes on land
+    // in no bucket, under a name that sorts before the backed-up one.
+    clockHolder.current.advance(25 * MINUTE_MS);
+    clockHolder.current.zone = "Etc/GMT+1";
     renameSync(join(data, "a.txt"), join(data, "b.txt"));
     await snapshot("photos");
 
@@ -311,6 +317,32 @@ describe("adversarial read of PR #506", () => {
       /up to date/,
       "the snapshot taken last is not in the bucket",
     );
+  });
+
+  it("status doesn't call a forgotten snapshot taken later because its file was written last", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    useHome(root, "mA");
+    const data = await makeSet(root, "photos", "data");
+    writeFileSync(join(data, "a.txt"), "alpha");
+    const { snapshot: first } = await backup("photos");
+    clockHolder.current.advance(MINUTE_MS);
+    writeFileSync(join(data, "a.txt"), "beta");
+    await backup("photos");
+
+    // The holder forgets the first snapshot, whose local file stays; a copy of
+    // `~/.s3cab`, or a pull, which writes the newest first, leaves it the file
+    // written last.
+    await forget([first], { set: "photos", force: true });
+    const later = new Date(Date.now() + 60 * MINUTE_MS);
+    const home = String(process.env.S3CAB_HOME);
+    const file = join(home, "sets", "photos", "snapshots", `${first}.tsv.gz`);
+    utimesSync(file, later, later);
+
+    const report = await status("photos");
+
+    assert.deepEqual(report.takenLater, []);
+    assert.match(renderStatus(report), /up to date$/);
   });
 
   it("status doesn't say up to date when the bucket holds another machine's snapshot under the latest one's name", async () => {
@@ -343,6 +375,6 @@ describe("adversarial read of PR #506", () => {
       /up to date/,
       "A's latest snapshot is not in the bucket; B's is, under its name",
     );
-    assert.equal(report.snapshotBackedUp, false);
+    assert.equal(report.snapshotInBucket, "different");
   });
 });

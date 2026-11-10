@@ -152,13 +152,15 @@ Every form holds the upload lock around the whole operation, as `backup` does.
 First, `assertHeld`, as `backup` does.
 
 1. LIST the set's remote snapshots and require **every** named snapshot to exist before deleting
-   **any** — a typo cannot leave the first two of three already gone.
+   **any** — a typo cannot leave the first two of three already gone. With none listed, the
+   prompt asks to take the set out, and the run goes straight to step 4's DELETEs.
 2. Optional whole-bucket unrestorable scan → preview file → prompt (skipped together by `--force`).
 3. DELETE each manifest. **[multi-step]** across names; each DELETE **[atomic]**.
-4. If the names were every snapshot step 1 listed, DELETE the set's config copy, then its
-   marker: the set leaves the bucket, and its next backup starts with `takeover`
+4. LIST the set's snapshots again; with none left, DELETE every key under its config copy
+   (`.s3cab/sets/<set>/`), the `snapshots/<set>/` folder key a console makes, then its marker:
+   the set leaves the bucket, and its next backup starts with `takeover`
    ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). **[multi-step]**;
-   the marker goes last, so a stop before it leaves a set `verify` still names.
+   the marker goes last, so a stop before it leaves a set its holder can `forget` again.
 5. Write the local audit record — deliberately *after* the deletes, so it records what actually
    happened.
 

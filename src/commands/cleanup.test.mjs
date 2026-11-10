@@ -385,6 +385,47 @@ describe("cleanup command", () => {
     assert.deepEqual(compactCalls, []);
   });
 
+  it("names a damaged snapshot outside any set by its key, not by sending the user to verify", async () => {
+    // verify reads only sets (ADR-0117 §3), so it would find nothing wrong.
+    referencedBySet = enumeration(
+      { photos: { s1: { "/kept": ["kept"] } }, photos_2025: {} },
+      { photos: ["bad"], photos_2025: ["20250101T0000"] },
+    );
+
+    await assert.rejects(
+      () => cleanup("b", { force: true }),
+      (/** @type {Error} */ error) => {
+        assert.match(
+          error.message,
+          /\n {2}photos\/bad\n\nCheck it with:\n {2}s3cab verify b\n/,
+        );
+        assert.match(
+          error.message,
+          /\n\nCan't clean up safely — this snapshot outside any backup set can't be read[^\n]*\n {2}s3:\/\/b\/snapshots\/photos_2025\/20250101T0000\.tsv\.gz\n\ns3cab doesn't check snapshots outside a set/,
+        );
+        return true;
+      },
+    );
+    assert.deepEqual(deleteCalls, []);
+  });
+
+  it("a dry run says a real run would refuse over a set with no snapshots", async () => {
+    referencedBySet = enumeration({
+      photos: { s1: { "/kept": ["kept"] } },
+      old: {},
+    });
+    storedObjects = [{ hash: "orphan", size: 1 }];
+
+    await cleanup("b", { "dry-run": true });
+
+    const said = warnings.join("\n");
+    assert.match(
+      said,
+      /A real run would refuse to delete: backup set 'old' has no snapshots[\s\S]*s3cab takeover old/,
+    );
+    assert.doesNotMatch(said, /Re-run without --dry-run/);
+  });
+
   it("a bare run on a TTY deletes nothing when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;

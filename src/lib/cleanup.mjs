@@ -162,28 +162,32 @@ export function planCleanup(
  * up, which the bucket can't tell apart (ADR-0117) — references nothing, so
  * everything only its lost snapshots held would be deleted, and with it the
  * loss would become permanent. A set retired with `forget` has left the
- * bucket, and isn't one.
+ * bucket, and isn't one. The recipe opens with `takeover` because a set whose
+ * marker went with its snapshots refuses `upload` and `backup` until it is
+ * claimed again; on a set still held, `takeover` does nothing.
  * @param {string[]} sets - From the plan's `emptySets`
- * @returns {Error}
+ * @param {{ dryRun?: boolean }} [options] - `dryRun`: say what a real run would refuse
+ * @returns {string}
  */
-export const emptySetsError = (sets) => {
+export const emptySetsMessage = (sets, { dryRun = false } = {}) => {
   const one = sets.length === 1;
   const set = one ? sets[0] : "<set>";
-  return new Error(
-    [
-      `Refusing to delete: ${one ? `backup set '${sets[0]}' has` : "these backup sets have"} ` +
-        `no snapshots in the bucket, so everything only ${one ? "its" : "their"} ` +
-        `snapshots referenced would look unused and be deleted` +
-        (one ? "." : ":"),
-      ...(one ? [] : sets.map((name) => `  ${name}`)),
-      ``,
-      `If ${one ? "its" : "a set's"} snapshots were lost, upload them again from ` +
-        `the machine that holds it, once for each:`,
-      `  ${shellCommand(`s3cab upload ${set} --snapshot <name>`, styleEnabled(process.stderr))}`,
-      `If ${one ? "it" : "a set"} hasn't been backed up yet, back it up first:`,
-      `  ${shellCommand(`s3cab backup ${set}`, styleEnabled(process.stderr))}`,
-    ].join("\n"),
-  );
+  const color = styleEnabled(process.stderr);
+  return [
+    `${dryRun ? "A real run would refuse to delete" : "Refusing to delete"}: ` +
+      `${one ? `backup set '${sets[0]}' has` : "these backup sets have"} ` +
+      `no snapshots in the bucket, so everything only ${one ? "its" : "their"} ` +
+      `snapshots referenced would look unused and be deleted` +
+      (one ? "." : ":"),
+    ...(one ? [] : sets.map((name) => `  ${name}`)),
+    ``,
+    `On the machine that holds ${one ? "it" : "a set"}, make sure the bucket still says so:`,
+    `  ${shellCommand(`s3cab takeover ${set}`, color)}`,
+    `Then, if ${one ? "its" : "the set's"} snapshots were lost, upload them again, once for each:`,
+    `  ${shellCommand(`s3cab upload ${set} --snapshot <name>`, color)}`,
+    `Or, if it hasn't been backed up yet, back it up:`,
+    `  ${shellCommand(`s3cab backup ${set}`, color)}`,
+  ].join("\n");
 };
 
 /**
@@ -202,24 +206,75 @@ export const invalidRowSnapshots = (referencedBySet) => [
 ];
 
 /**
+ * Whether a `folder/snapshot` name lies outside every set: in a folder under
+ * `snapshots/` whose name isn't a set's, which `cleanup` reads and `verify`
+ * doesn't (ADR-0117 §3), so a message about it can't send the user to `verify`.
+ * @param {string} name
+ * @returns {boolean}
+ */
+const outsideSets = (name) => !isSetName(name.slice(0, name.indexOf("/")));
+
+/**
+ * The part of a refusal about snapshots outside every set, each named by its
+ * key, since no s3cab command reports on them.
+ * @param {string} bucket
+ * @param {string[]} names - `folder/snapshot`
+ * @param {string} trouble - What is wrong with them and what follows, worded for one or many
+ * @returns {string}
+ */
+const outsideSetsMessage = (bucket, names, trouble) => {
+  const one = names.length === 1;
+  return [
+    `Can't clean up safely — ${one ? "this snapshot" : "these snapshots"} ` +
+      `outside any backup set ${trouble}:`,
+    ...names.map((name) => `  s3://${bucket}/snapshots/${name}.tsv.gz`),
+    ``,
+    one
+      ? `s3cab doesn't check snapshots outside a set, so this one is yours ` +
+        `to look at: repair it if you need it, or remove it.`
+      : `s3cab doesn't check snapshots outside a set, so these are yours to ` +
+        `look at: repair the ones you need, and remove the rest.`,
+  ].join("\n");
+};
+
+/**
  * Interlock #1: an unreadable snapshot makes the orphan set a lie (its
  * references are unknown), so abort before reporting numbers that would be
- * wrong. Triage with verify first.
+ * wrong. Triage with verify first, or by hand outside a set.
  * @param {string} bucket
  * @param {string[]} names - `set/snapshot`, from `unreadableSnapshots`
  * @returns {Error}
  */
-export const unreadableSnapshotsError = (bucket, names) =>
-  new Error(
-    unreadableMessage({
-      names,
-      bucket,
-      lead: "Can't clean up safely",
-      consequence:
-        "objects nothing else references would look unused and be deleted",
-      color: styleEnabled(process.stderr),
-    }),
+export const unreadableSnapshotsError = (bucket, names) => {
+  const consequence =
+    "objects nothing else references would look unused and be deleted";
+  const inSets = names.filter((name) => !outsideSets(name));
+  const outside = names.filter(outsideSets);
+  return new Error(
+    [
+      ...(inSets.length > 0
+        ? [
+            unreadableMessage({
+              names: inSets,
+              bucket,
+              lead: "Can't clean up safely",
+              consequence,
+              color: styleEnabled(process.stderr),
+            }),
+          ]
+        : []),
+      ...(outside.length > 0
+        ? [
+            outsideSetsMessage(
+              bucket,
+              outside,
+              `can't be read, so ${consequence}`,
+            ),
+          ]
+        : []),
+    ].join("\n\n"),
   );
+};
 
 /**
  * Interlock #1's twin: a refused row references nothing (ADR-0101), so content
@@ -230,17 +285,30 @@ export const unreadableSnapshotsError = (bucket, names) =>
  * @returns {Error}
  */
 export const invalidRowsError = (bucket, names) => {
-  const one = names.length === 1;
+  /** @param {boolean} one */
+  const trouble = (one) =>
+    `${one ? "has" : "have"} rows that aren't valid, so content only those ` +
+    `rows name would look unused and be deleted`;
+  const inSets = names.filter((name) => !outsideSets(name));
+  const outside = names.filter(outsideSets);
+  const one = inSets.length === 1;
   return new Error(
     [
-      `Can't clean up safely — ${one ? "this snapshot has rows" : "these snapshots have rows"} ` +
-        `that aren't valid, so content only those rows name would look unused ` +
-        `and be deleted:`,
-      ...names.map((name) => `  ${name}`),
-      ``,
-      `Check ${one ? "it" : "them"} with:`,
-      `  ${shellCommand(`s3cab verify ${bucket}`, styleEnabled(process.stderr))}`,
-    ].join("\n"),
+      ...(inSets.length > 0
+        ? [
+            [
+              `Can't clean up safely — ${one ? "this snapshot" : "these snapshots"} ${trouble(one)}:`,
+              ...inSets.map((name) => `  ${name}`),
+              ``,
+              `Check ${one ? "it" : "them"} with:`,
+              `  ${shellCommand(`s3cab verify ${bucket}`, styleEnabled(process.stderr))}`,
+            ].join("\n"),
+          ]
+        : []),
+      ...(outside.length > 0
+        ? [outsideSetsMessage(bucket, outside, trouble(outside.length === 1))]
+        : []),
+    ].join("\n\n"),
   );
 };
 
