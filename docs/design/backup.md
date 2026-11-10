@@ -565,8 +565,13 @@ the [format spec](../../guide/format.md)), not implementation choice:
   report's numbers would be lies). **Missing objects** (verify's core finding) are
   reported, and the **act path refuses**: the repository is already losing data — triage
   with `verify` first, then clean up. So does an **invalid deletion record**: compacting
-  it would keep only the rows it could read. `--force` skips only the confirmation, never
-  these interlocks (like `delete`'s).
+  it would keep only the rows it could read. So does a **set with no snapshots**
+  ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)): it references
+  nothing, so everything only its lost snapshots referenced would read as orphaned, and since
+  `forget` takes a retired set out of the bucket, one left behind is damage. `--force` skips
+  only the confirmation, never these interlocks (like `delete`'s). The referenced set is read
+  from every snapshot file under `snapshots/`, in a folder no set owns too, so stray content
+  there is protected rather than deleted.
   (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.
   Objects the **deletion record** explains — removed on purpose by `delete`
   ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) — are *not* missing:

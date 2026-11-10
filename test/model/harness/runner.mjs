@@ -177,7 +177,8 @@ export async function runSequence(steps, root) {
       );
       // A refusal that is the expected outcome: a backup or forget from a
       // machine that has the set but doesn't hold it, a backup while a delete
-      // lock stands, a cleanup while an upload lock stands.
+      // lock stands, a cleanup while an upload lock stands or while a set the
+      // bucket names has no snapshots.
       /** @type {string | null} */
       let refused = null;
       if (
@@ -194,6 +195,12 @@ export async function runSequence(steps, root) {
             : undefined;
       if (blockingLock) {
         refused = `${blockingLock} stands`;
+      }
+      if (step.kind === "cleanup") {
+        const empty = await model.setsWithNoSnapshots();
+        if (empty.length > 0) {
+          refused = `${empty.join(", ")} has no snapshots`;
+        }
       }
 
       // ── Execute ────────────────────────────────────────────────────────
@@ -316,6 +323,14 @@ export async function runSequence(steps, root) {
               set: step.set,
               force: true,
             });
+            // Its last snapshot gone, the set leaves the bucket, marker and
+            // all: nobody holds it until a takeover claims it again.
+            const left = await fake.listAll(BUCKET);
+            if (
+              !left.some(({ key }) => key.startsWith(`snapshots/${step.set}/`))
+            ) {
+              holders.delete(step.set);
+            }
             break;
           }
           case "cleanup": {
@@ -325,7 +340,13 @@ export async function runSequence(steps, root) {
           }
           case "takeover": {
             const holder = holders.get(step.set);
-            if (holder === undefined || holder === step.machine) {
+            // A set no one holds can still be taken over by a machine that
+            // has it: one whose last snapshot was forgotten.
+            if (
+              holder === step.machine ||
+              (holder === undefined &&
+                !machineSets.has(`${step.machine}:${step.set}`))
+            ) {
               skipped = true;
               break;
             }

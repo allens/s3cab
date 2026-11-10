@@ -134,7 +134,11 @@ typed bucket name. Then:
    hours later, and a key can be re-published with different rows inside the window (`forget`
    then `backup --debug` in the same minute, or two machines sharing a minute name — measured
    2026-11-05, when a key alone let the re-published snapshot's objects be deleted). A key the
-   store lists with no ETag is read again rather than compared by key alone. Their
+   store lists with no ETag is read again rather than compared by key alone. The listing it
+   compares against holds only what the scan read: a key that vanished before it could be read
+   is read when it comes back, whatever its ETag, since its rows never reached the plan. Both
+   cover every folder under `snapshots/`, whatever it is called, so a snapshot file in a folder
+   no set owns still protects what it references. Their
    objects leave the orphan plan and join the
    set compaction keeps rows for, and cleanup's damage checks apply to them: one that is
    unreadable, or has a refused row, aborts the run. No snapshot can land now, so this is final.

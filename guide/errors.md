@@ -407,7 +407,9 @@ See [removing snapshots](maintenance.md#removing-snapshots-forget).
 ### Snapshot '…' is not backed up for set '…'.
 
 A name you gave `forget` isn't a backed-up snapshot of this set. Nothing was removed. The
-message lists the real ones, and says "Snapshots … are" when it's more than one.
+message lists the real ones, and says "Snapshots … are" when it's more than one. If the set has
+no snapshots in the bucket and you passed `--force`, it says to run `forget` at a terminal
+without it instead, where `forget` asks to take the set out of the bucket.
 
 ### delete takes content hashes (64 hex characters), and these aren't:
 
@@ -443,6 +445,15 @@ from the list and run again.
 
 Some content your snapshots need is already gone from the bucket, so `cleanup` won't delete
 anything more. Run `verify` to see what is missing. See
+[the safety rules](maintenance.md#the-safety-rules).
+
+### Refusing to delete: backup set '…' has no snapshots in the bucket, so everything only its snapshots referenced would look unused and be deleted.
+
+The set is in the bucket, but none of its snapshots are, and the bucket can't say whether they
+were lost or never taken. On the machine that holds the set, run `takeover` first, in case its
+marker went with the snapshots. Then, if they were lost, upload each again with
+`upload --snapshot`; if the set was never backed up, run `backup`. Retiring a set on purpose is
+forgetting its last snapshot, which takes it out of the bucket. See
 [the safety rules](maintenance.md#the-safety-rules).
 
 ## Using a command

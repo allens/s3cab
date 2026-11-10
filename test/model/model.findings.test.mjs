@@ -359,6 +359,11 @@ describe("prior-audit findings, encoded", () => {
     const root = dir.path;
     useHome(root, "mA");
     const data = await makeSet(root, "race", "data");
+    // A first backup: a set with no snapshot refuses cleanup on its own,
+    // before any lock is looked at.
+    writeFileSync(join(data, "e.txt"), "an earlier file");
+    await backup("race");
+    clockHolder.current.advance(MINUTE_MS);
     const content = Buffer.from("crash orphan from weeks back");
     writeFileSync(join(data, "f.txt"), content);
 
@@ -367,9 +372,9 @@ describe("prior-audit findings, encoded", () => {
     const fake = backendHolder.current;
     await fake.putBytes(BUCKET, `objects/${sha256(content)}`, content);
 
-    // Interleave: the backup's store LIST sees the object and skips
-    // uploading it; cleanup runs in the gap between that skip and the
-    // manifest PUT, where it used to delete the object as an orphan.
+    // Interleave: the backup finds the object stored and skips uploading
+    // it; cleanup runs in the gap between that skip and the manifest PUT,
+    // where it used to delete the object as an orphan.
     /** @type {unknown} */
     let cleanupOutcome;
     beforeManifestPut(fake, async () => {

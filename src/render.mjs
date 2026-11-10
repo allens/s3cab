@@ -756,19 +756,30 @@ export function renderProp(props) {
 export function renderStatus({
   set,
   snapshot,
-  snapshotBackedUp,
+  snapshotInBucket,
+  takenLater,
   backedUp,
   toUpload,
 }) {
   const objects = `${countOf(toUpload, "object")} to upload`;
   let verdict;
-  if (snapshotBackedUp) {
+  if (snapshotInBucket !== "identical") {
+    const why =
+      snapshotInBucket === "different"
+        ? "the bucket's under that name is a different one"
+        : toUpload === 0
+          ? "its objects are all stored"
+          : objects;
+    verdict = `latest snapshot not backed up — ${why}`;
+  } else if (takenLater.length > 0) {
+    verdict =
+      `${takenLater.join(", ")} not backed up — taken later, under a name ` +
+      `that sorts earlier because the clock went back`;
+  } else {
     // A backed-up snapshot still has objects to upload when a `delete` removed
     // content since, or when the bucket's latest is another machine's and the
     // count is against that.
     verdict = toUpload === 0 ? "up to date" : objects;
-  } else {
-    verdict = `latest snapshot not backed up — ${toUpload === 0 ? "its objects are all stored" : objects}`;
   }
   return [
     set,
@@ -1726,10 +1737,21 @@ function withVisibleControls(path) {
  * were removed. The reclaim-with-cleanup hint and the cancel notice are stderr
  * guidance the command already emitted (kept there, not folded in); this is only
  * the result line. `forgotten: false` means the user declined the confirmation.
+ * A set with no snapshots in the bucket had none to forget, so its line is
+ * about the set.
  * @param {ForgetResult} result
  * @returns {string}
  */
-export function renderForget({ set, snapshots, forgotten }) {
+export function renderForget(result) {
+  if ("retired" in result) {
+    if (!result.retired) {
+      return `Set '${result.set}' kept — nothing was removed.`;
+    }
+    return result.stray.length > 0
+      ? `Set '${result.set}' is out of s3cab's records, but files in its folder still name it.`
+      : `Set '${result.set}' has left the bucket.`;
+  }
+  const { set, snapshots, forgotten } = result;
   const what =
     snapshots.length === 1
       ? `Snapshot '${snapshots[0]}'`

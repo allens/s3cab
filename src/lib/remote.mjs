@@ -1,5 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { writeFileAtomic } from "./atomic-file.mjs";
 import {
   deleteObject,
@@ -116,16 +117,19 @@ export async function deleteRemoteSnapshot(bucket, set, name) {
  *
  * Returns the lookup the diff needs, not the whole `Snapshot`: the
  * empty-when-none rule and the `.entries` extraction live here once. The
- * listing comes back with it because `status` answers two questions of one
- * LIST — which snapshot is the bucket's latest, and whether the local latest
- * is in the bucket at all. `backup` itself diffs against the **local** previous
- * snapshot (single-owner model — see upload.mjs), not this. `restore`, which
- * also needs the `@SET DIR` rows, calls `readRemoteSnapshot` directly.
+ * listing and the newest one's bytes come back with it because `status`
+ * answers two more questions of the same reads — which snapshot is the
+ * bucket's latest, and whether the local latest is the bucket's copy byte for
+ * byte (ADR-0084: a name alone can be another machine's). `backup` itself diffs
+ * against the **local** previous snapshot (single-owner model — see upload.mjs),
+ * not this. `restore`, which also needs the `@SET DIR` rows, calls
+ * `readRemoteSnapshot` directly.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
- * @returns {Promise<{ names: string[], lookup: SnapshotEntries }>}
+ * @returns {Promise<{ names: string[], lookup: SnapshotEntries, bytes?: Uint8Array }>}
  *   `names` = the set's remote snapshot names, newest first (empty if never
- *   backed up); `lookup` = the newest one's entries (an empty Map for a first backup).
+ *   backed up); `lookup` = the newest one's entries (an empty Map for a first
+ *   backup); `bytes` = the newest one's file as stored.
  */
 export async function readLatestRemoteSnapshot(bucket, set) {
   const names = await listRemoteSnapshots(bucket, set);
@@ -133,8 +137,14 @@ export async function readLatestRemoteSnapshot(bucket, set) {
   if (!name) {
     return { names, lookup: new Map() };
   }
-  const snapshot = await readRemoteSnapshot(bucket, set, name);
-  return { names, lookup: snapshot.entries };
+  const bytes = await getBytes(remoteSnapshotUri(bucket, set, name));
+  if (bytes === undefined) {
+    throw new Error(
+      `Snapshot '${set}/${name}' left the bucket while it was being read. Run the command again.`,
+    );
+  }
+  const snapshot = await parseCompressedSnapshotStream(Readable.from([bytes]));
+  return { names, lookup: snapshot.entries, bytes };
 }
 
 /**
@@ -227,35 +237,39 @@ export async function referencedObjects(bucket) {
 }
 
 /**
- * A `snapshots/` listing: set name → the files under its folder, each with the
- * LIST's `ETag` — the bytes' identity, which is what tells a snapshot republished
+ * A `snapshots/` listing: folder name → the files in it, each with the LIST's
+ * `ETag` — the bytes' identity, which is what tells a snapshot republished
  * under a name a `forget` freed from the one the listing saw
  * ([ADR-0112](../../docs/adr/0112-bucket-locks.md) step 4) — or `undefined`
  * where the store lists none, which `readNewSnapshots` reads as changed. A set
  * whose `<set>.info` marker or folder is listed is present even with no files,
  * so a set whose snapshots are all gone is still a set to report on, not an
- * absence.
+ * absence. A folder whose name isn't a set's (`isSetName`) is listed too, for
+ * `cleanup` alone: a snapshot copied into `snapshots/photos_2025/` by hand
+ * still references what it references, and nothing else reports on it.
  * @typedef {Map<string, Map<string, string | undefined>>} SnapshotListing
  */
 
 /**
- * One LIST of `snapshots/`, grouped by set, read by set-marker.mjs's
- * `parseSnapshotsKey`: only a canonical set name counts, and a stray key is
- * dropped rather than registered as a phantom set. Under a set's folder every
- * key is kept, valid snapshot name or not: the listing is what a later one is
- * compared against (`readNewSnapshots`), and a filter applied to both sides
- * changes nothing.
+ * One LIST of `snapshots/`, grouped by folder. Markers and set folders are read
+ * by set-marker.mjs's `parseSnapshotsKey`, so a stray `.info` — `Photos.info`,
+ * `notes.old.info` — registers nothing; a folder under any other name is kept
+ * as itself (`SnapshotListing`). Under a folder every key is kept, valid
+ * snapshot name or not: the listing is what a later one is compared against
+ * (`readNewSnapshots`), and a filter applied to both sides changes nothing.
  * @param {string} bucket - The repository's S3 bucket
  * @returns {Promise<SnapshotListing>}
  */
 export async function listSnapshotFiles(bucket) {
   /** @type {SnapshotListing} */
   const filesBySet = new Map();
-  for await (const { Key, ETag } of listObjects(
+  for await (const { Key = "", ETag } of listObjects(
     `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
   )) {
-    const entry = parseSnapshotsKey(Key ?? "");
-    if (!entry) {
+    const entry =
+      parseSnapshotsKey(Key) ??
+      /^snapshots\/(?<set>[^/]+)\/(?<file>.*)$/s.exec(Key)?.groups;
+    if (!entry?.set) {
       continue;
     }
     // The set exists whether or not its folder has anything in it: its

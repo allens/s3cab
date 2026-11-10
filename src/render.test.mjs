@@ -705,7 +705,8 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
-      snapshotBackedUp: false,
+      snapshotInBucket: "absent",
+      takenLater: [],
       backedUp: "20260701T0900",
       toUpload: 12,
     });
@@ -722,7 +723,8 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
-      snapshotBackedUp: true,
+      snapshotInBucket: "identical",
+      takenLater: [],
       backedUp: "20260704T1000",
       toUpload: 0,
     });
@@ -735,7 +737,8 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
-      snapshotBackedUp: false,
+      snapshotInBucket: "absent",
+      takenLater: [],
       backedUp: "20260701T0900",
       toUpload: 0,
     });
@@ -752,7 +755,8 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260701T0900",
-      snapshotBackedUp: true,
+      snapshotInBucket: "identical",
+      takenLater: [],
       backedUp: "20260704T1000",
       toUpload: 0,
     });
@@ -765,12 +769,45 @@ describe("renderStatus", () => {
     const text = renderStatus({
       set: "photos",
       snapshot: "20260704T1000",
-      snapshotBackedUp: false,
+      snapshotInBucket: "absent",
+      takenLater: [],
       backedUp: null,
       toUpload: 0,
     });
     assert.match(text, /\n {2}backed up {9}never\n/);
     assert.match(text, /\n {2}latest snapshot not backed up — /);
+  });
+
+  it("says why when the bucket's snapshot under the same name isn't this one, latest or not", () => {
+    for (const backedUp of ["20260704T1000", "20260705T0900"]) {
+      const text = renderStatus({
+        set: "photos",
+        snapshot: "20260704T1000",
+        snapshotInBucket: "different",
+        takenLater: [],
+        backedUp,
+        toUpload: 0,
+      });
+      assert.match(
+        text,
+        /\n {2}latest snapshot not backed up — the bucket's under that name is a different one$/,
+      );
+    }
+  });
+
+  it("names a snapshot taken later under an earlier name instead of saying 'up to date'", () => {
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "20260105T0145",
+      snapshotInBucket: "identical",
+      takenLater: ["20260105T0110"],
+      backedUp: "20260105T0145",
+      toUpload: 0,
+    });
+    assert.match(
+      text,
+      /\n {2}20260105T0110 not backed up — taken later, under a name that sorts earlier because the clock went back$/,
+    );
   });
 });
 
@@ -2460,6 +2497,28 @@ describe("renderForget", () => {
         forgotten: false,
       }),
       "Snapshot '20260612T0915' kept — nothing was removed.",
+    );
+  });
+
+  it("speaks of the set, not the names given, when the set had no snapshots", () => {
+    assert.equal(
+      renderForget({ set: "photos", retired: true, stray: [] }),
+      "Set 'photos' has left the bucket.",
+    );
+    assert.equal(
+      renderForget({ set: "photos", retired: false, stray: [] }),
+      "Set 'photos' kept — nothing was removed.",
+    );
+  });
+
+  it("doesn't say a set left the bucket while files in its folder still name it", () => {
+    assert.equal(
+      renderForget({
+        set: "photos",
+        retired: true,
+        stray: ["snapshots/photos/notes.txt"],
+      }),
+      "Set 'photos' is out of s3cab's records, but files in its folder still name it.",
     );
   });
 });

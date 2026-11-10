@@ -61,6 +61,7 @@ export const sha256 = (/** @type {Buffer | string} */ content) =>
 
 const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
 const MARKER_KEY = /^snapshots\/([^/]+)\.info$/;
+const CONFIG_KEY = /^\.s3cab\/sets\/([^/]+)\//;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
@@ -386,11 +387,31 @@ export class RepoModel {
   }
 
   /**
+   * The sets the bucket still names — by a marker, or by s3cab's copy of
+   * their config under `.s3cab/sets/<set>/` — with no manifest left: what
+   * `verify` reports as `no snapshots` and `cleanup` refuses over (ADR-0117).
+   * @returns {Promise<string[]>}
+   */
+  async setsWithNoSnapshots() {
+    const manifests = await this.parsedManifests();
+    const withSnapshots = new Set(manifests.map((manifest) => manifest.set));
+    /** @type {Set<string>} */
+    const empty = new Set();
+    for (const { key } of await this.backend.listAll(this.bucket)) {
+      const set = (MARKER_KEY.exec(key) ?? CONFIG_KEY.exec(key))?.[1];
+      if (set !== undefined && !withSnapshots.has(set)) {
+        empty.add(set);
+      }
+    }
+    return [...empty];
+  }
+
+  /**
    * Whether `verify` should find problems, computed the way verify defines
    * them (ADR-0042/ADR-0064/ADR-0117): a referenced hash that is neither
    * stored nor explained by a deletion record, a stored size ≠ a recorded
    * size, a manifest the parser can't read — and nothing to check at all: a
-   * set whose marker is there with no manifest under it, or a bucket with no
+   * set the bucket names with no manifest under it, or a bucket with no
    * set, since "all verified" is never said of nothing.
    * @returns {Promise<{ findings: string[], expectExit1: boolean }>}
    */
@@ -401,12 +422,9 @@ export class RepoModel {
     /** @type {string[]} */
     const findings = [];
     const sets = new Set(manifests.map((manifest) => manifest.set));
-    for (const { key } of await this.backend.listAll(this.bucket)) {
-      const set = MARKER_KEY.exec(key)?.[1];
-      if (set !== undefined && !sets.has(set)) {
-        sets.add(set);
-        findings.push(`${set}: no snapshots`);
-      }
+    for (const set of await this.setsWithNoSnapshots()) {
+      sets.add(set);
+      findings.push(`${set}: no snapshots`);
     }
     if (sets.size === 0) {
       findings.push("nothing to verify: the bucket has no set");

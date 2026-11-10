@@ -36,14 +36,16 @@ needed a home neither `remote.mjs` nor `verify.mjs` could give it.
 
 ## Decision
 
-**The enumeration's vocabulary lives in its own zero-import module, `lib/referenced.mjs`** — the
-three typedefs, `isCorruptSnapshotError`, and the two shared helpers the bucket-wide consumers
-need (`unreadableSnapshots`, `unreadableMessage`).
+**The enumeration's vocabulary lives in its own module, `lib/referenced.mjs`, and nothing it
+imports reaches the SDK** — the three typedefs, `isCorruptSnapshotError`, and the shared helpers
+the bucket-wide consumers need (`unreadableSnapshots` and the messages that report damaged
+snapshots). What it imports are leaves that touch no S3: the set-name rule (`sets.mjs`), the
+snapshot file name (`snapshot-file.mjs`) and the style gate.
 
-Every module depends on it and it depends on nothing:
+Every module depends on it, and it reaches no S3:
 
 ```
-referenced.mjs   (pure; imports nothing)
+referenced.mjs   (no S3: imports only SDK-free leaves)
   ↑ remote.mjs                        builds results, classifies read failures
   ↑ verify.mjs                        consumes one set's result
   ↑ cleanup / delete / unrestorable   plan over the whole map
@@ -58,8 +60,8 @@ builds it. A vocabulary module earns its place when it lets the strictest consum
 
 ## Consequences
 
-- **Purity is preserved as a property, not a habit.** `cleanup.mjs` still imports nothing but
-  `referenced.mjs`; its test still loads no SDK. Anyone tempted to "fix" the apparent inversion by
+- **Purity is preserved as a property, not a habit.** `unrestorable.mjs` and `lib/verify.mjs`
+  still reach no SDK, nor do their tests. Anyone tempted to "fix" the apparent inversion by
   moving the types to `remote.mjs` will find this ADR first — that is the reason it exists, since
   the resulting slowdown is silent and shows up only as heavier test startup.
 - **One more file** (against [0006](0006-minimal-code.md)). Justified rather than speculative: it

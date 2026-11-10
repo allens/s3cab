@@ -58,16 +58,19 @@ const makeRunFresh = (rootPath) => {
 };
 
 /**
- * Shrink a failing sequence and re-run the survivor.
+ * Shrink a failing sequence and re-run the survivor. A candidate counts only
+ * if it fails the same way: a seeded bug can trip more than one check, and a
+ * shorter sequence that trips another would pass for the one under test.
  * @param {(steps: Step[]) => Promise<RunResult>} runFresh
  * @param {Step[]} steps
  * @param {RunResult} result
+ * @param {RegExp} expect - The violation class the seeded bug must produce
  * @returns {Promise<Caught>}
  */
-async function shrinkAndRerun(runFresh, steps, result) {
+async function shrinkAndRerun(runFresh, steps, result, expect) {
   const shrunk = await shrink(steps, async (candidate) => {
     const rerun = await runFresh(candidate);
-    return !rerun.ok;
+    return !rerun.ok && expect.test(rerun.violations.join("\n"));
   });
   const final = await runFresh(shrunk);
   return { steps, result, shrunk, final };
@@ -78,14 +81,15 @@ async function shrinkAndRerun(runFresh, steps, result) {
  * operating exactly as it does in the sequences tier, no steering.
  * @param {(steps: Step[]) => Promise<RunResult>} runFresh
  * @param {number} maxSeed
+ * @param {RegExp} expect - The violation class the seeded bug must produce
  * @returns {Promise<Caught | null>}
  */
-async function catchAndShrink(runFresh, maxSeed) {
+async function catchAndShrink(runFresh, maxSeed, expect) {
   for (let seed = 1; seed <= maxSeed; seed++) {
     const steps = generateSequence(seed);
     const result = await runFresh(steps);
-    if (!result.ok) {
-      return shrinkAndRerun(runFresh, steps, result);
+    if (!result.ok && expect.test(result.violations.join("\n"))) {
+      return shrinkAndRerun(runFresh, steps, result, expect);
     }
   }
   return null;
@@ -165,15 +169,10 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           return original.call(this, path, uri, options);
         };
       try {
-        const caught = await catchAndShrink(runFresh, 8);
-        await assertCaughtAndShrunk(
-          t,
-          runFresh,
-          caught,
-          /dangling reference|restore of .+ (threw|reported failure)/,
-          unpatch,
-          6,
-        );
+        const expect =
+          /dangling reference|restore of .+ (threw|reported failure)/;
+        const caught = await catchAndShrink(runFresh, 8, expect);
+        await assertCaughtAndShrunk(t, runFresh, caught, expect, unpatch, 6);
       } finally {
         unpatch();
       }
@@ -207,15 +206,9 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           return original.call(this, path, uri, options);
         };
       try {
-        const caught = await catchAndShrink(runFresh, 8);
-        await assertCaughtAndShrunk(
-          t,
-          runFresh,
-          caught,
-          /content-address violation|dangling reference/,
-          unpatch,
-          6,
-        );
+        const expect = /content-address violation|dangling reference/;
+        const caught = await catchAndShrink(runFresh, 8, expect);
+        await assertCaughtAndShrunk(t, runFresh, caught, expect, unpatch, 6);
       } finally {
         unpatch();
       }
@@ -257,31 +250,27 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           }
         };
       // Handcrafted rather than seed-scanned: the bug only fires once a
-      // cleanup follows a backup, with the hidden snapshot's objects unreferenced by
-      // any other, a conjunction rare enough under the generator's step mix
-      // that scanning for it would blow the per-commit budget. The noise steps
-      // are there for the shrinker to remove.
+      // cleanup follows two backups, with the hidden snapshot's objects
+      // unreferenced by the other, a conjunction rare enough under the
+      // generator's step mix that scanning for it would blow the per-commit
+      // budget. Two, because a set left with no snapshot to see makes cleanup
+      // refuse (ADR-0117) instead of deleting. The noise steps are there for
+      // the shrinker to remove.
       const steps = /** @type {Step[]} */ ([
         { kind: "create-set", machine: 0, set: "col", seedFiles: [3, 5] },
         { kind: "backup", machine: 0, set: "col" },
-        { kind: "mutate", set: "col", file: "f2.txt", content: 6 },
+        { kind: "mutate", set: "col", file: "f1.txt", content: 6 },
         { kind: "restore", machine: 0, set: "col", index: 0 },
-        { kind: "snapshot", machine: 0, set: "col" },
+        { kind: "backup", machine: 0, set: "col" },
         { kind: "cleanup" },
         { kind: "restore", machine: 0, set: "col", index: 0 },
       ]);
       try {
         const result = await runFresh(steps);
         assert.equal(result.ok, false, "the seeded cleanup bug went uncaught");
-        const caught = await shrinkAndRerun(runFresh, steps, result);
-        await assertCaughtAndShrunk(
-          t,
-          runFresh,
-          caught,
-          /dangling reference/,
-          unpatch,
-          5,
-        );
+        const expect = /dangling reference/;
+        const caught = await shrinkAndRerun(runFresh, steps, result, expect);
+        await assertCaughtAndShrunk(t, runFresh, caught, expect, unpatch, 5);
       } finally {
         unpatch();
       }
@@ -340,15 +329,9 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
           return stored;
         };
       try {
-        const caught = await catchAndShrink(runFresh, 8);
-        await assertCaughtAndShrunk(
-          t,
-          runFresh,
-          caught,
-          / is missing | invented /,
-          unpatch,
-          6,
-        );
+        const expect = / is missing | invented /;
+        const caught = await catchAndShrink(runFresh, 8, expect);
+        await assertCaughtAndShrunk(t, runFresh, caught, expect, unpatch, 6);
       } finally {
         unpatch();
       }
