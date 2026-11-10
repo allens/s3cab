@@ -1737,10 +1737,18 @@ function withVisibleControls(path) {
  * were removed. The reclaim-with-cleanup hint and the cancel notice are stderr
  * guidance the command already emitted (kept there, not folded in); this is only
  * the result line. `forgotten: false` means the user declined the confirmation.
+ * A set with no snapshots in the bucket had none to forget, so its line is
+ * about the set.
  * @param {ForgetResult} result
  * @returns {string}
  */
-export function renderForget({ set, snapshots, forgotten }) {
+export function renderForget(result) {
+  if ("retired" in result) {
+    return result.retired
+      ? `Set '${result.set}' has left the bucket.`
+      : `Set '${result.set}' kept — nothing was removed.`;
+  }
+  const { set, snapshots, forgotten } = result;
   const what =
     snapshots.length === 1
       ? `Snapshot '${snapshots[0]}'`

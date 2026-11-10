@@ -97,7 +97,9 @@ report says what it didn't.**
    would read as orphaned. The refusal names each set and what to run on the machine that
    holds it: `takeover`, in case the marker went with the snapshots, then upload its
    snapshots again or back it up. A dry run still reports, and says a real run would refuse.
-   A retired set can't trip it, since `forget` took it out of the bucket (§1).
+   A retired set can't trip it, since `forget` took it out of the bucket (§1). `forget` of a
+   set that already has no snapshots takes it out only after a prompt saying what `cleanup`
+   then deletes, and never under `--force`: that would end this refusal unseen.
 
 ## Considered and rejected
 

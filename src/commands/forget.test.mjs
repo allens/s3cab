@@ -283,7 +283,7 @@ describe("forget command", () => {
     assert.deepEqual(removedSets, []);
   });
 
-  it("takes out a set with no snapshots left, which a stopped forget leaves", async () => {
+  it("takes out a set with no snapshots left, which a stopped forget leaves, and records it", async () => {
     // Every snapshot went, and the run stopped before the set did: the names
     // it was given are gone, and taking the set out is what is left to do.
     remoteSnapshots = [];
@@ -291,11 +291,19 @@ describe("forget command", () => {
     promptAnswer = true;
     const result = await forget(["20260612T0915"], { set: "photos" });
 
-    assert.match(prompts[0] ?? "", /no snapshots in bucket b1[\s\S]*takeover/);
+    // The prompt warns what taking out a set whose snapshots were lost costs.
+    assert.match(
+      prompts[0] ?? "",
+      /no snapshots in bucket b1[\s\S]*lost, answer no[\s\S]*cleanup[\s\S]*takeover/,
+    );
     assert.deepEqual(removedSets, [["b1", "photos"]]);
     assert.deepEqual(deleteCalls, []);
     assert.equal(referencedCalls, 0);
-    assert.equal(result.forgotten, true);
+    // Nothing was forgotten: the result is about the set, not the names given.
+    assert.deepEqual(result, { set: "photos", retired: true });
+    const records = auditRecords();
+    assert.equal(records.length, 1);
+    assert.match(readFileSync(records[0] ?? "", "utf8"), /set taken out/);
   });
 
   it("keeps a set with no snapshots left when the user declines", async () => {
@@ -305,7 +313,33 @@ describe("forget command", () => {
     const result = await forget(["20260612T0915"], { set: "photos" });
 
     assert.deepEqual(removedSets, []);
-    assert.equal(result.forgotten, false);
+    assert.deepEqual(result, { set: "photos", retired: false });
+    assert.deepEqual(auditRecords(), []);
+  });
+
+  it("keeps a set with no snapshots when a backup lands while the prompt is open", async () => {
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    whilePrompting = () => {
+      remoteSnapshots = ["20260613T0915"];
+    };
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(result, { set: "photos", retired: false });
+  });
+
+  it("won't take out a set with no snapshots under --force, which a lost set reads the same as", async () => {
+    // Taken out unseen, a set whose snapshots were lost stops cleanup
+    // refusing over it (ADR-0117 §5); only the prompt lets the user say which.
+    remoteSnapshots = [];
+    await assert.rejects(
+      () => forget(["20260612T0915"], { set: "photos", force: true }),
+      /not backed up for set 'photos'[\s\S]*no snapshots in bucket b1[\s\S]*without --force:\n {2}s3cab forget --set photos 20260612T0915$/,
+    );
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(auditRecords(), []);
   });
 
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {
@@ -366,7 +400,11 @@ describe("forget command", () => {
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, [["b1", "photos", "20260612T0915"]]);
-    assert.equal(result.forgotten, true);
+    assert.deepEqual(result, {
+      set: "photos",
+      snapshots: ["20260612T0915"],
+      forgotten: true,
+    });
   });
 
   it("deletes nothing on a TTY when the user declines", async () => {
@@ -378,7 +416,11 @@ describe("forget command", () => {
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
-    assert.equal(result.forgotten, false);
+    assert.deepEqual(result, {
+      set: "photos",
+      snapshots: ["20260612T0915"],
+      forgotten: false,
+    });
   });
 
   describe("the unrestorable check", () => {
@@ -516,7 +558,11 @@ describe("forget command", () => {
         set: "photos",
       });
 
-      assert.equal(result.forgotten, false);
+      assert.deepEqual(result, {
+        set: "photos",
+        snapshots: ["20260611T0915"],
+        forgotten: false,
+      });
       assert.deepEqual(auditRecords(), [], "nothing was removed, so no record");
       assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
     });
@@ -556,7 +602,11 @@ describe("forget command", () => {
         () => readFileSync(previewPath(), "utf8"),
         "no preview file",
       );
-      assert.equal(result.forgotten, true);
+      assert.deepEqual(result, {
+        set: "photos",
+        snapshots: ["20260611T0915"],
+        forgotten: true,
+      });
       assert.deepEqual(deleteCalls, [["b1", "photos", "20260611T0915"]]);
 
       const records = auditRecords();

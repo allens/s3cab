@@ -25,12 +25,14 @@ import { compactDeletionRecords } from "./deletion-record.mjs";
 import { holdDeleteLock } from "./locks.mjs";
 import { deleteStoredObjects } from "./objects.mjs";
 import {
+  outsideSets,
+  outsideSetsMessage,
   sizeDisagreements,
   unreadableMessage,
   unreadableSnapshots,
 } from "./referenced.mjs";
 import { readNewSnapshots } from "./remote.mjs";
-import { isSetName } from "./set-marker.mjs";
+import { isSetName } from "./sets.mjs";
 import { shellCommand, styleEnabled } from "./style.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
@@ -185,7 +187,7 @@ export const emptySetsMessage = (sets, { dryRun = false } = {}) => {
     `  ${shellCommand(`s3cab takeover ${set}`, color)}`,
     `Then, if ${one ? "its" : "the set's"} snapshots were lost, upload them again, once for each:`,
     `  ${shellCommand(`s3cab upload ${set} --snapshot <name>`, color)}`,
-    `Or, if it hasn't been backed up yet, back it up:`,
+    `Or, if ${one ? "it hasn't" : "the set hasn't"} been backed up yet, back it up:`,
     `  ${shellCommand(`s3cab backup ${set}`, color)}`,
   ].join("\n");
 };
@@ -206,38 +208,6 @@ export const invalidRowSnapshots = (referencedBySet) => [
 ];
 
 /**
- * Whether a `folder/snapshot` name lies outside every set: in a folder under
- * `snapshots/` whose name isn't a set's, which `cleanup` reads and `verify`
- * doesn't (ADR-0117 §3), so a message about it can't send the user to `verify`.
- * @param {string} name
- * @returns {boolean}
- */
-const outsideSets = (name) => !isSetName(name.slice(0, name.indexOf("/")));
-
-/**
- * The part of a refusal about snapshots outside every set, each named by its
- * key, since no s3cab command reports on them.
- * @param {string} bucket
- * @param {string[]} names - `folder/snapshot`
- * @param {string} trouble - What is wrong with them and what follows, worded for one or many
- * @returns {string}
- */
-const outsideSetsMessage = (bucket, names, trouble) => {
-  const one = names.length === 1;
-  return [
-    `Can't clean up safely — ${one ? "this snapshot" : "these snapshots"} ` +
-      `outside any backup set ${trouble}:`,
-    ...names.map((name) => `  s3://${bucket}/snapshots/${name}.tsv.gz`),
-    ``,
-    one
-      ? `s3cab doesn't check snapshots outside a set, so this one is yours ` +
-        `to look at: repair it if you need it, or remove it.`
-      : `s3cab doesn't check snapshots outside a set, so these are yours to ` +
-        `look at: repair the ones you need, and remove the rest.`,
-  ].join("\n");
-};
-
-/**
  * Interlock #1: an unreadable snapshot makes the orphan set a lie (its
  * references are unknown), so abort before reporting numbers that would be
  * wrong. Triage with verify first, or by hand outside a set.
@@ -245,36 +215,17 @@ const outsideSetsMessage = (bucket, names, trouble) => {
  * @param {string[]} names - `set/snapshot`, from `unreadableSnapshots`
  * @returns {Error}
  */
-export const unreadableSnapshotsError = (bucket, names) => {
-  const consequence =
-    "objects nothing else references would look unused and be deleted";
-  const inSets = names.filter((name) => !outsideSets(name));
-  const outside = names.filter(outsideSets);
-  return new Error(
-    [
-      ...(inSets.length > 0
-        ? [
-            unreadableMessage({
-              names: inSets,
-              bucket,
-              lead: "Can't clean up safely",
-              consequence,
-              color: styleEnabled(process.stderr),
-            }),
-          ]
-        : []),
-      ...(outside.length > 0
-        ? [
-            outsideSetsMessage(
-              bucket,
-              outside,
-              `can't be read, so ${consequence}`,
-            ),
-          ]
-        : []),
-    ].join("\n\n"),
+export const unreadableSnapshotsError = (bucket, names) =>
+  new Error(
+    unreadableMessage({
+      names,
+      bucket,
+      lead: "Can't clean up safely",
+      consequence:
+        "objects nothing else references would look unused and be deleted",
+      color: styleEnabled(process.stderr),
+    }),
   );
-};
 
 /**
  * Interlock #1's twin: a refused row references nothing (ADR-0101), so content
@@ -306,7 +257,14 @@ export const invalidRowsError = (bucket, names) => {
           ]
         : []),
       ...(outside.length > 0
-        ? [outsideSetsMessage(bucket, outside, trouble(outside.length === 1))]
+        ? [
+            outsideSetsMessage({
+              names: outside,
+              bucket,
+              trouble: trouble(outside.length === 1),
+              lead: "Can't clean up safely",
+            }),
+          ]
         : []),
     ].join("\n\n"),
   );

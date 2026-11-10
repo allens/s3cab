@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  copyFileSync,
   mkdirSync,
   realpathSync,
   renameSync,
@@ -342,6 +343,48 @@ describe("adversarial read of PR #506", () => {
     const report = await status("photos");
 
     assert.deepEqual(report.takenLater, []);
+    assert.match(renderStatus(report), /up to date$/);
+  });
+
+  it("status passes over an older local snapshot that won't read", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    useHome(root, "mA");
+    const data = await makeSet(root, "photos", "data");
+    writeFileSync(join(data, "a.txt"), "alpha");
+    clockHolder.current.advance(60 * MINUTE_MS);
+    await backup("photos");
+
+    // A failed backup's snapshot from a minute before, never uploaded, damaged.
+    const home = String(process.env.S3CAB_HOME);
+    const snapshots = join(home, "sets", "photos", "snapshots");
+    writeFileSync(join(snapshots, "20260105T0059.tsv.gz"), "not gzip");
+
+    const report = await status("photos");
+
+    assert.match(renderStatus(report), /up to date$/);
+  });
+
+  it("status reads past an older local snapshot whose name isn't a real time", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    useHome(root, "mA");
+    const data = await makeSet(root, "photos", "data");
+    writeFileSync(join(data, "a.txt"), "alpha");
+    clockHolder.current.advance(60 * MINUTE_MS);
+    const { snapshot: latest } = await backup("photos");
+
+    // A copy saved by hand under a name with minute 60, which sorts just
+    // before the latest's.
+    const home = String(process.env.S3CAB_HOME);
+    const snapshots = join(home, "sets", "photos", "snapshots");
+    copyFileSync(
+      join(snapshots, `${latest}.tsv.gz`),
+      join(snapshots, "20260105T0060.tsv.gz"),
+    );
+
+    const report = await status("photos");
+
     assert.match(renderStatus(report), /up to date$/);
   });
 

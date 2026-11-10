@@ -407,7 +407,9 @@ See [removing snapshots](maintenance.md#removing-snapshots-forget).
 ### Snapshot '…' is not backed up for set '…'.
 
 A name you gave `forget` isn't a backed-up snapshot of this set. Nothing was removed. The
-message lists the real ones, and says "Snapshots … are" when it's more than one.
+message lists the real ones, and says "Snapshots … are" when it's more than one. If the set has
+no snapshots in the bucket and you passed `--force`, it says to run `forget` at a terminal
+without it instead, where `forget` asks to take the set out of the bucket.
 
 ### delete takes content hashes (64 hex characters), and these aren't:
 

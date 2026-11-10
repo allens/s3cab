@@ -153,7 +153,8 @@ First, `assertHeld`, as `backup` does.
 
 1. LIST the set's remote snapshots and require **every** named snapshot to exist before deleting
    **any** — a typo cannot leave the first two of three already gone. With none listed, the
-   prompt asks to take the set out, and the run goes straight to step 4's DELETEs.
+   prompt asks to take the set out, and the run goes straight to step 4; `--force` refuses the
+   names instead, since a set whose snapshots were lost reads the same.
 2. Optional whole-bucket unrestorable scan → preview file → prompt (skipped together by `--force`).
 3. DELETE each manifest. **[multi-step]** across names; each DELETE **[atomic]**.
 4. LIST the set's snapshots again; with none left, DELETE every key under its config copy

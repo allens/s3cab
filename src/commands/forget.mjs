@@ -9,6 +9,7 @@ import { formatMoment, localMoment } from "../lib/format.mjs";
 import { storedObjectSizes } from "../lib/objects.mjs";
 import {
   formatForcedReport,
+  formatRetiredReport,
   formatUnrestorableReport,
   formatUnrestorableSummary,
   planUnrestorable,
@@ -115,12 +116,19 @@ const auditMoment = () => localMoment("seconds");
  * `--force`, skips it). **Every** name is confirmed to exist before **any** is deleted, so a
  * typo gets a helpful error (and the prompt names real targets) rather than a
  * silent no-op (`DeleteObject` is idempotent) — and never a half-done run. A set
- * with no snapshot left is the exception: there is nothing to delete but the set.
+ * with no snapshot left is the exception: there is nothing to delete but the
+ * set, which `retire` does after asking.
  *
- * @typedef {Object} ForgetResult
+ * @typedef {Object} ForgottenResult
  * @property {string} set - The set the snapshots belonged to
  * @property {string[]} snapshots - The snapshots named for removal, in the order given
  * @property {boolean} forgotten - False only when the user declined the confirmation
+ *
+ * @typedef {Object} RetiredResult - A set with no snapshots in the bucket, where the only thing `forget` can remove is the set
+ * @property {string} set - The set
+ * @property {boolean} retired - False when the user declined, or a backup landed while they answered
+ *
+ * @typedef {ForgottenResult | RetiredResult} ForgetResult
  *
  * @param {string[]} [snapshots] - The snapshots to forget — the bulk operand (at least one)
  * @param {{ set?: string, force?: boolean }} [options] - `set` = the backup set they belong to (required); `force` skips the check and the confirmation (and is required for non-interactive runs)
@@ -160,19 +168,24 @@ export async function forget(snapshots = [], options = {}) {
   // the whole selection up front is what stops a typo in the third name leaving
   // the first two already gone — the deletions below are not undoable.
   const remote = await listRemoteSnapshots(set.bucket, set.name);
-  // With no snapshot left, the named ones are gone whatever they were called:
-  // a `forget` that stopped before taking the set out of the bucket, or a set
-  // never backed up. Taking it out is all there is left to do.
-  if (remote.length === 0) {
-    return retire(set, snapshots, force);
+  // With no snapshot left, the named ones are gone whatever they were called,
+  // and taking the set out is all there is left to do. Never under --force: a
+  // set whose snapshots were lost reads the same, and taking it out unseen lets
+  // the next `cleanup` delete what only they referenced (ADR-0117 §5).
+  if (remote.length === 0 && !force) {
+    return retire(set);
   }
   const missing = snapshots.filter((name) => !remote.includes(name));
   if (missing.length) {
     throw new Error(
       `${missing.length === 1 ? `Snapshot '${missing[0]}' is` : `Snapshots ${missing.map((n) => `'${n}'`).join(", ")} are`} ` +
         `not backed up for set '${set.name}'.\n` +
-        `Backed-up snapshots:\n${remote.map((n) => `  ${n}`).join("\n")}\n` +
-        `\nList them with:\n  ${shellCommand(`s3cab list ${set.name} --remote`)}`,
+        (remote.length > 0
+          ? `Backed-up snapshots:\n${remote.map((n) => `  ${n}`).join("\n")}\n` +
+            `\nList them with:\n  ${shellCommand(`s3cab list ${set.name} --remote`)}`
+          : `The set has no snapshots in bucket ${set.bucket}. Taking it out of ` +
+            `the bucket asks first, so run this at a terminal, without --force:\n` +
+            `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}`),
     );
   }
 
@@ -305,31 +318,53 @@ export async function forget(snapshots = [], options = {}) {
 }
 
 /**
- * Take a set with no snapshots left out of the bucket, after asking on a TTY.
- * Nothing is forgotten here, so no audit record is written.
+ * Take a set with no snapshots in the bucket out of it: a `forget` that stopped
+ * before the set went, a set never backed up, or one whose snapshots were lost,
+ * which the bucket can't tell apart (ADR-0117). Always asks, since only the
+ * user knows which; `forget` reaches this only on a terminal. Listed again
+ * after the answer, as the main path is, so a backup that landed meanwhile
+ * keeps its set.
  * @param {ReturnType<typeof loadSet>} set
- * @param {string[]} snapshots - The names given, none of them in the bucket
- * @param {boolean} force - Skip the confirmation
- * @returns {Promise<ForgetResult>}
+ * @returns {Promise<RetiredResult>}
  */
-async function retire(set, snapshots, force) {
-  if (!force && isInteractive(process.stdin)) {
-    const ok = await promptYesNo(
-      `Set '${set.name}' has no snapshots in bucket ${set.bucket}. Take it out ` +
-        `of the bucket too? Backing it up again starts with ` +
-        `'s3cab takeover ${set.name}'.`,
+async function retire(set) {
+  const ok = await promptYesNo(
+    `Set '${set.name}' has no snapshots in bucket ${set.bucket}, so there is ` +
+      `nothing to forget. Take the set out of the bucket? If its snapshots were ` +
+      `lost, answer no and upload them again: once the set is out, ` +
+      `'s3cab cleanup' deletes everything only they referenced. Backing it up ` +
+      `again starts with 's3cab takeover ${set.name}'.`,
+  );
+  if (!ok) {
+    console.warn("Cancelled — nothing was removed.");
+    return { set: set.name, retired: false };
+  }
+  const left = await listRemoteSnapshots(set.bucket, set.name);
+  if (left.length > 0) {
+    console.warn(
+      `Set '${set.name}' has a snapshot in the bucket again, so it stays — ` +
+        `nothing was removed.`,
     );
-    if (!ok) {
-      console.warn("Cancelled — nothing was removed.");
-      return { set: set.name, snapshots, forgotten: false };
-    }
+    return { set: set.name, retired: false };
   }
   await removeRemoteSet(set.bucket, set.name);
-  console.warn(
-    `Set '${set.name}' had no snapshots left, so it has left the bucket. ` +
-      `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}`,
+
+  const moment = auditMoment();
+  const auditPath = join(set.dir, auditFile(moment.name));
+  await mkdir(set.dir, { recursive: true });
+  await writeFile(
+    auditPath,
+    formatRetiredReport({
+      set: set.name,
+      bucket: set.bucket,
+      generated: formatMoment(moment),
+    }),
   );
-  return { set: set.name, snapshots, forgotten: true };
+  console.warn(
+    `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}\n\n` +
+      `Record of this removal:\n  ${auditPath}`,
+  );
+  return { set: set.name, retired: true };
 }
 
 /**

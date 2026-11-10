@@ -2499,6 +2499,17 @@ describe("renderForget", () => {
       "Snapshot '20260612T0915' kept — nothing was removed.",
     );
   });
+
+  it("speaks of the set, not the names given, when the set had no snapshots", () => {
+    assert.equal(
+      renderForget({ set: "photos", retired: true }),
+      "Set 'photos' has left the bucket.",
+    );
+    assert.equal(
+      renderForget({ set: "photos", retired: false }),
+      "Set 'photos' kept — nothing was removed.",
+    );
+  });
 });
 
 describe("renderCleanup", () => {

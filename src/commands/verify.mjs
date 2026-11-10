@@ -1,7 +1,7 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { bucketVersioning } from "../lib/s3.mjs";
-import { isSetName } from "../lib/set-marker.mjs";
+import { isSetName } from "../lib/sets.mjs";
 import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
 
 /** @import { Versioning } from "../lib/s3.mjs" */

@@ -221,7 +221,11 @@ machine that still has the set, or `setup` on any other. Whether any snapshot is
 listed again after the deletes, so a backup that landed while the prompt was open keeps its
 set. A set with no snapshot left — a `forget` that stopped before the set went, or a set never
 backed up — has nothing to delete but itself, so `forget` of it asks to take it out instead of
-refusing the names it was given.
+refusing the names it was given. The bucket can't tell such a set from one whose snapshots were
+lost, and taking that one out ends `cleanup`'s refusal over it, so the prompt warns that
+`cleanup` then deletes what only the lost snapshots referenced. `--force` would skip that
+warning, so it refuses the names instead, as it does any not in the bucket. Taking a set out
+this way leaves an audit record too, with a backup that lands meanwhile keeping the set.
 
 ## Confirmation
 

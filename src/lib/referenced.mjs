@@ -13,10 +13,11 @@
 // remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`unrestorable.mjs`/
 // `verify.mjs` are pure planners that reach no I/O at all. Putting the
 // vocabulary with its producer would drag the SDK into three pure modules and
-// their tests to flatten an array. So this module imports nothing beyond the
-// builtin-only style gate, and every consumer — producer included — depends on
-// it.
+// their tests to flatten an array. So nothing this module imports reaches the
+// SDK, and every consumer — producer included — depends on it.
 
+import { isSetName } from "./sets.mjs";
+import { snapshotFileName } from "./snapshot-file.mjs";
 import { shellCommand } from "./style.mjs";
 
 /**
@@ -236,6 +237,9 @@ export const unreadableSnapshots = (referencedBySet) =>
  * the **only** place number agreement is needed. Each caller's `consequence` is
  * therefore worded number-neutrally ("an unknown reference could be…", not "one
  * could be…"), so one snapshot and forty read correctly from the same clause.
+ *
+ * A snapshot outside every set gets a paragraph of its own (`outsideSetsMessage`),
+ * since `verify` doesn't read it.
  * @param {Object} message
  * @param {string[]} message.names - The `set/snapshot` names (`unreadableSnapshots`)
  * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
@@ -251,14 +255,80 @@ export const unreadableMessage = ({
   lead,
   color = false,
 }) => {
-  const one = names.length === 1;
-  const subject = one ? "this snapshot" : "these snapshots";
+  const inSets = names.filter((name) => !outsideSets(name));
+  const outside = names.filter(outsideSets);
+  const one = inSets.length === 1;
   return [
-    `${lead ? `${lead} — ${subject}` : subject.charAt(0).toUpperCase() + subject.slice(1)} ` +
-      `can't be read, so ${consequence}:`,
-    ...names.map((name) => `  ${name}`),
+    ...(inSets.length > 0
+      ? [
+          [
+            `${opening(lead, one ? "this snapshot" : "these snapshots")} ` +
+              `can't be read, so ${consequence}:`,
+            ...inSets.map((name) => `  ${name}`),
+            ``,
+            `Check ${one ? "it" : "them"} with:`,
+            `  ${shellCommand(`s3cab verify ${bucket}`, color)}`,
+          ].join("\n"),
+        ]
+      : []),
+    ...(outside.length > 0
+      ? [
+          outsideSetsMessage({
+            names: outside,
+            bucket,
+            trouble: `can't be read, so ${consequence}`,
+            lead,
+          }),
+        ]
+      : []),
+  ].join("\n\n");
+};
+
+/**
+ * Whether a `folder/snapshot` name lies outside every set: in a folder under
+ * `snapshots/` whose name isn't a set's, which a whole-bucket scan reads and
+ * `verify` doesn't ([ADR-0112](../../docs/adr/0112-bucket-locks.md) step 4),
+ * so a message about it can't send the user to `verify`.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export const outsideSets = (name) =>
+  !isSetName(name.slice(0, name.indexOf("/")));
+
+/**
+ * The paragraph about snapshots outside every set, each named by its key,
+ * since no s3cab command reports on them.
+ * @param {Object} message
+ * @param {string[]} message.names - `folder/snapshot`
+ * @param {string} message.bucket
+ * @param {string} message.trouble - What is wrong with them and what follows, worded for one or many
+ * @param {string} [message.lead] - The blocked goal, as `unreadableMessage` takes it
+ * @returns {string}
+ */
+export const outsideSetsMessage = ({ names, bucket, trouble, lead }) => {
+  const one = names.length === 1;
+  return [
+    `${opening(lead, one ? "this snapshot" : "these snapshots")} ` +
+      `outside any backup set ${trouble}:`,
+    ...names.map(
+      (name) => `  s3://${bucket}/snapshots/${snapshotFileName(name)}`,
+    ),
     ``,
-    `Check ${one ? "it" : "them"} with:`,
-    `  ${shellCommand(`s3cab verify ${bucket}`, color)}`,
+    one
+      ? `s3cab doesn't check snapshots outside a set, so this one is yours ` +
+        `to look at: repair it if you need it, or remove it.`
+      : `s3cab doesn't check snapshots outside a set, so these are yours to ` +
+        `look at: repair the ones you need, and remove the rest.`,
   ].join("\n");
 };
+
+/**
+ * A message's opening: the blocked goal, if there is one, then its subject.
+ * @param {string | undefined} lead
+ * @param {string} subject
+ * @returns {string}
+ */
+const opening = (lead, subject) =>
+  lead
+    ? `${lead} — ${subject}`
+    : subject.charAt(0).toUpperCase() + subject.slice(1);

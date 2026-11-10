@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadSet } from "../lib/env.mjs";
+import { basicForm } from "../lib/format.mjs";
+import { isCorruptSnapshotError } from "../lib/referenced.mjs";
 import {
   matchRemoteSnapshot,
   readLatestRemoteSnapshot,
@@ -98,21 +100,37 @@ export async function status(setName) {
   // repeated hour, or a move west, mints a name that sorts before one already
   // taken. Each snapshot's recorded start says; a file's mtime doesn't, since a
   // pull writes the newest first and a copy rewrites them all. Instants compare
-  // as text (guide/format.md). A name is local time and no two zones are more
-  // than 26 hours apart, so only a snapshot named less than that before the
-  // latest can have started after it, and no other is read.
+  // as text (guide/format.md). A name is some clock's reading of its start, and
+  // no clock is more than 12 hours behind UTC, so a name before the latest's
+  // start as such a clock read it can't have started later, and isn't read.
+  // Names compare as text too, so one that isn't a real time can't throw.
   /** @type {string[]} */
   const takenLater = [];
   if (snapshotInBucket === "identical" && start) {
-    const latest = Temporal.PlainDateTime.from(localName);
+    const cutoff = basicForm(
+      Temporal.Instant.from(start)
+        .toZonedDateTimeISO("-12:00")
+        .toPlainDateTime()
+        .toString({ smallestUnit: "minute" }),
+    );
     for (const name of older) {
-      if (Temporal.PlainDateTime.from(name).until(latest).total("hours") > 26) {
+      if (name < cutoff) {
         break;
       }
       if (remoteNames.includes(name)) {
         continue;
       }
-      const { instant } = await readSnapshot(snapshotDir, name);
+      /** @type {string | undefined} */
+      let instant;
+      try {
+        ({ instant } = await readSnapshot(snapshotDir, name));
+      } catch (error) {
+        // Damage is for `verify` and `find` to report, not `status`: a
+        // snapshot that won't read can't be shown to have started later.
+        if (!isCorruptSnapshotError(error)) {
+          throw error;
+        }
+      }
       if (instant && instant > start) {
         takenLater.push(name);
       }

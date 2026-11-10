@@ -386,7 +386,8 @@ describe("cleanup command", () => {
   });
 
   it("names a damaged snapshot outside any set by its key, not by sending the user to verify", async () => {
-    // verify reads only sets (ADR-0117 §3), so it would find nothing wrong.
+    // verify keeps to set names, where cleanup's scan reads every folder
+    // (ADR-0112 step 4), so it would find nothing wrong.
     referencedBySet = enumeration(
       { photos: { s1: { "/kept": ["kept"] } }, photos_2025: {} },
       { photos: ["bad"], photos_2025: ["20250101T0000"] },
@@ -424,6 +425,24 @@ describe("cleanup command", () => {
       /A real run would refuse to delete: backup set 'old' has no snapshots[\s\S]*s3cab takeover old/,
     );
     assert.doesNotMatch(said, /Re-run without --dry-run/);
+  });
+
+  it("words the refusal over several sets with no snapshots for any one of them", async () => {
+    referencedBySet = enumeration({
+      photos: { s1: { "/kept": ["kept"] } },
+      old: {},
+      older: {},
+    });
+    storedObjects = [{ hash: "orphan", size: 1 }];
+
+    await cleanup("b", { "dry-run": true });
+
+    const said = warnings.join("\n");
+    assert.match(
+      said,
+      /these backup sets have[\s\S]*Or, if the set hasn't been backed up yet/,
+    );
+    assert.doesNotMatch(said, /\bit hasn't/);
   });
 
   it("a bare run on a TTY deletes nothing when the user declines", async () => {

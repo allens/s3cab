@@ -99,7 +99,7 @@ describe("forget --set (real bucket)", () => {
       const { dir: setDir } = readSet(set);
       const result = await forget([name], { set, force: true });
 
-      assert.equal(result.forgotten, true);
+      assert.deepEqual(result, { set, snapshots: [name], forgotten: true });
       assert.deepEqual(stdout, [], "--force prints no preview");
       assert.throws(
         () =>

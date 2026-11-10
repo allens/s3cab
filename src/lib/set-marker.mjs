@@ -3,6 +3,7 @@ import { isENOENT } from "./error.mjs";
 import { localMoment } from "./format.mjs";
 import { parseLines } from "./read-lines.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
+import { isSetName } from "./sets.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -22,14 +23,6 @@ import { userAtMachine } from "./user-at-machine.mjs";
  * @returns {string}
  */
 export const remoteInfoKey = (set) => `snapshots/${set}.info`;
-
-/**
- * Whether a name under `snapshots/` or `.s3cab/sets/` is a set's: only a
- * canonical one (`[a-z0-9-]+`, ADR-0024) is.
- * @param {string} name
- * @returns {boolean}
- */
-export const isSetName = (name) => /^[a-z0-9-]+$/.test(name);
 
 /**
  * What a key under `snapshots/` is: a set's marker (`snapshots/<set>.info`,
@@ -348,12 +341,13 @@ export async function listConfiguredSets(bucket) {
 }
 
 /**
- * Take a set out of the bucket once its last snapshot is gone: every key that
- * names it apart from a snapshot — whatever is under s3cab's copy of its
- * config, the folder key a console makes, then its marker — so a set whose
- * snapshots `forget` removed on purpose is no longer one `verify` reports or
- * `cleanup` refuses over. The marker goes last: a run stopped before it leaves
- * a set its holder can still `forget` from.
+ * Take a set out of the bucket once its last snapshot is gone: whatever is
+ * under s3cab's copy of its config, the folder key a console makes, then its
+ * marker — so a set whose snapshots `forget` removed on purpose is no longer
+ * one `verify` reports or `cleanup` refuses over. Any other file under
+ * `snapshots/<set>/` was put there by hand and isn't s3cab's to delete, so it
+ * stays, and still names the set. The marker goes last: a run stopped before
+ * it leaves a set its holder can still `forget` from.
  * @param {string} bucket
  * @param {string} set
  * @returns {Promise<void>}
