@@ -225,33 +225,31 @@ export const unreadableSnapshots = (referencedBySet) =>
   );
 
 /**
- * The one message a whole-bucket scan reports unreadable snapshots with
- * (ADR-0030): what it stops the user doing, the plain reason, every name, and
+ * The one message a whole-bucket scan reports damaged snapshots with
+ * (ADR-0030): what it stops the user doing, what is wrong, every name, and
  * the exact command that diagnoses it. Returns *text* rather than an `Error`
  * because some callers push it into a summary they are already building and
  * others throw it — the shared part is the wording, not the throwing.
  *
  * Every name is listed, never elided: a count is no use to someone deciding
  * which snapshot to look at, and this is a data-loss report. There is no count
- * *in the prose* either — the list is the count — which leaves this function as
- * the **only** place number agreement is needed. Each caller's `consequence` is
- * therefore worded number-neutrally ("an unknown reference could be…", not "one
- * could be…"), so one snapshot and forty read correctly from the same clause.
+ * *in the prose* either — the list is the count — so number agreement is only
+ * the subject's and `trouble`'s, which comes in a form for each.
  *
- * A snapshot outside every set gets a paragraph of its own (`outsideSetsMessage`),
+ * A snapshot outside every set gets a paragraph of its own, named by its key,
  * since `verify` doesn't read it.
  * @param {Object} message
- * @param {string[]} message.names - The `set/snapshot` names (`unreadableSnapshots`)
+ * @param {string[]} message.names - The `set/snapshot` names
  * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
- * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms. **Must read for one snapshot or many.**
+ * @param {{ one: string, many: string }} message.trouble - What is wrong with them and what follows, for one snapshot and for several
  * @param {string} [message.lead] - The blocked goal (`Can't delete safely`); omitted where the command carries on regardless
  * @param {boolean} [message.color] - Bold the `verify` command. The caller's stream decides, not this module: `cleanup` throws the message to stderr, `forget` prints it to stdout
  * @returns {string}
  */
-export const unreadableMessage = ({
+export const damagedSnapshotsMessage = ({
   names,
   bucket,
-  consequence,
+  trouble,
   lead,
   color = false,
 }) => {
@@ -263,7 +261,7 @@ export const unreadableMessage = ({
       ? [
           [
             `${opening(lead, one ? "this snapshot" : "these snapshots")} ` +
-              `can't be read, so ${consequence}:`,
+              `${one ? trouble.one : trouble.many}:`,
             ...inSets.map((name) => `  ${name}`),
             ``,
             `Check ${one ? "it" : "them"} with:`,
@@ -276,12 +274,33 @@ export const unreadableMessage = ({
           outsideSetsMessage({
             names: outside,
             bucket,
-            trouble: `can't be read, so ${consequence}`,
+            trouble: outside.length === 1 ? trouble.one : trouble.many,
             lead,
           }),
         ]
       : []),
   ].join("\n\n");
+};
+
+/**
+ * `damagedSnapshotsMessage` for snapshots that would not read
+ * (`unreadableSnapshots`). The caller's `consequence` is worded
+ * number-neutrally ("an unknown reference could be…", not "one could be…"), so
+ * one snapshot and forty read correctly from the same clause.
+ * @param {Object} message
+ * @param {string[]} message.names - The `set/snapshot` names (`unreadableSnapshots`)
+ * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
+ * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms. **Must read for one snapshot or many.**
+ * @param {string} [message.lead] - The blocked goal, as `damagedSnapshotsMessage` takes it
+ * @param {boolean} [message.color] - Bold the `verify` command
+ * @returns {string}
+ */
+export const unreadableMessage = ({ consequence, ...message }) => {
+  const trouble = `can't be read, so ${consequence}`;
+  return damagedSnapshotsMessage({
+    ...message,
+    trouble: { one: trouble, many: trouble },
+  });
 };
 
 /**
@@ -292,8 +311,7 @@ export const unreadableMessage = ({
  * @param {string} name
  * @returns {boolean}
  */
-export const outsideSets = (name) =>
-  !isSetName(name.slice(0, name.indexOf("/")));
+const outsideSets = (name) => !isSetName(name.slice(0, name.indexOf("/")));
 
 /**
  * The paragraph about snapshots outside every set, each named by its key,
@@ -301,11 +319,11 @@ export const outsideSets = (name) =>
  * @param {Object} message
  * @param {string[]} message.names - `folder/snapshot`
  * @param {string} message.bucket
- * @param {string} message.trouble - What is wrong with them and what follows, worded for one or many
- * @param {string} [message.lead] - The blocked goal, as `unreadableMessage` takes it
+ * @param {string} message.trouble - What is wrong with them and what follows, in the form for their number
+ * @param {string} [message.lead] - The blocked goal, as `damagedSnapshotsMessage` takes it
  * @returns {string}
  */
-export const outsideSetsMessage = ({ names, bucket, trouble, lead }) => {
+const outsideSetsMessage = ({ names, bucket, trouble, lead }) => {
   const one = names.length === 1;
   return [
     `${opening(lead, one ? "this snapshot" : "these snapshots")} ` +

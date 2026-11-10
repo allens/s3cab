@@ -2502,12 +2502,23 @@ describe("renderForget", () => {
 
   it("speaks of the set, not the names given, when the set had no snapshots", () => {
     assert.equal(
-      renderForget({ set: "photos", retired: true }),
+      renderForget({ set: "photos", retired: true, stray: [] }),
       "Set 'photos' has left the bucket.",
     );
     assert.equal(
-      renderForget({ set: "photos", retired: false }),
+      renderForget({ set: "photos", retired: false, stray: [] }),
       "Set 'photos' kept — nothing was removed.",
+    );
+  });
+
+  it("doesn't say a set left the bucket while files in its folder still name it", () => {
+    assert.equal(
+      renderForget({
+        set: "photos",
+        retired: true,
+        stray: ["snapshots/photos/notes.txt"],
+      }),
+      "Set 'photos' is out of s3cab's records, but files in its folder still name it.",
     );
   });
 });

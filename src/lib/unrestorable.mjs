@@ -409,8 +409,9 @@ export function formatRetiredReport({ set, bucket, generated }) {
       `# bucket:     ${bucket}`,
       `#`,
       `# The set had no snapshots in the bucket, so none were forgotten. Its`,
-      `# marker and s3cab's copy of its config were removed, so cleanup no longer`,
-      `# refuses over it, and deletes whatever only its snapshots referenced.`,
+      `# marker and s3cab's copy of its config were removed. Once nothing else in`,
+      `# snapshots/${set}/ names it, cleanup no longer refuses over it, and deletes`,
+      `# whatever only its snapshots referenced.`,
       `#`,
       `# To back it up again: s3cab takeover ${set}`,
     ].join("\n") + `\n`

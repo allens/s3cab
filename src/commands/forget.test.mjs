@@ -36,6 +36,8 @@ let remoteSnapshots = [];
 let deleteCalls = [];
 /** @type {[string, string][]} the sets taken out of the bucket */
 let removedSets = [];
+/** @type {string[]} the keys taking a set out leaves in its folder */
+let strayKeys = [];
 /** @type {string[]} what each prompt asked */
 let prompts = [];
 /** @type {boolean} */
@@ -138,6 +140,7 @@ mock.module("../lib/set-marker.mjs", {
       /** @type {string} */ set,
     ) => {
       removedSets.push([bucket, set]);
+      return strayKeys;
     },
   },
 });
@@ -175,6 +178,7 @@ beforeEach(() => {
   remoteSnapshots = ["20260612T0915", "20260611T0915"];
   deleteCalls = [];
   removedSets = [];
+  strayKeys = [];
   prompts = [];
   promptAnswer = false;
   promptCalls = 0;
@@ -263,6 +267,26 @@ describe("forget command", () => {
     assert.deepEqual(removedSets, [["b1", "photos"]]);
   });
 
+  it("names a file s3cab didn't write that keeps a set it took out in the bucket", async () => {
+    // Such a file still names the set, so verify and cleanup see it: "has left
+    // the bucket" would be false, and the user needs the key to finish.
+    strayKeys = ["snapshots/photos/notes.txt"];
+    const warned = mock.method(console, "warn", () => {});
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+    const said = warned.mock.calls
+      .map(({ arguments: [text] }) => text)
+      .join("\n");
+    warned.mock.restore();
+
+    assert.doesNotMatch(said, /has left the bucket/);
+    assert.match(
+      said,
+      /This file in the set's folder[\s\S]*still names set 'photos'[\s\S]*\n {2}s3:\/\/b1\/snapshots\/photos\/notes\.txt\n/,
+    );
+  });
+
   it("leaves the set in the bucket while it has another snapshot", async () => {
     stdin.isTTY = true;
     promptAnswer = true;
@@ -300,7 +324,7 @@ describe("forget command", () => {
     assert.deepEqual(deleteCalls, []);
     assert.equal(referencedCalls, 0);
     // Nothing was forgotten: the result is about the set, not the names given.
-    assert.deepEqual(result, { set: "photos", retired: true });
+    assert.deepEqual(result, { set: "photos", retired: true, stray: [] });
     const records = auditRecords();
     assert.equal(records.length, 1);
     assert.match(readFileSync(records[0] ?? "", "utf8"), /set taken out/);
@@ -313,8 +337,22 @@ describe("forget command", () => {
     const result = await forget(["20260612T0915"], { set: "photos" });
 
     assert.deepEqual(removedSets, []);
-    assert.deepEqual(result, { set: "photos", retired: false });
+    assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
     assert.deepEqual(auditRecords(), []);
+  });
+
+  it("reports the files that keep a set with no snapshots in the bucket once it is taken out", async () => {
+    remoteSnapshots = [];
+    strayKeys = ["snapshots/photos/old/20250101T0000.tsv.gz"];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(result, {
+      set: "photos",
+      retired: true,
+      stray: ["snapshots/photos/old/20250101T0000.tsv.gz"],
+    });
   });
 
   it("keeps a set with no snapshots when a backup lands while the prompt is open", async () => {
@@ -327,7 +365,7 @@ describe("forget command", () => {
     const result = await forget(["20260612T0915"], { set: "photos" });
 
     assert.deepEqual(removedSets, []);
-    assert.deepEqual(result, { set: "photos", retired: false });
+    assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
   });
 
   it("won't take out a set with no snapshots under --force, which a lost set reads the same as", async () => {
@@ -340,6 +378,21 @@ describe("forget command", () => {
     );
     assert.deepEqual(removedSets, []);
     assert.deepEqual(auditRecords(), []);
+  });
+
+  it("tells a run with no terminal to use one for a set with no snapshots, not --force", async () => {
+    // --force would refuse it too, so suggesting it is a dead end.
+    remoteSnapshots = [];
+    await assert.rejects(
+      () => forget(["20260612T0915"], { set: "photos" }),
+      (/** @type {Error} */ error) => {
+        assert.match(error.message, /no snapshots in bucket b1[\s\S]*terminal/);
+        assert.doesNotMatch(error.message, /20260612T0915 --force/);
+        return true;
+      },
+    );
+    assert.equal(promptCalls, 0);
+    assert.deepEqual(removedSets, []);
   });
 
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {

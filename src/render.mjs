@@ -1744,9 +1744,12 @@ function withVisibleControls(path) {
  */
 export function renderForget(result) {
   if ("retired" in result) {
-    return result.retired
-      ? `Set '${result.set}' has left the bucket.`
-      : `Set '${result.set}' kept — nothing was removed.`;
+    if (!result.retired) {
+      return `Set '${result.set}' kept — nothing was removed.`;
+    }
+    return result.stray.length > 0
+      ? `Set '${result.set}' is out of s3cab's records, but files in its folder still name it.`
+      : `Set '${result.set}' has left the bucket.`;
   }
   const { set, snapshots, forgotten } = result;
   const what =

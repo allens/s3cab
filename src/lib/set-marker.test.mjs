@@ -156,10 +156,24 @@ describe("removeRemoteSet", () => {
       "s3://b/snapshots/photos-old.info": "",
     };
 
-    await removeRemoteSet("b", "photos");
+    const left = await removeRemoteSet("b", "photos");
 
     assert.deepEqual(await listRemoteSets("b"), ["photos-old"]);
     assert.deepEqual([...(await listConfiguredSets("b"))], ["photos-old"]);
+    assert.deepEqual(left, []);
+  });
+
+  it("leaves a file s3cab didn't write in the set's folder, and says which", async () => {
+    remoteText = {
+      "s3://b/snapshots/photos/": "",
+      "s3://b/snapshots/photos/notes.txt": "",
+      "s3://b/snapshots/photos.info": "",
+    };
+
+    const left = await removeRemoteSet("b", "photos");
+
+    assert.deepEqual(left, ["snapshots/photos/notes.txt"]);
+    assert.deepEqual(await listRemoteSets("b"), ["photos"]);
   });
 });
 

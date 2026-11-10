@@ -25,8 +25,7 @@ import { compactDeletionRecords } from "./deletion-record.mjs";
 import { holdDeleteLock } from "./locks.mjs";
 import { deleteStoredObjects } from "./objects.mjs";
 import {
-  outsideSets,
-  outsideSetsMessage,
+  damagedSnapshotsMessage,
   sizeDisagreements,
   unreadableMessage,
   unreadableSnapshots,
@@ -236,37 +235,17 @@ export const unreadableSnapshotsError = (bucket, names) =>
  * @returns {Error}
  */
 export const invalidRowsError = (bucket, names) => {
-  /** @param {boolean} one */
-  const trouble = (one) =>
-    `${one ? "has" : "have"} rows that aren't valid, so content only those ` +
-    `rows name would look unused and be deleted`;
-  const inSets = names.filter((name) => !outsideSets(name));
-  const outside = names.filter(outsideSets);
-  const one = inSets.length === 1;
+  const rows =
+    "rows that aren't valid, so content only those rows name would look " +
+    "unused and be deleted";
   return new Error(
-    [
-      ...(inSets.length > 0
-        ? [
-            [
-              `Can't clean up safely — ${one ? "this snapshot" : "these snapshots"} ${trouble(one)}:`,
-              ...inSets.map((name) => `  ${name}`),
-              ``,
-              `Check ${one ? "it" : "them"} with:`,
-              `  ${shellCommand(`s3cab verify ${bucket}`, styleEnabled(process.stderr))}`,
-            ].join("\n"),
-          ]
-        : []),
-      ...(outside.length > 0
-        ? [
-            outsideSetsMessage({
-              names: outside,
-              bucket,
-              trouble: trouble(outside.length === 1),
-              lead: "Can't clean up safely",
-            }),
-          ]
-        : []),
-    ].join("\n\n"),
+    damagedSnapshotsMessage({
+      names,
+      bucket,
+      lead: "Can't clean up safely",
+      trouble: { one: `has ${rows}`, many: `have ${rows}` },
+      color: styleEnabled(process.stderr),
+    }),
   );
 };
 

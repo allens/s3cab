@@ -346,11 +346,12 @@ export async function listConfiguredSets(bucket) {
  * marker — so a set whose snapshots `forget` removed on purpose is no longer
  * one `verify` reports or `cleanup` refuses over. Any other file under
  * `snapshots/<set>/` was put there by hand and isn't s3cab's to delete, so it
- * stays, and still names the set. The marker goes last: a run stopped before
- * it leaves a set its holder can still `forget` from.
+ * stays, and still names the set: those keys are returned, for the caller to
+ * name. The marker goes last: a run stopped before it leaves a set its holder
+ * can still `forget` from.
  * @param {string} bucket
  * @param {string} set
- * @returns {Promise<void>}
+ * @returns {Promise<string[]>} The keys left under `snapshots/<set>/`
  */
 export async function removeRemoteSet(bucket, set) {
   const config = `s3://${bucket}/${remoteConfigPrefix(set)}`;
@@ -359,4 +360,12 @@ export async function removeRemoteSet(bucket, set) {
   }
   await deleteObject(`s3://${bucket}/snapshots/${set}/`);
   await deleteObject(infoUri(bucket, set));
+  /** @type {string[]} */
+  const left = [];
+  for await (const { Key = "" } of listObjects(
+    `s3://${bucket}/snapshots/${set}/`,
+  )) {
+    left.push(Key);
+  }
+  return left;
 }
