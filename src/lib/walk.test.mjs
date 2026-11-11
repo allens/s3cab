@@ -792,6 +792,20 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
       assert.throws(() => walkDirs([dir.path], []), /bad␉dir.inside\.txt/);
     },
   );
+
+  it(
+    "refuses a member directory whose own path offends, even an empty one",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      const member = join(dir.path, "e\tmpty");
+      mkdirSync(member);
+      assert.throws(
+        () => walkDirs([member], []),
+        /Can't back up '[^']*e␉mpty': a snapshot can't name this folder \(a tab or a line ending\)/,
+      );
+    },
+  );
 });
 
 /**
@@ -872,6 +886,46 @@ describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
       excluded.map(({ pattern, isDir }) => ({ pattern, isDir })),
       [{ pattern: "odd*.txt", isDir: false }],
     );
+  });
+
+  it("refuses a member directory whose real path has none, reached through a link", async (t) => {
+    await using dir = await mkTmpDir();
+    const odd = Buffer.concat([
+      Buffer.from(join(dir.path, "odd")),
+      Buffer.from([0xed, 0xa0, 0x80]),
+    ]);
+    const link = join(dir.path, "link");
+    try {
+      mkdirSync(odd);
+      // A junction on Windows, which needs no privilege; elsewhere the type is ignored.
+      symlinkSync(odd, link, "junction");
+      // Windows writes the junction's target as UTF-16 with U+FFFD in the name's place,
+      // so it leads nowhere.
+      readdirSync(link);
+    } catch (error) {
+      t.skip(
+        `this filesystem can't hold the folder or the link to it: ${error}`,
+      );
+      return;
+    }
+    if (readdirSync(dir.path, { encoding: "buffer" }).every((n) => isUtf8(n))) {
+      t.skip("this filesystem stored the folder's name as valid UTF-8");
+      return;
+    }
+    assert.throws(
+      () => walkDirs([link], []),
+      /Can't back up '[^']*odd�+': a snapshot can't name this folder \(not valid Unicode\)/,
+    );
+  });
+
+  it("walks a member directory whose name holds a real U+FFFD", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "keep�/a.txt");
+    const member = join(dir.path, "keep�");
+    const { files } = walkDirs([member], []);
+    assert.deepStrictEqual(relPaths(realpathSync.native(member), files), [
+      "a.txt",
+    ]);
   });
 });
 

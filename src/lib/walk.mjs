@@ -202,12 +202,20 @@ function assertWalkableDirs(set) {
  * says it is one. What it does *not* claim is that the directory lists: the vault
  * does, but proving it means a `readdir` of a tree that could hold a hundred
  * thousand entries, to add a clause the user doesn't need.
+ *
+ * A root whose real path the snapshot can't hold is refused here, even an empty
+ * one the per-file check never meets: its `@SET DIR` row would otherwise go out
+ * with a tab spelled `␉`, naming no folder on disk (ADR-0073). Resolved as bytes,
+ * because the string form turns a name with no UTF-8 form into U+FFFD, which a
+ * real name can hold too.
  * @param {string} dir - A member directory, absolute and already checked reachable
  * @returns {string} Its canonical path
  */
 export function resolveWalkRoot(dir) {
+  /** @type {Buffer} */
+  let real;
   try {
-    return realpathSync.native(dir);
+    real = realpathSync.native(dir, "buffer");
   } catch (error) {
     if (!isENOENT(error) || !isDirectory(dir)) {
       throw error;
@@ -226,6 +234,25 @@ export function resolveWalkRoot(dir) {
       { cause: error },
     );
   }
+  const path = real.toString();
+  const why = !isUtf8(real)
+    ? "not valid Unicode"
+    : UNREPRESENTABLE_IN_TSV.test(path)
+      ? "a tab or a line ending"
+      : undefined;
+  if (why) {
+    throw new Error(
+      `Can't back up '${showControlChars(path)}': a snapshot can't name this ` +
+        `folder (${why}).\n` +
+        `A snapshot is UTF-8 text with one line per file and a tab between ` +
+        `columns, and it names each folder it backs up, so it can't hold a path ` +
+        `containing a tab or a line ending, or one that isn't valid Unicode. ` +
+        `Rename the folder, or back up another one instead. To see which folders ` +
+        `a set backs up, and the file that lists them:\n` +
+        `  ${shellCommand("s3cab list <set>")}`,
+    );
+  }
+  return path;
 }
 
 /**
