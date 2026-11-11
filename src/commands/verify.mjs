@@ -1,6 +1,7 @@
 import { scanBucket } from "../lib/bucket-scan.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { bucketVersioning } from "../lib/s3.mjs";
+import { isSetName } from "../lib/sets.mjs";
 import { verifyHasFindings, verifySet } from "../lib/verify.mjs";
 
 /** @import { Versioning } from "../lib/s3.mjs" */
@@ -76,6 +77,7 @@ export async function verify(bucket) {
     bucket,
     versioning,
     sets: [...referencedBySet]
+      .filter(([set]) => isSetName(set))
       .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
       .sort((a, b) => a.set.localeCompare(b.set)),
   };

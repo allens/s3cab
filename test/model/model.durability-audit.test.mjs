@@ -209,13 +209,18 @@ describe("2026-11-05 durability audit", () => {
     const root = dir.path;
     useHome(root, "mA");
     const data = await makeSet(root, "topup", "data");
+    // An earlier snapshot keeps the set in the bucket once the later one is
+    // forgotten: forgetting a set's last snapshot takes the set out too.
+    writeFileSync(join(data, "k.txt"), "kept");
+    await backup("topup");
+    clockHolder.current.advance(MINUTE_MS);
     writeFileSync(join(data, "a.txt"), "alpha");
     await backup("topup");
     const fake = backendHolder.current;
     // An object already in the store that nothing references yet.
     const orphan = Buffer.from("orphan content");
     await fake.putBytes(BUCKET, `objects/${sha256(orphan)}`, orphan);
-    const name = "20260105T0000";
+    const name = "20260105T0001";
 
     // Between cleanup's scan and its delete lock, the snapshot is forgotten
     // and re-published under the same key with different content — now

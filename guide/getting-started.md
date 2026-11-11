@@ -240,8 +240,10 @@ snapshot of it.
 
 ## Where next
 
-- **Point it at your real files.** The name `photos` is now taken in the bucket, for good: a
-  set's name is claimed when it is created and nothing gives it back. So either keep this
+- **Point it at your real files.** The name `photos` is now taken in the bucket: a set's name
+  is claimed when it is created, and only
+  [forgetting](maintenance.md#removing-snapshots-forget) every snapshot it has gives it back.
+  So either keep this
   set and swap the trial folder for the real one in its `dirs.txt`, or create a set under a
   new name with `setup`, the same command as step 1 with your folders. One set per thing you
   think of as a unit — your photos, your documents — all in the same bucket.

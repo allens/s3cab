@@ -17,19 +17,26 @@ let remoteText = {};
 mock.module("./s3.mjs", {
   exports: s3Seam({
     getText: async (/** @type {string} */ uri) => remoteText[uri],
-    listObjects: async function* () {
+    listObjects: async function* (/** @type {string} */ prefix) {
       for (const uri of Object.keys(remoteText)) {
-        yield { Key: uri.slice("s3://b/".length) };
+        if (uri.startsWith(prefix)) {
+          yield { Key: uri.slice("s3://b/".length) };
+        }
       }
+    },
+    deleteObject: async (/** @type {string} */ uri) => {
+      delete remoteText[uri];
     },
   }),
 });
 const {
   assertHeld,
+  listConfiguredSets,
   listRemoteSets,
   parseInfo,
   parseSnapshotsKey,
   readSetConfig,
+  removeRemoteSet,
 } = await import("./set-marker.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -118,6 +125,55 @@ describe("listRemoteSets", () => {
     };
 
     assert.deepEqual(await listRemoteSets("b"), ["docs", "photos"]);
+  });
+});
+
+describe("listConfiguredSets", () => {
+  it("finds each canonical folder under s3cab's config, whatever is in it", async () => {
+    remoteText = {
+      "s3://b/.s3cab/sets/photos/dirs.txt": "",
+      "s3://b/.s3cab/sets/docs/": "",
+      "s3://b/.s3cab/sets/Not A Set/dirs.txt": "",
+      "s3://b/.s3cab/sets/stray": "",
+    };
+
+    assert.deepEqual([...(await listConfiguredSets("b"))].sort(), [
+      "docs",
+      "photos",
+    ]);
+  });
+});
+
+describe("removeRemoteSet", () => {
+  it("removes every key that names the set but a snapshot, and no other set's", async () => {
+    remoteText = {
+      "s3://b/.s3cab/sets/photos/dirs.txt": "",
+      "s3://b/.s3cab/sets/photos/exclude.txt": "",
+      "s3://b/.s3cab/sets/photos/notes.txt": "",
+      "s3://b/.s3cab/sets/photos-old/dirs.txt": "",
+      "s3://b/snapshots/photos/": "",
+      "s3://b/snapshots/photos.info": "",
+      "s3://b/snapshots/photos-old.info": "",
+    };
+
+    const left = await removeRemoteSet("b", "photos");
+
+    assert.deepEqual(await listRemoteSets("b"), ["photos-old"]);
+    assert.deepEqual([...(await listConfiguredSets("b"))], ["photos-old"]);
+    assert.deepEqual(left, []);
+  });
+
+  it("leaves a file s3cab didn't write in the set's folder, and says which", async () => {
+    remoteText = {
+      "s3://b/snapshots/photos/": "",
+      "s3://b/snapshots/photos/notes.txt": "",
+      "s3://b/snapshots/photos.info": "",
+    };
+
+    const left = await removeRemoteSet("b", "photos");
+
+    assert.deepEqual(left, ["snapshots/photos/notes.txt"]);
+    assert.deepEqual(await listRemoteSets("b"), ["photos"]);
   });
 });
 

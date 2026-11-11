@@ -72,7 +72,9 @@ Two more are about a set's snapshots rather than its files. One reports a snapsh
 snapshot, it doesn't know what that snapshot referenced — which is why `cleanup` refuses to
 run at all until it's resolved (see below). The other, **no snapshots**, reports a set that is
 in the bucket with no snapshots at all — set up and never backed up, or every snapshot gone —
-so there is nothing to restore from and nothing to verify.
+so there is nothing to restore from and nothing to verify. `cleanup` won't delete anything
+while a set reads that way either. A set you retired on purpose never does: forgetting its
+last snapshot takes it out of the bucket ([below](#removing-snapshots-forget)).
 
 `verify` also asks the bucket whether [versioning](#versioning-why-any-of-this-is-safe) is
 on, and says nothing when it is. The rest of the time it adds a `versioning` line under the
@@ -251,6 +253,15 @@ tidied up — it's there for the day you wonder where a file went. They're small
 delete them yourself whenever you like. A `--force` run keeps a record too, saying plainly
 that the check was skipped, so a bypass never leaves a silent gap.
 
+Forgetting **every snapshot a set has retires the set**: it leaves the bucket too, so
+`verify` stops reporting it and its name is free again. The prompt says so before you answer.
+Backing it up again later starts with `s3cab takeover <set>` on a machine that still has the
+set, or with `setup` on any other. If `forget` stops before the set has gone, run it again at
+a terminal: with no snapshot left, it asks to take the set out of the bucket. The bucket can't
+tell that set from one whose snapshots were lost, so answer no if they were: once the set is
+out, `cleanup` deletes what only they referenced. For the same reason `--force` won't take a
+set out this way.
+
 `forget` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now
 unreferenced is a whole-repository question. Reclaiming it is `cleanup`'s job, which `forget`
@@ -414,6 +425,14 @@ hedged:
 - **Missing objects make reclaiming refuse.** If verify-style faults are already present, the
   repository is losing data and this is not the moment to reclaim. A `--dry-run` still reports.
   (Content removed by `delete` doesn't count — its absence is recorded and deliberate.)
+- **A set with no snapshots makes reclaiming refuse.** Its snapshots may have been lost, and
+  then everything only they referenced would look orphaned, and deleting it would make the
+  loss permanent. The message names the set: upload its snapshots again from the machine that
+  holds it, or back it up if it never has been. A set you retired with `forget` is out of the
+  bucket and doesn't count.
+- **Every snapshot file under `snapshots/` protects what it references**, even one in a folder
+  no set owns (say, a set renamed by hand in the bucket). `verify` and `list --remote` only
+  report sets, but `cleanup` won't delete content any snapshot file still names.
 
 Everything it deletes is an orphan — content some live snapshot needs is never a candidate, so
 `cleanup` cannot break a restorable backup.

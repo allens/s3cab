@@ -391,6 +391,28 @@ describe("formatUnrestorableSummary", () => {
     assert.match(summary, /\n {2}s3cab verify my-bucket\n/);
   });
 
+  it("names a snapshot outside any set that would not read by its key, not sending the user to verify", () => {
+    // verify keeps to set names, so it would find nothing wrong.
+    const plan = planUnrestorable(
+      enumeration(
+        { photos: { s1: { "a.jpg": ["h1"] } }, photos_2025: {} },
+        { photos_2025: ["20250101T0000"] },
+      ),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
+    );
+    const summary = formatUnrestorableSummary(plan, {
+      set: "photos",
+      reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
+    });
+
+    assert.match(
+      summary,
+      /This snapshot outside any backup set can't be read, so this preview may overstate what becomes unrestorable:\n {2}s3:\/\/my-bucket\/snapshots\/photos_2025\/20250101T0000\.tsv\.gz\n/,
+    );
+    assert.doesNotMatch(summary, /verify/);
+  });
+
   it("bolds the verify command only when stdout takes styling", () => {
     const plan = planUnrestorable(
       enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
