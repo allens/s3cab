@@ -59,6 +59,11 @@ import { countedPass } from "./progress.mjs";
  */
 export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
 
+const SNAPSHOT_CANT_HOLD =
+  "A snapshot is UTF-8 text with one line per file and a tab between columns, " +
+  "so it can't hold a name containing a tab or a line ending, or one that isn't " +
+  "valid Unicode.";
+
 /**
  * Walk a resolved backup set: every member directory, with the set's
  * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
@@ -171,6 +176,38 @@ function assertWalkableDirs(set) {
         `  ${set.dirsPath}`,
     );
   }
+
+  // Even an empty member directory, which the per-file check in `walkDirs` never
+  // meets: its `@SET DIR` row would go out with a tab spelled `␉`, naming no
+  // folder on disk (ADR-0073). Read as bytes, because the string form turns a
+  // name with no UTF-8 form into U+FFFD, which a real name can hold too.
+  const unnameable = set.dirs.flatMap((dir) => {
+    /** @type {Buffer} */
+    let real;
+    try {
+      real = realpathSync.native(dir, "buffer");
+    } catch {
+      // Left for `resolveWalkRoot`, whose message explains a folder that won't
+      // resolve; rethrown here it would be a raw ENOENT.
+      return [];
+    }
+    const why = !isUtf8(real)
+      ? "not valid Unicode"
+      : UNREPRESENTABLE_IN_TSV.test(real.toString())
+        ? "a tab or a line ending"
+        : undefined;
+    return why ? [`${showControlChars(real.toString())}  (${why})`] : [];
+  });
+  if (unnameable.length) {
+    throw new Error(
+      `These directories in backup set '${set.name}' can't be backed up, because ` +
+        `a snapshot can't name them:\n` +
+        unnameable.map((dir) => `  ${dir}`).join("\n") +
+        `\n${SNAPSHOT_CANT_HOLD} Rename them, or take them out of the set's ` +
+        `directory list:\n` +
+        `  ${set.dirsPath}`,
+    );
+  }
 }
 
 /**
@@ -202,20 +239,12 @@ function assertWalkableDirs(set) {
  * says it is one. What it does *not* claim is that the directory lists: the vault
  * does, but proving it means a `readdir` of a tree that could hold a hundred
  * thousand entries, to add a clause the user doesn't need.
- *
- * A root whose real path the snapshot can't hold is refused here, even an empty
- * one the per-file check never meets: its `@SET DIR` row would otherwise go out
- * with a tab spelled `␉`, naming no folder on disk (ADR-0073). Resolved as bytes,
- * because the string form turns a name with no UTF-8 form into U+FFFD, which a
- * real name can hold too.
  * @param {string} dir - A member directory, absolute and already checked reachable
  * @returns {string} Its canonical path
  */
 export function resolveWalkRoot(dir) {
-  /** @type {Buffer} */
-  let real;
   try {
-    real = realpathSync.native(dir, "buffer");
+    return realpathSync.native(dir);
   } catch (error) {
     if (!isENOENT(error) || !isDirectory(dir)) {
       throw error;
@@ -234,25 +263,6 @@ export function resolveWalkRoot(dir) {
       { cause: error },
     );
   }
-  const path = real.toString();
-  const why = !isUtf8(real)
-    ? "not valid Unicode"
-    : UNREPRESENTABLE_IN_TSV.test(path)
-      ? "a tab or a line ending"
-      : undefined;
-  if (why) {
-    throw new Error(
-      `Can't back up '${showControlChars(path)}': a snapshot can't name this ` +
-        `folder (${why}).\n` +
-        `A snapshot is UTF-8 text with one line per file and a tab between ` +
-        `columns, and it names each folder it backs up, so it can't hold a path ` +
-        `containing a tab or a line ending, or one that isn't valid Unicode. ` +
-        `Rename the folder, or back up another one instead. To see which folders ` +
-        `a set backs up, and the file that lists them:\n` +
-        `  ${shellCommand("s3cab list <set>")}`,
-    );
-  }
-  return path;
 }
 
 /**
@@ -359,10 +369,8 @@ export function walkDirs(dirs, patterns) {
     throw new Error(
       `${count} be backed up, because the name can't be written into a snapshot:\n` +
         unrepresentable.map((p) => `  ${p}`).join("\n") +
-        `\nA snapshot is UTF-8 text with one line per file and a tab between ` +
-        `columns, so it can't hold a name containing a tab or a line ending, ` +
-        `or one that isn't valid Unicode. Rename them, or leave them out by ` +
-        `adding a pattern to the set's exclude file:\n` +
+        `\n${SNAPSHOT_CANT_HOLD} Rename them, or leave them out by adding a ` +
+        `pattern to the set's exclude file:\n` +
         `  odd*name.jpg`,
     );
   }
