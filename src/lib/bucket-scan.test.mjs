@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it, mock } from "node:test";
+import { gzipSync } from "node:zlib";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
+import { HEADING } from "./snapshot-file.mjs";
 
-/** @import { Readable } from "node:stream" */
 /** @import { _Object } from "@aws-sdk/client-s3" */
 
 // The scan's one job is the *order* of its three reads (see the module header),
@@ -83,10 +85,16 @@ describe("scanBucket", () => {
       "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
       `#deleted\t${"b".repeat(64)}\t7\t2026-08-22T11:04:55.120Z\tallen@DESKTOP\n` +
       ".\n";
+    onGetStream = async () => Readable.from([gzipSync(HEADING + ".\n")]);
 
     const scan = await scanBucket("b");
 
-    assert.deepEqual(listed, ["snapshots/", "objects/", "objects.deleted-"]);
+    assert.deepEqual(listed, [
+      "snapshots/",
+      ".s3cab/sets/",
+      "objects/",
+      "objects.deleted-",
+    ]);
     assert.deepEqual([...scan.referencedBySet.keys()], ["photos"]);
     // The listing the top-up will diff against: every key, by set, with the
     // bytes' identity.
@@ -134,9 +142,49 @@ describe("scanBucket", () => {
 
     assert.deepEqual(
       listedWhileHeld,
-      ["snapshots/"],
+      ["snapshots/", ".s3cab/sets/"],
       "the objects LIST had not begun while a snapshot read was in flight",
     );
+  });
+
+  it("keeps a snapshot that vanished before it was read out of the listing the top-up compares against", async () => {
+    // Listed, then forgotten before its read: its rows were never seen, so a
+    // key that comes back, even with the same bytes, must read as new (ADR-0112).
+    reset();
+    keysByPrefix = {
+      "snapshots/": [
+        { Key: "snapshots/photos/20260612T0915.tsv.gz", ETag: '"e1"' },
+        { Key: "snapshots/photos/20260613T0915.tsv.gz", ETag: '"e2"' },
+      ],
+    };
+    onGetStream = async (uri) =>
+      uri.includes("0612T")
+        ? vanished(uri)
+        : Readable.from([gzipSync(HEADING + ".\n")]);
+
+    const scan = await scanBucket("b");
+
+    assert.deepEqual(
+      scan.snapshotFiles,
+      new Map([["photos", new Map([["20260613T0915.tsv.gz", '"e2"']])]]),
+    );
+  });
+
+  it("scans a set known only by s3cab's copy of its config as a set with no snapshots", async () => {
+    // Everything under `snapshots/photos` went at once: the config is what's
+    // left to say the set was there (ADR-0117).
+    reset();
+    keysByPrefix = {
+      ".s3cab/sets/": [
+        { Key: ".s3cab/sets/photos/dirs.txt" },
+        { Key: ".s3cab/sets/Not_A_Set/dirs.txt" },
+      ],
+    };
+
+    const scan = await scanBucket("b");
+
+    assert.deepEqual([...scan.referencedBySet.keys()], ["photos"]);
+    assert.equal(scan.referencedBySet.get("photos")?.snapshotsChecked, 0);
   });
 
   it("an objects LIST failure aborts the scan rather than returning a partial store", async () => {
@@ -151,7 +199,7 @@ describe("scanBucket", () => {
       (error) => error === objectsListFailure,
     );
     // ...and the record was never read: no phase runs on a broken predecessor.
-    assert.deepEqual(listed, ["snapshots/", "objects/"]);
+    assert.deepEqual(listed, ["snapshots/", ".s3cab/sets/", "objects/"]);
   });
 
   it("an empty bucket scans to three empty maps", async () => {

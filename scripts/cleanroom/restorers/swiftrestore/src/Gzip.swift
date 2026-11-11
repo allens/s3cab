@@ -1,47 +1,48 @@
 import Foundation
 
-struct GzipDamaged: Error { let reason: String }
+struct GzipDamage: Error, CustomStringConvertible { let description: String }
 
-/// Decompress every gzip stream in turn and join them. A zero byte after a stream ends the file;
-/// any other byte there that doesn't start a stream, or any gzip error, makes the file damaged.
+// Decompress every gzip stream in turn, as the spec's reader does; a zero byte after a stream ends the file;
+// anything else after a stream that isn't another stream, or any zlib error, is damage.
 func gunzipAll(_ input: Bytes) throws -> Bytes {
     var out = Bytes()
-    let n = input.count
-    if n == 0 { throw GzipDamaged(reason: "empty file: no gzip stream") }
+    var buf = Bytes(repeating: 0, count: 1 << 16)
+    var inp = input                           // z_stream wants a mutable pointer
+    var strm = z_stream()
+    guard s3cab_inflateInit2(&strm, 15 + 16) == Z_OK else { throw GzipDamage(description: "inflateInit2 failed") }
+    defer { inflateEnd(&strm) }
     var pos = 0
-    var streams = 0
-    try input.withUnsafeBufferPointer { inBuf in
-        while pos < n {
-            if streams > 0 && input[pos] == 0 { return }   // zero byte after a stream: ignore it and the rest
-            guard pos + 1 < n, input[pos] == 0x1F, input[pos + 1] == 0x8B else {
-                throw GzipDamaged(reason: streams == 0 ? "not a gzip file (no gzip magic at offset 0)"
-                                                       : "byte 0x\(hex([input[pos]])) at offset \(pos) after a gzip stream does not start another")
-            }
-            var strm = z_stream()
-            guard s3r_inflate_init_gzip(&strm) == Z_OK else { throw GzipDamaged(reason: "zlib inflateInit2 failed") }
-            defer { inflateEnd(&strm) }
-            strm.next_in = UnsafeMutablePointer(mutating: inBuf.baseAddress! + pos)
-            strm.avail_in = UInt32(n - pos)
-            var chunk = Bytes(repeating: 0, count: 1 << 16)
-            var ret: Int32 = Z_OK
-            repeat {
-                let produced: Int = try chunk.withUnsafeMutableBufferPointer { cb in
-                    strm.next_out = cb.baseAddress
-                    strm.avail_out = UInt32(cb.count)
-                    ret = inflate(&strm, Z_NO_FLUSH)
-                    if ret == Z_BUF_ERROR {
-                        throw GzipDamaged(reason: "gzip stream \(streams + 1) cut short (Z_BUF_ERROR with \(strm.avail_in) bytes left)")
-                    }
-                    if ret != Z_OK && ret != Z_STREAM_END {
-                        let msg = strm.msg != nil ? String(cString: strm.msg) : "zlib error \(ret)"
-                        throw GzipDamaged(reason: "gzip error in stream \(streams + 1): \(msg)")
-                    }
-                    return cb.count - Int(strm.avail_out)
+    var first = true
+    try inp.withUnsafeMutableBufferPointer { ip in
+        try buf.withUnsafeMutableBufferPointer { op in
+            while true {
+                if pos >= ip.count {
+                    if first { throw GzipDamage(description: "empty file, no gzip stream") }
+                    return
                 }
-                out.append(contentsOf: chunk[0..<produced])
-            } while ret != Z_STREAM_END
-            pos = n - Int(strm.avail_in)
-            streams += 1
+                if !first {
+                    if ip[pos] == 0 { return }            // a zero byte after a stream ends the file
+                    guard inflateReset(&strm) == Z_OK else { throw GzipDamage(description: "inflateReset failed") }
+                }
+                strm.next_in = ip.baseAddress! + pos
+                strm.avail_in = UInt32(ip.count - pos)
+                while true {
+                    strm.next_out = op.baseAddress
+                    strm.avail_out = UInt32(op.count)
+                    let rc = inflate(&strm, Z_NO_FLUSH)
+                    let produced = op.count - Int(strm.avail_out)
+                    if produced > 0 { out.append(contentsOf: UnsafeBufferPointer(start: op.baseAddress, count: produced)) }
+                    if rc == Z_STREAM_END { break }
+                    if rc != Z_OK {
+                        let msg = strm.msg != nil ? String(cString: strm.msg) : "zlib error \(rc)"
+                        if rc == Z_BUF_ERROR && strm.avail_in == 0 { throw GzipDamage(description: "gzip stream cut short") }
+                        throw GzipDamage(description: msg)
+                    }
+                    if strm.avail_in == 0 && strm.avail_out != 0 { throw GzipDamage(description: "gzip stream cut short") }
+                }
+                pos = ip.count - Int(strm.avail_in)
+                first = false
+            }
         }
     }
     return out

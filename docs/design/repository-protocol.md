@@ -152,29 +152,37 @@ Every form holds the upload lock around the whole operation, as `backup` does.
 First, `assertHeld`, as `backup` does.
 
 1. LIST the set's remote snapshots and require **every** named snapshot to exist before deleting
-   **any** — a typo cannot leave the first two of three already gone.
+   **any** — a typo cannot leave the first two of three already gone. With none listed, the
+   prompt asks to take the set out, and the run goes straight to step 4; `--force` refuses the
+   names instead, since a set whose snapshots were lost reads the same.
 2. Optional whole-bucket unrestorable scan → preview file → prompt (skipped together by `--force`).
 3. DELETE each manifest. **[multi-step]** across names; each DELETE **[atomic]**.
-4. Write the local audit record — deliberately *after* the deletes, so it records what actually
+4. LIST the set's snapshots again; with none left, DELETE every key under its config copy
+   (`.s3cab/sets/<set>/`), the `snapshots/<set>/` folder key a console makes, then its marker:
+   the set leaves the bucket, and its next backup starts with `takeover`
+   ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). **[multi-step]**;
+   the marker goes last, so a stop before it leaves a set its holder can `forget` again.
+5. Write the local audit record — deliberately *after* the deletes, so it records what actually
    happened.
 
 ### `cleanup`
 
-1. Read every snapshot in the bucket (`referencedObjects`).
+1. Read every snapshot file under `snapshots/`, whatever its folder is called
+   (`referencedObjects`), and LIST `.s3cab/sets/` so a set known only by its config counts.
 2. LIST `objects/`.
 3. Read deletion records **last**. (1–3 are one call, `scanBucket` in
    [bucket-scan.mjs](../../src/lib/bucket-scan.mjs); `verify` reads through the same one.)
 4. Plan: orphan = stored − referenced ([cleanup.mjs](../../src/lib/cleanup.mjs)).
 5. Interlocks: an unreadable snapshot, or one with a refused row, aborts **both** modes; missing
-   objects and an invalid deletion record refuse the acting path.
+   objects, an invalid deletion record and a set with no snapshots refuse the acting path.
 6. Prompt. Everything so far ran with no lock, so a preview costs a running backup nothing.
 7. The delete lock ([ADR-0112](../adr/0112-bucket-locks.md), `holdDeleteLock` in
    [locks.mjs](../../src/lib/locks.mjs)): no-clobber PUT of `locks/delete-<instant>`
    **[atomic]**, then LIST `locks/` **[atomic]**, removing any lock of this machine's whose
    process is gone. An `upload-` lock means remove the own lock and refuse, naming each; with
    `--wait`, remove it, sleep `WAIT_MS`, and write it again. Write first, look second.
-8. Top up: LIST `snapshots/` again and read every key the scan's listing lacked, or listed
-   with another ETag; their objects
+8. Top up: LIST `snapshots/` again and read every key the scan didn't read, or read under
+   another ETag; their objects
    leave the orphan plan and join the reference set, and step 5's checks apply to them. No
    snapshot can land from here on, so the plan is final.
 9. DELETE each orphan. **[multi-step]** across orphans; each **[atomic]**.

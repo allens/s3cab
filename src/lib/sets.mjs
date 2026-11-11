@@ -212,6 +212,14 @@ export function validateSetName(name) {
 }
 
 /**
+ * Whether a name under `snapshots/` or `.s3cab/sets/` in a bucket is a set's:
+ * only a canonical one (`[a-z0-9-]+`, ADR-0024) is.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export const isSetName = (name) => /^[a-z0-9-]+$/.test(name);
+
+/**
  * Validate a user-supplied bucket name when a set is created — a fail-fast guard
  * against the two natural mistakes (deferred from PR #33): pasting an `s3://`
  * URL, or a path/prefix rather than a bare bucket. One s3cab repository is one

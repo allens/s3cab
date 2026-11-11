@@ -7,9 +7,10 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 on [Linux](format-spec-audit-19.md), [macOS](format-spec-audit-20.md) and
 [Windows](format-spec-audit-21.md).
 
-- **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/windows/s3cab-backup.py), Python with
-  boto3, and `ctypes` for the Windows calls. Its notes, logs and test tools stay with the run,
-  outside the repo.
+- **Program:**
+  [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/039e3085dd33c5fa38612a94fc307221710bc94f/scripts/cleanroom/backup/windows/s3cab-backup.py),
+  Python with boto3, and `ctypes` for the Windows calls. Its notes, logs and test tools stay with
+  the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** nothing outside the sandbox was flagged. The transcript it read didn't survive:
   `gather` stopped on the session's own test links, after the check, the audit and the judge had

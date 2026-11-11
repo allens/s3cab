@@ -193,7 +193,7 @@ describe("durability audit", () => {
 
     const report = await status("photos");
 
-    assert.equal(report.snapshotBackedUp, false);
+    assert.equal(report.snapshotInBucket, "absent");
     assert.doesNotMatch(renderStatus(report), /up to date/);
   });
 });

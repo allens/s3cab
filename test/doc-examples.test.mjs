@@ -780,7 +780,8 @@ const CLOUD = [
       printed("status", {
         set: "photos",
         snapshot: TIDY,
-        snapshotBackedUp: true,
+        snapshotInBucket: "identical",
+        takenLater: [],
         backedUp: TIDY,
         toUpload: 0,
       }),

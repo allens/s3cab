@@ -34,10 +34,18 @@ let fakeSet = { name: "photos", bucket: "b1", dir: "" };
 let remoteSnapshots = [];
 /** @type {[string, string, string][]} */
 let deleteCalls = [];
+/** @type {[string, string][]} the sets taken out of the bucket */
+let removedSets = [];
+/** @type {string[]} the keys taking a set out leaves in its folder */
+let strayKeys = [];
+/** @type {string[]} what each prompt asked */
+let prompts = [];
 /** @type {boolean} */
 let promptAnswer = false;
 /** @type {number} */
 let promptCalls = 0;
+/** What happens in the bucket while the prompt waits for an answer. */
+let whilePrompting = () => {};
 /** @type {number} */
 let referencedCalls = 0;
 /** @type {Map<string, ReferencedResult>} */
@@ -85,6 +93,7 @@ mock.module("../lib/remote.mjs", {
       /** @type {string} */ name,
     ) => {
       deleteCalls.push([bucket, set, name]);
+      remoteSnapshots = remoteSnapshots.filter((other) => other !== name);
     },
   },
 });
@@ -111,8 +120,10 @@ mock.module("../lib/objects.mjs", {
 });
 mock.module("../lib/prompt.mjs", {
   exports: {
-    promptYesNo: async () => {
+    promptYesNo: async (/** @type {string} */ question) => {
       promptCalls++;
+      prompts.push(question);
+      whilePrompting();
       return promptAnswer;
     },
   },
@@ -123,6 +134,13 @@ mock.module("../lib/set-marker.mjs", {
       if (notHeld) {
         throw notHeld;
       }
+    },
+    removeRemoteSet: async (
+      /** @type {string} */ bucket,
+      /** @type {string} */ set,
+    ) => {
+      removedSets.push([bucket, set]);
+      return strayKeys;
     },
   },
 });
@@ -159,8 +177,12 @@ beforeEach(() => {
   };
   remoteSnapshots = ["20260612T0915", "20260611T0915"];
   deleteCalls = [];
+  removedSets = [];
+  strayKeys = [];
+  prompts = [];
   promptAnswer = false;
   promptCalls = 0;
+  whilePrompting = () => {};
   referencedCalls = 0;
   referenced = fakeReferenced();
   recorded = new Map();
@@ -234,6 +256,145 @@ describe("forget command", () => {
     });
   });
 
+  it("takes the set out of the bucket with its last snapshot, after saying so", async () => {
+    // A set with nothing to restore from would otherwise fail verify and
+    // block cleanup forever (ADR-0117).
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+
+    assert.match(prompts[0] ?? "", /set leaves the bucket too[\s\S]*takeover/);
+    assert.deepEqual(removedSets, [["b1", "photos"]]);
+  });
+
+  it("names a file s3cab didn't write that keeps a set it took out in the bucket", async () => {
+    // Such a file still names the set, so verify and cleanup see it: "has left
+    // the bucket" would be false, and the user needs the key to finish.
+    strayKeys = ["snapshots/photos/notes.txt"];
+    const warned = mock.method(console, "warn", () => {});
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+    const said = warned.mock.calls
+      .map(({ arguments: [text] }) => text)
+      .join("\n");
+    warned.mock.restore();
+
+    assert.doesNotMatch(said, /has left the bucket/);
+    assert.match(
+      said,
+      /This file in the set's folder[\s\S]*still names set 'photos'[\s\S]*\n {2}s3:\/\/b1\/snapshots\/photos\/notes\.txt\n/,
+    );
+  });
+
+  it("leaves the set in the bucket while it has another snapshot", async () => {
+    stdin.isTTY = true;
+    promptAnswer = true;
+    await forget(["20260611T0915"], { set: "photos" });
+
+    assert.doesNotMatch(prompts[0] ?? "", /leaves the bucket/);
+    assert.deepEqual(removedSets, []);
+  });
+
+  it("leaves the set in the bucket when a backup lands while the prompt is open", async () => {
+    stdin.isTTY = true;
+    promptAnswer = true;
+    whilePrompting = () => {
+      remoteSnapshots = [...remoteSnapshots, "20260613T0915"];
+    };
+    await forget(["20260612T0915", "20260611T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+  });
+
+  it("takes out a set with no snapshots left, which a stopped forget leaves, and records it", async () => {
+    // Every snapshot went, and the run stopped before the set did: the names
+    // it was given are gone, and taking the set out is what is left to do.
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    // The prompt warns what taking out a set whose snapshots were lost costs.
+    assert.match(
+      prompts[0] ?? "",
+      /no snapshots in bucket b1[\s\S]*lost, answer no[\s\S]*cleanup[\s\S]*takeover/,
+    );
+    assert.deepEqual(removedSets, [["b1", "photos"]]);
+    assert.deepEqual(deleteCalls, []);
+    assert.equal(referencedCalls, 0);
+    // Nothing was forgotten: the result is about the set, not the names given.
+    assert.deepEqual(result, { set: "photos", retired: true, stray: [] });
+    const records = auditRecords();
+    assert.equal(records.length, 1);
+    assert.match(readFileSync(records[0] ?? "", "utf8"), /set taken out/);
+  });
+
+  it("keeps a set with no snapshots left when the user declines", async () => {
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = false;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
+    assert.deepEqual(auditRecords(), []);
+  });
+
+  it("reports the files that keep a set with no snapshots in the bucket once it is taken out", async () => {
+    remoteSnapshots = [];
+    strayKeys = ["snapshots/photos/old/20250101T0000.tsv.gz"];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(result, {
+      set: "photos",
+      retired: true,
+      stray: ["snapshots/photos/old/20250101T0000.tsv.gz"],
+    });
+  });
+
+  it("keeps a set with no snapshots when a backup lands while the prompt is open", async () => {
+    remoteSnapshots = [];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    whilePrompting = () => {
+      remoteSnapshots = ["20260613T0915"];
+    };
+    const result = await forget(["20260612T0915"], { set: "photos" });
+
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
+  });
+
+  it("won't take out a set with no snapshots under --force, which a lost set reads the same as", async () => {
+    // Taken out unseen, a set whose snapshots were lost stops cleanup
+    // refusing over it (ADR-0117 §5); only the prompt lets the user say which.
+    remoteSnapshots = [];
+    await assert.rejects(
+      () => forget(["20260612T0915"], { set: "photos", force: true }),
+      /not backed up for set 'photos'[\s\S]*no snapshots in bucket b1[\s\S]*without --force:\n {2}s3cab forget --set photos 20260612T0915$/,
+    );
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(auditRecords(), []);
+  });
+
+  it("tells a run with no terminal to use one for a set with no snapshots, not --force", async () => {
+    // --force would refuse it too, so suggesting it is a dead end.
+    remoteSnapshots = [];
+    await assert.rejects(
+      () => forget(["20260612T0915"], { set: "photos" }),
+      (/** @type {Error} */ error) => {
+        assert.match(error.message, /no snapshots in bucket b1[\s\S]*terminal/);
+        assert.doesNotMatch(error.message, /20260612T0915 --force/);
+        return true;
+      },
+    );
+    assert.equal(promptCalls, 0);
+    assert.deepEqual(removedSets, []);
+  });
+
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {
     // The whole selection is checked up front: a bad third name must not leave
     // the first two already deleted (the deletions are not undoable). A terminal,
@@ -292,7 +453,11 @@ describe("forget command", () => {
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, [["b1", "photos", "20260612T0915"]]);
-    assert.equal(result.forgotten, true);
+    assert.deepEqual(result, {
+      set: "photos",
+      snapshots: ["20260612T0915"],
+      forgotten: true,
+    });
   });
 
   it("deletes nothing on a TTY when the user declines", async () => {
@@ -304,7 +469,11 @@ describe("forget command", () => {
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
-    assert.equal(result.forgotten, false);
+    assert.deepEqual(result, {
+      set: "photos",
+      snapshots: ["20260612T0915"],
+      forgotten: false,
+    });
   });
 
   describe("the unrestorable check", () => {
@@ -442,7 +611,11 @@ describe("forget command", () => {
         set: "photos",
       });
 
-      assert.equal(result.forgotten, false);
+      assert.deepEqual(result, {
+        set: "photos",
+        snapshots: ["20260611T0915"],
+        forgotten: false,
+      });
       assert.deepEqual(auditRecords(), [], "nothing was removed, so no record");
       assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
     });
@@ -482,7 +655,11 @@ describe("forget command", () => {
         () => readFileSync(previewPath(), "utf8"),
         "no preview file",
       );
-      assert.equal(result.forgotten, true);
+      assert.deepEqual(result, {
+        set: "photos",
+        snapshots: ["20260611T0915"],
+        forgotten: true,
+      });
       assert.deepEqual(deleteCalls, [["b1", "photos", "20260611T0915"]]);
 
       const records = auditRecords();

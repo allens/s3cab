@@ -213,6 +213,20 @@ in **what is said, not in how much**: a distinct warning naming the set is likel
 someone than a longer list they scroll past. (The full list is in the file either way, never
 truncated.)
 
+It also **retires the set**: once no snapshot is left, `forget` removes the set's marker and
+config too, so `verify` and `cleanup` don't go on reporting a set with nothing to restore
+from ([ADR-0117](../adr/0117-health-reports-count-only-what-they-checked.md)). The prompt and
+the closing message say so, and that backing the set up again starts with `takeover` on a
+machine that still has the set, or `setup` on any other. Whether any snapshot is left is
+listed again after the deletes, so a backup that landed while the prompt was open keeps its
+set. A set with no snapshot left — a `forget` that stopped before the set went, or a set never
+backed up — has nothing to delete but itself, so `forget` of it asks to take it out instead of
+refusing the names it was given. The bucket can't tell such a set from one whose snapshots were
+lost, and taking that one out ends `cleanup`'s refusal over it, so the prompt warns that
+`cleanup` then deletes what only the lost snapshots referenced. `--force` would skip that
+warning, so it refuses the names instead, as it does any not in the bucket. Taking a set out
+this way leaves an audit record too, with a backup that lands meanwhile keeping the set.
+
 ## Confirmation
 
 **One prompt covering the whole run**, on a TTY, after the summary. Non-interactive runs

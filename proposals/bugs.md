@@ -247,7 +247,41 @@ real bucket (none depends on anything S3 does); a kill between the work file's r
 manifest PUT with a second run started in the gap; a bucket name that doesn't exist;
 `INTELLIGENT_TIERING`'s archive tiers, which a LIST can't show.</sub>
 
+<sub>An **adversarial read of those fixes** (2026-11-09, reading `9902ff4f` at `83965f37`) found
+seven defects, each pinned by a failing test in
+[test/model/model.adversarial-506.test.mjs](../test/model/model.adversarial-506.test.mjs) and
+**all fixed 2026-11-10**, settled in
+[ADR-0117](../docs/adr/0117-health-reports-count-only-what-they-checked.md) (§1, §3, §5) and
+[ADR-0112](../docs/adr/0112-bucket-locks.md) step 4. Three deleted content a snapshot needed:
+`cleanup`'s top-up treated a key it had listed but never read (gone under the scan, then
+uploaded again with the same bytes) as known, so that snapshot's objects were deleted — it now
+compares only against what the scan read; `cleanup` read a set whose snapshots were gone as
+referencing nothing and deleted its whole store — it now refuses while any set has no
+snapshots; and `cleanup` stopped reading snapshot files in a folder whose name isn't a set's
+(`snapshots/photos_2025/`) — it reads every folder again, while `verify` and `list --remote`
+keep to set names. Four health reports misled: `verify` said all verified when a set's marker
+went with its snapshots (now s3cab's config copy names the set too); `verify` stayed at exit 1
+forever once a set's snapshots were all forgotten (forgetting the last one now takes the set
+out of the bucket); and `status` said `up to date` over another machine's snapshot under the
+latest one's name (now byte for byte, ADR-0084) and over a snapshot taken after the clock went
+back (now named as not backed up). **Suspicions, not proven:** `ownsWorkFile`'s `dev`/`ino`
+check on a filesystem without stable file numbers (FAT, exFAT, SMB without file IDs, CIFS
+`noserverino`) or after ext4 reuses a freed inode; a stat fault during a takeover still
+unlinking the other run's work file (two faults at once); a store whose listed ETag doesn't
+follow content turning the top-up back into a comparison by key; archive tiers listed under
+other names by S3-compatible stores; ListObjectsV2's `OptionalObjectAttributes=RestoreStatus`
+possibly letting `archived` clear on a restored copy without a HEAD per object; and a move east
+with the clock set back, which the clock warning no longer fires on. Measured on Windows 11 and
+NTFS only, with no real bucket.</sub>
+
 **Open:**
+
+- **[guide/format.md](../guide/format.md) lags three behaviours from the 2026-11-10 fixes**,
+  frozen until real set 5's last restore: a set leaves the bucket with its last snapshot (the
+  marker and `.s3cab/sets/<set>/` go too, and a clean-up must not read that as a lost set); a
+  snapshot file in a folder beside a set's, whatever its name, still protects its objects from a
+  clean-up (the spec says so only of a folder *below* a set's); and a clean-up's re-check under
+  its lock reads every key it didn't read, by key and ETag.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
   from `realpathSync.native(step.dest)`, rather than a per-file report. Needs something else

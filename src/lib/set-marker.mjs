@@ -3,6 +3,7 @@ import { isENOENT } from "./error.mjs";
 import { localMoment } from "./format.mjs";
 import { parseLines } from "./read-lines.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
+import { isSetName } from "./sets.mjs";
 import { shellCommand } from "./style.mjs";
 import { userAtMachine } from "./user-at-machine.mjs";
 
@@ -35,8 +36,8 @@ export const remoteInfoKey = (set) => `snapshots/${set}.info`;
  * @returns {{ set: string, file?: string } | undefined}
  */
 export function parseSnapshotsKey(key) {
-  const match = /^snapshots\/([a-z0-9-]+)(\.info|\/(.*))$/s.exec(key);
-  if (!match?.[1]) {
+  const match = /^snapshots\/([^/]+?)(\.info|\/(.*))$/s.exec(key);
+  if (!match?.[1] || !isSetName(match[1])) {
     return undefined;
   }
   return match[3] === undefined
@@ -44,12 +45,15 @@ export function parseSnapshotsKey(key) {
     : { set: match[1], file: match[3] };
 }
 
+/** Where s3cab keeps its copy of every set's config, one folder per set. */
+const CONFIG_ROOT = ".s3cab/sets/";
+
 /**
  * The S3 key prefix of s3cab's copy of a set's config, `.s3cab/sets/<set>/`.
  * @param {string} set
  * @returns {string}
  */
-export const remoteConfigPrefix = (set) => `.s3cab/sets/${set}/`;
+export const remoteConfigPrefix = (set) => `${CONFIG_ROOT}${set}/`;
 
 /**
  * @param {string} bucket
@@ -312,4 +316,56 @@ export async function listRemoteSets(bucket) {
     }
   }
   return [...names].sort();
+}
+
+/**
+ * The sets s3cab's copy of a set's config names, one per `.s3cab/sets/<set>/`
+ * folder: what still says a set exists once everything under the prefix
+ * `snapshots/<set>` is gone, marker and folder alike, as a lifecycle rule or
+ * `aws s3 rm --recursive s3://<bucket>/snapshots/<set>` removes them.
+ * @param {string} bucket
+ * @returns {Promise<Set<string>>}
+ */
+export async function listConfiguredSets(bucket) {
+  /** @type {Set<string>} */
+  const names = new Set();
+  for await (const { Key = "" } of listObjects(
+    `s3://${bucket}/${CONFIG_ROOT}`,
+  )) {
+    const [set = "", ...rest] = Key.slice(CONFIG_ROOT.length).split("/");
+    if (rest.length > 0 && isSetName(set)) {
+      names.add(set);
+    }
+  }
+  return names;
+}
+
+/**
+ * Take a set out of the bucket once its last snapshot is gone: whatever is
+ * under s3cab's copy of its config, the folder key a console makes, then its
+ * marker — so a set whose snapshots `forget` removed on purpose is no longer
+ * one `verify` reports or `cleanup` refuses over. Any other file under
+ * `snapshots/<set>/` was put there by hand and isn't s3cab's to delete, so it
+ * stays, and still names the set: those keys are returned, for the caller to
+ * name. The marker goes last: a run stopped before it leaves a set its holder
+ * can still `forget` from.
+ * @param {string} bucket
+ * @param {string} set
+ * @returns {Promise<string[]>} The keys left under `snapshots/<set>/`
+ */
+export async function removeRemoteSet(bucket, set) {
+  const config = `s3://${bucket}/${remoteConfigPrefix(set)}`;
+  for await (const { Key = "" } of listObjects(config)) {
+    await deleteObject(`s3://${bucket}/${Key}`);
+  }
+  await deleteObject(`s3://${bucket}/snapshots/${set}/`);
+  await deleteObject(infoUri(bucket, set));
+  /** @type {string[]} */
+  const left = [];
+  for await (const { Key = "" } of listObjects(
+    `s3://${bucket}/snapshots/${set}/`,
+  )) {
+    left.push(Key);
+  }
+  return left;
 }

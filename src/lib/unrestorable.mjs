@@ -392,3 +392,28 @@ export function formatForcedReport({ set, bucket, snapshots, generated }) {
     ].join("\n") + `\n`
   );
 }
+
+/**
+ * The audit record for taking out a set that had no snapshots in the bucket.
+ * Nothing was forgotten, but the set went, and with it `cleanup`'s refusal over
+ * it — the one trace left if its snapshots turn out to have been lost.
+ * @param {{ set: string, bucket: string, generated: string }} context
+ * @returns {string}
+ */
+export function formatRetiredReport({ set, bucket, generated }) {
+  return (
+    [
+      `# s3cab forget — set taken out of the bucket, with no snapshots in it`,
+      `# generated:  ${generated}`,
+      `# set:        ${set}`,
+      `# bucket:     ${bucket}`,
+      `#`,
+      `# The set had no snapshots in the bucket, so none were forgotten. Its`,
+      `# marker and s3cab's copy of its config were removed. Once nothing else in`,
+      `# snapshots/${set}/ names it, cleanup no longer refuses over it, and deletes`,
+      `# whatever only its snapshots referenced.`,
+      `#`,
+      `# To back it up again: s3cab takeover ${set}`,
+    ].join("\n") + `\n`
+  );
+}
