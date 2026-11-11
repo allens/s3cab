@@ -313,11 +313,17 @@ NTFS only, with no real bucket.</sub>
   matches nothing, silently. [guide/exclude.md](../guide/exclude.md) says only that lines starting
   with `#` are comments, so this is documented by implication. It is listed because a pattern a
   user reads as right does nothing, and no `#excluded` row is there to miss. Run on Linux.
-- **NTFS alternate data streams aren't backed up, and the guide doesn't say so.** Only a file's
-  main stream is read: exit 0, and no row for the stream. [guide/backup.md](../guide/backup.md)
-  says everything under each directory is backed up, and no page in `guide/` mentions streams.
-  Low harm, since `Zone.Identifier` is the common one, but that sentence needs a carve-out. Run on
-  Windows.
+- **On a Linux directory that ignores case, s3cab keeps the case as typed**, since glibc's
+  `realpath` never asks the directory how a name is spelled. `backup` records a member
+  directory typed in another case under that spelling, breaking "the casing the filesystem
+  reports" ([guide/format.md](../guide/format.md#paths)). Worse, `restore` tells a case twin
+  from a file already there by real path, which comes back spelled as each row has it, so
+  there the second twin overwrites the first, exit 0. The fix is to match each name in its
+  parent's listing by device and inode, as the spec now tells other writers. From reading the
+  code, not run: WSL's ext4 has no case-folding directory to try it on.
+- **`setup` accepts a member directory whose path holds a tab or a CR**, and every `backup`
+  then refuses it. An LF splits the entry in `dirs.txt`, and a leading or trailing tab or CR
+  is trimmed off, naming a different folder. Loud, so low.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.

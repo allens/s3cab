@@ -15,6 +15,9 @@ directory.
   what your [exclude patterns](exclude.md) leave out. Each snapshot lists the patterns that
   applied to that run in its `@CLIENT EXCLUDE` rows, one per pattern, including any that
   matched nothing; the copy of `exclude.txt` in the bucket is only the latest.
+- **A file's own content is what's kept**, not its attributes such as read-only, nor anything
+  stored beside it: an NTFS alternate data stream, a macOS resource fork or an extended
+  attribute ([what isn't stored](format.md#what-is-deliberately-not-stored)).
 - **Links inside a directory are never followed**; the [format spec](format.md#links) says
   what a snapshot records for them. A directory in `dirs.txt` that is itself a link is
   followed, since you named it, and recorded as its [real path](format.md#paths).
