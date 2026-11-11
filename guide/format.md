@@ -843,13 +843,12 @@ alone, not on the `@SET DIR` it is under or on the other rows restored. In detai
 - A file already at a destination before the restore began is left alone and reported as
   skipped, unless the restore was asked to overwrite; a skip alone leaves the exit status 0,
   even where another row has already found its hash missing or withheld, since a skip
-  fetches nothing. A skip checks nothing about the file, so that 0 doesn't say a folder
-  that already held files now matches the snapshot: a second restore into it skips
-  whatever the first left there, the wrong one of two colliding rows included, and reports no
-  collision. To be
-  sure of a tree, restore into an empty folder. Overwriting replaces each file a row lands
-  and leaves everything else there, the old file included where a row's content can't be
-  restored.
+  fetches nothing. A skip checks nothing about the file, so that 0 doesn't say a folder that
+  already held files now matches the snapshot: a second restore into it skips whatever the
+  first left there, the wrong one of two colliding rows included, and reports no collision.
+  To be sure of a tree, restore into an empty folder. Overwriting replaces each file a row
+  lands and leaves everything else there, the old file included where a row's content can't
+  be restored.
   A destination this restore has already written is another matter: two rows landing on one
   file is a collision, so the first row in the file that lands restores, and each later one
   is reported as a collision, exit 1. A row that landed nothing doesn't claim the destination,
@@ -998,10 +997,10 @@ before the first `.` and end with an LF: a row after it, or a last row with no L
 nothing. That `.` is [the last line's](#the-last-line), the whole line byte for byte, as in
 a snapshot. A line that only trims to it, such as `.` then a CR, makes the record invalid
 as it refuses a snapshot, but ends nothing, so the rows after it still count. A first line
-that isn't the heading row is read as a row. Decode each line on its
-own: an LF byte is never part of another character, so a line that isn't UTF-8 is one wrong
-line, wherever the bad bytes sit, and the lines around it still read. A record listed but
-gone by the time it is read is invalid too, and explains nothing.
+that isn't the heading row is read as a row. Decode each line on its own: an LF byte is
+never part of another character, so a line that isn't UTF-8 is one wrong line, wherever the
+bad bytes sit, and the lines around it still read. A record listed but gone by the time it
+is read is invalid too, and explains nothing.
 
 While any record file is invalid, `backup` and `status` check
 what the bucket actually holds rather than trust an earlier snapshot's word, and `cleanup`
@@ -1098,12 +1097,12 @@ For a restorer, or anything else that reads the files.
   download.
 - When a fetch misses, and only then, look the hash up in every `objects.deleted-<n>.tsv`
   read as one set, only well-formed rows before the first `.`, each ended by an LF. A hash a
-  record lists, in a row dated after the snapshot's `START`, the last `START` if that row repeats,
-  was [deliberately deleted](#the-deletion-record); any other miss is damage, and so is a
-  download that doesn't hash to its key. s3cab fetches neither again for a later row naming
-  that hash; a tool that does only spends a request. A miss is a 404 whose S3 error code is
-  `NoSuchKey`, or `NotFound`, which some providers send. A HEAD's 404 has no body, so no
-  code, and libraries name it themselves: `NotFound` in the AWS JavaScript SDK, `'404'` in
+  record lists, in a row dated after the snapshot's `START`, the last `START` if that row
+  repeats, was [deliberately deleted](#the-deletion-record); any other miss is damage, and so
+  is a download that doesn't hash to its key. s3cab fetches neither again for a later row
+  naming that hash; a tool that does only spends a request. A miss is a 404 whose S3 error
+  code is `NoSuchKey`, or `NotFound`, which some providers send. A HEAD's 404 has no body, so
+  no code, and libraries name it themselves: `NotFound` in the AWS JavaScript SDK, `'404'` in
   botocore. s3cab fetches with GET, and stops the whole restore on any other failure:
   - a 404 `NoSuchBucket`, which says nothing about the file;
   - a 403, which S3 also answers for a missing key when the caller may not list the
@@ -1124,16 +1123,19 @@ For a restorer, or anything else that reads the files.
   that's missing. Report damage, carry on with the rest, and exit nonzero at the end: a recovery
   tool that stops dead at file 3 of 400 is materially worse than one that recovers 397 and
   names the three.
-- Tell a destination that was there before the restore from one this restore wrote, by the
-  file and never by how its path is spelled: where the disk ignores case, a twin's path
-  finds the file the first row wrote. Keep each written file's identity; s3cab keeps its
-  real path. The first is skipped, unless asked to overwrite, and a skip alone exits 0,
-  though it checks nothing about the file. The second is two rows landing on one file,
-  however differently their paths are spelled: the first row in the file that lands restores,
-  and each later one
-  is reported as a collision, exit 1, unless its hash was already found missing or withheld,
-  when it's reported as that. s3cab checks the destination first, and fetches nothing for a
-  row it skips, so a skip wins over a hash already found missing or withheld.
+- Tell a destination that was there before the restore from one this restore wrote:
+  - Tell them by the file, never by how its path is spelled: where the disk ignores case, a
+    twin's path finds the file the first row wrote. Keep each written file's identity; s3cab
+    keeps its real path.
+  - One there before is skipped, unless asked to overwrite. A skip alone exits 0, though it
+    checks nothing about the file.
+  - One this restore wrote is two rows landing on one file, however differently their paths
+    are spelled: the first row in the file that lands restores, and each later one is
+    reported as a collision, exit 1.
+  - A later row whose hash was already found missing or withheld is reported as that, not
+    as a collision.
+  - s3cab checks the destination first, and fetches nothing for a row it skips, so a skip
+    wins over a hash already found missing or withheld.
 - Set each restored file's modification time to the stored one, [to the
   millisecond](#paths). s3cab sets its access time to the same instant.
 - Read each time back:
@@ -1263,11 +1265,10 @@ For a restorer, or anything else that reads the files.
   it exclusively (`O_CREAT | O_EXCL`). Remove it first even so: NTFS's exclusive `CREATE_NEW`
   goes through a link whose target doesn't exist, and creates the target. A second row holding
   the same content can be copied from where the first landed, but something may have changed
-  that file since, so hash what you copy. A
-  written file's identity is its device and inode, or Windows' file ID (from
-  `GetFileInformationByHandle`: the volume serial number and the file index). Without one,
-  .NET's `File.Exists` answers for a case twin, so the second row reads as a file already
-  there and is skipped, with exit 0.
+  that file since, so hash what you copy. A written file's identity is its device and inode,
+  or Windows' file ID (from `GetFileInformationByHandle`: the volume serial number and the
+  file index). Without one, .NET's `File.Exists` answers for a case twin, so the second row
+  reads as a file already there and is skipped, with exit 0.
 - **The destination's limits.** Linux allows 255 bytes in a name, not 255 characters, so a
   long name from Windows can fail there. ext4 keeps times from 1901 to 2446 and clamps the
   rest without a word, the year 0000 to 1901-12-13T20:45:52Z and 9999 to
@@ -1331,9 +1332,8 @@ For a restorer, or anything else that reads the files.
     exactly as its `@SET DIR` row holds it, with each name below it joined on, not the path
     as typed, or a reader may find the row under no `DIR` and refuse it. Take the size and
     the time from one check of the file, just before hashing it. s3cab gives a file whose
-    read returns a different number of bytes an `#error` row instead. A file that changes while
-    it is hashed is otherwise
-    caught [on upload](#uploading), but only if it is sent:
+    read returns a different number of bytes an `#error` row instead. A file that changes
+    while it is hashed is otherwise caught [on upload](#uploading), but only if it is sent:
     content already stored isn't checked again, so its row keeps the size and time of the
     check against the stored bytes;
   - `#excluded` for an entry you left out on purpose, with whatever says why in column 2,
@@ -1360,13 +1360,15 @@ For a restorer, or anything else that reads the files.
   - an entry's name has no UTF-8 form, whatever kind of entry it is;
   - a directory can't be listed, one that vanished after its parent listed it included;
   - the same file turns up under two member directories, because one is inside the other,
-    or both are the same directory. Compare the paths you build, not the member directories
-    as typed: each starts from its directory's [real path](#paths), so a link, a junction or
-    a difference in case can't make one directory two, and s3cab stops at the first path it
-    finds twice. Nesting with no file in common, the inner directory left out of the outer
-    one's walk, is no overlap. A snapshot holding each file
-    twice has both its rows refused if they are one string; as two spellings neither is,
-    and the file collides or restores twice;
+    or both are the same directory:
+    - Compare the paths you build, not the member directories as typed. Each starts from its
+      directory's [real path](#paths), spelled as the disk spells it, so a link, a junction
+      or a difference in case can't make one directory two.
+    - s3cab stops at the first path it finds twice.
+    - Nesting with no file in common, the inner directory left out of the outer one's walk,
+      is no overlap.
+    - A snapshot holding each file twice has both its rows refused if they are one string;
+      as two spellings neither is, and the file collides or restores twice;
   - a member directory's real path, on Windows, has no drive letter and no share: on a
     volume mounted only under a folder, or with no mount point at all
     (`\\?\Volume{GUID}\…`). No path a reader accepts can name it.
@@ -1377,8 +1379,8 @@ For a restorer, or anything else that reads the files.
   can't hold, one named twice, or one with no drive letter, the way is to change the set;
   for the last, back up a folder with an ordinary path. Leaving out a name that would stop
   the run is the user's choice, not the tool's: one left out automatically, with exit 0, is
-  missing from every restore, with only
-  its `#excluded` row to say so. A run that stops exits nonzero; s3cab's exits 1.
+  missing from every restore, with only its `#excluded` row to say so. A run that stops
+  exits nonzero; s3cab's exits 1.
 - In an `#excluded` or `#error` row, where a name with a tab, CR or LF can still appear,
   write those characters as `␉` (U+2409), `␍` (U+240D) or `␊` (U+240A).
 - Start with the heading row, then the [whole-snapshot rows](#the-whole-snapshot-rows):
