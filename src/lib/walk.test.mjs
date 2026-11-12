@@ -792,30 +792,6 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
       assert.throws(() => walkDirs([dir.path], []), /bad␉dir.inside\.txt/);
     },
   );
-
-  it(
-    "refuses every member directory whose own path offends, even an empty one",
-    posixOnly,
-    async () => {
-      await using dir = await mkTmpDir();
-      const base = realpathSync.native(dir.path);
-      const empty = join(base, "e\tmpty");
-      const full = join(base, "fu\nll");
-      mkdirSync(empty);
-      write(full, "a.txt");
-      assert.throws(
-        () => walkSet(setOf(base, [empty, full])),
-        (error) =>
-          error instanceof Error &&
-          error.message.includes(
-            "can't be backed up, because a snapshot can't name them:\n" +
-              `  ${join(base, "e␉mpty")}  (a tab or a line ending)\n` +
-              `  ${join(base, "fu␊ll")}  (a tab or a line ending)\n`,
-          ) &&
-          error.message.endsWith(`:\n  ${join(base, "dirs.txt")}`),
-      );
-    },
-  );
 });
 
 /**
@@ -897,6 +873,32 @@ describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
       [{ pattern: "odd*.txt", isDir: false }],
     );
   });
+});
+
+describe("walkSet refuses a member directory a snapshot can't name (ADR-0073)", () => {
+  it(
+    "refuses every member directory whose own path offends, even an empty one",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = realpathSync.native(dir.path);
+      const empty = join(base, "e\tmpty");
+      const full = join(base, "fu\nll");
+      mkdirSync(empty);
+      write(full, "a.txt");
+      assert.throws(
+        () => walkSet(setOf(base, [empty, full])),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(
+            "can't be backed up, because a snapshot can't name them:\n" +
+              `  ${join(base, "e␉mpty")}  (a tab or a line ending)\n` +
+              `  ${join(base, "fu␊ll")}  (a tab or a line ending)\n`,
+          ) &&
+          error.message.endsWith(`:\n  ${join(base, "dirs.txt")}`),
+      );
+    },
+  );
 
   // `dirs.txt` holds text, so only a link can lead a member directory to a name
   // with no UTF-8 form. This runs where the folder and the link both keep the
@@ -926,7 +928,8 @@ describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
     }
     assert.throws(
       () => walkSet(setOf(base, [link])),
-      /can't name them:\n {2}[^\n]*odd�+ {2}\(not valid Unicode\)\n/,
+      // The `dirs.txt` line to edit, then where it leads.
+      /can't name them:\n {2}[^\n]*link → [^\n]*odd�+ {2}\(not valid Unicode\)\n/,
     );
   });
 

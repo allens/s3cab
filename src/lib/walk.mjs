@@ -177,10 +177,11 @@ function assertWalkableDirs(set) {
     );
   }
 
-  // Even an empty member directory, which the per-file check in `walkDirs` never
-  // meets: its `@SET DIR` row would go out with a tab spelled `␉`, naming no
-  // folder on disk (ADR-0073). Read as bytes, because the string form turns a
-  // name with no UTF-8 form into U+FFFD, which a real name can hold too.
+  // Refuse a member directory whose real path a snapshot can't hold, even an
+  // empty one the per-file check in `walkDirs` never meets: its `@SET DIR` row
+  // would go out with a tab spelled `␉`, naming no folder on disk (ADR-0073).
+  // Read as bytes, because the string form turns a name with no UTF-8 form into
+  // U+FFFD, which a real name can hold too.
   const unnameable = set.dirs.flatMap((dir) => {
     /** @type {Buffer} */
     let real;
@@ -196,7 +197,14 @@ function assertWalkableDirs(set) {
       : UNREPRESENTABLE_IN_TSV.test(real.toString())
         ? "a tab or a line ending"
         : undefined;
-    return why ? [`${showControlChars(real.toString())}  (${why})`] : [];
+    if (!why) {
+      return [];
+    }
+    // The line to edit, and where it leads when that isn't the same path: only
+    // a link can bring a line ending or a name with no UTF-8 form into the set.
+    const path = real.toString();
+    const shown = path === dir ? path : `${dir} → ${path}`;
+    return [`${showControlChars(shown)}  (${why})`];
   });
   if (unnameable.length) {
     throw new Error(

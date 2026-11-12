@@ -324,6 +324,11 @@ NTFS only, with no real bucket.</sub>
 - **`setup` accepts a member directory whose path holds a tab or a CR**, and every `backup`
   then refuses it. An LF splits the entry in `dirs.txt`, and a leading or trailing tab or CR
   is trimmed off, naming a different folder. Loud, so low.
+- **`upload --dir` on a folder a snapshot can't name gives the wrong advice.** It doesn't meet
+  `backup`'s member-directory check. A folder whose name holds a tab gets the per-file error,
+  listing every file under it and suggesting a rename of those files or an exclude pattern,
+  neither of which helps. A folder reached through a link whose real path has no UTF-8 form
+  fails on a raw `ENOENT` from `scandir`. Loud, and only a seed, so low. Run in WSL.
 
 The list must reach zero before a release to `latest`, at which point this file is deleted
 rather than kept empty. Anything found before Issues open goes back in the list here.
