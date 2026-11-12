@@ -875,6 +875,74 @@ describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
   });
 });
 
+describe("walkSet refuses a member directory a snapshot can't name (ADR-0073)", () => {
+  it(
+    "refuses every member directory whose own path offends, even an empty one",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = realpathSync.native(dir.path);
+      const empty = join(base, "e\tmpty");
+      const full = join(base, "fu\nll");
+      mkdirSync(empty);
+      write(full, "a.txt");
+      assert.throws(
+        () => walkSet(setOf(base, [empty, full])),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(
+            "can't be backed up, because a snapshot can't name them:\n" +
+              `  ${join(base, "e␉mpty")}  (a tab or a line ending)\n` +
+              `  ${join(base, "fu␊ll")}  (a tab or a line ending)\n`,
+          ) &&
+          error.message.endsWith(`:\n  ${join(base, "dirs.txt")}`),
+      );
+    },
+  );
+
+  // `dirs.txt` holds text, so only a link can lead a member directory to a name
+  // with no UTF-8 form. This runs where the folder and the link both keep the
+  // bytes, which is Linux: APFS refuses the name, Windows writes a junction's
+  // target as UTF-16 with U+FFFD in its place so the junction leads nowhere, and
+  // WSL's `/mnt` drives store a valid name instead.
+  it("refuses a member directory whose real path has none, reached through a link", async (t) => {
+    await using dir = await mkTmpDir();
+    const base = realpathSync.native(dir.path);
+    const odd = Buffer.concat([
+      Buffer.from(join(base, "odd")),
+      Buffer.from([0xed, 0xa0, 0x80]),
+    ]);
+    const link = join(base, "link");
+    try {
+      mkdirSync(odd);
+      // A junction on Windows, which needs no privilege; elsewhere the type is ignored.
+      symlinkSync(odd, link, "junction");
+      readdirSync(link);
+    } catch (error) {
+      t.skip(`this filesystem can't hold the folder or a link to it: ${error}`);
+      return;
+    }
+    if (readdirSync(base, { encoding: "buffer" }).every((n) => isUtf8(n))) {
+      t.skip("this filesystem stored the folder's name as valid UTF-8");
+      return;
+    }
+    assert.throws(
+      () => walkSet(setOf(base, [link])),
+      // The `dirs.txt` line to edit, then where it leads.
+      /can't name them:\n {2}[^\n]*link → [^\n]*odd�+ {2}\(not valid Unicode\)\n/,
+    );
+  });
+
+  it("walks a member directory whose name holds a real U+FFFD", async () => {
+    await using dir = await mkTmpDir();
+    const base = realpathSync.native(dir.path);
+    write(base, "keep�/a.txt");
+    const member = join(base, "keep�");
+    const { files } = walkSet(setOf(base, [member]));
+    assert.deepStrictEqual(relPaths(member, files), ["a.txt"]);
+  });
+});
+
 describe("walkSet requires absolute member directories (ADR-0071)", () => {
   it("refuses a relative entry, and says why a full path is needed", async () => {
     await using dir = await mkTmpDir();

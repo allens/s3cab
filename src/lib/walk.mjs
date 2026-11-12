@@ -59,6 +59,11 @@ import { countedPass } from "./progress.mjs";
  */
 export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
 
+const SNAPSHOT_CANT_HOLD =
+  "A snapshot is UTF-8 text with one line per file and a tab between columns, " +
+  "so it can't hold a name containing a tab or a line ending, or one that isn't " +
+  "valid Unicode.";
+
 /**
  * Walk a resolved backup set: every member directory, with the set's
  * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
@@ -168,6 +173,46 @@ function assertWalkableDirs(set) {
         `\nA backup won't run while a listed directory can't be reached — it may be ` +
         `missing (an unplugged drive, a deleted or renamed folder) or unreadable. ` +
         `Reconnect the drive, or edit the set's directory list:\n` +
+        `  ${set.dirsPath}`,
+    );
+  }
+
+  // Refuse a member directory whose real path a snapshot can't hold, even an
+  // empty one the per-file check in `walkDirs` never meets: its `@SET DIR` row
+  // would go out with a tab spelled `␉`, naming no folder on disk (ADR-0073).
+  // Read as bytes, because the string form turns a name with no UTF-8 form into
+  // U+FFFD, which a real name can hold too.
+  const unnameable = set.dirs.flatMap((dir) => {
+    /** @type {Buffer} */
+    let real;
+    try {
+      real = realpathSync.native(dir, "buffer");
+    } catch {
+      // Left for `resolveWalkRoot`, whose message explains a folder that won't
+      // resolve; rethrown here it would be a raw ENOENT.
+      return [];
+    }
+    const why = !isUtf8(real)
+      ? "not valid Unicode"
+      : UNREPRESENTABLE_IN_TSV.test(real.toString())
+        ? "a tab or a line ending"
+        : undefined;
+    if (!why) {
+      return [];
+    }
+    // The line to edit, and where it leads when that isn't the same path: only
+    // a link can bring a line ending or a name with no UTF-8 form into the set.
+    const path = real.toString();
+    const shown = path === dir ? path : `${dir} → ${path}`;
+    return [`${showControlChars(shown)}  (${why})`];
+  });
+  if (unnameable.length) {
+    throw new Error(
+      `These directories in backup set '${set.name}' can't be backed up, because ` +
+        `a snapshot can't name them:\n` +
+        unnameable.map((dir) => `  ${dir}`).join("\n") +
+        `\n${SNAPSHOT_CANT_HOLD} Rename them, or take them out of the set's ` +
+        `directory list:\n` +
         `  ${set.dirsPath}`,
     );
   }
@@ -332,10 +377,8 @@ export function walkDirs(dirs, patterns) {
     throw new Error(
       `${count} be backed up, because the name can't be written into a snapshot:\n` +
         unrepresentable.map((p) => `  ${p}`).join("\n") +
-        `\nA snapshot is UTF-8 text with one line per file and a tab between ` +
-        `columns, so it can't hold a name containing a tab or a line ending, ` +
-        `or one that isn't valid Unicode. Rename them, or leave them out by ` +
-        `adding a pattern to the set's exclude file:\n` +
+        `\n${SNAPSHOT_CANT_HOLD} Rename them, or leave them out by adding a ` +
+        `pattern to the set's exclude file:\n` +
         `  odd*name.jpg`,
     );
   }

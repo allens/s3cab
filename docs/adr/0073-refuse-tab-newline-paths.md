@@ -103,8 +103,10 @@ answers for the bad one.
 
 ## Consequences
 
-- **A member root containing a tab is caught by the same walk check**, since every path beneath it
-  inherits the character. No separate validation at `setup`.
+- **A member directory whose real path holds a tab or a line ending, or has no UTF-8 form, is
+  refused before the walk**, every offender at once, beside the set's other start-of-run checks.
+  The per-file check alone misses an empty one, whose `@SET DIR` row would name no folder on disk.
+  No separate validation at `setup`.
 - **The deletion record needs nothing.** Such paths are never backed up, so they can never appear
   in one.
 - **guide/format.md states the rule** beside the regular-files-only line — it is the same kind of

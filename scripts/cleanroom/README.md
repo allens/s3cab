@@ -227,7 +227,9 @@ comparison.
 **What a run costs**, measured on the Fable 5.1 set of 2026-10-23 (at `xhigh`, in CI): a
 backup ran 35 to 46 minutes and a restore 58 to 70. One backup used about 24% of a Max 5x
 plan's 5-hour window, 4% of its weekly Fable allowance and 2% of its weekly allowance across
-all models. A restore's share wasn't measured; it runs longer, so it likely costs more.
+all models. A restore, measured on the set of 2026-11-04 (its Windows run, also Fable 5.1 at
+`xhigh` in CI, on the same plan), used about 34% of the 5-hour window, 5% of the weekly Fable
+allowance and 3% of the weekly allowance across all models.
 
 ## cleanroom.mjs
 
