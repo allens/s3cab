@@ -57,8 +57,7 @@ list holds entire.
 anchor.
 (2) **Ordering constraints.** **One classifier in the walk** and **tree's tab-separated output** both
 edit `src/lib/walk.mjs`; **surplus positionals** and **one claim** both edit
-`src/commands/takeover.mjs`; **restore decides once** and **a restore fault kind** both edit
-`restoreTargets`' loop; **what counts as a set** and **cleanup's top-up** both edit
+`src/commands/takeover.mjs`; **what counts as a set** and **cleanup's top-up** both edit
 `src/lib/bucket-scan.mjs`. Land one of each pair before starting the other.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or sits
 behind a fake (`s3Seam`, `lockSeam`, a temp folder) and verifies with `npm test` alone, **except a
@@ -66,24 +65,6 @@ download's body**, which changes the S3 read path: `npm run test:integration` be
 (4) **The probes went with the session's scratch folder.** Each entry marked *run* says what was fed
 to which real function and what came back, which is enough to run it again.
 
-- **Restore decides "skip an existing file" once, before the loop.** _Strong; nineteenth pass, run.
-  A live defect._ [restore.mjs](../src/lib/restore.mjs): `planRestore` :102–131 stats every target
-  before anything is fetched (`restoreTargets` :415–421 binds it to `lstatSync`); the loop :518–589
-  asks again about folder links (`linkedFolder` :826, fresh per write since ADR-0116), the collision
-  (:540–543), the temp (`writeFileAtomic`) and the copy source (`copyFileAtomic`), and never about
-  the plan's `skip`. So a file that appears at a destination after the plan is replaced by the
-  rename and reported restored, exit 0, with no `--overwrite`. **Run:** a loopback S3 serving two
-  objects created `b.txt` while `a.txt` downloaded, through the real `restoreTargets`:
-  `restored: [a.txt, b.txt]`, `skipped: []`, and `b.txt` held the backup's bytes. `restoreTargets`'
-  doc (:345–348) and guide/restore.md:156 ("Existing files are never touched") promise otherwise.
-  `planRestore` has one production caller, and its injected `stat` serves only its own unit test,
-  which is why restore.counts.test.mjs:46 mocks `node:fs.lstatSync`. **Fix:** the loop judges what
-  is at the destination at each write (refuse, skip, block, link, collision, write) in one place,
-  and `planRestore` goes. The window left is ADR-0116's own, between the check and the rename.
-  **Extends ADR-0116**, which scopes itself to `--output` (this is the in-place restore too), and
-  reverses the tenth and fifteenth passes' "left alone" on `planRestore` as a pure plan: ADR-0116's
-  rule is what changed. **Tests:** restore.target-changes-mid-run.test.mjs is the home; a folder
-  appearing mid-run is pinned (restore.downloads.test.mjs:1268), a file appearing is not.
 - **Damage is decided by an error's class name** (was **codec damage on both sides**). _Strong;
   carried, wider, run._ `isCorruptSnapshotError` ([referenced.mjs](../src/lib/referenced.mjs):134–144)
   matches `name === "AssertionError"` or `Z_DATA_ERROR`/`Z_BUF_ERROR`; `parseCompressedSnapshotStream`
@@ -113,7 +94,7 @@ to which real function and what came back, which is enough to run it again.
   and `downloadRemoteSnapshots` (:436), which drain it outside the relay. **Run:** a loopback server
   sent 1,000 of 1,000,000 bytes and cut the socket; `getObject` threw `ECONNRESET` "aborted" after
   one GET and about 120 ms, with no retry window and no `networkError`. `restoreTargets`
-  ([restore.mjs](../src/lib/restore.mjs):578–588) sees no `path` on it and rethrows, so a restore
+  ([restore.mjs](../src/lib/restore.mjs):524–542) sees no `path` on it and rethrows, so a restore
   stops on a dropped connection with a bare "aborted". The model tier can't see it: `fake-s3`
   replaces `getStream`. **Fix:** s3.mjs owns the whole GET, body included, with the guarantee a
   request already has. **Touches ADR-0068, ADR-0065 and ADR-0091**, all written about uploads and
@@ -191,10 +172,10 @@ to which real function and what came back, which is enough to run it again.
   under the lock at :259), lib/cleanup.test.mjs:124–168, bucket-scan.test.mjs:150.
 - **A restore fault kind is five hand-enumerations.** _Worth exploring; carried, counts corrected._
   `RestoreResult`'s eleven lists and one number (`coarseTimes`) are enumerated by hand in
-  [restore.mjs](../src/lib/restore.mjs)'s typedef (:35–55), the return (:661–677) and `hasFaults`
-  (:693–712), and in [render.mjs](../src/render.mjs)'s `renderRestore` destructure (:1476–1495) and
+  [restore.mjs](../src/lib/restore.mjs)'s typedef (:35–55), the return (:619–635) and `hasFaults`
+  (:651–670), and in [render.mjs](../src/render.mjs)'s `renderRestore` destructure (:1476–1495) and
   its "anything happened" condition (:1502–1512, which omits `clamped`, `unmatched` and
-  `coarseTimes`); twice more in prose (`hasFaults`' doc :680–685, `restoreTargets`' :370–388).
+  `coarseTimes`); twice more in prose (`hasFaults`' doc :638–643, `restoreTargets`' :307–325).
   `renderRestore` has ten list blocks (:1533–1711), eight sharing heading-sentence / indented list /
   blank / fix sentence / `shellCommand`. #503 added no kind. **Fix:** as filed — one table of fault
   kinds (whether it exits 1, its heading clause, its fix) that the result's shape, `hasFaults` and
@@ -238,7 +219,7 @@ to which real function and what came back, which is enough to run it again.
 - **A typed snapshot name is normalized in two commands of five.** _Worth exploring; carried, holds._
   `normalizeSnapshotName` ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):839) is applied by
   [compare.mjs](../src/lib/compare.mjs):101–118 and [commands/upload.mjs](../src/commands/upload.mjs):109–110;
-  `chooseSnapshot` ([restore.mjs](../src/lib/restore.mjs):290–297, for `restore` and `extract`) and
+  `chooseSnapshot` ([restore.mjs](../src/lib/restore.mjs):226–233, for `restore` and `extract`) and
   [forget.mjs](../src/commands/forget.mjs):155/:165 compare the raw string, each with its own
   not-found wording ("not found for set", "is not backed up for set"). **Fix:** as filed — one place
   where a typed snapshot name meets the listing. **Tests:** upload.test.mjs:284 is the only
@@ -287,8 +268,8 @@ and :264 asks `isInteractive` again.
 **status restates two of upload's rules:** `matchRemoteSnapshot`'s byte comparison
 (commands/status.mjs:85–89 against remote.mjs:176–177; ADR-0117 argues the saved GET) and
 `storedHashes`' fallback without its warning (:142–143 against upload.mjs:102–123).
-**A folder removed mid-restore reads as a refused name.** `isRefusedName` (restore.mjs:777–783)
-takes any `ENOENT` with a `path`; exit 1 either way, the reason wrong. With **restore decides once**.
+**A folder removed mid-restore reads as a refused name.** `isRefusedName` (restore.mjs:735–741)
+takes any `ENOENT` with a `path`; exit 1 either way, the reason wrong.
 **"Check, then PUT, a mismatch means changed" is written twice** (`uploadObjects` upload.mjs:389–426,
 `uploadFile` :930–945), against the module's own header (:54–57); both tested.
 **The snapshot's opening rows have a second writer in the site build.** `writeSnapshot`
@@ -315,7 +296,7 @@ style.mjs and `node:util`, into the browser bundle (site/.vitepress/config.mjs:3
 scripts/docs-urls.mjs:21; test/model/harness/seam.mjs's mock carries `objectExists` and
 `isPreconditionFailed`, which no production module imports.
 **Unused exports.** `formatInfo` (set-marker.mjs:96); `noBackupsError` and `snapshotNotFoundError`
-(restore.mjs:262, :276) for test/doc-examples.test.mjs only.
+(restore.mjs:198, :212) for test/doc-examples.test.mjs only.
 **Carried and holding, re-anchored.** **Failure-reason spellings** (locks.mjs:266–267 `reason`;
 inline at auth.mjs:48–49, remote.mjs:388, snapshot.mjs:360, walk.mjs:440; `errorText` error.mjs:311–322
 at s3cab.mjs:104, help.mjs:250, find.mjs:149, s3.mjs:344 and, new, :875; `instanceof` at
@@ -336,13 +317,13 @@ read at render.mjs:1439–1440 and commands/upload.mjs:270; under `--json` an fs
 unlock.mjs:39, setup.mjs:83, reattach.mjs:50, takeover.mjs:53 — and in one of the four that take the
 bucket as a positional, aws.mjs:119; cleanup.mjs:80, verify.mjs:68 and hashes.mjs:24 use `requireArg`
 only, so `cleanup s3://b` gets the SDK's error). **"Absolute by shape" ×5, "segments past the
-root" ×3** (extract.mjs:47, `reroot` restore.mjs:209, `pathFault` snapshot-file.mjs:1153,
+root" ×3** (extract.mjs:47, `reroot` restore.mjs:145, `pathFault` snapshot-file.mjs:1153,
 `isMatchableDir` path-match.mjs:102, and commands/restore.mjs:96–100, which proposals/bugs.md lists
-as a live defect; the root cut at `namesOf` restore.mjs:166–167, `pathFault` :1171–1173,
+as a live defect; the root cut at `namesOf` restore.mjs:102–103, `pathFault` :1171–1173,
 `isMatchableDir` :105–106, all over `rootLength` path-match.mjs:89; drive-letter upper-casing in
-`reroot` :215–219 and `itemName` :231–238). **`restoreTargets`' pass-through and its agreeing pair**
-(`selected` restore.mjs:409, copied out :674/:676; `outDir` :401/:411 beside `destFor`; callers
-commands/restore.mjs:88/:115–116, extract.mjs:52/:60–63/:84–85; `extractTo` :252–254 against
+`reroot` :151–155 and `itemName` :167–174). **`restoreTargets`' pass-through and its agreeing pair**
+(`selected` restore.mjs:346, copied out :632/:634; `outDir` :338/:348 beside `destFor`; callers
+commands/restore.mjs:88/:115–116, extract.mjs:52/:60–63/:84–85; `extractTo` :188–190 against
 `selectTargets(…, [item])` extract.mjs:83). **"Transport failure first, then drift" ×3**
 (upload.mjs:594–614, :802–809, :893–896; deliberate per ADR-0069's amendment). **`pathMatcher` vs
 `unmatchedFolders` on a blank folder** (path-match.mjs:147, :189–191; unreachable).
@@ -358,8 +339,7 @@ s3.mjs:631–633 `SIZE_COL = 8`; snapshot.mjs:660–662 `BYTES_COLUMNS = 7`). **
 (file-props.mjs:180–199; snapshot.mjs:353–356). **The empty file's hash spelled three times**
 (delete.mjs:16–17, file-props.mjs:35, delete.test.mjs:103–104). **Debug decompression**
 (snapshot.mjs:4, :371–377).
-**Stale prose.** New: [restore.mjs](../src/lib/restore.mjs):345–348 and guide/restore.md:156 (with
-**restore decides once**); [referenced.mjs](../src/lib/referenced.mjs):121–130 (with **damage by
+**Stale prose.** New: [referenced.mjs](../src/lib/referenced.mjs):121–130 (with **damage by
 class name**); [remote.mjs](../src/lib/remote.mjs):184–187 (`status` reads through
 `readLatestRemoteSnapshot`), :205–206 (`referencedObjects` is `forget`'s, not `verify`'s), :247–249
 ("for cleanup alone"), :34–36 ("the layout stays spelled in one place": set-marker.mjs:361/:366 and
@@ -498,7 +478,7 @@ helpers that landed there. Snapshot fixtures spelled by hand in three command te
 (extract.test.mjs:40, restore.counts.test.mjs:35, restore.downloads.test.mjs:81–85) sit at the
 `readRemoteSnapshot` seam; `planRestore`'s injected `stat` (:98) serves its unit test while
 `restoreTargets` hard-binds `lstatSync` (:399), so restore.counts.test.mjs:41–51 mocks
-`node:fs.lstatSync` — a candidate since the nineteenth pass, **restore decides once**. guide/restore.md and docs/design/backup.md §restore
+`node:fs.lstatSync` — gone with `planRestore` (ADR-0116's amendment). guide/restore.md and docs/design/backup.md §restore
 are current with ADR-0109/0110/0111 bar the line above. No last-name-layout prose survives.
 **Elsewhere:** the registry and dispatch (`--wait` is one boolean carried command → lib →
 `holdDeleteLock` by ADR-0112's design; nine commands validate their own flag combinations under
@@ -640,7 +620,7 @@ read and `recoverWorkFile`. `fileProps` after ADR-0095, and `prop --lookup` havi
 cut-off (deliberate); the ADR-0094/0095 removals are complete. `uploadObjects`' three sources,
 `progressLine`, and `backup` handing `compare` its baseline. ADR-0086 collision detection
 (model.hostile.test.mjs:308–368) and the `IntegrityError` path. `selectEntries`/`reroot`
-as pure functions (`planRestore` was one until ADR-0116: see **restore decides once**). `shellCommand` and the
+as pure functions (`planRestore` was one until ADR-0116's amendment removed it). `shellCommand` and the
 suggested-command layout (#360): three forms, all ADR-0030's. `sameSizeAndMtime` — speculative, since
 `putFile`'s `ContentMismatchError` backstops it. Test-only exports used inside their own module, with
 fixtures going through the production codec. Restore's failure kinds listed in five places — each
@@ -742,7 +722,7 @@ and the curried-window bug documented in its own doc, an exemplar alongside the 
 whole snapshot-vs-backup difference; backup.mjs is thin porcelain); **`command-details.mjs`**
 (clean prose extraction, stated invariant); the **plan/execute discipline** (planDelete /
 planUnrestorable / planCleanup / verifySet / planUpload all pure and all say so; `planRestore` was
-one until ADR-0116, see **restore decides once**);
+one until ADR-0116's amendment removed it);
 and — recorded when B landed — the **six pluralizations still hand-rolled beside the exported
 `plural`**, which are **clause agreement, not noun morphology** (`was`/`were`, `its`/`their`,
 `This path matches`/`These paths match`, `Snapshot 'a' is`/`Snapshots 'a', 'b' are`, plus
@@ -1026,9 +1006,22 @@ least once; re-open only if the stated reason no longer holds.
   - **The rejected/parked list was re-checked and stands, with one "left alone" reversed.** Passes
     10, 15 and 18 kept `planRestore` as a pure plan with a test-only `stat`; ADR-0116 has since
     made restore's rule "recheck the target at each write", and the plan's `skip` is the one
-    judgement that doesn't, so those three notes now point at **restore decides once**. **Damage by
+    judgement that doesn't, so those three notes now say it is gone. **Damage by
     class name** moves knowledge *into* snapshot-file.mjs, so ADR-0028 and the codec-split rejection
     stand. **The model tier's scenario world** is a harness module with seven existing callers, not
     a seam in `src/`.
   - **The sixteenth pass's run-log entries were retired under the three-pass cap.** Its landing is
     PR #391; `git log -p` on this file keeps the rest.
+- **2026-11-13 — restore decides once landed** (ADR-0116 amended; no ADR of its own).
+  - **Each file's destination is judged on its own turn** (`occupant` in restore.mjs), and
+    `planRestore` is gone. Without `--overwrite` a file lands by hard link (`writeFileAtomic`'s
+    `noClobber`), so one that arrives while its content downloads is `skipped`, exit 0, never
+    replaced; without hard links, the destination is looked at again just before the rename.
+  - **Tests:** restore.target-changes-mid-run.test.mjs: a file arriving during its own download is
+    skipped (red with the landing's `noClobber` off), a folder is blocked, `--overwrite` replaces.
+    atomic-file.test.mjs pins `noClobber` against a file, a folder, a dangling link and a refused
+    name, and a copy that throws rather than answers `false`; atomic-file.no-hard-links.test.mjs
+    the fallback. `planRestore`'s unit tests became restore-level ones.
+  - `npm test` on Windows 1819 pass, 0 fail, 34 skipped, 1 todo (the model tier's clock-skew
+    one); the restore and atomic-file tests on ext4 159 pass, 9 skipped; `test:integration` 32
+    pass, 3 skipped (Roles Anywhere).

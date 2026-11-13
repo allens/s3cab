@@ -284,7 +284,8 @@ before, say, writing a partial manifest to close it (judged scope creep on `uplo
 
 `s3cab restore --set <set> <paths…>` restores to **original locations** (the snapshot's
 absolute paths) but **never touches an existing file** — existing files are reported as
-skipped; `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
+skipped, even one that arrives while its content downloads
+([ADR-0116](../adr/0116-restore-rechecks-its-target.md)); `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
 "I deleted a directory" case both just work, and a careless restore can't destroy newer
 work. `--snapshot <name>` picks the source snapshot (default: the latest remote). What is
 restored is always named — positional `paths…` and/or a `--from-file` list, or `--all` for
@@ -308,8 +309,8 @@ discarded rather than left in the temp. A name the destination filesystem **refu
 too, under `refused` — NTFS answers a forbidden character with `ENOENT`, ext4 a component past
 255 bytes with `ENAMETOOLONG`, from the directory, the download or a dedup copy. A `:` on a
 Windows-shaped destination never gets that far: NTFS doesn't refuse one but reads it as a stream
-separator (a copy succeeds into the hidden stream), so `planRestore` refuses it before anything
-is written.
+separator (a copy succeeds into the hidden stream), so restore refuses it before anything is
+written.
 Those three are the whole degrade; an operational error (network,
 credentials, a full disk) is wrong about the run rather than one file, and still aborts.
 Once content shared by several paths has landed, every later path sharing it is copied from

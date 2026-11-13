@@ -12,7 +12,7 @@ import { platform, stderr } from "node:process";
 
 import { copyFileAtomic } from "./atomic-file.mjs";
 import { readDeletionRecords } from "./deletion-record.mjs";
-import { IntegrityError } from "./error.mjs";
+import { DestinationExistsError, IntegrityError } from "./error.mjs";
 import { statProps } from "./file-props.mjs";
 import { formatCount } from "./format.mjs";
 import { getObject } from "./objects.mjs";
@@ -65,70 +65,6 @@ import { shellCommand } from "./style.mjs";
  */
 const putsColonInName = (dest) =>
   foldsCase(dest) && dest.slice(win32.parse(dest).root.length).includes(":");
-
-/**
- * One target's step. `skip`, `refuse` and `block` leave `dest` alone; `write`
- * restores content `hash` to it and gives it the snapshot's `mtime`, as stored.
- * A `refuse` for a path with no destination at all names the snapshot path.
- * @typedef {{ action: "skip", dest: string }
- *   | { action: "refuse", dest: string }
- *   | { action: "block", dest: string }
- *   | { action: "write", dest: string, hash: string, mtime: string }} RestoreStep
- */
-
-/**
- * Decide what to do with each restore target, without touching the disk or the
- * network. A target whose destination is already a folder is `block`ed, since
- * no `overwrite` replaces one, and before a download it couldn't land; one
- * whose destination exists otherwise is `skip`ped unless `overwrite`; one with
- * no destination (`reroot`'s `undefined`), or whose name the destination can't
- * hold as a file (`putsColonInName`), is `refuse`d; every other target is a
- * `write`.
- *
- * Not where identical content is deduplicated, because only the restore loop
- * knows where content actually landed: a write can fail without ending the run
- * (ADR-0086).
- *
- * Pure and order-preserving, like `selectEntries`/`reroot`: `stat` is
- * injected so this is unit-testable without touching the filesystem.
- * @param {SnapshotEntries} entries - Source path → `{ hash, mtime }`
- * @param {string[]} targets - Snapshot source paths to restore, in order
- * @param {(source: string) => string | undefined} destFor - Maps a source path to its destination
- * @param {object} options
- * @param {(dest: string) => { isDirectory(): boolean } | undefined} options.stat - What is at `dest` already, or `undefined` for nothing
- * @param {boolean} [options.overwrite] - Overwrite an existing destination instead of skipping it
- * @returns {RestoreStep[]} One step per target, in input order
- */
-export function planRestore(
-  entries,
-  targets,
-  destFor,
-  { stat, overwrite = false },
-) {
-  /** @type {RestoreStep[]} */
-  const plan = [];
-  for (const source of targets) {
-    const dest = destFor(source);
-    if (dest === undefined) {
-      plan.push({ dest: source, action: "refuse" });
-      continue;
-    }
-    if (putsColonInName(dest)) {
-      plan.push({ dest, action: "refuse" });
-      continue;
-    }
-    const there = stat(dest);
-    if (there?.isDirectory()) {
-      plan.push({ dest, action: "block" });
-    } else if (there && !overwrite) {
-      plan.push({ dest, action: "skip" });
-    } else {
-      const { hash, mtime } = /** @type {Props} */ (entries.get(source));
-      plan.push({ dest, action: "write", hash, mtime });
-    }
-  }
-  return plan;
-}
 
 /**
  * Select which of a snapshot's paths a restore should write, given the paths
@@ -343,7 +279,8 @@ export function selectTargets({ entries, refused }, set, name, filters) {
 
 /**
  * Restore `targets` from snapshot `name` to wherever `destFor` puts each one,
- * **never touching an existing file** (it is reported skipped) unless
+ * **never touching an existing file** (it is reported skipped), even one that
+ * appears while its content downloads (ADR-0116), unless
  * `overwrite` — so the empty-disk and the "I deleted a directory" cases both
  * just work and a careless restore can't destroy newer work.
  *
@@ -374,7 +311,7 @@ export function selectTargets({ entries, refused }, set, name, filters) {
  * a backup taken on Linux can hold a name Windows forbids, and one taken on
  * Windows a name too long for Linux — reported `refused`, exit 1. (Some names
  * are refused before anything is written, since NTFS would misread them rather
- * than refuse them — see `planRestore`.) So is a path whose snapshot row
+ * than refuse them — see `putsColonInName`.) So is a path whose snapshot row
  * the reader refused (ADR-0101) — reported `invalid`, exit 1, never guessed at.
  * So is a file that something already on disk is in the way of — a file where
  * one of its folders should be, or a folder where it should be — reported
@@ -409,16 +346,9 @@ export async function restoreTargets({
   selected: { targets, invalid, unmatched },
   destFor,
   outDir,
-  overwrite,
+  overwrite = false,
 }) {
   const { entries, instant } = snapshot;
-  const plan = planRestore(entries, targets, destFor, {
-    // The entry itself, not a link's target: a rename replaces a link to a
-    // folder like any file (ext4; NTFS refuses a directory link, and
-    // `isInTheWay` says so).
-    stat: (dest) => statOrNothing(dest, lstatSync),
-    overwrite,
-  });
 
   /** @type {string[]} */
   const restored = [];
@@ -447,9 +377,9 @@ export async function restoreTargets({
   // canonicalizes into that record is a collision — reported, never written.
   // A link at the target is no collision, wherever it points: the write's
   // rename replaces the link, never the file behind it. The per-file
-  // `realpathSync.native` is deliberate, not the walk-hot-path mistake: this
-  // loop is download-bound, and no pure-string function can say whether two
-  // names are one file — trusting strings is the bug this closes.
+  // `realpathSync.native` (in `occupant`) is deliberate, not the walk-hot-path
+  // mistake: no pure-string function can say whether two names are one file —
+  // trusting strings is the bug this closes.
   /** @type {Set<string>} */
   const writtenCanonical = new Set();
   // What became of each content hash this run has tried to write, shared by
@@ -511,48 +441,63 @@ export async function restoreTargets({
   // the backup pass's `progressLine` draws, and for the same reason: a counter
   // left to grow shuffles the line sideways every time it gains a digit, which
   // on a six-figure restore happens five times mid-run.
-  const total = formatCount(plan.length);
+  const total = formatCount(targets.length);
   let done = 0;
   /** @type {Map<string, boolean>} */
   const linkedFolders = new Map();
-  for (const step of plan) {
-    const fate =
-      step.action === "write" ? fateByHash.get(step.hash) : undefined;
+  for (const source of targets) {
+    const placed = destFor(source);
+    // A path with no destination is named by its snapshot path. A refused one
+    // isn't looked at: a stream an earlier restore left must not read as a file
+    // already there, and `--overwrite` can't reach it either.
+    const dest = placed ?? source;
+    const refuse = placed === undefined || putsColonInName(placed);
+    const { hash, mtime } = /** @type {Props} */ (entries.get(source));
+    // What is there now, at this file's turn, not when the run began:
+    // something else can write here while it runs (ADR-0116). A file this run
+    // wrote under another name is a collision whether or not `--overwrite`.
+    const there = refuse ? undefined : occupant(dest, writtenCanonical);
+    const writes =
+      there === "nothing" ||
+      there === "ours" ||
+      (there === "other" && overwrite);
+    const fate = writes ? fateByHash.get(hash) : undefined;
     // A refusal is reported as one whatever is on disk, and content already
     // found absent or corrupt is reported as that, a link or not. The link test
-    // comes before the skip: the plan's `lstat` follows a link at a folder
+    // comes before the skip: `occupant`'s `lstat` follows a link at a folder
     // position, so a file beyond one reads as already there.
-    if (step.action === "refuse") {
-      refused.push(step.dest);
+    if (refuse) {
+      refused.push(dest);
     } else if (fate?.kind === "absent") {
-      reportAbsent(fate.record, step.dest);
+      reportAbsent(fate.record, dest);
     } else if (fate?.kind === "corrupt") {
-      corrupt.push(step.dest);
+      corrupt.push(dest);
     } else if (
       outDir !== undefined &&
-      linkedFolder(step.dest, outDir, linkedFolders, step.action === "write")
+      linkedFolder(dest, outDir, linkedFolders, writes)
     ) {
-      blocked.push(step.dest);
-    } else if (step.action === "skip") {
-      skipped.push(step.dest);
-    } else if (step.action === "block") {
-      blocked.push(step.dest);
-    } else if (
-      existsSync(step.dest) &&
-      !lstatSync(step.dest).isSymbolicLink() &&
-      writtenCanonical.has(realpathSync.native(step.dest))
-    ) {
-      collided.push(step.dest);
+      blocked.push(dest);
+    } else if (there === "folder") {
+      // Not a skip: `--overwrite` can't replace a folder, and would download
+      // the whole object only to fail at the rename.
+      blocked.push(dest);
+    } else if (there === "ours") {
+      collided.push(dest);
+    } else if (!writes) {
+      skipped.push(dest);
     } else {
-      /** @type {"found" | "absent" | "corrupt" | "refused" | "blocked"} */
+      /** @type {"found" | "absent" | "corrupt" | "refused" | "blocked" | "skipped" | "collided"} */
       let outcome = "found";
       const from = fate?.dest;
-      const made = firstMissing(dirname(step.dest));
+      const made = firstMissing(dirname(dest));
+      // Without `--overwrite`, what arrives while the content is fetched is
+      // left alone too: the landing itself refuses to replace it.
+      const noClobber = !overwrite;
       try {
-        mkdirSync(dirname(step.dest), { recursive: true });
+        mkdirSync(dirname(dest), { recursive: true });
         let copied = false;
         if (from !== undefined) {
-          copied = await copyFileAtomic(from, step.dest, { hash: step.hash });
+          copied = await copyFileAtomic(from, dest, { hash, noClobber });
         }
         if (!copied) {
           // No landed file to copy from, or one that failed its copy: changed
@@ -560,36 +505,45 @@ export async function restoreTargets({
           // `corrupt`), and this path still gets the content. Nor is that file
           // where the content is any more, whatever this fetch earns, so it is
           // forgotten first (nothing to forget before a first fetch).
-          fateByHash.delete(step.hash);
-          await getObject(set.bucket, step.hash, step.dest);
+          fateByHash.delete(hash);
+          await getObject(set.bucket, hash, dest, { noClobber });
         }
       } catch (error) {
         // Before the abort below, too: a stopped run leaves no folder either.
         if (made !== undefined) {
-          removeMade(dirname(step.dest), made);
+          removeMade(dirname(dest), made);
         }
-        // This one file's problem, and only that: absent content
-        // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there"),
-        // corrupt content (writeFileAtomic's digest check), or a name this
-        // filesystem won't create — which can surface from the directory, the
-        // download or a dedup copy — or something on disk in the way. Anything
-        // else — a network or credentials failure, a full disk — is wrong
-        // about the whole run, so it propagates and aborts.
-        if (error instanceof IntegrityError) {
+        // This one file's problem, and only that: something that arrived at
+        // the destination meanwhile, judged as if it had been there first;
+        // absent content (`isObjectNotFound`, the s3.mjs spelling of "the key
+        // isn't there"), corrupt content (writeFileAtomic's digest check), or a
+        // name this filesystem won't create — which can surface from the
+        // directory, the download or a dedup copy — or something on disk in the
+        // way. Anything else — a network or credentials failure, a full disk —
+        // is wrong about the whole run, so it propagates and aborts.
+        if (error instanceof DestinationExistsError) {
+          const now = occupant(dest, writtenCanonical);
+          outcome =
+            now === "folder"
+              ? "blocked"
+              : now === "ours"
+                ? "collided"
+                : "skipped";
+        } else if (error instanceof IntegrityError) {
           outcome = "corrupt";
         } else if (isObjectNotFound(error)) {
           outcome = "absent";
         } else if (isRefusedName(error)) {
           outcome = "refused";
-        } else if (isInTheWay(error, step.dest)) {
+        } else if (isInTheWay(error, dest)) {
           outcome = "blocked";
         } else {
           throw error;
         }
       }
       if (outcome === "found") {
-        writtenCanonical.add(realpathSync.native(step.dest));
-        fateByHash.set(step.hash, { kind: "landed", dest: step.dest });
+        writtenCanonical.add(realpathSync.native(dest));
+        fateByHash.set(hash, { kind: "landed", dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
         // `getTime() / 1000`), and one ULP of that near a 2026 epoch is ~238ns, so
@@ -599,7 +553,7 @@ export async function restoreTargets({
         // (the error falls below its 100ns tick), which is why it went unseen until
         // clean-room run 2 compared `st_mtime_ns` on ext4. guide/format.md promises
         // the *millisecond* for exactly this reason.
-        const when = new Date(step.mtime);
+        const when = new Date(mtime);
         // NTFS can't hold a time before 1601 at all: an earlier one is EINVAL,
         // and 1601 itself is FILETIME 0, which Windows takes as "leave the time
         // alone". Either way the file keeps the time it was written, and is
@@ -607,7 +561,7 @@ export async function restoreTargets({
         // restore.
         let settable = platform !== "win32" || when.getTime() > NTFS_EPOCH_MS;
         try {
-          await utimes(step.dest, when, when);
+          await utimes(dest, when, when);
         } catch (error) {
           if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EINVAL") {
             throw error;
@@ -621,29 +575,33 @@ export async function restoreTargets({
         // (proposals/bugs.md) while NTFS holds the time, so every such file
         // would read as clamped.
         if (!settable || platform !== "win32" || readableOnWindows(when)) {
-          const landed = await lstat(step.dest, { bigint: true });
+          const landed = await lstat(dest, { bigint: true });
           const kept = statProps(landed).mtime;
           const off = settable
             ? Math.abs(Date.parse(kept) - when.getTime())
             : Infinity;
           if (off >= COARSEST_DISK_MS) {
-            clamped.push({ path: step.dest, kept });
+            clamped.push({ path: dest, kept });
           } else if (off > 0) {
             coarseTimes++;
           }
         }
-        restored.push(step.dest);
+        restored.push(dest);
       } else if (outcome === "absent") {
-        const record = await recordFor(step.hash);
-        fateByHash.set(step.hash, { kind: "absent", record });
-        reportAbsent(record, step.dest);
+        const record = await recordFor(hash);
+        fateByHash.set(hash, { kind: "absent", record });
+        reportAbsent(record, dest);
       } else if (outcome === "corrupt") {
-        fateByHash.set(step.hash, { kind: "corrupt" });
-        corrupt.push(step.dest);
+        fateByHash.set(hash, { kind: "corrupt" });
+        corrupt.push(dest);
       } else if (outcome === "blocked") {
-        blocked.push(step.dest);
+        blocked.push(dest);
+      } else if (outcome === "skipped") {
+        skipped.push(dest);
+      } else if (outcome === "collided") {
+        collided.push(dest);
       } else {
-        refused.push(step.dest);
+        refused.push(dest);
       }
     }
 
@@ -651,7 +609,7 @@ export async function restoreTargets({
     // On lib/progress.mjs' clock, plus the final tally unconditionally — the
     // last file has to be *offered*, whether or not a redraw is due, or the
     // counter closes reading one short of the total.
-    if (progress.due() || done === plan.length) {
+    if (progress.due() || done === targets.length) {
       progress.update(
         `Restoring ${formatCount(done).padStart(total.length)}/${total}…`,
       );
@@ -769,7 +727,7 @@ function removeMade(dir, top) {
  * was measured, not assumed: NTFS answers the names it forbids (a control
  * character, any of `?*|<>"`, a component past 255 characters) with `ENOENT`;
  * ext4 answers a component past 255 bytes with `ENAMETOOLONG`. (A name NTFS
- * misreads instead never gets this far — see `planRestore`.) Only an
+ * misreads instead never gets this far — see `putsColonInName`.) Only an
  * error naming a `path` counts, which is what makes it the filesystem's answer
  * rather than a code some other layer happens to share.
  * @param {unknown} error
@@ -806,6 +764,32 @@ function isInTheWay(error, dest) {
       (statOrNothing(dest)?.isDirectory() === true ||
         statOrNothing(dest, lstatSync)?.isSymbolicLink() === true))
   );
+}
+
+/**
+ * What is at `dest`: nothing; a folder; a file this run wrote under another
+ * name this volume folds into `dest` (ADR-0086); or anything else — a file, or
+ * a link of any kind, which a rename replaces without following. The entry
+ * itself, not a link's target.
+ * @param {string} dest
+ * @param {Set<string>} written - The canonical path of each file this run wrote
+ * @returns {"nothing" | "folder" | "ours" | "other"}
+ */
+function occupant(dest, written) {
+  const there = statOrNothing(dest, lstatSync);
+  if (there === undefined) {
+    return "nothing";
+  }
+  if (there.isDirectory()) {
+    return "folder";
+  }
+  // `written.size` first: `realpathSync.native` costs 0.15 ms a file on NTFS,
+  // and a re-run that skips every file would otherwise pay it for each one.
+  return written.size > 0 &&
+    !there.isSymbolicLink() &&
+    written.has(realpathSync.native(dest))
+    ? "ours"
+    : "other";
 }
 
 /**

@@ -30,6 +30,8 @@ const contents = new Map(
   ["aaa", "bbb", "ccc"].map((content) => [digestOf(content), content]),
 );
 
+/** @type {(dest: string) => void} Runs once content is fetched, before it lands. */
+let beforeLanding = () => {};
 /** @type {(dest: string) => void} Runs after each fetch, landed or not. */
 let afterFetch = () => {};
 /** @type {string[]} What `getObject` was asked for, in order. */
@@ -59,11 +61,16 @@ mock.module("../lib/objects.mjs", {
       /** @type {string} */ _bucket,
       /** @type {string} */ hash,
       /** @type {string} */ destPath,
+      /** @type {{ noClobber?: boolean }} */ options,
     ) => {
       const content = /** @type {string} */ (contents.get(hash));
       fetched.push(content);
       try {
-        await writeFileAtomic(destPath, Readable.from(content), { hash });
+        beforeLanding(destPath);
+        await writeFileAtomic(destPath, Readable.from(content), {
+          hash,
+          ...options,
+        });
       } finally {
         afterFetch(destPath);
       }
@@ -104,6 +111,7 @@ let elsewhere;
 beforeEach(() => {
   savedExitCode = process.exitCode;
   snapshot = threeFiles;
+  beforeLanding = () => {};
   afterFetch = () => {};
   fetched = [];
   base = mkdtempSync(join(tmpdir(), "s3cab-restore-mid-run-"));
@@ -119,6 +127,66 @@ afterEach(() => {
 const dest = (/** @type {string} */ name) => join(output, "data", name);
 
 describe("restore when the target changes mid-run", () => {
+  it("leaves a file that arrives during its own download alone, and reports it skipped", async () => {
+    // b.txt's place was empty when its turn came, so its content is fetched;
+    // a sync client writes one there before it lands.
+    beforeLanding = (to) => {
+      if (basename(to) === "b.txt") {
+        writeFileSync(to, "theirs");
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.equal(readFileSync(dest("b.txt"), "utf8"), "theirs");
+    assert.deepEqual(result.skipped, [dest("b.txt")]);
+    assert.deepEqual(result.restored, [dest("a.txt"), dest("sub/c.txt")]);
+    // Nor is the fetched copy left beside it.
+    assert.deepEqual(readdirSync(join(output, "data")).sort(), [
+      "a.txt",
+      "b.txt",
+      "sub",
+    ]);
+    assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("reports a folder that arrives during its own download as in the way", async () => {
+    beforeLanding = (to) => {
+      if (basename(to) === "b.txt") {
+        mkdirSync(to);
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.deepEqual(result.blocked, [dest("b.txt")]);
+    assert.deepEqual(result.skipped, []);
+    assert.deepEqual(readdirSync(dest("b.txt")), []);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("replaces a file that arrives during its own download under --overwrite", async () => {
+    beforeLanding = (to) => {
+      if (basename(to) === "b.txt") {
+        writeFileSync(to, "theirs");
+      }
+    };
+
+    const result = await restore([], {
+      all: true,
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.equal(readFileSync(dest("b.txt"), "utf8"), "bbb");
+    assert.deepEqual(result.restored, [
+      dest("a.txt"),
+      dest("b.txt"),
+      dest("sub/c.txt"),
+    ]);
+  });
+
   it("never writes through a link that replaced a folder it already checked", async () => {
     // After a.txt lands, `out/data` moves away and a link to it takes its
     // place: the folder's "no link" answer is now stale.
@@ -188,11 +256,15 @@ describe("restore when the target changes mid-run", () => {
 
   it("doesn't go back to a landed file once a copy from it has failed", async () => {
     snapshot = oneContent;
+    // b.txt's fetch, which replaces the failed copy, finds this in the way.
+    beforeLanding = (to) => {
+      if (basename(to) === "b.txt") {
+        mkdirSync(to);
+      }
+    };
     afterFetch = (fetched) => {
       if (basename(fetched) === "a.txt") {
         writeFileSync(fetched, "changed");
-        // b.txt's fetch, which replaces the failed copy, will find this in the way.
-        mkdirSync(dest("b.txt"));
       } else if (basename(fetched) === "b.txt") {
         // Changed back, so a copy from it would succeed again: whether one is
         // tried at all is what is asserted.

@@ -86,11 +86,14 @@ export function putObject(
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The object's SHA-256, its key under `objects/`
  * @param {string} destPath - Where to write the verified object (parent must exist)
+ * @param {object} [options]
+ * @param {boolean} [options.noClobber] - Leave whatever is at `destPath` alone
+ *   (`writeFileAtomic`'s)
  * @returns {Promise<void>}
  */
-export async function getObject(bucket, hash, destPath) {
+export async function getObject(bucket, hash, destPath, { noClobber } = {}) {
   const uri = objectUri(bucket, hash);
-  await writeFileAtomic(destPath, await getStream(uri), { hash });
+  await writeFileAtomic(destPath, await getStream(uri), { hash, noClobber });
 }
 
 /**

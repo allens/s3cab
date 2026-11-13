@@ -44,19 +44,21 @@ Two subtleties the mechanism carries:
     while its content is sound an ordinary cross-OS case, and with the loop recording where
     content landed, redirecting is the simpler code rather than extra machinery.
 - **The per-file `realpathSync.native` is deliberate**, not the walk-hot-path mistake CLAUDE.md
-  warns about: the loop is download-bound, and no pure-string function can say whether two names
-  are one file — trusting strings is the bug this closes.
+  warns about: no pure-string function can say whether two names are one file — trusting
+  strings is the bug this closes. It is asked only of a file already at its destination once the
+  run has written something, so a re-run that skips every file doesn't pay it
+  ([0116](0116-restore-rechecks-its-target.md)'s amendment).
 
 ## Consequences
 
 - The first row's bytes survive; every folded-away later row is named, with exit 1 — silent
   last-wins is gone, on every folding the volume itself performs (case, normalization, and
   anything a future filesystem invents).
-- The detection also fires if a concurrent writer creates the destination between the plan's
-  existence check and the write *and* it aliases a file this run wrote; an unrelated new file
-  keeps the plan's decision (written, as before — `--overwrite` semantics are unchanged).
+- The detection also fires for a file a concurrent writer creates at the destination during the
+  run, if it aliases a file this run wrote; an unrelated new file is skipped, never replaced,
+  unless `--overwrite` ([0116](0116-restore-rechecks-its-target.md)'s amendment).
 - `RestoreResult` gains `collided`; the renderer lists it before `missing` so the
   unexplained-absence alarm stays last on screen.
-- Restoring the same snapshot *twice* into one output is unaffected: the second run's plan
-  skips existing files (or overwrites them wholesale under `--overwrite`), and neither path
+- Restoring the same snapshot *twice* into one output is unaffected: the second run skips
+  existing files (or overwrites them wholesale under `--overwrite`), and neither path
   enters the collision branch because nothing this run wrote aliases them.
