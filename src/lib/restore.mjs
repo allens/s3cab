@@ -543,6 +543,8 @@ export async function restoreTargets({
         }
       }
       if (outcome === "found") {
+        // The file's own size, not the row's: `occupant` looks it up by what is
+        // on disk, and a hand-edited or foreign manifest can get the row wrong.
         const { size } = lstatSync(dest);
         writtenCanonical.set(
           size,
@@ -792,10 +794,10 @@ function occupant(dest, written) {
     return "folder";
   }
   // Only a file the size of one this run wrote can be one, so only that file
-  // pays `realpathSync.native`: 0.15 ms on NTFS, three times the `lstat`, and a
-  // restore skipping most of a tree would pay it for every file it skips. A
-  // file rewritten to another size since it landed holds nothing of this
-  // run's to lose.
+  // pays `realpathSync.native` (several times the `lstat`; ADR-0116's Cost),
+  // which a restore skipping most of a tree would otherwise pay for every file
+  // it skips. A file rewritten to another size since it landed holds nothing
+  // of this run's to lose.
   return !there.isSymbolicLink() &&
     written.get(there.size)?.has(realpathSync.native(dest)) === true
     ? "ours"

@@ -26,8 +26,10 @@ import { DestinationExistsError, IntegrityError } from "./error.mjs";
  * before the error leaves — a torn stream, a digest mismatch, or a name the
  * filesystem refuses, which only the rename finds out, after the whole
  * download — because the caller may carry on past it (`restore` does), and
- * would otherwise finish with a temp beside every file it couldn't place. Only
- * a process that dies mid-write leaves one, and a retry removes it.
+ * would otherwise finish with a temp beside every file it couldn't place. A
+ * process that dies mid-write leaves one, which a retry removes; under
+ * `noClobber`, so does one that dies or is held open just after the landing,
+ * and a retry skips that file, leaving its temp (see `moveIfFree`).
  * `destPath`'s parent directory must already exist (the temp file is a
  * sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
@@ -142,9 +144,11 @@ async function moveIfFree(tmpPath, destPath) {
     return;
   }
   // The file has landed, so a temp another program holds open (`EBUSY` on
-  // Windows) stays as a second name, as a stopped run leaves it (ADR-0116),
-  // rather than failing a file that is in place.
-  await rm(tmpPath).catch(() => {});
+  // Windows) past the retries stays as a second name, as a stopped run leaves
+  // it (ADR-0116), rather than failing a file that is in place. `maxRetries`
+  // does retry a single file without `recursive`, though Node's docs say it is
+  // ignored (measured, Node 26: a 400 ms lock outlasted).
+  await rm(tmpPath, { maxRetries: 3 }).catch(() => {});
 }
 
 /**

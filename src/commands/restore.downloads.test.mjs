@@ -616,12 +616,15 @@ describe("restore with content shared by several paths", () => {
       return;
     }
     rmSync(dest("probe.tmp"));
+    // Of another length than File.txt's: what collides is the file on disk,
+    // whatever this row's own size.
+    const longer = { ...at, size: 4, hash: "bbbb" };
     snapshot = {
       entries: new Map([
         ["/data/File.txt", { ...at, hash: "aaa" }],
-        ["/data/file.txt", { ...at, hash: "bbb" }], // collides with File.txt
-        ["/data/g-second.txt", { ...at, hash: "bbb" }],
-        ["/data/h-third.txt", { ...at, hash: "bbb" }],
+        ["/data/file.txt", longer], // collides with File.txt
+        ["/data/g-second.txt", longer],
+        ["/data/h-third.txt", longer],
       ]),
       dirs: ["/data"],
     };
@@ -629,8 +632,9 @@ describe("restore with content shared by several paths", () => {
     const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.collided, [dest("file.txt")]);
-    assert.deepEqual(fetched, ["aaa", "bbb"]);
-    assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbb");
+    assert.deepEqual(fetched, ["aaa", "bbbb"]);
+    assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+    assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbbb");
   });
 });
 
@@ -915,8 +919,8 @@ describe("restore with a name this disk refuses", () => {
       // NTFS takes `b:stream.txt` as stream `stream.txt` of a file `b`, so a
       // write or a copy to it leaves a stray file in the listing and the
       // content where no listing shows it. Only a Windows-shaped destination
-      // says so, hence only here; lib/restore.test.mjs pins the decision itself
-      // on every platform.
+      // says so, hence only here; "keeps a `:` in a name on a disk that takes
+      // it as one" is the other side.
       snapshot = {
         entries: new Map([
           ["/data/a-first.txt", { ...at, hash: "aaa" }],
