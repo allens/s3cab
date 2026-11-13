@@ -1,7 +1,9 @@
 # Restore trusts nothing in its target from one file to the next
 
-**Status:** accepted & implemented (2026-11-05). Extends [0109](0109-restore-output-keeps-the-full-path.md)
-and [0086](0086-restore-collision-filesystem-equivalence.md)'s filesystem-answers stance.
+**Status:** accepted & implemented (2026-11-05), amended 2026-11-13: every restore, not only
+`--output`, leaves alone a file that arrives at a destination. Extends
+[0109](0109-restore-output-keeps-the-full-path.md) and
+[0086](0086-restore-collision-filesystem-equivalence.md)'s filesystem-answers stance.
 
 ## Context
 
@@ -84,3 +86,59 @@ what it read either.
 - A copy no longer starts with its source's time, so restore's stand-in `utimes` for a time the
   disk won't hold is gone: such a file simply keeps the time it was written.
 - Fixtures that restore through a dedup copy need real digests, not labels.
+
+## Amendment (2026-11-13): nothing that arrives at a destination is replaced
+
+### Context
+
+Restore looked at every destination once, before the first download, and never again. A file
+that something else put at a destination later, before its turn or while its content
+downloaded, was replaced by the rename and reported `restored`, exit 0, with no `--overwrite`.
+That is the in-place restore as much as `--output`: a sync client or a person writes in the
+user's own folders too.
+
+### Decision
+
+- **Each file's destination is looked at on its own turn**, before its content is fetched or
+  copied. A folder there is `blocked`, a file this run wrote under another name is `collided`
+  ([0086](0086-restore-collision-filesystem-equivalence.md)), and anything else is `skipped`
+  unless `--overwrite`. `planRestore`, which decided this for every file before the first
+  download, is gone.
+- **Without `--overwrite`, a file lands by hard link, not by rename.** The filesystem refuses a
+  hard link over anything at all (a file, a folder, any kind of link) with `EEXIST`, measured on
+  NTFS and ext4, so nothing can arrive between a check and the landing. What is there is judged
+  as above: a file is `skipped`, exit 0, as if it had been there first. The fetched copy is
+  discarded.
+- **A filesystem without hard links** (FAT and exFAT by their documentation, not measured)
+  fails the link some other way. Then the destination is looked at once more and the temp
+  renamed. Every failure but `EEXIST` takes that path, so no list of "no hard links" errors is
+  kept: a name the filesystem refuses fails the link as it fails the rename (`ENOENT` on NTFS,
+  `ENAMETOOLONG` on ext4, measured), and the rename throws what restore already reads.
+- `--overwrite` and snapshot downloads keep the plain rename.
+
+### Cost
+
+A hard link and the temp's removal cost each written file about 1.2 ms more than a rename on
+NTFS, 0.4 ms on ext4 (2,000 files, one machine). Looking on each file's turn is the `lstat` the
+plan made. Whether a file at a destination is one this run wrote takes `realpathSync.native`,
+0.15 ms a file on NTFS (three times the `lstat`) and 0.013 ms on ext4, so it is asked only of a
+file the size of one this run wrote: a restore that skips most of a tree doesn't pay it for each
+file it skips.
+
+### Considered options
+
+- **Look again just before the rename, everywhere.** Microseconds stay open, for one `lstat` a
+  written file. Kept only where there are no hard links.
+- **Look only before each download**, as for folder links above. A file that arrives during its
+  own download is still replaced, and on a video set that is minutes.
+- **Report a file that arrives mid-run as a fault of its own**, exit 1. It would say that
+  something else writes in the same place at the same time, but it is one more list in the
+  restore result for a file in the state of one that was there first.
+- **Keep `planRestore` for the two refusals** (no destination, a `:` in a Windows name), which
+  need no disk. A plan that makes one decision of four puts the other three somewhere else.
+
+### Consequences
+
+- A process that stops between the link and the temp's removal, or a removal that fails because
+  another program holds the temp open, leaves the temp as a second name for the landed file. A
+  later run skips that file, so it doesn't remove the temp.

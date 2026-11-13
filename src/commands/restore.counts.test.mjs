@@ -8,8 +8,8 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 // progress line's running tally, and the refusal when a snapshot's paths aren't
 // absolute here. Both are text, so everything around them is faked at the lib
 // seam (docs/design/testing.md) — down to `lstatSync`, which is what keeps a
-// four-figure plan free of four-figure disk writes: every destination is
-// already there, so every step is a `skip` and the loop does nothing but
+// four-figure restore free of four-figure disk writes: every destination is
+// already there, so every file is skipped and the loop does nothing but
 // count. Argument validation lives in restore.test.mjs, the downloads and their
 // failures in restore.downloads.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
@@ -35,7 +35,7 @@ mock.module("../lib/remote.mjs", {
     readRemoteSnapshot: async () => ({ refused: new Map(), ...snapshot }),
   },
 });
-// Every destination reads as a file already there, so the plan is pure skips:
+// Every destination reads as a file already there, so every file is skipped:
 // the loop counts them and touches nothing. All else passes through, bar the
 // non-configurable `constants` (see walk.unknown-dirent.test.mjs).
 mock.module("node:fs", {
@@ -64,7 +64,7 @@ mock.module("../lib/deletion-record.mjs", {
     readDeletionRecords: async () => ({ deleted: new Map(), invalid: [] }),
   },
 });
-// Not seams under test — no plan here ever fetches — but they stand between the
+// Not seams under test — no restore here ever fetches — but they stand between the
 // command and the SDK, so leaving them real drags the whole auth chain in.
 mock.module("../lib/objects.mjs", {
   exports: { getObject: async () => assert.fail("a skip must not fetch") },

@@ -2,15 +2,7 @@ import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { foldsCase } from "./path-match.mjs";
-import {
-  extractTo,
-  itemName,
-  planRestore,
-  reroot,
-  selectEntries,
-} from "./restore.mjs";
-
-/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+import { extractTo, itemName, reroot, selectEntries } from "./restore.mjs";
 
 // `selectEntries` is the pure path-filter selector behind `restore [paths…]`.
 // It reads a path's spelling rules from the path itself, so every case here runs
@@ -243,111 +235,5 @@ describe("reroot", () => {
         path,
       );
     }
-  });
-});
-
-// `planRestore` is the pure decision step behind the restore loop: for each
-// target it decides skip / refuse / block / write, with no disk or network
-// access — `stat` is injected so these run with a fake filesystem.
-describe("planRestore", () => {
-  const destFor = (/** @type {string} */ source) => source;
-  /** @type {SnapshotEntries} */
-  const entries = new Map([
-    ["/a.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
-    ["/b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }], // same content as a.jpg
-  ]);
-  const writeOf = (/** @type {string} */ dest) => ({
-    dest,
-    action: "write",
-    hash: "h1",
-    mtime: "2026-01-01T00:00Z",
-  });
-  const FILE = { isDirectory: () => false };
-  const FOLDER = { isDirectory: () => true };
-
-  it("writes every target, a repeated hash included — dedupe is the restore loop's", () => {
-    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-      stat: () => undefined,
-    });
-    assert.deepEqual(plan, [writeOf("/a.jpg"), writeOf("/b.jpg")]);
-  });
-
-  it("skips a target whose destination already exists", () => {
-    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-      stat: (dest) => (dest === "/a.jpg" ? FILE : undefined),
-    });
-    assert.deepEqual(plan, [
-      { dest: "/a.jpg", action: "skip" },
-      writeOf("/b.jpg"),
-    ]);
-  });
-
-  it("overwrite writes over an existing destination instead of skipping it", () => {
-    const plan = planRestore(entries, ["/a.jpg"], destFor, {
-      stat: (dest) => (dest === "/a.jpg" ? FILE : undefined),
-      overwrite: true,
-    });
-    assert.deepEqual(plan, [writeOf("/a.jpg")]);
-  });
-
-  it("blocks a target whose destination is a folder, --overwrite or not", () => {
-    // Not a skip: rerunning with --overwrite can't replace a folder, and would
-    // download the whole object only to fail at the rename.
-    for (const overwrite of [false, true]) {
-      const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-        stat: (dest) => (dest === "/a.jpg" ? FOLDER : undefined),
-        overwrite,
-      });
-      assert.deepEqual(plan, [
-        { dest: "/a.jpg", action: "block" },
-        writeOf("/b.jpg"),
-      ]);
-    }
-  });
-
-  it("refuses a `:` in a Windows name — under either root", () => {
-    // NTFS would take `a:b.jpg` as a stream of a file `a`; the drive's own `:`
-    // and a UNC root are not names. `stat` isn't consulted for the refused
-    // one: a stream left by an earlier restore must not read as "already here".
-    for (const root of ["C:\\out\\", "\\\\nas\\share\\"]) {
-      const named = new Map([
-        [`${root}a:b.jpg`, { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
-        [`${root}b.jpg`, { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
-      ]);
-      const plan = planRestore(named, [...named.keys()], destFor, {
-        stat: (dest) => (dest.includes("a:b") ? FILE : undefined),
-      });
-      assert.deepEqual(plan, [
-        { dest: `${root}a:b.jpg`, action: "refuse" },
-        writeOf(`${root}b.jpg`),
-      ]);
-    }
-  });
-
-  it("refuses a path with no destination by its snapshot path, --overwrite or not", () => {
-    // `stat` isn't consulted: `--overwrite` can't reach it either.
-    const named = new Map([
-      [
-        "/home/u/a\\..\\x.txt",
-        { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 },
-      ],
-    ]);
-    const plan = planRestore(named, [...named.keys()], () => undefined, {
-      stat: () => FILE,
-      overwrite: true,
-    });
-    assert.deepEqual(plan, [
-      { dest: "/home/u/a\\..\\x.txt", action: "refuse" },
-    ]);
-  });
-
-  it("leaves a `:` alone in a POSIX name, where it is an ordinary character", () => {
-    const named = new Map([
-      ["/a:b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
-    ]);
-    const plan = planRestore(named, ["/a:b.jpg"], destFor, {
-      stat: () => undefined,
-    });
-    assert.deepEqual(plan, [writeOf("/a:b.jpg")]);
   });
 });

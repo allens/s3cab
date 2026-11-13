@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Architecture review — s3cab (eighteenth pass)</title>
+    <title>Architecture review — s3cab (nineteenth pass)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -15,9 +15,6 @@
       });
     </script>
     <style>
-      .seam {
-        stroke-dasharray: 5 4;
-      }
       .deep {
         background: linear-gradient(135deg, #0f172a, #1e293b);
       }
@@ -30,15 +27,20 @@
           rgba(220, 38, 38, 0.12) 10px
         );
       }
-      .label {
+      .cap {
         font-size: 0.625rem;
         letter-spacing: 0.09em;
         text-transform: uppercase;
         font-weight: 600;
       }
       .mermaid {
-        display: flex;
-        justify-content: center;
+        display: block;
+        text-align: center;
+      }
+      .mermaid svg {
+        width: 100%;
+        height: auto;
+        max-height: 340px;
       }
       code {
         font-size: 0.8125em;
@@ -48,580 +50,442 @@
         font-size: 0.75rem;
         line-height: 1.5;
       }
-      .rule {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.6875rem;
-        line-height: 1.35;
-      }
-      .cell {
+      .chip {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.625rem;
         line-height: 1.2;
-        padding: 0.25rem 0.375rem;
+        padding: 0.2rem 0.4rem;
         border-radius: 0.25rem;
         border: 1px solid #cbd5e1;
         background: #fff;
-        text-align: center;
+        display: inline-block;
+      }
+      .chip-red {
+        border-color: #dc2626;
+        color: #b91c1c;
+        background: #fef2f2;
+      }
+      .chip-dark {
+        border-color: #475569;
+        color: #e2e8f0;
+        background: transparent;
       }
     </style>
   </head>
   <body class="bg-stone-50 text-slate-900 font-sans">
     <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
       <header class="space-y-4">
-        <p class="label text-slate-500">Architecture review · eighteenth pass</p>
-        <h1 class="font-serif text-4xl tracking-tight">s3cab</h1>
-        <p class="text-sm text-slate-600">
-          2026-10-30 · HEAD <code class="bg-white px-1 py-0.5 rounded border border-slate-200">68da4b0</code> ·
-          22 <code>src/</code> commits since the seventeenth pass read <code>09a082f</code> (80 files, +8422/−2190)
+        <p class="cap text-slate-500">s3cab · 2026-11-11 · nineteenth pass</p>
+        <h1 class="font-serif text-4xl">Architecture review</h1>
+        <p class="text-sm text-slate-600 max-w-3xl">
+          22 <code>src/</code> commits since <code>68da4b0</code> (69 files, +5423/−1276), read at
+          <code>124c7868</code>; <code>src/</code>, <code>test/</code> and <code>site/</code> are unchanged at
+          <code>60c16b90</code>. Five background sweeps and a hand read of <code>test/</code>; every Strong and
+          Worth-exploring claim checked by hand, four of them by running the real modules.
         </p>
-        <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600 border-t border-slate-200 pt-4">
-          <span class="inline-flex items-center gap-2"><span class="inline-block w-5 h-3 border border-slate-400 bg-white"></span> module</span>
-          <span class="inline-flex items-center gap-2"><svg width="22" height="8"><line class="seam" x1="0" y1="4" x2="22" y2="4" stroke="#94a3b8" stroke-width="2"/></svg> seam</span>
-          <span class="inline-flex items-center gap-2"><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#dc2626" stroke-width="2"/><path d="M22 4 L16 1 L16 7 Z" fill="#dc2626"/></svg> leakage</span>
-          <span class="inline-flex items-center gap-2"><span class="inline-block w-5 h-3 deep"></span> deep module</span>
-          <span class="inline-flex items-center gap-2"><span class="inline-block w-5 h-3 hatch border border-red-300"></span> untested surface</span>
-        </div>
-        <div class="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700 leading-relaxed space-y-2">
-          <span class="label text-slate-500 block">Verdict</span>
-          <p>
-            Three subsystems: <strong>locks in the bucket</strong> (ADR-0112: <code>locks/&lt;kind&gt;-&lt;instant&gt;</code>,
-            write first look second, pid liveness, <code>--wait</code>, <code>unlock</code>, the cleanup top-up),
-            the <strong>restore rework</strong> (ADR-0109 full path under <code>--output</code>, ADR-0110 paths, a list or
-            <code>--all</code>, ADR-0111 <code>extract</code>), and the <strong>reader's validity rules</strong> from three
-            clean-room sets (#425 torn UTF-8, #428 one tree as files, #439/#452–#457 the spec's gaps). Beside them
-            ADR-0113's basic-form names, #459's digest-before-completion, #460's uninspectable entries, #463's early temp.
-          </p>
-          <p>
-            <strong>The new modules are deep.</strong> <code>locks.mjs</code> holds the whole rule behind two guards that
-            take only a closure, and nothing outside it re-derives liveness; <code>extract</code> composes
-            <code>restoreTargets</code> rather than carrying a loop. <strong>The friction is at the joins and in what the
-            tests don't say:</strong> three of the six lock sites and the <code>upload --file</code> guard that #459
-            changed are asserted nowhere, though the fakes already exist; the cleanup top-up is stated in four modules
-            and its interlocks run twice; a restore fault kind is five hand-enumerations.
-            <strong>The carried list holds</strong> — the one-reader divergences were run this pass, not traced — and
-            two entries got wider (the walk's classifier, surplus positionals), one dead.
-          </p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600">
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-4 border border-slate-400 bg-white rounded-sm"></span>module</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 border-t-2 border-dashed border-slate-500"></span>seam</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 border-t-2 border-red-600"></span>leak, or a rule restated</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-4 deep rounded-sm"></span>deep module</span>
         </div>
       </header>
 
       <section id="candidates" class="space-y-10">
-        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Candidates</h2>
+        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">New candidates</h2>
 
-        <!-- 1: the upload lock's untested holds -->
-        <article id="untested-holds" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+        <!-- 1 -->
+        <article id="restore-judges-once" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
           <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">The upload lock's untested holds</h3>
-            <span class="label px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">mock</span>
+            <h3 class="font-serif text-xl">Restore decides "skip an existing file" once, before the loop</h3>
+            <span class="rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold px-3 py-1">Strong</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">local-substitutable</span>
+            <span class="rounded-full bg-red-100 text-red-700 text-xs px-3 py-1">a live defect</span>
           </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/upload.mjs — <code>uploadSnapshot</code> :769, <code>uploadDir</code> :850, <code>uploadFile</code> :909–931 (the <code>ContentMismatchError</code> catch :921)</li>
-            <li>src/lib/upload.test.mjs :119–134 (<code>lockCalls</code> recorded, <code>"lock"</code> pushed), :202 (reset) — asserted nowhere; <code>putError</code> is always "connection reset" (:487, :571, :589, :1022, :1175)</li>
-            <li>src/commands/upload.test.mjs :68–70 (mocks <code>uploadFile</code> itself) · test/model/model.hostile.test.mjs :467–470 (drives <code>uploadObjects</code>, not <code>uploadFile</code>)</li>
-            <li>The four passthrough fakes: src/commands/cleanup.test.mjs :68, src/commands/delete.test.mjs :80, src/lib/upload.set.test.mjs :85, src/lib/upload.test.mjs :125</li>
-          </ul>
-
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/restore.mjs — planRestore :102–131, restoreTargets :415–421 and the loop :518–589 ·
+            src/commands/restore.counts.test.mjs:46 · guide/restore.md:156
+          </p>
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">Before — six holds, three pinned</p>
-              <div class="grid grid-cols-3 gap-2">
-                <div class="border border-emerald-400 bg-white rounded p-2"><p class="label text-emerald-700">uploadSet</p><p class="rule text-slate-600">upload.set.test.mjs :225 — lock args, lock→LIST→PUT order</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2"><p class="label text-emerald-700">reclaim</p><p class="rule text-slate-600">cleanup.test.mjs :185 — lock→top-up→delete→compact</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2"><p class="label text-emerald-700">deleteContent</p><p class="rule text-slate-600">delete.test.mjs :287 — lock args, wait, record first</p></div>
-                <div class="hatch border border-red-300 rounded p-2"><p class="label text-red-700">uploadSnapshot</p><p class="rule text-slate-600">"target read before the lock" :747 — argued, unasserted</p></div>
-                <div class="hatch border border-red-300 rounded p-2"><p class="label text-red-700">uploadDir</p><p class="rule text-slate-600">lock args recorded, never read</p></div>
-                <div class="hatch border border-red-300 rounded p-2"><p class="label text-red-700">uploadFile</p><p class="rule text-slate-600">"hash before, guard + PUT under" :894 — unasserted; the :921 catch reached by no test</p></div>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">Before — one answer, remembered for hours</p>
+              <div class="border-l-4 border-red-500 hatch px-3 py-2">
+                <p class="cap text-red-700">planRestore, before the first byte</p>
+                <p class="tty">lstat every target → write | skip | block</p>
               </div>
-              <div class="mt-3 border border-slate-300 bg-white rounded p-2">
-                <p class="label text-slate-500">the lock seam, in tests</p>
-                <p class="rule text-slate-600">four hand-written <code>hold*Lock: (args, work) =&gt; { lockCalls.push(args); return work() }</code></p>
+              <p class="text-center text-xs text-slate-400">… the downloads, minutes to hours …</p>
+              <div class="border-l-4 border-slate-400 px-3 py-2 space-y-1">
+                <p class="cap text-slate-600">the loop, at each write</p>
+                <span class="chip">folder links · fresh</span>
+                <span class="chip">the temp · fresh</span>
+                <span class="chip">copy source · fresh</span>
+                <span class="chip">collision · fresh</span>
+                <span class="chip chip-red">already there? · the plan's answer</span>
               </div>
+              <p class="tty text-red-700">restored: [a.txt, b.txt] skipped: []<br />b.txt, created mid-run, now holds the backup's bytes</p>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">After — six pinned through one stencil</p>
-              <div class="grid grid-cols-3 gap-2">
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">uploadSet</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">reclaim</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">deleteContent</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">uploadSnapshot</p><p class="rule text-slate-600">read, lock, PUT — in that order</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">uploadDir</p><p class="rule text-slate-600">lock names the set</p></div>
-                <div class="border border-emerald-400 bg-white rounded p-2 h-16"><p class="label text-emerald-700">uploadFile</p><p class="rule text-slate-600">mismatch ⇒ drift, not a throw</p></div>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">After — one judgement, at the write</p>
+              <div class="deep rounded-lg px-4 py-5 text-slate-100 space-y-2">
+                <p class="cap text-emerald-300">what is at the destination now?</p>
+                <span class="chip chip-dark">no place for it → refused</span>
+                <span class="chip chip-dark">a file → skipped</span>
+                <span class="chip chip-dark">a folder → blocked</span>
+                <span class="chip chip-dark">a link above it → blocked</span>
+                <span class="chip chip-dark">this run's own file → collided</span>
+                <span class="chip chip-dark">nothing → write</span>
               </div>
-              <svg width="100%" height="14"><line class="seam" x1="0" y1="7" x2="100%" y2="7" stroke="#94a3b8" stroke-width="2"/></svg>
-              <div class="deep text-white rounded p-3">
-                <p class="label text-slate-300">test/helpers · the lock stencil</p>
-                <p class="rule text-slate-200 mt-1">one adapter at the seam, as <code>s3-seam.mjs</code> is for S3 · records what was held and in what order · the four copies go</p>
-              </div>
+              <p class="text-xs text-slate-500">The window left is the one ADR-0116 already accepts: between the check and the rename.</p>
             </div>
           </div>
-
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">The lock fake records what each operation asked it to hold, and no test reads the record: for <code>uploadSnapshot</code>, <code>uploadDir</code> and <code>uploadFile</code>, what the lock says and the two orderings argued in their doc comments are untested promises. <code>upload --file</code>'s mid-transfer catch — a <code>ContentMismatchError</code> becomes a reported drift — is the path #459 changed, and nothing under <code>src/</code> or <code>test/</code> reaches it.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">Assert the recorded lock args and the lock-then-guard-then-PUT order through the mock that already exists; drive <code>uploadFile</code> with a <code>putObject</code> that throws the mismatch; lift the four identical passthrough fakes into one stencil beside <code>s3-seam.mjs</code>, the recorded precedent for this shape.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>changed behaviour pinned at its seam</li>
-            <li>interface is the test surface: no private reached</li>
-            <li>four fakes become one adapter</li>
-            <li>every later lock refactor has a net</li>
+          <p><span class="font-semibold">Problem.</span> The plan stats every target before anything is fetched, and it is the one answer about the target the loop never asks again, so a file that appears after the plan is replaced and reported restored, exit 0, without <code>--overwrite</code>.</p>
+          <p><span class="font-semibold">Solution.</span> The loop judges what is at the destination at each write, in one place; <code>planRestore</code>'s two name-only refusals become two of its branches.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>locality: one judgement of the target</li>
+            <li>"existing files are never touched" holds mid-run</li>
+            <li><code>planRestore</code> fails the deletion test: one caller, a <code>stat</code> injected for its own test</li>
+            <li>tests stop mocking <code>node:fs.lstatSync</code></li>
           </ul>
+          <p class="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm">Extends ADR-0116, which scopes itself to <code>--output</code>; this is the in-place restore too. Passes 10 and 15 left <code>planRestore</code> alone as a pure plan; ADR-0116's "trusts nothing from one file to the next" is what changed since.</p>
         </article>
 
-        <!-- 2: one reader for a valid s3cab file -->
-        <article id="one-reader" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+        <!-- 2 -->
+        <article id="damage-type" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
           <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">One reader for a valid s3cab file</h3>
-            <span class="label px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
-            <span class="label px-2 py-1 rounded bg-sky-100 text-sky-800">carried · third pass · run this time</span>
+            <h3 class="font-serif text-xl">Damage is decided by an error's class name</h3>
+            <span class="rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold px-3 py-1">Strong</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">in-process</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">carried as "codec damage on both sides", wider</span>
           </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/snapshot-file.mjs — <code>parseSnapshotStream</code> :886–1092, <code>utf8Lines</code> :1189–1208, <code>fileRowFault</code> :1100–1107</li>
-            <li>src/lib/deletion-record.mjs — <code>parseDeletionRecord</code> :98–139 (now composes <code>rowFields</code> :113 and <code>isInstant</code> :125 too; file-level rules still its own)</li>
-            <li>src/lib/s3.mjs — <code>getText</code> :1009–1013 (lenient <code>transformToString</code>)</li>
-            <li>src/lib/snapshot-file.test.mjs :163–268 · src/lib/deletion-record.test.mjs :199–262 · heading literal hand-spelled in eight test files</li>
-          </ul>
-
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/referenced.mjs — isCorruptSnapshotError :134–144 · src/lib/snapshot-file.mjs —
+            parseCompressedSnapshotStream :928–955, the <code>Damaged snapshot</code> assert :1058, readSnapshot's argument checks :760–761 ·
+            src/lib/s3.mjs:623 · callers src/lib/find.mjs:143, src/lib/remote.mjs:385, src/commands/status.mjs:130
+          </p>
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">Before — eight file-level rules, twice; two disagree</p>
-              <div class="grid grid-cols-2 gap-2">
-                <div class="border border-slate-400 bg-white rounded p-2">
-                  <p class="label text-slate-500">parseSnapshotStream</p>
-                  <p class="rule text-slate-700 mt-1">heading first :927<br/>blank skip :935<br/>rows after "." :939<br/>"." only with LF :981–1003<br/>"." plus junk :943<br/>unknown type :972<br/>missing "." :1021<br/>UTF-8: <span class="text-red-600 font-bold">fatal decoder</span> :1189</p>
-                </div>
-                <div class="border border-slate-400 bg-white rounded p-2">
-                  <p class="label text-slate-500">parseDeletionRecord</p>
-                  <p class="rule text-slate-700 mt-1">heading first :103<br/>blank skip :110<br/>rows after ".": <span class="text-red-600 font-bold">".\n." refused</span> :114<br/>"." only with LF :116<br/>"." plus junk :119 <span class="text-amber-700">(new)</span><br/>unknown type :131<br/>missing "." :135<br/>UTF-8: <span class="text-red-600 font-bold">never checked</span></p>
-                </div>
-              </div>
-              <div class="mt-2 border border-slate-300 bg-slate-900 text-slate-100 rounded p-2 tty">
-                <span class="text-slate-400">$ node one-reader-probe.mjs   # real modules, this pass</span><br/>
-                --- file ends `.\n.`<br/>
-                record  : rows follow the closing "." line<br/>
-                snapshot: valid<br/>
-                --- a 0xFF byte in a row<br/>
-                record  : valid | rows: 1 | by: "me@&#xFFFD;"<br/>
-                snapshot: refused: the file isn't UTF-8 text
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">After — one framing reader, two row handlers</p>
-              <div class="space-y-2">
-                <div class="grid grid-cols-2 gap-2">
-                  <div class="border border-slate-300 bg-white rounded p-2 h-14">
-                    <p class="label text-slate-500">snapshot rows</p>
-                    <p class="rule text-slate-600">"-" · #error · @SET DIR · @SNAPSHOT</p>
-                  </div>
-                  <div class="border border-slate-300 bg-white rounded p-2 h-14">
-                    <p class="label text-slate-500">record rows</p>
-                    <p class="rule text-slate-600">#deleted · malformed ⇒ distrust</p>
-                  </div>
-                </div>
-                <svg width="100%" height="14"><line class="seam" x1="0" y1="7" x2="100%" y2="7" stroke="#94a3b8" stroke-width="2"/></svg>
-                <div class="deep text-white rounded p-3">
-                  <p class="label text-slate-300">snapshot-file.mjs · valid-file reader</p>
-                  <p class="rule text-slate-200 mt-1">bytes → strict UTF-8 → LF lines<br/>heading · blank · "." with its LF · nothing after · @/# skipped, else refused<br/>per-type handler called per row · file-level verdict returned as a value</p>
-                </div>
-                <div class="border border-emerald-300 bg-emerald-50 rounded p-2 text-xs text-emerald-800">one damage table, asserted through both readers; the record's text arrives as bytes, so the UTF-8 refusal reaches it</div>
-              </div>
-            </div>
-          </div>
-
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">What makes an s3cab file valid is implemented twice; #452/#457 moved two row-level pieces to the shared side and left all eight file-level rules re-stated, five error strings copied minus their prefix. The two disagreements the seventeenth pass traced were run this pass and both reproduce: a file ending <code>.\n.</code> is valid to the snapshot and "rows follow" to the record, and a non-UTF-8 record parses as valid because <code>getText</code> hands it lenient text.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">One line-walker in snapshot-file.mjs owns the file-level rules over bytes and takes a per-type row handler; <code>parseDeletionRecord</code> keeps only what a <code>#deleted</code> row is and its "a malformed row distrusts the record" verdict. Knowledge moves <em>into</em> the grammar's owner.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>locality: validity changes once</li>
-            <li>interface: record parser loses eight rules</li>
-            <li>tests: one damage table, two readers</li>
-            <li>UTF-8 refusal reaches the record</li>
-          </ul>
-          <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">ADR-0028 and the codec-split rejection stand: the reader deepens inside the writer's module, nothing is split out.</div>
-        </article>
-
-        <!-- 3: the cleanup top-up -->
-        <article id="top-up" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-          <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">Cleanup's top-up has four homes, and its interlocks run twice</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
-          </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/bucket-scan.mjs :45–47, :67 — keeps <code>snapshotFiles</code> for the top-up</li>
-            <li>src/commands/cleanup.mjs :103 (destructures it), :116–122 (interlocks on the scan), :218 (hands it back, never read)</li>
-            <li>src/lib/cleanup.mjs — header :1–22, :48–49 ("the command owns the wording"), <code>topUp</code> :213, <code>reclaim</code> :269–283 (the same two interlocks on the additions)</li>
-            <li>src/lib/remote.mjs — <code>readNewSnapshots</code> :297 (the key diff and the read)</li>
-          </ul>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">Before — a listing threaded through a command that never reads it</p>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="cap text-slate-500 mb-2">Before — the classifier knows the reader's insides</p>
               <pre class="mermaid">
-flowchart TB
-  S["scanBucket<br/>bucket-scan.mjs :67<br/>returns snapshotFiles"] --> C["cleanup command :103<br/>interlocks on the scan :116–122<br/>plan · confirm"]
-  C -- "snapshotFiles, unread" --> R["reclaim<br/>lib/cleanup.mjs :269<br/>interlocks again :276–283"]
-  R --> N["readNewSnapshots<br/>remote.mjs :297"]
-  N --> T["topUp :213<br/>patched CleanupPlan"]
-  H["header :1–11<br/>'the interlock policy is the command's'"] -. stale .-> R
-  classDef leak stroke:#dc2626,stroke-width:2px;
-  class C,H leak
+flowchart LR
+  R["reader: Damaged snapshot"] --> C
+  Z["zlib: Z_DATA_ERROR, raw"] --> C
+  A["readSnapshot: argument asserts"] -.-> C
+  S["s3.mjs: assert Body"] -.-> C
+  C{"named AssertionError,<br/>or a zlib code?"} --> U["3 callers:<br/>unreadable snapshot"]
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#b91c1c;
+  class A,S leak
               </pre>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">After — the scan hands back what it read; one interlock, two inputs</p>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="cap text-slate-500 mb-2">After — the reader says "damaged", by type</p>
               <pre class="mermaid">
-flowchart TB
-  S["scanBucket<br/>what it read, as one value"] --> C["cleanup command<br/>plan · confirm · render"]
-  C --> R["reclaim<br/>re-list · read the new · interlock(scanned ∪ added) · delete · compact"]
-  classDef deep fill:#0f172a,color:#fff,stroke:#0f172a;
-  class R deep
+flowchart LR
+  subgraph reader["snapshot-file.mjs"]
+    R["validity faults"] --> D["one damage error"]
+    Z["every codec failure"] --> D
+  end
+  D --> U["3 callers catch<br/>that type"]
+  S["any other assert,<br/>any S3 failure"] --> X["the run aborts"]
+  classDef deep fill:#0f172a,color:#f8fafc,stroke:#0f172a;
+  class D deep
               </pre>
             </div>
           </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">Understanding the top-up means four modules, each stating its slice. The command destructures the scan's listing only to pass it back. The two interlocks (<code>unreadableSnapshots</code>, <code>invalidRowSnapshots</code>) run in the command on the scan and again in <code>reclaim</code> on the additions, and the lib's header still says the policy and the wording are the command's — true only of <code>planCleanup</code>. The patched <code>CleanupPlan</code> carries <code>missing</code>/<code>damaged</code>/<code>unreadable</code> that describe only the scan, and nothing says so.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">State the top-up once: the scan returns what it read as one value, <code>reclaim</code> re-lists and applies one interlock to scanned and added alike, and the header says who throws. The plan/execute split (pass 10) is untouched: <code>planCleanup</code> stays pure.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>locality: one statement of the top-up</li>
-            <li>the command threads nothing it doesn't read</li>
-            <li>one interlock, applied twice, not two sites</li>
-            <li>a topped-up plan says what it describes</li>
+          <p><span class="font-semibold">Problem.</span> A classifier in another module matches <code>name === "AssertionError"</code> or two zlib codes, so every assertion on a read path counts as snapshot damage: run against the real modules, <code>readSnapshot("", "x")</code> and an S3 reply with no body both classify as damaged, where the doc promises "Unknown → not corruption → abort".</p>
+          <p><span class="font-semibold">Solution.</span> The reader turns every codec and validity failure into its own damage error, and the three callers catch that type; the classifier names no codec and no Node class.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>locality: "damaged" decided where it is known</li>
+            <li>error.mjs's own rule: caught by type → a subclass</li>
+            <li>an outage can't read as data loss</li>
+            <li>one test through the reader replaces hand-built errors</li>
           </ul>
+          <p class="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm">Knowledge moves <em>into</em> snapshot-file.mjs, so ADR-0028 and the codec-split rejection stand. ADR-0074 put the classifier in referenced.mjs for its zero imports; a type the reader exports changes who imports whom, so read it first.</p>
         </article>
 
-        <!-- 4: a fault kind is five hand-enumerations -->
-        <article id="fault-kinds" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+        <!-- 3 -->
+        <article id="get-body" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
           <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">A restore fault kind is five hand-enumerations</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
+            <h3 class="font-serif text-xl">A download's body is outside the retry</h3>
+            <span class="rounded-full bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">mock (a loopback server)</span>
+            <span class="rounded-full bg-red-100 text-red-700 text-xs px-3 py-1">a live defect</span>
           </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/restore.mjs — <code>RestoreResult</code> :38–55, the return :649–665, <code>hasFaults</code> :681–700</li>
-            <li>src/render.mjs — <code>renderRestore</code> destructure :1327–1345, the lead-line condition :1353–1363, nine copy-shaped blocks :1384–1562 (three new: <code>blocked</code> :1451, <code>clamped</code> :1470, <code>unmatched</code> :1510)</li>
-          </ul>
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/s3.mjs — requestErrorRelay :504–568, getStream :620–628 · consumers src/lib/objects.mjs:93 (getObject),
+            src/lib/remote.mjs:194 (readRemoteSnapshot), :436 (downloadRemoteSnapshots) · src/lib/restore.mjs:578–588
+          </p>
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">Before — twelve lists × five places (#466's <code>unmatched</code> highlighted)</p>
-              <div class="grid gap-1" style="grid-template-columns: 5.5rem repeat(5, 1fr)">
-                <div></div>
-                <div class="cell text-slate-500">typedef</div><div class="cell text-slate-500">return</div><div class="cell text-slate-500">hasFaults</div><div class="cell text-slate-500">render args</div><div class="cell text-slate-500">render if</div>
-                <div class="rule text-slate-600 self-center">restored</div><div class="cell">·</div><div class="cell">·</div><div class="cell text-slate-300">–</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">skipped</div><div class="cell">·</div><div class="cell">·</div><div class="cell text-slate-300">–</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">collided</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">missing</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">corrupt</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">refused</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">blocked</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">clamped</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell text-slate-300">–</div>
-                <div class="rule text-slate-600 self-center">coarseTimes</div><div class="cell">·</div><div class="cell">·</div><div class="cell text-slate-300">–</div><div class="cell">·</div><div class="cell text-slate-300">–</div>
-                <div class="rule text-slate-600 self-center">invalid</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-slate-600 self-center">deleted</div><div class="cell">·</div><div class="cell">·</div><div class="cell text-slate-300">–</div><div class="cell">·</div><div class="cell">·</div>
-                <div class="rule text-red-700 font-bold self-center">unmatched</div><div class="cell border-red-400 bg-red-50">#466</div><div class="cell border-red-400 bg-red-50">#466</div><div class="cell border-red-400 bg-red-50">#466</div><div class="cell border-red-400 bg-red-50">#466</div><div class="cell text-slate-300">–</div>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">After — one table of kinds, three readers</p>
-              <div class="deep text-white rounded p-3">
-                <p class="label text-slate-300">lib/restore.mjs · the fault kinds</p>
-                <p class="rule text-slate-200 mt-1">kind · exits 1? · heading clause · the fix line<br/>missing ✓ · corrupt ✓ · collided ✓ · refused ✓ · blocked ✓ · clamped ✓ · invalid ✓ · unmatched ✓ · deleted ✗ · skipped ✗</p>
-              </div>
-              <svg width="100%" height="14"><line class="seam" x1="0" y1="7" x2="100%" y2="7" stroke="#94a3b8" stroke-width="2"/></svg>
-              <div class="grid grid-cols-3 gap-2">
-                <div class="border border-slate-300 bg-white rounded p-2 h-16"><p class="label text-slate-500">the result</p><p class="rule text-slate-600">one list per kind, built from the table</p></div>
-                <div class="border border-slate-300 bg-white rounded p-2 h-16"><p class="label text-slate-500">hasFaults</p><p class="rule text-slate-600">any kind that exits 1 is non-empty</p></div>
-                <div class="border border-slate-300 bg-white rounded p-2 h-16"><p class="label text-slate-500">renderRestore</p><p class="rule text-slate-600">one block loop over the kinds</p></div>
-              </div>
-            </div>
-          </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">A new fault kind is five edits in two files plus tests: #466's <code>unmatched</code> touched four of them, and <code>renderRestore</code>'s three newest blocks arrived by copying the shape of the six before them (heading sentence, indented list, blank, fix sentence, <code>shellCommand</code>). The render's "anything happened" condition already omits two of the twelve.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">One table of fault kinds — whether it exits 1, its heading clause, its fix — that the result's shape, <code>hasFaults</code> and <code>renderRestore</code>'s block loop all read. This is inside <code>renderRestore</code>, not the <code>section()</code> grammar pass 13 declined to fold it into.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>locality: a kind is one row</li>
-            <li>nine blocks become one loop</li>
-            <li>exit policy and wording can't drift apart</li>
-            <li>the data/wording split (ADR-0043) is kept</li>
-          </ul>
-        </article>
-
-        <!-- 5: surplus positionals -->
-        <article id="surplus-positionals" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-          <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">Surplus positionals: three refusals by hand, thirteen silent drops</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
-            <span class="label px-2 py-1 rounded bg-sky-100 text-sky-800">carried · wider</span>
-          </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/s3cab.mjs :115–130 — positionals handed through, no count · src/help.mjs <code>displayArg</code> :81–82 — the only reader of <code>variadic</code></li>
-            <li>src/commands.mjs — reattach :369–384, takeover :391–406 (<code>[name, ...directories]</code>), extract :494–526 (<code>path</code> declared single, <code>paths</code> passed whole)</li>
-            <li>src/commands/reattach.mjs :52–56 · src/commands/takeover.mjs :55–59 · src/commands/extract.mjs :39–45 — three wordings</li>
-          </ul>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">Before — 22 commands, three behaviours for one declaration</p>
-              <div class="grid grid-cols-6 gap-1">
-                <div class="cell bg-slate-100 text-slate-500">find</div><div class="cell bg-slate-100 text-slate-500">setup</div><div class="cell bg-slate-100 text-slate-500">restore</div><div class="cell bg-slate-100 text-slate-500">forget</div><div class="cell bg-slate-100 text-slate-500">delete</div><div class="cell bg-slate-100 text-slate-500">unlock</div>
-                <div class="cell border-amber-400 bg-amber-50 text-amber-900">reattach</div><div class="cell border-amber-400 bg-amber-50 text-amber-900">takeover</div><div class="cell border-amber-400 bg-amber-50 text-amber-900">extract</div>
-                <div class="cell hatch border-red-300">snapshot</div><div class="cell hatch border-red-300">list</div><div class="cell hatch border-red-300">compare</div>
-                <div class="cell hatch border-red-300">status</div><div class="cell hatch border-red-300">aws</div><div class="cell hatch border-red-300">provider</div><div class="cell hatch border-red-300">backup</div><div class="cell hatch border-red-300">verify</div><div class="cell hatch border-red-300">cleanup</div>
-                <div class="cell hatch border-red-300">hashes</div><div class="cell hatch border-red-300">upload</div><div class="cell hatch border-red-300">tree</div><div class="cell hatch border-red-300">prop</div>
-              </div>
-              <p class="rule text-slate-600 mt-2">grey: variadic, by declaration · amber: refuses a surplus by hand, each in its own words · hatched: <code>[x] = []</code>, the surplus dropped silently</p>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 space-y-1">
-              <p class="label text-slate-500 mb-2">After — one band owns arity</p>
-              <div class="h-24 deep text-white rounded pl-3 flex flex-col justify-center text-sm">
-                <span>dispatcher: refuses a surplus positional from the declaration</span>
-                <span class="text-slate-300 text-xs mt-1">one wording · 16 commands · <code>variadic</code> read by help and dispatch alike</span>
-              </div>
-              <div class="h-12 border-l-4 border-slate-300 bg-white pl-3 flex items-center text-sm text-slate-500">reattach · takeover · extract: the three blocks and <code class="ml-1">...directories</code> go</div>
-            </div>
-          </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">The registry says which commands take one positional, and the dispatcher never reads it. Three commands now refuse a surplus by hand in three wordings (extract's arrived this window), thirteen drop it silently: <code>s3cab backup photos extra</code> loses <code>extra</code>, <code>s3cab reattach photos extra</code> refuses.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">The dispatcher refuses a surplus positional from the <code>args</code> declaration; the three blocks and the <code>...directories</code> parameters go, and the three commands' eleven-line preamble shrinks with them.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>leverage: one rule, sixteen commands</li>
-            <li>three hand blocks go</li>
-            <li>a dispatcher test covers every non-variadic command</li>
-          </ul>
-          <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">Touches ADR-0011's rejected option (a registry-driven scheme). Worth reopening on two counts: <code>variadic</code> is a structured property now, not a parsed display string; and a surplus positional is a CLI-only fact a library caller can't produce, so the guard the ADR wants on the library surface is the type.</div>
-        </article>
-
-        <!-- 6: one classifier in the walk -->
-        <article id="one-classifier" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-          <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">One classifier in the walk, now four pattern sites</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
-            <span class="label px-2 py-1 rounded bg-sky-100 text-sky-800">carried · wider</span>
-          </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/walk.mjs — <code>walkDirs</code> loop :311–319 (<code>UNREPRESENTABLE_IN_TSV</code> :55), <code>createWalkCallbackFn</code> :391–400, <code>recordUninspectable</code> :439–443 (#460), <code>checkLink</code> :531–535, the throw :332–347, the stale <code>crlfDelay</code> doc :44–54</li>
-            <li>src/lib/walk.test.mjs :660–745, :776–826, the half-true comment :738–741 · src/lib/walk.uninspectable.test.mjs :99–132 (per-entry outcomes as data — the test shape the fix wants)</li>
-          </ul>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">Before — four askings of <code>excludedBy</code>, three rules for which type</p>
-              <pre class="mermaid">
-flowchart TB
-  W[walkFiles: readdir, type] --> C["callback<br/>no UTF-8 form? → excludedBy :393<br/>uninspectable? → excludedBy as a file :440<br/>link? → excludedBy with the stat'd type :531<br/>else → excludedBy with the dirent's type :417"]
-  C -- "dir: descend" --> W
-  C -- "file: keep" --> L["loop in walkDirs<br/>seen?<br/><b>tab / CR / LF?</b> :315"]
-  L --> F[files]
-  C -. "non-UTF-8 dir: listed once,<br/>never descended" .-> U[found.unrepresentable]
-  L -. "tab-named dir: every file<br/>beneath listed" .-> U
-  U --> T[one throw]
-  classDef leak stroke:#dc2626,stroke-width:2px;
-  class U leak
-              </pre>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">After — the callback classifies, the loop keeps <code>seen</code></p>
-              <pre class="mermaid">
-flowchart TB
-  W[walkFiles: readdir, type] --> C["callback = the classifier<br/>type · excluded · representable<br/>one answer per entry, dirs included"]
-  C -- "dir: descend" --> W
-  C -- "file: keep" --> L[loop: seen?]
-  L --> F[files]
-  C --> U[found.unrepresentable]
-  U --> T[one throw]
-  classDef deep fill:#0f172a,color:#fff,stroke:#0f172a;
-  class C deep
-              </pre>
-            </div>
-          </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">Four sites ask whether a pattern excludes an entry, with three rules for which type to match against (the dirent's, always-a-file, the stat'd one). Tab/CR is still refused in the kept-files loop by a separate mechanism, and the two disagree on a directory: a tab-named one is descended and every file beneath it refused, a non-UTF-8 one listed once and never descended. The doc still justifies the CR half by a <code>crlfDelay</code> reader that no longer exists.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">The callback is the one classifier (type, excluded, representable); the loop keeps only <code>seen</code>. Rewrite the CR reason in place and un-export the regex (no importer outside walk.mjs).</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>locality: one place decides "refused"</li>
-            <li>directories get one answer</li>
-            <li>tests assert per-entry outcomes as data</li>
-          </ul>
-        </article>
-
-        <!-- 7: pre-decision stdout under --json -->
-        <article id="pre-decision-stdout" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-          <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">Pre-decision stdout under <code>--json</code>, thrice</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
-          </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/commands/delete.mjs :212–215 · src/commands/forget.mjs :221–224 · src/commands/unlock.mjs :90–93 — <code>console.log</code> under the same three-line comment</li>
-            <li>src/s3cab.mjs :129–130 — <code>json</code> stripped before <code>exec</code>, so a command can't know · guide/output.md :41–43 — "<code>--json</code> governs a command's successful result on stdout"</li>
-          </ul>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">Before — two writers on one stream, the first unaware of the flag</p>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="cap text-slate-500 mb-2">Before — the relay ends at the headers</p>
               <pre class="mermaid">
 sequenceDiagram
-  participant D as dispatcher
-  participant C as delete · forget · unlock
-  participant O as stdout
-  D->>C: exec(args without json)
-  C->>O: the listing, as prose
-  C->>C: y/N
-  C-->>D: result
-  D->>O: JSON.stringify(result)
+  participant C as a consumer
+  participant R as the relay
+  participant S as S3
+  C->>R: getStream
+  R->>S: GET
+  S-->>R: headers
+  R-->>C: the body, unread
+  Note over R: the retry window ends here
+  S--xC: the connection drops mid-body
+  Note over C: ECONNRESET "aborted", the restore stops
               </pre>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-3">
-              <p class="label text-slate-500 mb-2">After — one home for what is shown before the decision</p>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="cap text-slate-500 mb-2">After — s3.mjs owns the GET to its last byte</p>
               <pre class="mermaid">
 sequenceDiagram
-  participant D as dispatcher
-  participant C as the command
-  participant O as stdout
-  D->>C: exec(args)
-  C->>D: the preview, as data
-  D->>O: rendered, or held under json
-  C->>C: y/N
-  C-->>D: result
-  D->>O: rendered, or JSON
+  participant C as a consumer
+  participant M as s3.mjs
+  participant S as S3
+  C->>M: the object, please
+  M->>S: GET
+  S--xM: the connection drops mid-body
+  Note over M: rides it out, as a request does
+  M->>S: GET, the rest
+  S-->>M: bytes
+  M-->>C: the whole body, or networkError
               </pre>
             </div>
           </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">Three destructive commands write their preview to stdout before the dispatcher prints the result; under <code>--json</code> a consumer gets prose then JSON on one stream. The rule lives in three identical comments; the guide says the opposite; the count went from two to three this window.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">Give the pre-decision preview one home the dispatcher owns, so <code>--json</code> can route it — or, if the stream mix is the decision, record it in ADR-0043 and guide/output.md once and point the three comments at it.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>locality: the rule has a home</li>
-            <li><code>--json</code> consumers get one shape</li>
-            <li>a fourth destructive command inherits it</li>
+          <p><span class="font-semibold">Problem.</span> The relay wraps a call that returns when the headers arrive, and three consumers drain the body afterwards, so a connection that drops mid-body gets no retry: run against a loopback server that cut the socket after 1,000 of 1,000,000 bytes, <code>getObject</code> threw a raw <code>ECONNRESET: aborted</code> after one GET and 121 ms.</p>
+          <p><span class="font-semibold">Solution.</span> s3.mjs owns the whole GET, body included, with the guarantee a request already has.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>leverage: three consumers, one guarantee</li>
+            <li>the read side gets <code>putFile</code>'s depth</li>
+            <li>a multi-GB restore survives a blip</li>
           </ul>
-          <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">Touches ADR-0043's one render layer. Worth reopening only because the guide and the code now disagree and the pattern is spreading.</div>
+          <p class="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm">Touches ADR-0068, ADR-0065 and ADR-0091, all written about uploads and requests. The model tier can't see this: its fake replaces <code>getStream</code>.</p>
         </article>
 
-        <!-- 8: snapshot-name spelling -->
-        <article id="snapshot-name-spelling" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+        <!-- 4 -->
+        <article id="set-in-bucket" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
           <div class="flex flex-wrap items-center gap-3">
-            <h3 class="font-serif text-xl">A typed snapshot name is normalized in two commands of five</h3>
-            <span class="label px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="label px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
+            <h3 class="font-serif text-xl">What counts as a set in the bucket is decided again by each consumer</h3>
+            <span class="rounded-full bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">in-process</span>
           </div>
-          <ul class="font-mono text-sm text-slate-700 space-y-0.5">
-            <li>src/lib/snapshot-file.mjs — <code>normalizeSnapshotName</code> :737 ("so callers taking user-supplied names never learn the extension grammar")</li>
-            <li>strip: src/lib/compare.mjs :101–118 · src/commands/upload.mjs :106–107 — raw: src/lib/restore.mjs <code>chooseSnapshot</code> :274 (restore and extract) · src/commands/forget.mjs :161–162</li>
-          </ul>
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/sets.mjs — validateSetName :202, isSetName :220 · src/lib/remote.mjs — listSnapshotFiles :264 ·
+            src/lib/set-marker.mjs:40, :336 · src/commands/verify.mjs:80 · src/lib/cleanup.mjs:144, emptySetsMessage :186 ·
+            src/lib/referenced.mjs:314 · src/lib/unrestorable.mjs:136–140
+          </p>
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">Before — <code>--snapshot 20260612T0915.tsv.gz</code></p>
-              <div class="grid grid-cols-5 gap-1">
-                <div class="cell border-emerald-400 bg-emerald-50">compare<br/>found</div>
-                <div class="cell border-emerald-400 bg-emerald-50">upload<br/>found</div>
-                <div class="cell hatch border-red-300">restore<br/>not found</div>
-                <div class="cell hatch border-red-300">extract<br/>not found</div>
-                <div class="cell hatch border-red-300">forget<br/>not backed up</div>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-3">
+              <p class="cap text-slate-500">Before — one mixed map, sorted five times and once not</p>
+              <div class="border border-slate-300 rounded px-3 py-2">
+                <p class="cap text-slate-600">the scan's listing</p>
+                <span class="chip">photos</span> <span class="chip">photos_2025</span> <span class="chip chip-red">a-</span>
               </div>
-              <p class="rule text-slate-600 mt-2">five commands take a user-typed snapshot name; two run it through the normalizer, three compare the raw string against the listing</p>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <span class="chip">set-marker ×2<br />isSetName</span>
+                <span class="chip">verify<br />isSetName</span>
+                <span class="chip">cleanup<br />isSetName</span>
+                <span class="chip">referenced<br />isSetName</span>
+                <span class="chip chip-red">forget's preview<br />never asks</span>
+                <span class="chip chip-red">setup, takeover<br />validateSetName</span>
+              </div>
+              <p class="tty text-red-700">photos_2025 present → forget: 0 files unrestorable (absent → 1)<br />cleanup: "s3cab takeover a-" → takeover refuses the name</p>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="label text-slate-500 mb-3">After — the name meets the listing in one place</p>
-              <div class="deep text-white rounded p-3">
-                <p class="label text-slate-300">snapshot-file.mjs · a typed name against the names there are</p>
-                <p class="rule text-slate-200 mt-1">extension stripped · matched · the "not found, here are the choices" error in one wording</p>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-3">
+              <p class="cap text-slate-500">After — the scan sorts once</p>
+              <div class="deep rounded-lg px-4 py-4 text-slate-100 space-y-2">
+                <p class="cap text-emerald-300">the scan</p>
+                <p class="tty">sets: photos</p>
+                <p class="tty">other folders: photos_2025, a-</p>
+                <p class="cap text-slate-400 pt-1">one rule for a set's name</p>
               </div>
-              <svg width="100%" height="14"><line class="seam" x1="0" y1="7" x2="100%" y2="7" stroke="#94a3b8" stroke-width="2"/></svg>
-              <div class="grid grid-cols-5 gap-1">
-                <div class="cell border-emerald-400 bg-emerald-50">compare</div><div class="cell border-emerald-400 bg-emerald-50">upload</div><div class="cell border-emerald-400 bg-emerald-50">restore</div><div class="cell border-emerald-400 bg-emerald-50">extract</div><div class="cell border-emerald-400 bg-emerald-50">forget</div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <span class="chip">verify</span><span class="chip">cleanup</span><span class="chip">forget</span>
+              </div>
+              <p class="text-xs text-slate-500">Each consumer reads the half its question is about.</p>
+            </div>
+          </div>
+          <p><span class="font-semibold">Problem.</span> The scan hands every consumer one map that mixes sets with other folders; five sites ask <code>isSetName</code> again, forget's preview doesn't, and <code>isSetName</code> accepts names (<code>a-</code>, <code>-a</code>, <code>a--b</code>) that <code>validateSetName</code> refuses, so cleanup can advise a <code>takeover</code> that takeover turns away.</p>
+          <p><span class="font-semibold">Solution.</span> One definition of a set's name, a scan that sorts folders into sets and other folders once, and a written decision on whether forget's "held elsewhere" counts a folder no restore can read.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>locality: one sort, in the scan</li>
+            <li>five filters go</li>
+            <li>forget's preview stops undercounting</li>
+          </ul>
+          <p class="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm">Touches ADR-0024 (the name is the identity) and ADR-0117 §1 (which sets a health report counts). The folders kept "for cleanup alone" (remote.mjs:247–249) are a deliberate asymmetry: keep it, in one place.</p>
+        </article>
+
+        <!-- 5 -->
+        <article id="pattern-system" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex flex-wrap items-center gap-3">
+            <h3 class="font-serif text-xl">Which system's pattern rules: one question, three parameters, and three steps the caller orders</h3>
+            <span class="rounded-full bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/exclude.mjs — compileExcludePatterns :47, parseExclude :95, unusableExcludeError :119, exactPattern :174 ·
+            src/lib/path-match.mjs — ESCAPES :217, strayEscape :234, literalPattern :262, globSource :286 ·
+            src/lib/find-pattern.mjs — compileFindPattern :57 · src/lib/walk.mjs — readExcludePatterns :83–95 ·
+            site/.vitepress/exclude-playground.mjs:46–52, find-playground.mjs:3–4, find-playground.test.mjs:9–10
+          </p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">Before — the interface a consumer has to learn</p>
+              <div class="border-2 border-red-400 rounded px-3 py-2 space-y-1">
+                <p class="cap text-red-700">which system?</p>
+                <span class="chip chip-red">platform: a string</span>
+                <span class="chip chip-red">escapes: a boolean</span>
+                <span class="chip chip-red">this machine's sep, fixed at import</span>
+                <p class="cap text-red-700 pt-2">in this order, or it misreads</p>
+                <span class="chip chip-red">1 parseExclude</span>
+                <span class="chip chip-red">2 unusableExcludeError</span>
+                <span class="chip chip-red">3 compileExcludePatterns</span>
+              </div>
+              <div class="border border-slate-300 rounded px-3 py-2">
+                <p class="cap text-slate-600">implementation</p>
+                <p class="tty">globSource, the escape rule, the spelling</p>
+              </div>
+              <p class="tty text-red-700">step 2 skipped, Linux rules: **\Thumbs.db matches myThumbs.db</p>
+            </div>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">After — a short interface over the same rules</p>
+              <div class="border border-slate-300 rounded px-3 py-2">
+                <p class="cap text-slate-600">interface</p>
+                <span class="chip">exclude text + which system → a matcher, or a refusal</span>
+              </div>
+              <div class="deep rounded-lg px-4 py-8 text-slate-100">
+                <p class="cap text-emerald-300">implementation</p>
+                <p class="tty">parse → refuse → compile, in the module's order<br />one "which system" value, this machine by default</p>
               </div>
             </div>
           </div>
-          <dl class="text-sm space-y-2">
-            <div><dt class="inline font-semibold">Problem.</dt> <dd class="inline">The one place a user pastes a name from <code>list --remote</code> output or a filename, the same spelling is accepted by <code>compare</code> and <code>upload</code> and refused as "not found" by <code>restore</code>, <code>extract</code> and <code>forget</code> — and each of the three has its own not-found wording.</dd></div>
-            <div><dt class="inline font-semibold">Solution.</dt> <dd class="inline">One place where a typed snapshot name meets the listing, used by all five; the normalizer's own doc already names the intent.</dd></div>
-          </dl>
-          <ul class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1 list-disc pl-5">
-            <li>leverage: one spelling rule, five commands</li>
-            <li>three not-found wordings become one</li>
+          <p><span class="font-semibold">Problem.</span> ADR-0115's "read by the rules of the system reading it" is asked as a <code>platform</code> string, an <code>escapes</code> boolean, or this machine's separator with no way to ask for another, and both consumers of exclude text (the walk, the site's playground) must run parse, refuse, compile in that order themselves.</p>
+          <p><span class="font-semibold">Solution.</span> Every pattern function takes the same "which system" value, defaulting to this machine, and exclude text goes through one entry that returns a matcher or a refusal.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>interface shrinks: one parameter, one call</li>
+            <li>the playgrounds stop stubbing <code>node:path</code></li>
+            <li>11 tests skipped by this machine's <code>ESCAPES</code> run everywhere</li>
+            <li>the page can show Windows <code>find</code></li>
           </ul>
+          <p class="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm">Touches ADR-0115 and ADR-0051. It widens the carried smaller item "exclude's platform constants". The compile-without-refusal case isn't reachable in production today: both production routes go through <code>readExcludePatterns</code>.</p>
+        </article>
+
+        <!-- 6 -->
+        <article id="scenario-world" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex flex-wrap items-center gap-3">
+            <h3 class="font-serif text-xl">The model tier's scenario world is hand-built in seven files</h3>
+            <span class="rounded-full bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 text-slate-600 text-xs px-3 py-1">in-process (the test harness)</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">
+            test/model/model.{adversarial-506, durability, durability-audit, findings, hostile, smoke, clock}.test.mjs ·
+            test/model/harness/runner.mjs — runSequence :102 · test/helpers/hold-set.mjs, temp-home.mjs
+          </p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">Before — seven copies of one world</p>
+              <div class="grid grid-cols-4 gap-1">
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">findings</p><span class="chip">env</span> <span class="chip">exit</span> <span class="chip">clock+S3</span> <span class="chip">makeSet</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">hostile</p><span class="chip">env</span> <span class="chip">exit</span> <span class="chip">clock+S3</span> <span class="chip">makeSet′</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">smoke</p><span class="chip">env</span> <span class="chip">exit</span> <span class="chip">clock+S3</span> <span class="chip">oneSet</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">clock</p><span class="chip">env</span> <span class="chip">clock+S3</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">durability</p><span class="chip">env</span> <span class="chip chip-red">exit=0</span> <span class="chip">clock+S3</span> <span class="chip">photosSet</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">durability-audit</p><span class="chip">env</span> <span class="chip">exit</span> <span class="chip">clock+S3</span> <span class="chip">makeSet</span></div>
+                <div class="border border-red-300 hatch rounded p-1 space-y-1"><p class="cap text-slate-600">adversarial-506</p><span class="chip">env</span> <span class="chip chip-red">exit=0</span> <span class="chip">clock+S3</span> <span class="chip">makeSet</span></div>
+              </div>
+              <p class="tty text-slate-600">process.exitCode = 0; await cmd(); assert(process.exitCode) — 31 times</p>
+            </div>
+            <div class="rounded-lg border border-slate-200 p-4 space-y-2">
+              <p class="cap text-slate-500">After — the harness owns the world</p>
+              <div class="deep rounded-lg px-4 py-5 text-slate-100 space-y-1">
+                <p class="cap text-emerald-300">test/model/harness — a scenario</p>
+                <p class="tty">env and exit code saved and restored<br />the virtual clock, the fake S3<br />a home per machine, a held set<br />run a command → its exit code and output</p>
+              </div>
+              <div class="grid grid-cols-7 gap-1">
+                <span class="chip text-center">cases</span><span class="chip text-center">cases</span><span class="chip text-center">cases</span><span class="chip text-center">cases</span><span class="chip text-center">cases</span><span class="chip text-center">cases</span><span class="chip text-center">cases</span>
+              </div>
+            </div>
+          </div>
+          <p><span class="font-semibold">Problem.</span> Each scenario file rebuilds the same world by hand (the env and exit-code save and restore, a clock at 2026-01-05, a fake S3, a home, a held set: <code>makeSet</code> three times verbatim and three variants), and only two of the seven reset the exit code before each test; three of the seven were added in one week, by audits.</p>
+          <p><span class="font-semibold">Solution.</span> The harness owns the scenario world: one module installs it and runs a command for its exit code and output, beside the one <code>runSequence</code> already builds for generated steps.</p>
+          <ul class="list-disc pl-5 text-sm space-y-1">
+            <li>leverage: an audit's file is its cases</li>
+            <li>locality: exit-code handling in one place</li>
+            <li>the 31 reset-run-read triples become one call</li>
+          </ul>
+          <p class="rounded-md bg-slate-50 border border-slate-200 px-4 py-2 text-sm">The wider form: the same env save-and-restore loop is copied in 39 test files across <code>src/</code> and <code>test/</code>, 11 of which also save the exit code.</p>
         </article>
       </section>
 
-      <!-- Carried -->
       <section id="carried" class="space-y-4">
-        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Carried from the seventeenth pass, re-verified</h2>
-        <p class="text-sm text-slate-600">Every anchor re-read at HEAD; unchanged files confirmed by <code>git log</code> with a control that printed commits for the changed ones.</p>
+        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Carried from the eighteenth pass, re-verified</h2>
+        <p class="text-sm text-slate-600">All ten hold. Every count was recounted; the corrections are noted.</p>
         <ul class="text-sm space-y-2 list-disc pl-5">
-          <li><strong>One claim</strong> — <span class="label px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span> holds. setup.mjs :266–273 (<code>freshInfo → claimRemoteSet → writeSet → writeClaim</code>), takeover.mjs :90–103, the lost race :94–101 reached by no test; set-marker.mjs <code>claimRemoteSet</code> :118, <code>writeRemoteInfo</code> :140, <code>writeClaim</code> :166, <code>holding</code> :180–187. takeover.test.mjs :107–108 still asserts claim-text == marker-text, five cases, none the lost race.</li>
-          <li><strong><code>held</code> means two things</strong> — <span class="label px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span> holds. list.mjs :37–38 and <code>heldHere</code> :136–146 (a claim file exists) vs reattach.mjs :15 and <code>holding</code> (the pair matches the marker); render.mjs :113–116, :428–439. Nothing asserts a stale claim.</li>
-          <li><strong>Suggested exclude line</strong> — <span class="label px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">Strong</span> holds, wider input. <code>excludePattern</code> moved to backup.mjs :168–179; #461 keeps a folder link's separator (:175–178) and it still returns <code>relative(root, path)</code> raw (:177); #460 makes an uninspectable entry an <code>#error</code> (walk.mjs :439–449), so a Vault-type path is suggested too. render.mjs :1028–1040 says nothing about renaming. backup.test.mjs :230–280 cover plain names.</li>
-          <li><strong>Forget plans twice</strong> — <span class="label px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span> holds, and the "same step" now has two policies: forget.mjs :194 (<code>.orphaned</code>) and :212 around one intersect-and-HEAD :200–211, which pre-filters through <code>explainingDeletions</code> (referenced.mjs :105–119, #456) and ignores the record's <code>invalid</code>; <code>getUndeletedHashes</code> (upload.mjs :204–223) refuses on <code>invalid</code> (:205–208) and intersects the raw map.</li>
-          <li><strong>Tree's tab-separated output</strong> — <span class="label px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span> holds, narrow form. render.mjs :531–535 writes <code>${entry.path}\t${entry.pattern}</code> raw; an excluded entry is recorded (walk.mjs :417–420, :442, :534) before the loop's tab check (:315), so the path column can hold a tab on Linux/macOS (walk.test.mjs :700–716 asserts one). Lands beside the walk's classifier.</li>
-          <li><strong>Codec damage on both sides</strong> — <span class="label px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span> holds. <code>parseCompressedSnapshotStream</code> :826–853 folds only <code>Z_BUF_ERROR</code>; <code>isCorruptSnapshotError</code> (referenced.mjs :133–143) names both codes and <code>AssertionError</code>, its <code>Z_BUF_ERROR</code> arm unreachable from the reader; still no bad bytes → reader → classifier test.</li>
-          <li><strong>takeover reads the holder twice</strong> — small, holds: takeover.mjs :61–70, attach.mjs :37 again, <code>held</code> ignored at :73; the early exit :64–69 precedes attach.mjs :31–35's bucket check.</li>
+          <li><span class="font-semibold">Cleanup's top-up has four homes, and its interlocks run twice</span> — wider. The scan now also prunes its listing of snapshots it didn't read (src/lib/bucket-scan.mjs:86–95), so the token the command carries encodes "what the scan read"; a topped-up plan's <code>missing</code>, <code>damaged</code>, <code>unreadable</code> and <code>emptySets</code> describe only the scan. The wording did become single (<code>unreadableSnapshotsError</code>, <code>invalidRowsError</code> in lib).</li>
+          <li><span class="font-semibold">A restore fault kind is five hand-enumerations</span> — holds; #503 added no kind. Counts corrected: 11 lists and one number; 10 blocks in <code>renderRestore</code>, 8 with the full shape.</li>
+          <li><span class="font-semibold">Surplus positionals</span> — holds: 22 commands, 6 variadic, 3 refuse by hand, 13 drop. Two of the three refusals are tested (reattach, extract); takeover's isn't.</li>
+          <li><span class="font-semibold">One classifier in the walk</span> — holds: four <code>excludedBy</code> sites, three spellings of the type. No test covers a non-UTF-8 <em>directory</em>.</li>
+          <li><span class="font-semibold">Pre-decision stdout under <code>--json</code>, thrice</span> — holds (delete, forget, unlock).</li>
+          <li><span class="font-semibold">A typed snapshot name is normalized in two commands of five</span> — holds.</li>
+          <li><span class="font-semibold">One claim</span> — holds; the lost race is still reached by no test.</li>
+          <li><span class="font-semibold"><code>held</code> means two things</span> — holds. Correction: the shared phrase is "read-only on this machine". <code>list --remote</code> still uses the offline <code>heldHere</code>.</li>
+          <li><span class="font-semibold">Forget plans twice</span> — holds; <code>getUndeletedHashes</code> gained a second caller (status).</li>
+          <li><span class="font-semibold">Tree's tab-separated output</span> — holds.</li>
         </ul>
       </section>
 
-      <!-- Smaller items -->
       <section id="smaller" class="space-y-4">
-        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Smaller items</h2>
-        <p class="text-sm text-slate-600">Verified, too small for a card. New this pass first.</p>
-        <ul class="text-sm space-y-1.5 list-disc pl-5">
-          <li><strong>Failure-reason spellings: six.</strong> locks.mjs :258–259 adds a local <code>reason</code> beside the inline form at auth.mjs :49, remote.mjs :360, snapshot.mjs :360, walk.mjs :446; <code>errorText</code> (error.mjs :311) at s3cab.mjs :109, help.mjs :179, find.mjs :229, s3.mjs :342; <code>instanceof</code> at backup.mjs :85; <code>String(cause).trim()</code> at auth.mjs :352.</li>
-          <li><strong>Two <code>--from-file</code> openers.</strong> restore.mjs <code>readPathList</code> :157–182 (file or <code>-</code>, ENOENT → ADR-0030 message) and delete.mjs :127–142 (file only, by ADR-0089's "no piping"); <code>parseLines</code> (read-lines.mjs :11) is the one grammar.</li>
-          <li><strong><code>KEY=value</code>: one reader, two writers.</strong> <code>infoFields</code> (set-marker.mjs :83) serves the marker and the lock; <code>formatInfo</code> :71 and <code>formatLock</code> (locks.mjs :92) each hand-join with their own optional lines, and the writer-side invariants (LF-terminated, no newline in a value, no <code>=</code> in a key) are stated nowhere.</li>
-          <li><strong><code>hold</code>'s unstated precondition.</strong> "<code>work</code> rejects only after its requests have settled" is what makes "remove the lock on any failure" safe; it is written at the adapter (objects.mjs :155–158, <code>eachInFlight</code>) and in ADR-0112, not at the seam (locks.mjs :352–359 speaks of Ctrl+C only). Every current <code>work</code> satisfies it; the next author reads <code>hold</code>.</li>
-          <li><strong>Lock typing.</strong> <code>holdUploadLock.command</code> is <code>string</code> (locks.mjs :405), <code>holdDeleteLock.command</code> is <code>"cleanup" | "delete"</code> (:439); <code>goalOf</code>'s fallback (:255) is unreachable from the six sites.</li>
-          <li><strong><code>Drift.cause</code> is a raw Error in a result.</strong> upload.mjs :256; render.mjs :1291 and commands/upload.mjs :258 read <code>cause?.code</code> off it; under <code>--json</code> an fs error serializes to <code>{errno, code, syscall, path}</code> and a <code>ContentMismatchError</code> to <code>{}</code>.</li>
-          <li><strong>Bucket-name validation splits by operand position, 6:3.</strong> <code>validateBucketName</code> in every <code>--bucket</code> command (delete, unlock, setup, reattach, takeover, aws) and in none of the positional-bucket ones (cleanup.mjs :77, verify.mjs :53, hashes.mjs :24), so <code>cleanup s3://b</code> gets the SDK's error, not ADR-0030's.</li>
-          <li><strong>"Absolute by shape" ×4, "segments past the root" ×3.</strong> <code>!foldsCase(x) &amp;&amp; !x.startsWith("/")</code> at extract.mjs :47, restore.mjs :209 (<code>reroot</code>), snapshot-file.mjs :1119 (<code>pathFault</code>), path-match.mjs :102 (<code>isMatchableDir</code>); the root cut at <code>namesOf</code> (restore.mjs :166), <code>pathFault</code> :1137, <code>isMatchableDir</code> :105 each their own way. The drive-letter upper-casing is spelled in <code>reroot</code> :215–219 and <code>itemName</code> :231–239.</li>
-          <li><strong><code>restoreTargets</code> passes <code>invalid</code>/<code>unmatched</code> through</strong> (restore.mjs :389, :662–664) and takes <code>outDir</code> beside a <code>destFor</code> that already encodes it (:381, :391; <code>linkedFolder</code> :808 needs the prefix); both callers build the pair from one value. <code>extractTo(item, to)</code> and <code>selectTargets(…, [item])</code> derive depth and filter from the same string independently (:244–246 is caller discipline).</li>
-          <li><strong>"Transport failure first, then drift" restated at three coordinators</strong> — upload.mjs :599–613, :784–792, :876–879. Deliberate per ADR-0069's amendment; the lock move made the triplication adjacent.</li>
-          <li><strong><code>snapshotFiles</code> is a token the command carries</strong> (commands/cleanup.mjs :103 → :218) — with the top-up card.</li>
-          <li><strong>The heading literal is hand-spelled in eight test files</strong> (deletion-record.test.mjs :80, bucket-scan.test.mjs :77, status.test.mjs :89, snapshot-file.test.mjs :43, snapshot-file.torn-utf8.test.mjs :23; <code>HEADING + … + ".\n"</code> at list.test.mjs :147, compare.test.mjs :798, remote.referenced-scan.test.mjs :92); test/helpers/write-snapshot.mjs :67–79 goes through <code>stringifySnapshot</code> but still no <code>openingRows</code>/<code>START</code> — with the one-reader card.</li>
-          <li><strong>Carried and holding:</strong> AWS template file names re-spell the stack suffixes (lib/aws.mjs :96–114 via <code>bare()</code>; commands/aws.mjs :125, :137, :155 without); progress width read twice per frame (snapshot.mjs :465, progress.mjs :142) — the old "<code>_refreshSize</code> fake would drop" claim is dead, the test stubs <code>terminalWidth</code> by module mock (snapshot.progress.test.mjs :77); exclude's platform constants (exclude.mjs :50–52, :69–72); <code>formatByteValue</code>'s widest output restated and disagreeing (s3.mjs :629–631 <code>SIZE_COL = 8</code> "7 chars", snapshot.mjs :660–662 <code>BYTES_COLUMNS = 7</code>, format.test.mjs :41 pins 8); provider's switch re-spells the env keys (commands/provider.mjs :52–61, :270–275); a set with no bucket breaks every listing (sets.mjs :348–355, :408); <code>hashedFiles</code> counts empty files (file-props.mjs :180–199, snapshot.mjs :347–356); the empty file's hash spelled three times (delete.mjs :16–17, file-props.mjs :35, delete.test.mjs :110); debug decompression outside the codec's owner (snapshot.mjs :4, :371–377).</li>
-          <li><strong>Dead:</strong> <code>preparePath</code>'s unread fields — <code>.base</code> now has two production readers (find.mjs :157, <code>folderOf</code> snapshot-file.mjs :1042) and every field is read somewhere.</li>
+        <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Smaller items (new)</h2>
+        <ul class="text-sm space-y-2 list-disc pl-5">
+          <li><span class="font-semibold">An invisible character is spelled two ways.</span> <code>showControlChars</code> (src/lib/control-chars.mjs:14) writes <code>␉␍␊</code>; <code>withVisibleControls</code> (src/render.mjs:1724, 8 uses) writes <code>\xNN</code>. A link whose name holds a line feed reads <code>␊</code> in its <code>#error</code> row and <code>\x0a</code> in backup's report. ADR-0100 says the pictures hold "in error messages too".</li>
+          <li><span class="font-semibold">Forget's retire step is spelled twice</span> (src/commands/forget.mjs:284–292, :352–360), and <code>removeRemoteSet</code> (src/lib/set-marker.mjs:343–356) documents "once its last snapshot is gone" without checking it.</li>
+          <li><span class="font-semibold">A third answer to "which sets are in this bucket".</span> <code>listRemoteSets</code> (set-marker.mjs:309) counts a marker or a folder; ADR-0117 §1 and the scan also count a set known only by its config. With <strong>what counts as a set</strong>.</li>
+          <li><span class="font-semibold"><code>renderVerify</code>'s verdict assumes the last cause is versioning</span> (src/render.mjs:817–825): a fourth cause would read "versioning suspended".</li>
+          <li><span class="font-semibold">status restates two of upload's rules</span>: <code>matchRemoteSnapshot</code>'s byte comparison (src/commands/status.mjs:85–89) and <code>storedHashes</code>' fallback, without its warning (:142–143).</li>
+          <li><span class="font-semibold"><code>list &lt;set&gt;</code> throws on a damaged latest snapshot</span> (src/commands/list.mjs:144, no classifier), where <code>find</code> and <code>status</code> tolerate one. With <strong>damage by class name</strong>.</li>
+          <li><span class="font-semibold">A folder removed mid-restore reads as a refused name</span>: <code>isRefusedName</code> (src/lib/restore.mjs:777–783) takes any <code>ENOENT</code> with a path. Exit 1 either way; the reason is wrong. With <strong>restore decides once</strong>.</li>
+          <li><span class="font-semibold">"Check, PUT, a mismatch means changed" is written twice</span>: <code>uploadObjects</code> (src/lib/upload.mjs:389–426) and <code>uploadFile</code> (:930–945). Both tested.</li>
+          <li><span class="font-semibold">The snapshot's opening rows have a second writer in the site build</span> (site/.vitepress/challenge-bucket.mjs:94–110; snapshot-sample.data.mjs:89–130 patches the clock and rewrites <code>BY</code>): <code>writeSnapshot</code> reads who, the home and the finish time from the machine. Speculative: one caller in <code>src/</code>.</li>
+          <li><span class="font-semibold">Hash and size rules stated twice</span> on the reader side (<code>fileRowFault</code> snapshot-file.mjs:1134; <code>parseDeletionRecord</code> deletion-record.mjs:110–114); <code>Snapshot.dirs</code> has no production reader.</li>
+          <li><span class="font-semibold">Truncation and one error block copied in render.mjs</span>: "first N, then <em>and N more</em>" three times (:1118–1139, :1170); <code>renderUpload</code>'s snapshot mode copies <code>renderBackup</code>'s "Couldn't be backed up" block (:1394–1412) and aligns its counts differently.</li>
+          <li><span class="font-semibold">The walk and the exclude refusal disagree on the fix</span>: the walk suggests <code>odd*name.jpg</code> (src/lib/walk.mjs:339); <code>unusableExcludeError</code> says <code>?</code>, never <code>*</code> (src/lib/exclude.mjs:120).</li>
+          <li><span class="font-semibold">The site and the tests around <code>src/</code>:</span> README's global-options table is hand-kept beside <code>globalOptionRows</code>; test/doc-examples.test.mjs:230–236 copies the dispatcher's parse; find's pattern tests sit in find.test.mjs through a re-export; <code>compileFindPattern</code>'s refusal pulls terminal styling into the browser bundle; the model seam's mock (test/model/harness/seam.mjs) carries <code>objectExists</code> and <code>isPreconditionFailed</code>, which no production module imports.</li>
+          <li><span class="font-semibold">Unused exports</span>: <code>formatInfo</code> (set-marker.mjs:96); <code>noBackupsError</code>, <code>snapshotNotFoundError</code> (restore.mjs:262, :276) for the doc-examples test only.</li>
         </ul>
+        <p class="text-sm text-slate-600">The eighteenth pass's smaller items all hold, re-anchored in proposals/architecture-improvements.md, with four corrections: <code>formatInfo</code> never had optional-line handling; <code>ContentMismatchError</code> serializes as <code>{"name": …}</code>, not <code>{}</code>; bucket-name validation splits 5 of 5 flag commands against 1 of 4 positional ones; "absolute by shape" has a fifth variant (src/commands/restore.mjs:96–100), which proposals/bugs.md lists as a live defect.</p>
       </section>
 
-      <!-- Stale prose -->
       <section id="stale" class="space-y-4">
         <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Stale prose</h2>
-        <ul class="text-sm space-y-1.5 list-disc pl-5">
-          <li><strong>src/lib/cleanup.mjs :1–2, :8–11, :48–49</strong> — "the read-only twin of <code>verifySet</code>"; "the interlock <em>policy</em> is the command's"; "the command owns the wording" — <code>reclaim</code> :276–283 throws <code>unreadableSnapshotsError</code> :169 / <code>invalidRowsError</code> :189 from this file. True only of <code>planCleanup</code>.</li>
-          <li><strong>src/commands/cleanup.mjs :30–32</strong> "single pass — no second enumeration" (the top-up is a second <code>snapshots/</code> LIST plus reads); :18–19, :108 "read-only twin of <code>verify</code>" (carried).</li>
-          <li><strong>src/lib/s3.mjs :915–919</strong> <code>objectExists</code> names "upload.mjs's baseline-trust check" as a caller; nothing outside s3.mjs imports it (ADR-0084's <code>matchRemoteSnapshot</code> replaced that check).</li>
-          <li><strong>src/lib/snapshot-file.mjs :866</strong> "<code>@SET DIR</code> into <code>dirs</code> (what <code>restore --output</code> re-roots by)" — <code>reroot</code> reads no <code>dirs</code> since #464.</li>
-          <li><strong>src/lib/path-match.mjs :3–11</strong> header omits the reader, the walk's <code>backupMatcher</code> and <code>extract</code>; :59–62 "called once per row" is now ≥3 per row on read (measured at snapshot-file.mjs :1026–1034).</li>
-          <li><strong>src/commands/restore.mjs :89–95</strong> "or a hand-edited one would otherwise write files relative to the cwd" — the reader refuses a relative row now; only the cross-OS case remains.</li>
-          <li><strong>src/commands/upload.mjs :35–36</strong> points the baseline-trust check at proposals/bugs.md, whose open list is empty; the decision is ADR-0084.</li>
-          <li><strong>docs/design/backup.md :315</strong> "those three are the whole degrade" — eight kinds now.</li>
-          <li><strong>Carried:</strong> walk.mjs :44–55 and walk.test.mjs :693–694 (<code>crlfDelay</code>, with the classifier card); objects.mjs :14–22 header missing HEAD and DELETE, :201 "50 at a time" vs <code>REQUESTS_IN_FLIGHT</code>; compare.mjs :393–398 "no header, so no instant" (a true conclusion with a stale reason).</li>
+        <ul class="text-sm space-y-1 list-disc pl-5">
+          <li>src/lib/restore.mjs:345–348 and guide/restore.md:156 — "never touching an existing file" (false mid-run).</li>
+          <li>src/lib/referenced.mjs:121–130 — "reading a remote snapshot" (two of three callers read local ones); <code>Z_BUF_ERROR</code> never reaches it; "Unknown → not corruption".</li>
+          <li>src/lib/remote.mjs:184–187 (status reads through <code>readLatestRemoteSnapshot</code>), :205–206 (<code>referencedObjects</code> is forget's, not verify's), :247–249 ("for cleanup alone"), :34–36 ("the layout stays spelled in one place"), :125–126.</li>
+          <li>src/lib/unrestorable.mjs:95–97, :111–114; src/commands/verify.mjs:24–27 (omits <code>invalid</code> and <code>archived</code>).</li>
+          <li>src/lib/snapshot-file.mjs:58–60, :624–625 ("the grammar never leaves this module": three spellings outside it), :968.</li>
+          <li>src/lib/find-pattern.mjs:44 ("key on <code>process.platform</code>"; the code uses <code>sep</code>); src/lib/path-match.mjs:3–11.</li>
+          <li>src/render.mjs:12–13 ("bar one list": four are cut); src/lib/objects.mjs:84–85; src/lib/atomic-file.mjs:9–10.</li>
+          <li>docs/adr/0100:28–29 ("with <code>*</code> as the fix"; the code and guides offer <code>?</code>); src/lib/exclude.test.mjs:285's name; test/doc-examples.test.mjs:10–11, :223–224; site/.vitepress/node-shim.mjs:6–7.</li>
+          <li>Carried, all still present: src/lib/cleanup.mjs:1–2, :8–11, :51–52; src/commands/cleanup.mjs:19–20, :31–33, :111; src/lib/s3.mjs:954–963; src/commands/restore.mjs:89–95; src/commands/upload.mjs:36–37; docs/design/backup.md:313; src/lib/walk.mjs:49–59; src/lib/objects.mjs:12–22, :212; src/lib/compare.mjs:395.</li>
         </ul>
       </section>
 
-      <!-- Examined and left alone -->
       <section id="left-alone" class="space-y-4">
         <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Examined &amp; left alone</h2>
-        <p class="text-sm text-slate-700 leading-relaxed">
-          <strong>Locks:</strong> the liveness rule has one home (<code>liveLocks</code>, <code>processAlive</code>, <code>pidNamespace</code>), nothing outside re-derives it, and it is pinned through the holds (locks.test.mjs :469–655: dead pid swept, alive kept, EPERM alive, other OS / PIDNS / machine never judged). Write-first/look-second and finally-removal are invariants of <code>hold</code>, not discipline: the six sites pass only a closure, and request order is pinned (:368–373, :683–688). <code>--wait</code> is one loop, lock-free while waiting by construction, stepped under a timers mock and run for real in the crash tier; the knob forwarded through <code>reclaim</code>/<code>deleteContent</code> is the cost of "lock inside the lib". <code>basicForm</code> is one formatter, <code>snapshotNames</code> the one recognizer, and lock ids are never parsed by digits. <code>infoFields</code> now has two production consumers — a deepening. <code>readNewSnapshots</code> diffs by key, never by name or time. <code>unlock</code> composes <code>listLocks</code>/<code>removeLock</code>/<code>describeLock</code> and never judges liveness. Dry run and a declined prompt take no lock. <code>eachInFlight</code> settles every worker before rejecting. <code>WAIT_MS</code>/<code>writeLock</code> exported for tests only, the <code>REQUESTS_IN_FLIGHT</code> precedent. <code>uploadSet</code>'s three options are the command's bag relocated, one caller — but what is behind it is deep and the lock-placement rule earns the seam. The ADR-0112 audit in proposals/bugs.md already covers privileged pids, versioned buckets, clock skew and inode reuse.
-        </p>
-        <p class="text-sm text-slate-700 leading-relaxed">
-          <strong>Restore and the reader:</strong> <code>restoreTargets</code>'s loop (fate-by-hash, collision by <code>realpathSync.native</code>, <code>isRefusedName</code>/<code>isInTheWay</code>, the mtime read-back) — one deep function behind seven named args, two production callers with different <code>destFor</code>; <code>chooseSnapshot</code>; <code>selectTargets</code>'s all-vs-some rule; <code>extract</code>'s pre-read refusal and its three flag-preserving commands; <code>reroot</code>/<code>extractTo</code>/<code>placeUnder</code> separator-agnostic and tested on every shape from one OS; <code>writeFileAtomic</code>/<code>land</code>/<code>copyFileAtomic</code> after #463 and all three callers (<code>getObject</code> with hash, <code>downloadRemoteSnapshots</code> without — gzip's CRC is the check); <code>statProps</code> as the one mtime rounding, with the format's year bound and restore's NTFS bound correctly separate; <code>pathFault</code>'s NUL/CR/tab/segment rules and the post-read tree pass (both rows refused, root <code>DIR</code>'s bogus parent key harmless, traced for <code>/</code> and <code>C:\</code>); the writer not sharing a predicate with the reader is by construction (the walk yields real files under real roots; ADR-0028); <code>utf8Lines</code>' held-line LF logic; <code>rowFields</code> leaving column five untrimmed; <code>formatLine</code>'s code-point padding; the reader → <code>refused</code> → restore/verify/cleanup consumers; "a path that names nothing" decided in <code>selectTargets</code>, rendered once; <code>nothingNamedError</code> reading <code>dirs.txt</code>, not the snapshot; <code>readPathList</code>'s TTY gate; <code>recordUninspectable</code>'s file-only match. <code>path-match.mjs</code> holds one shape per family: one token compiler with two anchoring wrappers, one containment key scheme; <code>pathMatcher</code> has two production consumers (restore, the reader), a real seam.
-        </p>
-        <p class="text-sm text-slate-700 leading-relaxed">
-          <strong>Elsewhere:</strong> the registry and dispatch (<code>--wait</code> is one boolean carried command → lib → <code>holdDeleteLock</code> by ADR-0112's design); the destructive gate ×4 (cleanup, delete, forget, unlock), the tenth pass's reasoning holds; <code>putFile</code>'s interface unchanged by #459, its promise strengthened (digest compared before completion, nothing stored on mismatch), the three plan-loop fakes that return <code>true</code> without hashing kept honest by the stencil's throw-by-default, <code>fake-s3.mjs</code> honouring <code>sha256</code>; <code>error.mjs</code>: every class caught by type in production, <code>ChangedWhileReadError</code> included; <code>bucket-scan.mjs</code> still body-ordered, two consumers; <code>remote.mjs</code>'s <code>listSnapshotFiles</code>/<code>readReferencedObjects</code> split with <code>referencedObjects</code> kept for <code>forget</code>; the START-dating rule's two shapes (<code>explainingDeletions</code>, <code>recordFor</code>) — the verify/restore rejection's reasoning still holds, both tested; <code>attach.mjs</code>, <code>help.mjs</code>, <code>command-details.mjs</code>, <code>sets.mjs</code>, <code>list.mjs</code>, <code>lib/snapshot.mjs</code>, <code>lib/verify.mjs</code>: no code change beyond doc lines; <code>renderUnlock</code>'s empty-output contract; <code>renderRestore</code>'s <code>to</code> branch tested; the pass-13 verdict on folding restore's sentence-headed blocks into <code>section()</code> not revisited.
-        </p>
+        <ul class="text-sm space-y-1 list-disc pl-5">
+          <li><span class="font-semibold">One reader landed deep.</span> <code>parseS3cabFile</code> is the only TSV line reader in <code>src/</code>, and one test pins both file kinds to the same rules. <code>.info</code> and locks keep their own lenient grammar on purpose.</li>
+          <li><span class="font-semibold">Abort after a failed upload</span> is owned inside <code>putFile</code>; no caller sees an upload id, and no fake needs to model it.</li>
+          <li><span class="font-semibold"><code>writeFileAtomic</code> and <code>copyFileAtomic</code></span> after ADR-0116: a caller needs to know only that the folder exists; the source's faults are an answer, the destination's a throw.</li>
+          <li><span class="font-semibold">help.mjs feeding three renderings</span>: one model (<code>argRows</code>, <code>optionRows</code>, <code>synopsis</code>), two real adapters. The registry seam is still clean.</li>
+          <li><span class="font-semibold">The escape rule</span> is stated once in path-match.mjs, with one token compiler; exclude and find word their refusals apart on purpose.</li>
+          <li><span class="font-semibold">Unreadable snapshots, refused rows, a set with no snapshots, a damaged deletion record</span>: one derivation each and one policy per consumer, which agree.</li>
+          <li><span class="font-semibold">Versioning</span>: the call in s3.mjs, the judgement in lib/verify.mjs, the wording in render.mjs, each tested.</li>
+          <li><span class="font-semibold">render.mjs's new blocks</span> are single lines, not label-and-list, so <code>section()</code> doesn't apply.</li>
+          <li><span class="font-semibold">The two S3 fakes</span> (the unit stencil, the model tier's backend) differ on purpose, and the stencil's surface test holds.</li>
+          <li><span class="font-semibold">Not read:</span> scripts/cleanroom/ (three commits since the last pass, two of them run records); auth, env, provider and aws (unchanged).</li>
+        </ul>
       </section>
 
-      <!-- Top recommendation -->
-      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-600 bg-white p-6 space-y-3">
-        <p class="label text-emerald-700">Top recommendation</p>
-        <h2 class="font-serif text-2xl"><a href="#untested-holds" class="underline decoration-emerald-400 underline-offset-4">The upload lock's untested holds</a></h2>
-        <p class="text-sm text-slate-700 leading-relaxed">
-          Three of the six lock sites and the <code>upload --file</code> guard changed in the last five days, and none of them is asserted: the fake already records what was held, so the cost is the assertions and one mismatching <code>putObject</code>, in one test file, with no S3 path touched. It is also what makes every other lock refactor on this list safe to attempt. <strong>Next:</strong> <a href="#one-reader" class="underline decoration-slate-300 underline-offset-4">one reader for a valid s3cab file</a> — carried for a third pass, its two divergences now reproduced by running the real modules rather than traced, so a grilling can start from the probe's output.
-        </p>
+      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-500 bg-white p-8 space-y-3">
+        <p class="cap text-emerald-700">Top recommendation</p>
+        <h2 class="font-serif text-2xl"><a href="#restore-judges-once" class="underline decoration-emerald-400 underline-offset-4">Restore decides "skip an existing file" once, before the loop</a></h2>
+        <p class="text-sm text-slate-700 max-w-3xl">It is the one candidate whose current shape loses a user's file, the rule it breaks is already an accepted ADR, and the deepening removes a module rather than adding one. <a href="#damage-type" class="underline">Damage by class name</a> is next: small, carried for three passes, and wider each time.</p>
       </section>
     </main>
   </body>

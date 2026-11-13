@@ -108,6 +108,7 @@ mock.module("../lib/objects.mjs", {
       /** @type {string} */ _bucket,
       /** @type {string} */ hash,
       /** @type {string} */ destPath,
+      /** @type {{ noClobber?: boolean }} */ options,
     ) => {
       const label = /** @type {string} */ (labels.get(hash));
       fetched.push(label);
@@ -118,7 +119,10 @@ mock.module("../lib/objects.mjs", {
       // Landed the way the real getObject lands it, so a name the disk refuses
       // fails where it really does (the rename, after the download) and leaves
       // what it really leaves.
-      await writeFileAtomic(destPath, Readable.from(label), { hash });
+      await writeFileAtomic(destPath, Readable.from(label), {
+        hash,
+        ...options,
+      });
       afterFetch(label, destPath);
     },
   },
@@ -612,12 +616,15 @@ describe("restore with content shared by several paths", () => {
       return;
     }
     rmSync(dest("probe.tmp"));
+    // Of another length than File.txt's: what collides is the file on disk,
+    // whatever this row's own size.
+    const longer = { ...at, size: 4, hash: "bbbb" };
     snapshot = {
       entries: new Map([
         ["/data/File.txt", { ...at, hash: "aaa" }],
-        ["/data/file.txt", { ...at, hash: "bbb" }], // collides with File.txt
-        ["/data/g-second.txt", { ...at, hash: "bbb" }],
-        ["/data/h-third.txt", { ...at, hash: "bbb" }],
+        ["/data/file.txt", longer], // collides with File.txt
+        ["/data/g-second.txt", longer],
+        ["/data/h-third.txt", longer],
       ]),
       dirs: ["/data"],
     };
@@ -625,8 +632,9 @@ describe("restore with content shared by several paths", () => {
     const result = await restore([], { all: true, set: "photos", output });
 
     assert.deepEqual(result.collided, [dest("file.txt")]);
-    assert.deepEqual(fetched, ["aaa", "bbb"]);
-    assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbb");
+    assert.deepEqual(fetched, ["aaa", "bbbb"]);
+    assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+    assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbbb");
   });
 });
 
@@ -911,8 +919,8 @@ describe("restore with a name this disk refuses", () => {
       // NTFS takes `b:stream.txt` as stream `stream.txt` of a file `b`, so a
       // write or a copy to it leaves a stray file in the listing and the
       // content where no listing shows it. Only a Windows-shaped destination
-      // says so, hence only here; lib/restore.test.mjs pins the decision itself
-      // on every platform.
+      // says so, hence only here; "keeps a `:` in a name on a disk that takes
+      // it as one" is the other side.
       snapshot = {
         entries: new Map([
           ["/data/a-first.txt", { ...at, hash: "aaa" }],
@@ -942,6 +950,75 @@ describe("restore with a name this disk refuses", () => {
         "d-twin.txt",
       ]);
       assert.equal(process.exitCode, 1);
+    },
+  );
+
+  it(
+    "refuses a `:` in a name even where an earlier write left its stream",
+    { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
+    async () => {
+      // The stream makes the name read as a file already there; refused is
+      // still the answer, not skipped, and `--overwrite` doesn't reach it.
+      snapshot = {
+        entries: new Map([["/data/b:stream.txt", { ...at, hash: "bbb" }]]),
+        dirs: ["/data"],
+      };
+      mkdirSync(join(output, "data"));
+      writeFileSync(dest("b:stream.txt"), "earlier");
+
+      for (const overwrite of [false, true]) {
+        const result = await restore([], {
+          all: true,
+          set: "photos",
+          output,
+          overwrite,
+        });
+
+        assert.deepEqual(result.refused, [dest("b:stream.txt")]);
+        assert.deepEqual(result.skipped, []);
+      }
+      assert.deepEqual(fetched, []);
+      assert.equal(readFileSync(dest("b:stream.txt"), "utf8"), "earlier");
+    },
+  );
+
+  it(
+    "keeps a `:` in a name on a disk that takes it as one",
+    { skip: process.platform === "win32" ? "a POSIX name" : false },
+    async () => {
+      snapshot = {
+        entries: new Map([["/data/a:b.txt", { ...at, hash: "aaa" }]]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], { all: true, set: "photos", output });
+
+      assert.deepEqual(result.restored, [dest("a:b.txt")]);
+      assert.equal(readFileSync(dest("a:b.txt"), "utf8"), "aaa");
+    },
+  );
+
+  it(
+    "refuses a path it can't place under --output by its snapshot path, --overwrite or not",
+    { skip: process.platform !== "win32" ? "a Windows output folder" : false },
+    async () => {
+      // A `\` in a POSIX name would be read as a separator in a Windows folder.
+      snapshot = {
+        entries: new Map([["/data/back\\slash.txt", { ...at, hash: "aaa" }]]),
+        dirs: ["/data"],
+      };
+
+      for (const overwrite of [false, true]) {
+        const result = await restore([], {
+          all: true,
+          set: "photos",
+          output,
+          overwrite,
+        });
+
+        assert.deepEqual(result.refused, ["/data/back\\slash.txt"]);
+      }
+      assert.deepEqual(fetched, []);
     },
   );
 });
@@ -1157,7 +1234,7 @@ describe("restore when something on disk is in the way", () => {
   });
 
   it("reports a file already beyond such a link as in the way, not skipped", async () => {
-    // The plan's `lstat` follows the link at the folder, so it sees the file.
+    // `lstat` follows the link at the folder, so it sees the file.
     mkdirSync(join(output, "elsewhere"));
     writeFileSync(join(output, "elsewhere", "gone.txt"), "outside");
     symlinkSync(join(output, "elsewhere"), join(output, "data"), "junction");
@@ -1265,12 +1342,12 @@ describe("restore when something on disk is in the way", () => {
     assert.equal(process.exitCode, 1);
   });
 
-  it("skips a file whose place became a folder mid-run, at the download and at a copy", async () => {
-    // A real disk's answer again: EPERM on NTFS, EISDIR on ext4, named for the
-    // source of the rename or the copy. The folders appear after the plan, as
-    // another row's folder would.
-    afterFetch = (hash) => {
-      if (hash === "bbb") {
+  it("blocks a file whose place became a folder mid-run, before copying or fetching it", async () => {
+    // The folders appear after the run began, as another row's folder would.
+    // Each file's place is looked at on its turn, so neither content is copied
+    // or downloaded only to fail at the landing.
+    afterFetch = (label) => {
+      if (label === "bbb") {
         mkdirSync(dest("gone-copy.txt"));
         mkdirSync(dest("last.txt"));
       }
@@ -1280,10 +1357,10 @@ describe("restore when something on disk is in the way", () => {
 
     assert.deepEqual(result.restored, [dest("first.txt"), dest("gone.txt")]);
     assert.deepEqual(result.blocked, [
-      dest("gone-copy.txt"), // copied from gone.txt
-      dest("last.txt"), // downloaded
+      dest("gone-copy.txt"), // would be copied from gone.txt
+      dest("last.txt"), // would be downloaded
     ]);
-    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.deepEqual(fetched, ["aaa", "bbb"]);
     assert.equal(process.exitCode, 1);
   });
 });

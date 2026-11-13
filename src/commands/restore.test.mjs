@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { restore } from "./restore.mjs";
 
-// The pure restore-planning functions (selectEntries, reroot, planRestore) are
+// The pure restore-planning functions (selectEntries, reroot) are
 // unit-tested in lib/restore.test.mjs; the backup → restore round trip against a
 // real bucket lives in test/integration/backup-restore-roundtrip.test.mjs. This file covers the
 // command's offline argument validation, which happens before any cloud access.

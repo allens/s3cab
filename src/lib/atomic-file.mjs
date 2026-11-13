@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { open, rename, rm } from "node:fs/promises";
+import { link, lstat, open, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { IntegrityError } from "./error.mjs";
+import { DestinationExistsError, IntegrityError } from "./error.mjs";
 
 /** @import { Readable } from "node:stream" */
 
@@ -26,22 +26,32 @@ import { IntegrityError } from "./error.mjs";
  * before the error leaves — a torn stream, a digest mismatch, or a name the
  * filesystem refuses, which only the rename finds out, after the whole
  * download — because the caller may carry on past it (`restore` does), and
- * would otherwise finish with a temp beside every file it couldn't place. Only
- * a process that dies mid-write leaves one, and a retry removes it.
+ * would otherwise finish with a temp beside every file it couldn't place. A
+ * process that dies mid-write leaves one, which a retry removes; under
+ * `noClobber`, so does one that dies or is held open just after the landing,
+ * and a retry skips that file, leaving its temp (see `moveIfFree`).
  * `destPath`'s parent directory must already exist (the temp file is a
  * sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
  * @param {Readable} source - The byte stream to write (typically `await getStream(uri)`)
  * @param {object} [options]
  * @param {string} [options.hash] - Expected content hash (lowercase hex)
+ * @param {boolean} [options.noClobber] - Leave whatever is at `destPath` alone,
+ *   however late it arrived (see `moveIfFree`)
  * @returns {Promise<void>}
  * @throws {IntegrityError} The content hashes differently from `hash` (nothing
  *   is left at `destPath` or in the temp)
+ * @throws {DestinationExistsError} Under `noClobber`, something is at
+ *   `destPath` (it is left as it is, and nothing in the temp)
  * @throws {NodeJS.ErrnoException} `EEXIST`: what sits at the temp's name
  *   couldn't be removed — a folder, a leftover a program on Windows holds open
  *   without sharing deletion, or one in a folder this process can't write to
  */
-export async function writeFileAtomic(destPath, source, { hash } = {}) {
+export async function writeFileAtomic(
+  destPath,
+  source,
+  { hash, noClobber = false } = {},
+) {
   const hasher = hash ? createHash("sha256") : undefined;
   const tmpPath = tempPathFor(destPath);
   // Derived from the name, so whatever is there is a dead run's leftover or
@@ -91,13 +101,54 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
         );
       }
     }
-    await rename(tmpPath, destPath);
+    if (noClobber) {
+      await moveIfFree(tmpPath, destPath);
+    } else {
+      await rename(tmpPath, destPath);
+    }
   } catch (error) {
     // The cleanup's own failure is dropped: the caller needs the error that
     // says why the file didn't land, not why its temp outlived it.
     await rm(tmpPath, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Move `tmpPath` to `destPath` only if nothing is there. Not a check and then
+ * a rename, which replaces whatever arrives between the two: a hard link, which
+ * the filesystem itself refuses over anything at all — a file, a folder, any
+ * kind of link — with `EEXIST` (measured on NTFS and ext4, ADR-0116). A
+ * filesystem without hard links (FAT, exFAT) fails the link some other way;
+ * there `destPath` is looked at once more and the temp renamed, which leaves
+ * only the moment between the two. A name the filesystem refuses fails the link
+ * as it fails a rename, so the rename then throws what a caller already reads.
+ * @param {string} tmpPath
+ * @param {string} destPath
+ * @throws {DestinationExistsError} Something is at `destPath`
+ */
+async function moveIfFree(tmpPath, destPath) {
+  const taken = () =>
+    new DestinationExistsError(`Something is already at ${destPath}`);
+  try {
+    await link(tmpPath, destPath);
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
+      throw taken();
+    }
+    const there = await lstat(destPath).catch(() => undefined);
+    if (there !== undefined) {
+      throw taken();
+    }
+    await rename(tmpPath, destPath);
+    return;
+  }
+  // The file has landed, so a temp another program holds open (`EBUSY` on
+  // Windows) past the retries stays as a second name, as a stopped run leaves
+  // it (ADR-0116), rather than failing a file that is in place. `maxRetries`
+  // does retry a single file without `recursive`, though Node's docs say it is
+  // ignored (measured, Node 26: a 400 ms lock outlasted).
+  await rm(tmpPath, { maxRetries: 3 }).catch(() => {});
 }
 
 /**
@@ -122,13 +173,14 @@ export function tempPathFor(destPath) {
  * @param {string} destPath - Where to write the copy (parent must exist)
  * @param {object} options
  * @param {string} options.hash - Expected content hash (lowercase hex)
+ * @param {boolean} [options.noClobber] - As `writeFileAtomic`'s
  * @returns {Promise<boolean>} Whether the copy landed. `false` is the source's
  *   doing, whatever it is now: gone, unreadable, no longer a regular file, or
  *   content that hashes differently from `hash`. Nothing is left at `destPath`
  *   or in the temp, and the caller still has the content to fetch. A fault at
  *   the destination throws as `writeFileAtomic` does.
  */
-export async function copyFileAtomic(from, destPath, { hash }) {
+export async function copyFileAtomic(from, destPath, { hash, noClobber }) {
   // Opened here, not `createReadStream(from)`: that opens lazily, and a failed
   // open would be an uncaught 'error' before `pipeline` is listening.
   let source;
@@ -153,7 +205,7 @@ export async function copyFileAtomic(from, destPath, { hash }) {
     highWaterMark: Math.min(stat.size, 1024 * 1024) || 1,
   });
   try {
-    await writeFileAtomic(destPath, chunks, { hash });
+    await writeFileAtomic(destPath, chunks, { hash, noClobber });
   } catch (error) {
     // `pipeline` destroys every stream on any failure, so the source's own
     // 'error' can't tell its failure from the writer's; the errno's syscall

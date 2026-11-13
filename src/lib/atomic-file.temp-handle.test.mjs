@@ -35,6 +35,8 @@ function slowly(openNow) {
 
 mock.module("node:fs/promises", {
   exports: {
+    link: realFsPromises.link,
+    lstat: realFsPromises.lstat,
     rename: realFsPromises.rename,
     rm: realFsPromises.rm,
     /** @type {typeof realFsPromises.open} */

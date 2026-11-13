@@ -167,6 +167,26 @@ export class IntegrityError extends Error {
 }
 
 /**
+ * Something already at the destination of a write told not to replace it —
+ * `writeFileAtomic`'s `noClobber` — found once the bytes are verified. What is
+ * there is left alone, and no temp is left beside it.
+ *
+ * A subclass because `restore` catches it *by type*: what is there then decides
+ * the report (skipped, collided or blocked), where a plain `EEXIST` would read
+ * as the file's temp being in the way.
+ */
+export class DestinationExistsError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "DestinationExistsError";
+  }
+}
+
+/**
  * A file whose read returned another number of bytes than its `lstat` reported:
  * it changed while `fileProps` (lib/file-props.mjs) hashed it.
  *

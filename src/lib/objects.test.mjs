@@ -145,12 +145,16 @@ describe("getObject", () => {
     // The layout policy in one pairing: the key *is* the content hash, so the
     // same value must reach writeFileAtomic as the expected digest — that is
     // what turns its generic integrity check into design #1's guarantee.
-    await getObject("my-bucket", "abc123", "/restore/out.bin");
+    // `noClobber` goes with it, so `restore` can leave alone what arrives
+    // while the bytes are in flight.
+    await getObject("my-bucket", "abc123", "/restore/out.bin", {
+      noClobber: true,
+    });
 
     assert.equal(requestedUri, "s3://my-bucket/objects/abc123");
     assert.deepEqual(download, {
       destPath: "/restore/out.bin",
-      options: { hash: "abc123" },
+      options: { hash: "abc123", noClobber: true },
     });
   });
 });

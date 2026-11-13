@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmdirSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -13,7 +14,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { copyFileAtomic, writeFileAtomic } from "./atomic-file.mjs";
-import { IntegrityError } from "./error.mjs";
+/** @import { Stats } from "node:fs" */
+import { DestinationExistsError, IntegrityError } from "./error.mjs";
 
 // writeFileAtomic takes its source stream as a parameter — that seam is what
 // lets the atomicity + integrity logic run here against an in-memory stream
@@ -132,6 +134,99 @@ describe("writeFileAtomic", () => {
   });
 });
 
+// `noClobber` is what keeps `restore` from replacing a file that arrives while
+// its content downloads: the filesystem refuses the landing, not a check
+// before it.
+describe("writeFileAtomic with noClobber", () => {
+  const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+  const content = "the real object bytes";
+  const hash = createHash("sha256").update(content).digest("hex");
+
+  it("lands the file where nothing is, and leaves no temp", async () => {
+    await using dir = await mkTmpDir();
+    const dest = join(dir.path, "out.bin");
+
+    await writeFileAtomic(dest, Readable.from(content), {
+      hash,
+      noClobber: true,
+    });
+
+    assert.equal(readFileSync(dest, "utf8"), content);
+    assert.deepEqual(readdirSync(dir.path), ["out.bin"]);
+  });
+
+  // A junction needs no privilege on Windows; elsewhere the type is ignored and
+  // it is a plain link, here one whose folder is gone.
+  for (const [
+    what,
+    plant,
+  ] of /** @type {[string, (dest: string) => void][]} */ ([
+    ["a file", (dest) => writeFileSync(dest, "theirs")],
+    ["a folder", (dest) => mkdirSync(dest)],
+    [
+      "a link whose target is gone",
+      (dest) => {
+        mkdirSync(`${dest}-gone`);
+        symlinkSync(`${dest}-gone`, dest, "junction");
+        rmdirSync(`${dest}-gone`);
+      },
+    ],
+  ])) {
+    it(`leaves ${what} that arrives during the write alone, and leaves no temp`, async () => {
+      await using dir = await mkTmpDir();
+      const dest = join(dir.path, "out.bin");
+      /** @type {Stats | undefined} */
+      let before;
+      // Planted after the first chunk is read, where a look before the write
+      // can't see it.
+      async function* arriving() {
+        yield content;
+        plant(dest);
+        before = lstatSync(dest);
+      }
+
+      await assert.rejects(
+        () =>
+          writeFileAtomic(dest, Readable.from(arriving()), {
+            hash,
+            noClobber: true,
+          }),
+        DestinationExistsError,
+      );
+
+      assert.ok(before);
+      const after = lstatSync(dest);
+      assert.equal(after.ino, before.ino);
+      assert.equal(after.isSymbolicLink(), before.isSymbolicLink());
+      if (before.isFile()) {
+        assert.equal(readFileSync(dest, "utf8"), "theirs");
+      }
+      assert.deepEqual(readdirSync(dir.path), ["out.bin"]);
+    });
+  }
+
+  it("still throws the refusal for a name the filesystem refuses", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      () =>
+        writeFileAtomic(
+          join(dir.path, "n".repeat(300)),
+          Readable.from(content),
+          {
+            hash,
+            noClobber: true,
+          },
+        ),
+      // Not `DestinationExistsError`: `restore` reports this file refused.
+      (/** @type {NodeJS.ErrnoException} */ error) =>
+        ["ENOENT", "ENAMETOOLONG"].includes(error.code ?? "") &&
+        typeof error.path === "string",
+    );
+    assert.deepEqual(readdirSync(dir.path), []);
+  });
+});
+
 describe("copyFileAtomic", () => {
   const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
   const hash = createHash("sha256").update("what landed").digest("hex");
@@ -230,5 +325,25 @@ describe("copyFileAtomic", () => {
     );
 
     assert.deepEqual(readdirSync(dir.path), ["source"]);
+  });
+
+  it("throws, not false, for a file already at a noClobber destination", async () => {
+    // `false` would send `restore` to fetch the content again: the source is
+    // fine, it is the destination that is taken.
+    await using dir = await mkTmpDir();
+    writeFileSync(join(dir.path, "source"), "what landed");
+    writeFileSync(join(dir.path, "dest"), "theirs");
+
+    await assert.rejects(
+      () =>
+        copyFileAtomic(join(dir.path, "source"), join(dir.path, "dest"), {
+          hash,
+          noClobber: true,
+        }),
+      DestinationExistsError,
+    );
+
+    assert.equal(readFileSync(join(dir.path, "dest"), "utf8"), "theirs");
+    assert.deepEqual(readdirSync(dir.path).sort(), ["dest", "source"]);
   });
 });
