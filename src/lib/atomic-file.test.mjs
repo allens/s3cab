@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { copyFileAtomic, writeFileAtomic } from "./atomic-file.mjs";
+/** @import { Stats } from "node:fs" */
 import { DestinationExistsError, IntegrityError } from "./error.mjs";
 
 // writeFileAtomic takes its source stream as a parameter — that seam is what
@@ -171,21 +172,29 @@ describe("writeFileAtomic with noClobber", () => {
       },
     ],
   ])) {
-    it(`leaves ${what} at the destination alone, and leaves no temp`, async () => {
+    it(`leaves ${what} that arrives during the write alone, and leaves no temp`, async () => {
       await using dir = await mkTmpDir();
       const dest = join(dir.path, "out.bin");
-      plant(dest);
-      const before = lstatSync(dest);
+      /** @type {Stats | undefined} */
+      let before;
+      // Planted after the first chunk is read, where a look before the write
+      // can't see it.
+      async function* arriving() {
+        yield content;
+        plant(dest);
+        before = lstatSync(dest);
+      }
 
       await assert.rejects(
         () =>
-          writeFileAtomic(dest, Readable.from(content), {
+          writeFileAtomic(dest, Readable.from(arriving()), {
             hash,
             noClobber: true,
           }),
         DestinationExistsError,
       );
 
+      assert.ok(before);
       const after = lstatSync(dest);
       assert.equal(after.ino, before.ino);
       assert.equal(after.isSymbolicLink(), before.isSymbolicLink());

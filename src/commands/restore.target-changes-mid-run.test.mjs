@@ -15,7 +15,7 @@ import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
-import { writeFileAtomic } from "../lib/atomic-file.mjs";
+import * as atomicFile from "../lib/atomic-file.mjs";
 
 // What a restore does when the target changes under it, between one file and
 // the next (ADR-0116): something else writing in `--output` while it runs. Same
@@ -30,8 +30,13 @@ const contents = new Map(
   ["aaa", "bbb", "ccc"].map((content) => [digestOf(content), content]),
 );
 
-/** @type {(dest: string) => void} Runs once content is fetched, before it lands. */
+/**
+ * @type {(dest: string) => void} Runs while fetched content is written, after
+ * its first chunk, so a look before the write can't see what it does.
+ */
 let beforeLanding = () => {};
+/** @type {(dest: string) => void} Runs as a copy starts, after its destination was looked at. */
+let beforeCopy = () => {};
 /** @type {(dest: string) => void} Runs after each fetch, landed or not. */
 let afterFetch = () => {};
 /** @type {string[]} What `getObject` was asked for, in order. */
@@ -65,15 +70,28 @@ mock.module("../lib/objects.mjs", {
     ) => {
       const content = /** @type {string} */ (contents.get(hash));
       fetched.push(content);
-      try {
+      async function* download() {
+        yield content;
         beforeLanding(destPath);
-        await writeFileAtomic(destPath, Readable.from(content), {
+      }
+      try {
+        await atomicFile.writeFileAtomic(destPath, Readable.from(download()), {
           hash,
           ...options,
         });
       } finally {
         afterFetch(destPath);
       }
+    },
+  },
+});
+mock.module("../lib/atomic-file.mjs", {
+  exports: {
+    ...atomicFile,
+    /** @type {typeof atomicFile.copyFileAtomic} */
+    copyFileAtomic: async (from, destPath, options) => {
+      beforeCopy(destPath);
+      return atomicFile.copyFileAtomic(from, destPath, options);
     },
   },
 });
@@ -112,6 +130,7 @@ beforeEach(() => {
   savedExitCode = process.exitCode;
   snapshot = threeFiles;
   beforeLanding = () => {};
+  beforeCopy = () => {};
   afterFetch = () => {};
   fetched = [];
   base = mkdtempSync(join(tmpdir(), "s3cab-restore-mid-run-"));
@@ -163,6 +182,51 @@ describe("restore when the target changes mid-run", () => {
     assert.deepEqual(result.skipped, []);
     assert.deepEqual(readdirSync(dest("b.txt")), []);
     assert.equal(process.exitCode, 1);
+  });
+
+  // The rename's refusal (`EISDIR`, `EPERM` on NTFS), where the test above
+  // meets the link's.
+  it("reports a folder that arrives during its own download as in the way, under --overwrite too", async () => {
+    beforeLanding = (to) => {
+      if (basename(to) === "b.txt") {
+        mkdirSync(to);
+      }
+    };
+
+    const result = await restore([], {
+      all: true,
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(result.blocked, [dest("b.txt")]);
+    assert.deepEqual(result.restored, [dest("a.txt"), dest("sub/c.txt")]);
+    assert.deepEqual(readdirSync(dest("b.txt")), []);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("leaves a file that arrives before its copy lands alone, and reports it skipped", async () => {
+    snapshot = oneContent;
+    beforeCopy = (to) => {
+      if (basename(to) === "b.txt") {
+        writeFileSync(to, "theirs");
+      }
+    };
+
+    const result = await restore([], { all: true, set: "photos", output });
+
+    assert.equal(readFileSync(dest("b.txt"), "utf8"), "theirs");
+    assert.equal(readFileSync(dest("c.txt"), "utf8"), "aaa");
+    assert.deepEqual(fetched, ["aaa"]);
+    assert.deepEqual(result.skipped, [dest("b.txt")]);
+    assert.deepEqual(result.restored, [dest("a.txt"), dest("c.txt")]);
+    assert.deepEqual(readdirSync(join(output, "data")).sort(), [
+      "a.txt",
+      "b.txt",
+      "c.txt",
+    ]);
+    assert.equal(process.exitCode, savedExitCode);
   });
 
   it("replaces a file that arrives during its own download under --overwrite", async () => {
