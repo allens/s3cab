@@ -372,16 +372,17 @@ export async function restoreTargets({
   // this volume cannot tell apart — letter case (Windows, macOS default), or
   // Unicode normalization (APFS folds NFC/NFD) — and writing both would keep
   // only the last row's bytes while reporting both restored. So each written
-  // file's canonical on-disk path is recorded, and a later target that already
-  // *exists* (the volume's own answer, whatever its folding rules) and
-  // canonicalizes into that record is a collision — reported, never written.
-  // A link at the target is no collision, wherever it points: the write's
-  // rename replaces the link, never the file behind it. The per-file
-  // `realpathSync.native` (in `occupant`) is deliberate, not the walk-hot-path
-  // mistake: no pure-string function can say whether two names are one file —
-  // trusting strings is the bug this closes.
-  /** @type {Set<string>} */
-  const writtenCanonical = new Set();
+  // file's canonical on-disk path is recorded, by its size, and a later target
+  // that already *exists* (the volume's own answer, whatever its folding rules)
+  // and canonicalizes into that record is a collision — reported, never
+  // written. A link at the target is no collision, wherever it points:
+  // `--overwrite` replaces the link, never the file behind it, and without it
+  // the link is skipped like any file. The `realpathSync.native` (in
+  // `occupant`) is deliberate, not the walk-hot-path mistake: no pure-string
+  // function can say whether two names are one file — trusting strings is the
+  // bug this closes.
+  /** @type {Map<number, Set<string>>} */
+  const writtenCanonical = new Map();
   // What became of each content hash this run has tried to write, shared by
   // every path that holds it. Once content lands, every later path holding it
   // is copied from there rather than downloaded again (#1), until that file
@@ -542,7 +543,13 @@ export async function restoreTargets({
         }
       }
       if (outcome === "found") {
-        writtenCanonical.add(realpathSync.native(dest));
+        const { size } = lstatSync(dest);
+        writtenCanonical.set(
+          size,
+          (writtenCanonical.get(size) ?? new Set()).add(
+            realpathSync.native(dest),
+          ),
+        );
         fateByHash.set(hash, { kind: "landed", dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
@@ -769,10 +776,11 @@ function isInTheWay(error, dest) {
 /**
  * What is at `dest`: nothing; a folder; a file this run wrote under another
  * name this volume folds into `dest` (ADR-0086); or anything else — a file, or
- * a link of any kind, which a rename replaces without following. The entry
- * itself, not a link's target.
+ * a link of any kind, which `--overwrite` replaces without following. The
+ * entry itself, not a link's target.
  * @param {string} dest
- * @param {Set<string>} written - The canonical path of each file this run wrote
+ * @param {Map<number, Set<string>>} written - The canonical path of each file
+ *   this run wrote, by its size
  * @returns {"nothing" | "folder" | "ours" | "other"}
  */
 function occupant(dest, written) {
@@ -783,11 +791,13 @@ function occupant(dest, written) {
   if (there.isDirectory()) {
     return "folder";
   }
-  // `written.size` first: `realpathSync.native` costs 0.15 ms a file on NTFS,
-  // and a re-run that skips every file would otherwise pay it for each one.
-  return written.size > 0 &&
-    !there.isSymbolicLink() &&
-    written.has(realpathSync.native(dest))
+  // Only a file the size of one this run wrote can be one, so only that file
+  // pays `realpathSync.native`: 0.15 ms on NTFS, three times the `lstat`, and a
+  // restore skipping most of a tree would pay it for every file it skips. A
+  // file rewritten to another size since it landed holds nothing of this
+  // run's to lose.
+  return !there.isSymbolicLink() &&
+    written.get(there.size)?.has(realpathSync.native(dest)) === true
     ? "ours"
     : "other";
 }

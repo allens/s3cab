@@ -43,10 +43,10 @@ Two subtleties the mechanism carries:
     crafted-manifest corner, not worth machinery. Refused names (PR #354) made a write that fails
     while its content is sound an ordinary cross-OS case, and with the loop recording where
     content landed, redirecting is the simpler code rather than extra machinery.
-- **The per-file `realpathSync.native` is deliberate**, not the walk-hot-path mistake CLAUDE.md
-  warns about: no pure-string function can say whether two names are one file — trusting
-  strings is the bug this closes. It is asked only of a file already at its destination once the
-  run has written something, so a re-run that skips every file doesn't pay it
+- **The `realpathSync.native` is deliberate**, not the walk-hot-path mistake CLAUDE.md warns
+  about: no pure-string function can say whether two names are one file — trusting strings is
+  the bug this closes. It is asked only of a file already at its destination that is the size of
+  one this run wrote, so a restore that skips most of a tree doesn't pay it for each file it skips
   ([0116](0116-restore-rechecks-its-target.md)'s amendment).
 
 ## Consequences
