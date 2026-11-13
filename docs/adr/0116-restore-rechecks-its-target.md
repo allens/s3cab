@@ -138,5 +138,6 @@ something: a re-run that skips every file doesn't pay it.
 
 ### Consequences
 
-- A process that stops between the link and the temp's removal leaves the temp as a second name
-  for the landed file. A later run skips that file, so it doesn't remove the temp.
+- A process that stops between the link and the temp's removal, or a removal that fails because
+  another program holds the temp open, leaves the temp as a second name for the landed file. A
+  later run skips that file, so it doesn't remove the temp.

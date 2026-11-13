@@ -141,7 +141,10 @@ async function moveIfFree(tmpPath, destPath) {
     await rename(tmpPath, destPath);
     return;
   }
-  await rm(tmpPath);
+  // The file has landed, so a temp another program holds open (`EBUSY` on
+  // Windows) stays as a second name, as a stopped run leaves it (ADR-0116),
+  // rather than failing a file that is in place.
+  await rm(tmpPath).catch(() => {});
 }
 
 /**
