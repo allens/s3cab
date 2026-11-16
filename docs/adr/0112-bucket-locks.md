@@ -166,10 +166,12 @@ is gone. So the taking out is a delete, with `SET` naming the set:
 
 1. **Write the delete lock.**
 2. **List `locks/`**, removing any leftover from its own process table.
-3. **An upload lock of this set:** remove your own lock and keep the set, saying that a backup of
-   it is running, naming each lock, and giving the command that takes the set out if that backup
-   doesn't finish. Its snapshot will be the set's next. No `--wait`: the snapshots are already
-   forgotten, and only the set is left.
+3. **An upload lock of this set:** remove your own lock and keep the set, saying that a backup or
+   upload of it is running, naming each lock, and giving the command that takes the set out if it
+   ends without a snapshot, and `unlock` for a lock a stopped run left. A backup's snapshot will
+   be the set's next; an `upload --dir` or `--file` leaves none, and keeping the set for it only
+   leaves the set for a later `forget`. No `--wait`: the snapshots are already forgotten, and only
+   the set is left.
 4. **List the set's snapshots again**, and keep the set if one is there: a backup that published
    between the forget's own listing and step 1.
 5. **Take the set out**, then remove the lock.

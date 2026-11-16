@@ -654,22 +654,22 @@ describe("compareSnapshots", () => {
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], {
-        since: "nope",
+        since: "20000101T0000",
         until: CURRENT,
       }),
-      /Snapshot 'nope' not found/,
+      /Snapshot '20000101T0000' not found/,
     );
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], {
         since: CURRENT,
-        until: "nope",
+        until: "20000101T0000",
       }),
-      /Snapshot 'nope' not found/,
+      /Snapshot '20000101T0000' not found/,
     );
   });
 
-  it("treats a snapshot file whose name isn't datestamped as not found, as list() does", async () => {
+  it("won't read a snapshot file whose name isn't datestamped, as list() doesn't list it", async () => {
     await using dir = await mkTmpDir();
 
     await writeSnapshot(dir.path, PREVIOUS, [
@@ -681,14 +681,14 @@ describe("compareSnapshots", () => {
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], { until: "debug" }),
-      /Snapshot 'debug' not found/,
+      /'debug' isn't a snapshot name/,
     );
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], {
         since: PREVIOUS,
         until: "debug",
       }),
-      /Snapshot 'debug' not found/,
+      /'debug' isn't a snapshot name/,
     );
   });
 

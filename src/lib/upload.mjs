@@ -530,19 +530,20 @@ const fileChangeFrom = (error) =>
  * reporting around it.
  *
  * The composition, under the upload lock from the first step to the last:
- * 1. **`readBaseline`** — the set's previous local snapshot: the hash lookup
+ * 1. **`assertHeld`** — this machine holds the set (ADR-0108).
+ * 2. **`readBaseline`** — the set's previous local snapshot: the hash lookup
  *    that spares unchanged files a re-read, and the upload baseline below.
- * 2. **`storedHashes`** — what needs no upload, decided *before* any hashing so
+ * 3. **`storedHashes`** — what needs no upload, decided *before* any hashing so
  *    a credentials or network problem surfaces in seconds rather than after a
  *    long pass. The single-owner model makes the previous **local** snapshot
  *    the authoritative baseline (ADR-0045), trusted only once `storedHashes`
  *    has confirmed the remote copy is byte-identical to it (ADR-0084); a first
  *    backup LISTs the store instead.
- * 3. **`generateSnapshot` with the object uploader spliced in** — the fused
+ * 4. **`generateSnapshot` with the object uploader spliced in** — the fused
  *    pass. The uploader is a pipe, not a callback: it consumes rows and yields
  *    them on unchanged, so a backup writes byte-for-byte the snapshot a plain
  *    `snapshot` would have written.
- * 4. **`uploadSnapshotFile`** — the manifest, *last*, once the pipeline has
+ * 5. **`uploadSnapshotFile`** — the manifest, *last*, once the pipeline has
  *    drained: the objects-first/snapshot-last invariant, kept absolute.
  *
  * **Nothing that goes wrong up there costs the hash pass.** The uploader never
@@ -562,6 +563,10 @@ export function uploadSet(set, { rehash, resume, debug } = {}) {
   return holdUploadLock(
     { bucket: set.bucket, command: "backup", set: set.name },
     async () => {
+      // First, so a set this machine doesn't hold is refused in seconds, and
+      // under the lock: checked before it, a `forget` taking the set out could
+      // land in between and be seen only once the whole pass was spent.
+      await assertHeld(set.bucket, set.name, set.claimPath);
       const baseline = await readBaseline(set, { rehash, resume });
       const { name: since, previous } = baseline;
       const stored = await storedHashes({

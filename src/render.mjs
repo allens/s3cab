@@ -701,6 +701,13 @@ export function renderFind(result, { color = false } = {}) {
           ),
         );
       }
+      if (object.otherSets.length) {
+        lines.push(
+          warn(
+            `#   ⚠ also in ${countOf(object.otherSets.length, "set")} not searched (${object.otherSets.map((name) => `'${name}'`).join(", ")}) — deleting this removes it there too`,
+          ),
+        );
+      }
       lines.push(object.hash);
     }
   }

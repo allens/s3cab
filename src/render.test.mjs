@@ -2228,6 +2228,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: [],
+                otherSets: [],
               },
             ],
           },
@@ -2247,6 +2248,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: ["C:\\a", "C:\\b", "C:\\c"],
+                otherSets: [],
               },
             ],
           },
@@ -2297,6 +2299,7 @@ describe("renderFind", () => {
                     },
                   ],
                   alsoBacks: [],
+                  otherSets: [],
                 },
               ],
             },
@@ -2343,6 +2346,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: ["C:\\a"],
+                otherSets: [],
               },
             ],
           },
@@ -2354,6 +2358,42 @@ describe("renderFind", () => {
       text,
       /# {3}⚠ also backs 1 other path — deleting this removes both$/m,
     );
+  });
+
+  it("names the sets not searched that hold the content", () => {
+    const text = renderFind(
+      findResult({
+        patterns: ["raw.mov"],
+        files: [
+          {
+            path: "D:\\Photos\\raw.mov",
+            objects: [
+              {
+                hash: "5e21ab7f",
+                size: 892,
+                mtime: "2019-03-28T14:02:00.000Z",
+                spans: [
+                  {
+                    set: "photos",
+                    first: "20190328T0812",
+                    last: "20190328T0812",
+                    count: 1,
+                  },
+                ],
+                alsoBacks: [],
+                otherSets: ["docs", "everything"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /# {3}⚠ also in 2 sets not searched \('docs', 'everything'\) — deleting this removes it there too$/m,
+    );
+    assert.doesNotMatch(text, /also backs/);
   });
 
   it("names a lone snapshot rather than a range of one", () => {
@@ -2377,6 +2417,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: [],
+                otherSets: [],
               },
             ],
           },
@@ -2416,6 +2457,7 @@ describe("renderFind", () => {
                 },
               ],
               alsoBacks: [],
+              otherSets: [],
             },
           ],
         },

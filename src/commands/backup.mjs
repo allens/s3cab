@@ -3,7 +3,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { exactPattern } from "../lib/exclude.mjs";
-import { assertHeld, pushSetConfig } from "../lib/set-marker.mjs";
+import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { uploadSet } from "../lib/upload.mjs";
 
@@ -52,9 +52,8 @@ import { uploadSet } from "../lib/upload.mjs";
  * objects + snapshot are already safely up — the next backup re-publishes.
  *
  * Only the machine holding the set backs it up
- * ([ADR-0108](../../docs/adr/0108-set-ownership.md)). `uploadSnapshotFile`
- * checks just before publishing, as the format requires; `backup` checks first
- * too, so a refusal costs seconds rather than a whole pass.
+ * ([ADR-0108](../../docs/adr/0108-set-ownership.md)): `uploadSet` checks first,
+ * and `uploadSnapshotFile` again just before publishing, as the format requires.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
  * @param {{ debug?: boolean, rehash?: boolean, resume?: boolean }} [options]
@@ -64,7 +63,6 @@ export async function backup(setName, options = {}) {
   // Resolve the set and apply its env layer (its bucket's auth) over the ambient
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
-  await assertHeld(set.bucket, set.name, set.claimPath);
 
   const { baseline, pass, candidates, uploaded, uploadedBytes, sendingMs } =
     await uploadSet(set, {

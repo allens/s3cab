@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -84,6 +84,20 @@ describe("find", () => {
     assert.deepEqual(
       result.files.map(({ path }) => path),
       [resolve(BASE, "work/secret1")],
+    );
+  });
+
+  it("searches the set named with --set when another set has no bucket", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    await seedSet("photos", "photo-bucket");
+    rmSync(writeSet("old", { dirs: [BASE], bucket: "b" }).envPath);
+
+    const result = await find(["secret1"], { set: "photos" });
+
+    assert.deepEqual(
+      result.files.map(({ path }) => path),
+      [resolve(BASE, "photos/secret1")],
     );
   });
 

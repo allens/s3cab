@@ -211,7 +211,7 @@ caller cannot get the object listing without the snapshots having been read firs
 4. The delete lock, as `cleanup`'s step 7: written, then `locks/` listed; an upload lock
    refuses or, with `--wait`, waits.
 5. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
-   lowest free index, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
+   index after the highest in use, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
    a crash between them leaves an *over-complete* record (objects recorded as deleted that
    still exist, which reads as simply present) rather than unexplained absences.
 6. Remove the lock, on every exit.

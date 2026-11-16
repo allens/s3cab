@@ -781,22 +781,27 @@ export async function readSnapshot(snapshotDir, name) {
  *
  * Reached when the name resolves to nothing *or* to a non-file — the stray
  * directory case #249 fixed reads as "not found" to a user either way, and the
- * listing tells them what is actually there.
+ * listing tells them what is actually there. A name no snapshot can have says
+ * so instead: a file of that name may well be there, and "not found" beside it
+ * reads as a typo.
  * @param {string} snapshotDir
  * @param {string} name
  */
 function notFoundError(snapshotDir, name) {
+  const where = tildeify(snapshotDir);
+  const headline = isSnapshotFileName(snapshotFileName(name))
+    ? `Snapshot '${name}' not found in '${where}'.`
+    : `'${name}' isn't a snapshot name: a snapshot is named for the minute it ` +
+      `was taken, like 20260612T0915, and s3cab reads no other file as one.`;
   const names = listSnapshotNames(snapshotDir);
   if (names.length === 0) {
     return new Error(
-      `Snapshot '${name}' not found — there are no snapshots in ` +
-        `'${tildeify(snapshotDir)}' yet.\n` +
-        `\nTake one with:\n  ${shellCommand("s3cab snapshot")}`,
+      `${headline}\nThere are no snapshots in '${where}' yet. Take one with:\n` +
+        `  ${shellCommand("s3cab snapshot")}`,
     );
   }
   return new Error(
-    `Snapshot '${name}' not found in '${tildeify(snapshotDir)}'.\n` +
-      `Snapshots there, newest first:\n` +
+    `${headline}\nSnapshots in '${where}', newest first:\n` +
       names.map((n) => `  ${n}`).join("\n"),
   );
 }

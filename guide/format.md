@@ -328,12 +328,12 @@ record that isn't. A record has no `@SET` or `@SNAPSHOT` rows: it belongs to the
 to one set or one backup run.
 
 **Records are compacted, not kept forever.** `s3cab cleanup` merges every record file into
-one fresh file (at the next free index) and drops rows whose hash **no snapshot anywhere
-references** — once nothing references a hash, nothing can ever ask why it is absent, so
-the row has no reader left. The merge is written *before* the absorbed files are deleted,
-so the bucket at any moment holds every live row at least once; a row duplicated across two
-files is harmless. This is why when and who live in the rows: filenames don't survive
-compaction.
+one fresh file (at the index after the highest in use) and drops rows whose hash **no
+snapshot anywhere references** — once nothing references a hash, nothing can ever ask why it
+is absent, so the row has no reader left. The merge is written *before* the absorbed files
+are deleted, so the bucket at any moment holds every live row at least once; a row
+duplicated across two files is harmless. This is why when and who live in the rows:
+filenames don't survive compaction.
 
 A reader that lists the records and then fetches them can still miss a row: a file
 compacted between the two is gone, and the merge holding its rows came after the list.
@@ -1640,7 +1640,9 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 ### Deleting
 
 - Write a [deletion record](#the-deletion-record) before deleting any object it lists, as
-  `objects.deleted-<n>.tsv` under an index not already in use, never over an existing record.
+  `objects.deleted-<n>.tsv` at the index after the highest in use (the next one up if another
+  run takes it first), never over an existing record and never in a gap below the highest: a
+  compaction that listed the record once at that index may delete yours in its place.
 - Give it the heading row, one `@S3CAB SPEC`, `@CLIENT NAME` and `@CLIENT VERSION` each, a
   `#deleted` row per object (hash, size, the UTC instant, and `user@machine`), and the `.`
   last.

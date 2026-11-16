@@ -325,6 +325,13 @@ them with `s3cab unlock --bucket my-backups`, then name the ids.
 The command was given a snapshot name this machine doesn't have. The message lists the ones it
 has, newest first. To see what's in the bucket, use `s3cab list photos --remote`.
 
+### '…' isn't a snapshot name: a snapshot is named for the minute it was taken, like 20260612T0915, and s3cab reads no other file as one.
+
+A snapshot's name is the minute it was taken, `YYYYMMDDTHHMM`, and a file in the snapshots
+folder under any other name, such as a copy kept as `before-migration.tsv.gz`, is not one: s3cab
+won't read it, upload it, or keep its files in the bucket. The message lists the real snapshots,
+newest first.
+
 ### No snapshots to compare yet for set '…'.
 
 `compare` needs at least one snapshot on this machine. Take one with `snapshot`, or run a

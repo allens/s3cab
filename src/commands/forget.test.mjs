@@ -324,8 +324,8 @@ describe("forget command", () => {
   });
 
   it("leaves the set in the bucket while a backup of it runs, and says how to take it out", async () => {
-    // That backup's snapshot will be the set's next, and it refuses to
-    // publish to a set that has left the bucket.
+    // A backup's snapshot will be the set's next, and it refuses to publish
+    // to a set that has left the bucket.
     runningUploads = [{ id: "upload-20260613T091500Z" }];
     const warned = mock.method(console, "warn", () => {});
     await forget(["20260612T0915", "20260611T0915"], {
@@ -340,7 +340,7 @@ describe("forget command", () => {
     assert.deepEqual(removedSets, []);
     assert.match(
       said,
-      /Set 'photos' stays in the bucket: a backup of it is running[\s\S]*\n {2}upload-20260613T091500Z\n[\s\S]*at a terminal with:\n {2}s3cab forget --set photos 20260612T0915 20260611T0915\n/,
+      /Set 'photos' stays in the bucket: a backup or upload of it is running:\n {2}upload-20260613T091500Z\n\nIf it ends without leaving a snapshot, take the set out at a terminal with:\n {2}s3cab forget --set photos 20260612T0915 20260611T0915\nIf it was stopped without finishing and left its lock behind, remove the lock first with:\n {2}s3cab unlock --bucket b1\n/,
     );
     assert.doesNotMatch(said, /has left the bucket/);
   });
@@ -420,7 +420,10 @@ describe("forget command", () => {
 
     assert.deepEqual(removedSets, []);
     assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
-    assert.match(said, /a backup of it is running[\s\S]*Nothing was removed/);
+    assert.match(
+      said,
+      /a backup or upload of it is running[\s\S]*Nothing was removed/,
+    );
     assert.deepEqual(auditRecords(), []);
   });
 

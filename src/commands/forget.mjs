@@ -406,19 +406,22 @@ async function takeOut(set) {
 }
 
 /**
- * Why a set with no snapshot left stays in the bucket: a backup of it is
- * running, and that backup's snapshot will be its next.
+ * Why a set with no snapshot left stays in the bucket: a backup or upload of
+ * it is running. A backup's snapshot will be its next; an `upload --dir` or
+ * `--file` leaves none, so the set is taken out by running `forget` again.
  * @param {ReturnType<typeof loadSet>} set
  * @param {string[]} snapshots - The snapshots named, for the command to run again
- * @param {Lock[]} uploads - The backup's locks
+ * @param {Lock[]} uploads - The running uploads' locks
  * @returns {string}
  */
 const backupRunningParagraph = (set, snapshots, uploads) =>
-  `Set '${set.name}' stays in the bucket: a backup of it is running, and its ` +
-  `snapshot will be the set's next:\n` +
+  `Set '${set.name}' stays in the bucket: a backup or upload of it is running:\n` +
   uploads.map((lock) => `  ${describeLock(lock)}`).join("\n") +
-  `\n\nIf that backup doesn't finish, take the set out at a terminal with:\n` +
-  `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}\n\n`;
+  `\n\nIf it ends without leaving a snapshot, take the set out at a terminal with:\n` +
+  `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}\n` +
+  `If it was stopped without finishing and left its lock behind, remove the ` +
+  `lock first with:\n` +
+  `  ${shellCommand(`s3cab unlock --bucket ${set.bucket}`)}\n\n`;
 
 /**
  * The keys `removeRemoteSet` left in a set's folder, which s3cab didn't write:

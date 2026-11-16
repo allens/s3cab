@@ -256,8 +256,9 @@ that the check was skipped, so a bypass never leaves a silent gap.
 Forgetting **every snapshot a set has retires the set**: it leaves the bucket too, so
 `verify` stops reporting it and its name is free again. The prompt says so before you answer.
 Backing it up again later starts with `s3cab takeover <set>` on a machine that still has the
-set, or with `setup` on any other. If a backup of the set is running, the set stays, since
-that backup's snapshot will be its next. If `forget` stops before the set has gone, run it
+set, or with `setup` on any other. If a backup or upload of the set is running, the set stays,
+and `forget` says how to take it out if that run leaves no snapshot. If `forget` stops before
+the set has gone, run it
 again at a terminal: with no snapshot left, it asks to take the set out of the bucket. The
 bucket can't tell that set from one whose snapshots were lost, so answer no if they were: once
 the set is out, `cleanup` deletes what only they referenced. For the same reason `--force`
@@ -486,7 +487,7 @@ leftover is cleared by whoever can tell the run is dead:
     backup of set 'photos' by me@LAPTOP (win32, pid 18204), started 2026-10-27T14:02:05.123Z (2d ago) — upload-20261027T140205.123Z
     cleanup by me@DESKTOP (linux, pid:[4026531836], pid 9120), started 2026-10-29T09:10:00.004Z (5h ago) — delete-20261029T091000.004Z
 
-  A lock whose command is still running keeps a cleanup or delete from removing what that backup needs — or a backup from storing what that cleanup is removing. Remove one only when you know its command has stopped.
+  A lock whose command is still running keeps a cleanup, delete or forget from removing what that backup needs — or a backup from storing what that cleanup is removing. Remove one only when you know its command has stopped.
   Remove these 2 locks? [y/N] y
   ```
 

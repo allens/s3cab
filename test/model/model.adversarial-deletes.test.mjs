@@ -20,9 +20,8 @@ import {
 const { find } = await import("../../src/commands/find.mjs");
 const { renderCleanup, renderFind } = await import("../../src/render.mjs");
 
-// An adversarial read of the paths that delete from the bucket (2026-11-14,
-// proposals/bugs.md): each test asserts what a command says it does, on a
-// sequence its own tests don't reach.
+// The paths that delete from the bucket: each test asserts what a command
+// says it does, on a sequence its own tests don't reach.
 
 const BUCKET = "model-bucket";
 
@@ -252,7 +251,9 @@ describe("adversarial read of the deletion paths", () => {
     assert.deepEqual(narrowed.files[0]?.objects[0]?.alsoBacks, [
       join(docs, "keeper.mov"),
     ]);
+    assert.deepEqual(narrowed.files[0]?.objects[0]?.otherSets, ["docs"]);
     assert.match(renderFind(narrowed), /also backs 1 other path/);
+    assert.match(renderFind(narrowed), /also in 1 set not searched \('docs'\)/);
   });
 
   it("upload refuses a snapshot file under a name that isn't a snapshot's, which cleanup wouldn't count", async () => {
@@ -274,11 +275,11 @@ describe("adversarial read of the deletion paths", () => {
 
     await assert.rejects(
       upload("photos", { snapshot: "before-migration" }),
-      /Snapshot 'before-migration' not found/,
+      /'before-migration' isn't a snapshot name/,
     );
     await assert.rejects(
       upload("photos", { snapshot: first, since: "before-migration" }),
-      /Snapshot 'before-migration' not found/,
+      /'before-migration' isn't a snapshot name/,
     );
     assert.equal(
       await fake.peekBytes(BUCKET, "snapshots/photos/before-migration.tsv.gz"),

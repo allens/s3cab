@@ -487,9 +487,11 @@ export async function holdDeleteLock({ bucket, command, wait }, work) {
  * Run `work`, `forget` taking a set out of the bucket, as a delete under
  * ADR-0112's rules: write the delete lock, list `locks/`, run, then remove the
  * lock. Only an upload of that set turns it away, and then `work` doesn't run:
- * that backup is about to give the set its next snapshot, and its last check
- * before publishing refuses a set with no marker. An upload of another set
- * never reads this one's marker. Never waits.
+ * a backup of it is about to give the set its next snapshot, and its last
+ * check before publishing refuses a set with no marker. An `upload --dir` or
+ * `--file` of it publishes none but turns it away too, which only leaves the
+ * set for a later `forget`. An upload of another set, or of none
+ * (`upload --bucket`), never reads this one's marker. Never waits.
  * @template T
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
