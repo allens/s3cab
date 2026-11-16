@@ -80,8 +80,8 @@ jobs:
             root: /srv/s3cab.seed
           - os: windows-latest
             root: C:\s3cab.seed
-          # macos-15 as in ci.yml: Apple Silicon, APFS case- and normalization-insensitive.
-          - os: macos-15
+          # macos-26 as in ci.yml: Apple Silicon, APFS case- and normalization-insensitive.
+          - os: macos-26
             root: /Users/Shared/s3cab.seed
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role

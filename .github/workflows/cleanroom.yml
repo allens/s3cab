@@ -65,7 +65,7 @@ jobs:
   run:
     name: ${{ inputs.role }} on ${{ inputs.platform }} (${{ inputs.model }}, ${{ inputs.effort }})
     # The seed's runners, cleanroom-seed.yml's.
-    runs-on: ${{ fromJSON('{"macos":"macos-15","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
+    runs-on: ${{ fromJSON('{"macos":"macos-26","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
     timeout-minutes: 360 # GitHub's ceiling for a hosted job
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
