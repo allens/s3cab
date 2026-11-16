@@ -2161,7 +2161,7 @@ describe("renderDelete", () => {
     });
     assert.equal(
       text,
-      "my-backups: deleted 297 objects (2.3MB). Snapshots were not modified.",
+      "my-backups: 297 objects (2.3MB) are no longer stored. Snapshots were not modified.",
     );
   });
 
@@ -2175,7 +2175,7 @@ describe("renderDelete", () => {
     });
     assert.equal(
       text,
-      "my-backups: deleted 1 object (2.3MB). Snapshots were not modified.",
+      "my-backups: 1 object (2.3MB) is no longer stored. Snapshots were not modified.",
     );
   });
 
@@ -2561,7 +2561,17 @@ describe("renderCleanup", () => {
     );
     assert.equal(
       text,
-      "my-backups: deleted 44 orphaned objects, reclaimed 2.3MB.",
+      "my-backups: 44 orphaned objects (2.3MB) are no longer stored.",
+    );
+  });
+
+  it("reads as English at one", () => {
+    const text = renderCleanup(
+      cleanupResult({ orphanObjects: 1, reclaimableBytes: 15, deleted: 1 }),
+    );
+    assert.equal(
+      text,
+      "my-backups: 1 orphaned object (15B) is no longer stored.",
     );
   });
 });

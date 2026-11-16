@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -880,6 +881,20 @@ describe("readSnapshot", () => {
     // Not an EISDIR out of a read stream: only a regular file is a snapshot,
     // so this is the same "no such snapshot" the lister would imply.
     await assert.rejects(readSnapshot(dir.path, name), /not found/);
+  });
+
+  it("treats a snapshot file under a name that isn't a snapshot's as not found", async () => {
+    await using dir = await mkTmpDir();
+    writeRealSnapshot(dir.path);
+    copyFileSync(
+      join(dir.path, snapshotFileName(name)),
+      join(dir.path, "before-migration.tsv.gz"),
+    );
+
+    await assert.rejects(
+      readSnapshot(dir.path, "before-migration"),
+      new RegExp(`Snapshot 'before-migration' not found .*\\n.*\\n  ${name}$`),
+    );
   });
 });
 

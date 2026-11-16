@@ -300,10 +300,11 @@ A `cleanup` or `delete` won't run while a backup or upload holds a lock in the b
 later, or add `--wait`. If the lock was left by a run that died, remove it with `unlock`. See
 [locks](maintenance.md#locks-backups-and-clean-ups-take-turns).
 
-### Can't … right now — a cleanup or delete is running on bucket '…'
+### Can't … right now — a cleanup, delete or forget is running on bucket '…'
 
-A backup or upload won't run while a `cleanup` or `delete` holds a lock in the bucket. A
-scheduled backup simply fails, and the next one tries again. See
+A backup or upload won't run while a `cleanup` or `delete` holds a lock in the bucket, or a
+`forget` taking a set out of it. A scheduled backup simply fails, and the next one tries again.
+See
 [locks](maintenance.md#locks-backups-and-clean-ups-take-turns).
 
 ### Removing a lock needs a confirmation, and there is no terminal to ask on.

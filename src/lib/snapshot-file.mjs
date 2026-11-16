@@ -744,7 +744,10 @@ export async function writeSnapshot(
  * `existsSync` and made `backup` die on `EISDIR`. Hence the `isFile` test too:
  * only a regular file is a snapshot, matching `listSnapshotNames`'s
  * `dirent.isFile()` filter, so anything else reads as "not found" rather than
- * failing deep in a read stream.
+ * failing deep in a read stream. The name test matches its other filter, and
+ * is load-bearing: `upload --snapshot` publishes what this reads, and a key not
+ * named `YYYYMMDDTHHMM.tsv.gz` is no snapshot to `cleanup`, which deletes the
+ * objects only it names.
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string} name - Snapshot name
  * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
@@ -760,9 +763,10 @@ export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");
   assert(name, "No snapshot name specified");
 
-  const path = join(snapshotDir, snapshotFileName(name));
+  const fileName = snapshotFileName(name);
+  const path = join(snapshotDir, fileName);
   const stats = statSync(path, { throwIfNoEntry: false });
-  if (!stats?.isFile()) {
+  if (!isSnapshotFileName(fileName) || !stats?.isFile()) {
     throw notFoundError(snapshotDir, name);
   }
   return readSnapshotFile(path);
@@ -840,20 +844,27 @@ export const normalizeSnapshotName = (name) =>
   name?.replace(/\.tsv(\.gz)?$/, "");
 
 /**
- * The snapshot names among a set of snapshot file names, newest first. This
- * datestamped `.tsv.gz` filter is the one place the snapshot naming convention
- * is recognised; `list` (local files) and the remote lister (snapshot keys with
- * their `snapshots/<set>/` prefix already stripped) both run through here,
- * so a local and a remote listing sort and filter identically. Anchored at
- * both ends: the remote listing is recursive, so a key in a folder below the
- * set's (`old/20990101T0000.tsv.gz`) arrives here with its folder, and isn't
- * the set's snapshot.
+ * Whether a file name is a snapshot's, `YYYYMMDDTHHMM.tsv.gz`: the one place
+ * the snapshot naming convention is recognised. Anchored at both ends: the
+ * remote listing is recursive, so a key in a folder below the set's
+ * (`old/20990101T0000.tsv.gz`) arrives with its folder, and isn't the set's
+ * snapshot.
+ * @param {string} fileName
+ */
+const isSnapshotFileName = (fileName) =>
+  /^\d{8}T\d{4}\.tsv\.gz$/.test(fileName);
+
+/**
+ * The snapshot names among a set of snapshot file names, newest first. `list`
+ * (local files) and the remote lister (snapshot keys with their
+ * `snapshots/<set>/` prefix already stripped) both run through here, so a
+ * local and a remote listing sort and filter identically.
  * @param {Iterable<string>} names - Snapshot file names (e.g. `20260612T0915.tsv.gz`)
  * @returns {string[]} Snapshot names without extension (e.g. `20260612T0915`), newest first
  */
 export function snapshotNames(names) {
   return [...names]
-    .filter((name) => /^\d{8}T\d{4}\.tsv\.gz$/.test(name))
+    .filter(isSnapshotFileName)
     .map((name) => name.slice(0, -".tsv.gz".length))
     .sort()
     .reverse();

@@ -797,7 +797,7 @@ const CLOUD = [
   {
     page: "guide/maintenance.md",
     command: `s3cab cleanup ${bucket}`,
-    containing: "reclaimed",
+    containing: "no longer stored",
     ending: true,
     output: () => printed("cleanup", cleanupResult(scale.forgotten.objects)),
   },

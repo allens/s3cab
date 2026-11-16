@@ -167,9 +167,16 @@ async function readOrRecord(set, name, unreadable) {
  * @param {string[]} patterns - Find patterns, as the user typed them
  * @param {object} [options]
  * @param {boolean} [options.all] - One entry per snapshot instead of collapsed ranges
+ * @param {BackupSet[]} [options.sharing] - The sets the dedup warning reads, those
+ *   in a searched set's bucket: a delete removes an object from the whole bucket,
+ *   so a copy in a set not searched goes with it (default: `sets`)
  * @returns {Promise<FindResult>}
  */
-export async function findInSnapshots(sets, patterns, { all = false } = {}) {
+export async function findInSnapshots(
+  sets,
+  patterns,
+  { all = false, sharing = sets } = {},
+) {
   const matchers = patterns.map(compileFindPattern);
 
   /** @type {Map<string, UnreadableSnapshot>} */
@@ -242,9 +249,13 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
   const hashes = new Set(
     [...matched.values()].flatMap((byHash) => [...byHash.keys()]),
   );
-  const alsoBacks = await otherPaths(sets, hashes, new Set(matched.keys()), {
-    unreadable,
-  });
+  const buckets = new Set(sets.map((set) => set.bucket));
+  const alsoBacks = await otherPaths(
+    sharing.filter((set) => buckets.has(set.bucket)),
+    hashes,
+    new Set(matched.keys()),
+    { unreadable },
+  );
 
   const files = [...matched]
     .map(([path, byHash]) => ({

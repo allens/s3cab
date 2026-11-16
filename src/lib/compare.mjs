@@ -120,8 +120,8 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   if (since === undefined) {
     const untilIndex = snapshotNames.indexOf(until);
     if (untilIndex === -1) {
-      // `until` may still be a readable file outside the listed snapshots
-      // (e.g. a debug .tsv) — but then it has no well-defined predecessor.
+      // `until` may still be a readable file the listing leaves out — but
+      // then it has no well-defined predecessor.
       throw new Error(
         `Snapshot '${until}' is not in the snapshot list; use --since to pick the older side`,
       );

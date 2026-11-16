@@ -524,7 +524,7 @@ describe("compactDeletionRecords", () => {
     );
   });
 
-  it("writes no merge when every row is dead — the steady state is no record at all", async () => {
+  it("writes an empty merge when every row is dead, so the highest index stays in use", async () => {
     record(
       1,
       formatDeletionRecord([{ hash: HASH_A, size: 1, instant: T1, by: "x" }]),
@@ -535,7 +535,15 @@ describe("compactDeletionRecords", () => {
     );
     const result = await compactDeletionRecords("b", new Set());
     assert.deepEqual(result, { files: 2, rows: 0, trimmed: 2 });
-    assert.deepEqual(puts(), [], "a row nothing references needs no tombstone");
+    assert.deepEqual(
+      puts().map(({ uri, content }) => ({ uri, content })),
+      [
+        {
+          uri: "s3://b/objects.deleted-3.tsv",
+          content: formatDeletionRecord([]),
+        },
+      ],
+    );
     assert.deepEqual(
       deletes()
         .map((d) => d.uri)

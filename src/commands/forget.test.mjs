@@ -60,6 +60,8 @@ let headCalls = [];
 let headFailure;
 /** @type {Error | undefined} what the holder check refuses with, if it does */
 let notHeld;
+/** @type {{ id: string }[]} the backups of the set that are running */
+let runningUploads = [];
 
 /**
  * One set holding two files: `a.jpg` only in the older snapshot, `b.jpg` in both
@@ -145,6 +147,19 @@ mock.module("../lib/set-marker.mjs", {
   },
 });
 
+mock.module("../lib/locks.mjs", {
+  exports: {
+    describeLock: (/** @type {{ id: string }} */ lock) => lock.id,
+    holdRetireLock: async (
+      /** @type {unknown} */ _args,
+      /** @type {() => Promise<unknown>} */ work,
+    ) =>
+      runningUploads.length > 0
+        ? { uploads: runningUploads }
+        : { value: await work() },
+  },
+});
+
 const { forget } = await import("./forget.mjs");
 
 // isInteractive() reads .isTTY off the stream; poke it directly to drive the gate.
@@ -190,6 +205,7 @@ beforeEach(() => {
   headCalls = [];
   headFailure = undefined;
   notHeld = undefined;
+  runningUploads = [];
   stdout = [];
   console.log = (/** @type {unknown[]} */ ...args) =>
     stdout.push(args.join(" "));
@@ -307,6 +323,28 @@ describe("forget command", () => {
     assert.deepEqual(removedSets, []);
   });
 
+  it("leaves the set in the bucket while a backup of it runs, and says how to take it out", async () => {
+    // That backup's snapshot will be the set's next, and it refuses to
+    // publish to a set that has left the bucket.
+    runningUploads = [{ id: "upload-20260613T091500Z" }];
+    const warned = mock.method(console, "warn", () => {});
+    await forget(["20260612T0915", "20260611T0915"], {
+      set: "photos",
+      force: true,
+    });
+    const said = warned.mock.calls
+      .map(({ arguments: [text] }) => text)
+      .join("\n");
+    warned.mock.restore();
+
+    assert.deepEqual(removedSets, []);
+    assert.match(
+      said,
+      /Set 'photos' stays in the bucket: a backup of it is running[\s\S]*\n {2}upload-20260613T091500Z\n[\s\S]*at a terminal with:\n {2}s3cab forget --set photos 20260612T0915 20260611T0915\n/,
+    );
+    assert.doesNotMatch(said, /has left the bucket/);
+  });
+
   it("takes out a set with no snapshots left, which a stopped forget leaves, and records it", async () => {
     // Every snapshot went, and the run stopped before the set did: the names
     // it was given are gone, and taking the set out is what is left to do.
@@ -366,6 +404,24 @@ describe("forget command", () => {
 
     assert.deepEqual(removedSets, []);
     assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
+  });
+
+  it("keeps a set with no snapshots while a backup of it runs", async () => {
+    remoteSnapshots = [];
+    runningUploads = [{ id: "upload-20260613T091500Z" }];
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const warned = mock.method(console, "warn", () => {});
+    const result = await forget(["20260612T0915"], { set: "photos" });
+    const said = warned.mock.calls
+      .map(({ arguments: [text] }) => text)
+      .join("\n");
+    warned.mock.restore();
+
+    assert.deepEqual(removedSets, []);
+    assert.deepEqual(result, { set: "photos", retired: false, stray: [] });
+    assert.match(said, /a backup of it is running[\s\S]*Nothing was removed/);
+    assert.deepEqual(auditRecords(), []);
   });
 
   it("won't take out a set with no snapshots under --force, which a lost set reads the same as", async () => {

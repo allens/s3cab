@@ -37,8 +37,10 @@ export async function find(patterns, options = {}) {
   requireArg(patterns.length, "pattern");
 
   // A named set is resolved (and rejected) by `readSet`, which lists the real
-  // ones on a miss; with none named the answer spans every attached set.
-  const names = options.set === undefined ? listSets() : [options.set];
+  // ones on a miss; with none named the answer spans every attached set. The
+  // dedup warning reads every attached set either way.
+  const attached = listSets();
+  const names = options.set === undefined ? attached : [options.set];
   if (names.length === 0) {
     throw new Error(NO_SETS_MESSAGE);
   }
@@ -46,6 +48,6 @@ export async function find(patterns, options = {}) {
   return await findInSnapshots(
     names.map((name) => readSet(name)),
     patterns,
-    { all: options.all },
+    { all: options.all, sharing: attached.map((name) => readSet(name)) },
   );
 }

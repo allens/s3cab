@@ -68,9 +68,13 @@ reversed it after two people sharing a bucket hit it routinely and CI hit it for
 
 Union every row across every record file (deduped by full tuple), **drop rows whose hash no
 snapshot anywhere references**, write the merge to a *fresh* index, then delete the files
-it absorbed. The steady state after any cleanup is a single file — or none, when nothing
-referenced remains. Writing before deleting makes every crashed intermediate state correct,
-since a duplicated row is still just "deliberately gone". Gated by `cleanup`'s existing
+it absorbed. The steady state after any cleanup is a single file, holding no rows when
+nothing referenced remains. That empty merge is what keeps holes from being reused: the
+allocator numbers from the highest index, so a cleanup that deleted every file would free
+index 1 for a `delete` running alongside, and a second cleanup that had listed the old
+index 1 would then delete that `delete`'s record. Writing before deleting makes every
+crashed intermediate state correct, since a duplicated row is still just "deliberately
+gone". Gated by `cleanup`'s existing
 unreadable-snapshot interlock: an unreadable snapshot's references are unknown, and an
 unknown reference must protect a row. Housekeeping, not reclamation — it needs no
 confirmation of its own and runs on every acting path, but never on a dry run or behind a

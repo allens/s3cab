@@ -324,7 +324,25 @@ isn't matched against rows, which no spec sentence forbids.</sub>
 
 <sub>The **read of the deletion paths** (brief: `cleanup`, `forget`, `delete`, `unlock`, and
 backup's and upload's writes, deleting something a user still needs or misreporting what they
-kept or removed; read cold from `src/commands.mjs`, no ADR; model tier) found five. **No
+kept or removed; read cold from `src/commands.mjs`, no ADR; model tier) found five, all
+**fixed 2026-11-16**, pinned in
+[test/model/model.adversarial-deletes.test.mjs](../test/model/model.adversarial-deletes.test.mjs).
+`upload --snapshot before-migration` published `snapshots/<set>/before-migration.tsv.gz`, which
+no `cleanup` counts, so the objects only it named were deleted once the dated snapshots went.
+`readSnapshot` now reads only a dated name, as the listing does, so `upload` refuses it (and
+`--since` too), and `compare` no longer reads an undated file either. And a compaction that
+kept no row wrote no file, freeing index 1 for a `delete`, whose record a second cleanup that
+had listed the old index 1 then deleted: backups went on listing that file without storing
+it. The merge is now written even empty, so the highest index never goes
+([ADR-0090](../docs/adr/0090-deletion-record-format-compaction.md)). And `find --set` left out
+the warning that content also backs a file in another set, so a `delete` of a hash it listed
+removed that set's copy unwarned; the warning now reads every attached set in the bucket. And
+forgetting a set's only snapshot took the set out of the bucket under a running backup of it,
+which then published nothing; `forget` now takes the delete lock to take a set out, and keeps
+the set while a backup of it runs ([ADR-0112](../docs/adr/0112-bucket-locks.md)). And two
+cleanups, or two `delete`s, that crossed each said it deleted the same objects; S3's DELETE
+answers alike whether or not the key was there, so the reports now say the objects are no
+longer stored, which is true of both. **No
 `cleanup` deleted an object a dated snapshot still names**, beside a backup on another machine or
 killed partway. **Held:** cleanup's scan order against a snapshot published mid-scan; its top-up
 under the lock (a new set, a key republished with the same or other bytes, a snapshot gone and
@@ -346,15 +364,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
 
 **Open:**
 
-- **`upload --snapshot <name>` stores a snapshot under a name nothing else counts, and a later
-  `cleanup` deletes what only it names** (deletion read). `normalizeSnapshotName` in
-  `src/commands/upload.mjs` strips only the extension, so `upload photos --snapshot
-  before-migration` writes `snapshots/photos/before-migration.tsv.gz` and reports it uploaded.
-  [guide/format.md](../guide/format.md) counts only a `YYYYMMDDTHHMM.tsv.gz` key as a snapshot
-  "for every purpose", as `list`, `restore`, `forget`, `verify` and `cleanup` all do, so once the
-  dated snapshots naming that content are forgotten, `cleanup` deletes it. One machine, every
-  time. Read, not run: `upload --since before-migration` then trusts that key as a byte-identical
-  baseline and skips the objects cleanup deleted.
 - **Case twins restored from Linux onto a disk that ignores case lose one, exit 0** (read of
   #512/#513). `restoreTargets` in `src/lib/restore.mjs` tells a file this run wrote by its real
   path, and glibc's `realpath` returns the case it was asked for, never asking the directory, so
@@ -377,20 +386,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   sit under the old one. The backup reports success; s3cab's reader then refuses every row of that
   directory. [guide/format.md](../guide/format.md): a row's path is "its member directory's real
   path, exactly as its `@SET DIR` row holds it". NTFS (a junction) and WSL (a symlink).
-- **Two crossing cleanups and a `delete` can lose the deletion record, and backups then list a
-  file without storing it** (deletion read). `compactDeletionRecords` in
-  `src/lib/deletion-record.mjs` deletes the record files it absorbed by key, and
-  `writeDeletionRecord` numbers from `max(index) + 1`, which restarts at 1 once the record is
-  empty. A second cleanup emptying the record first lets a `delete` write index 1 again, and the
-  first cleanup's late delete removes it. Every later backup reports success over the file it
-  doesn't store, and `cleanup` refuses from then on. The doc comment on `compactDeletionRecords`
-  assumes an index is never reused. Needs three runs within a few round trips; nothing keeps two
-  cleanups apart.
-- **`find --set` leaves out the warning that content also backs a file in another set**
-  (deletion read). `otherPaths` in `src/lib/find.mjs` looks only at the sets searched, so a
-  `delete` of a hash it listed removes content another set's snapshots need.
-  [guide/maintenance.md](../guide/maintenance.md) promises `find` warns of files "outside what
-  you searched for", and that warning is the only review `delete` gets.
 - **A home moved with `S3CAB_HOME` to a folder not named `.s3cab` is backed up, keys and all,**
   when it sits inside a set's directory (security read): `S3CAB_HOME=D:\Backups\s3cab` with a set
   backing up `D:\Backups`. The walk skips s3cab's home only by the name `.s3cab` (`walkFiles`,
@@ -434,11 +429,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   its signed `x-amz-security-token` header. Run against a stand-in server; that S3 echoes the
   canonical request is from knowledge of S3. [guide/auth.md](../guide/auth.md): never logged,
   "not under `S3CAB_DEBUG`".
-- **`forget` can retire a set while a backup of it runs** (deletion read). `forget`
-  (`src/commands/forget.mjs`) takes no lock, so forgetting a set's only snapshot removes its
-  marker and config (`removeRemoteSet`, `src/lib/set-marker.mjs`) under the running backup, whose
-  `assertHeld` then fails after uploading everything, publishes nothing and drops this machine's
-  claim. Nothing stored is lost unless a `cleanup` comes before the next backup.
 - **A key to the bucket chooses what a machine taking a set over backs up** (security read).
   `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
   the set, writes the bucket's copies without asking, and the everyday identity can write those
@@ -489,10 +479,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   with a leading space, reads back different: `ab#cd` as `ab`, and `ab$&cd` as
   `abAWS_SECRET_ACCESS_KEY=firstcd`, the replacement pattern expanding. A sign-in that fails, not
   a leak.
-- **Two crossing cleanups both report deleting the same orphans** (deletion read): the report in
-  `src/lib/cleanup.mjs` is the plan's count. Two crossing `delete`s of one hash likewise both
-  report it, and write two records. Counts only; S3's DELETE answers the same whether or not the
-  key existed.
 - **`ca.key` is kept and nothing reads it** (security read). `ensureMachineIdentity` in
   `src/lib/roles-anywhere.mjs` writes it and `IDENTITY_FILES` checks it exists, and the module's
   comment says it "only re-issues client certs", which no code does. Whoever can read it can read

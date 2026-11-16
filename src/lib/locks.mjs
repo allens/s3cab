@@ -9,7 +9,8 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // The locks that keep uploads and deletes apart, on any machine
 // ([ADR-0112](../../docs/adr/0112-bucket-locks.md)): a `locks/<kind>-<instant>`
 // object per running upload (`backup`, every `upload` form) or delete
-// (`cleanup`, `delete`). Uploads don't exclude each other, and neither do
+// (`cleanup`, `delete`, `forget` taking a set out of the bucket). Uploads
+// don't exclude each other, and neither do
 // deletes. The rule both sides follow is **write first, look second**: a run
 // writes its own lock, *then* lists `locks/`, so two runs that start together
 // each see the other's lock and at worst both refuse.
@@ -20,11 +21,12 @@ import { userAtMachine } from "./user-at-machine.mjs";
 // process table whose process is gone. Every other leftover is `unlock`'s, a
 // person's word.
 //
-// The two guards here, `holdUploadLock` and `holdDeleteLock`, are taken inside
-// the lib operations that decide what to skip or delete (upload.mjs,
-// cleanup.mjs, delete.mjs), never by the commands that call them: a command
-// cannot upload or delete without passing through one of those, so no command
-// carries a "takes the lock" flag.
+// The guards `holdUploadLock` and `holdDeleteLock` are taken inside the lib
+// operations that decide what to skip or delete (upload.mjs, cleanup.mjs,
+// delete.mjs), never by the commands that call them: a command cannot upload
+// or delete without passing through one of those, so no command carries a
+// "takes the lock" flag. `holdRetireLock` is the exception: `forget` takes it
+// around `removeRemoteSet`, which nothing else calls.
 
 const LOCKS_PREFIX = "locks/";
 
@@ -40,7 +42,7 @@ const LOCKS_PREFIX = "locks/";
  * @property {string} id - `<kind>-<instant>`, e.g. `upload-20261027T140205.123Z`
  * @property {LockKind} kind
  * @property {string} command - What is running (`COMMAND`)
- * @property {string} [set] - The set it runs for (`SET`); absent for `upload --bucket` and every delete
+ * @property {string} [set] - The set it runs for (`SET`); absent for `upload --bucket`, `cleanup` and `delete`
  * @property {string} by - `user@machine` (`BY`)
  * @property {string} [os] - The OS whose process table `pid` is in (`OS`, `process.platform`); absent in a hand-made lock
  * @property {string} [pidns] - On Linux, which of the machine's process tables (`PIDNS`, {@link pidNamespace}); absent elsewhere
@@ -277,7 +279,7 @@ const reason = (error) =>
  */
 const deleteRunningError = (bucket, command, deletes) =>
   new Error(
-    `Can't ${goalOf(command).cant} right now — a cleanup or delete is running ` +
+    `Can't ${goalOf(command).cant} right now — a cleanup, delete or forget is running ` +
       `on bucket '${bucket}', and ${goalOf(command).doing} while it runs could ` +
       `lose files:\n${lockLines(deletes)}\n\n` +
       `Try again once it has finished. If it was stopped without finishing ` +
@@ -479,4 +481,37 @@ export async function holdDeleteLock({ bucket, command, wait }, work) {
     }
     await sleep(WAIT_MS);
   }
+}
+
+/**
+ * Run `work`, `forget` taking a set out of the bucket, as a delete under
+ * ADR-0112's rules: write the delete lock, list `locks/`, run, then remove the
+ * lock. Only an upload of that set turns it away, and then `work` doesn't run:
+ * that backup is about to give the set its next snapshot, and its last check
+ * before publishing refuses a set with no marker. An upload of another set
+ * never reads this one's marker. Never waits.
+ * @template T
+ * @param {object} args
+ * @param {string} args.bucket - The repository's S3 bucket
+ * @param {string} args.set - The set being taken out
+ * @param {() => Promise<T>} work - Taking it out
+ * @returns {Promise<{ value: T } | { uploads: Lock[] }>} The work's result, or
+ *   the uploads of the set that kept it from running
+ */
+export async function holdRetireLock({ bucket, set }, work) {
+  const lock = await writeLock(bucket, {
+    kind: "delete",
+    command: "forget",
+    set,
+  });
+  return hold(bucket, lock, async () => {
+    const live = await liveLocks(bucket);
+    const uploads = live.filter(
+      (other) => other.kind === "upload" && other.set === set,
+    );
+    if (uploads.length > 0) {
+      return { uploads };
+    }
+    return { value: await work() };
+  });
 }

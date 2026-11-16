@@ -116,6 +116,7 @@ const {
   WAIT_MS,
   describeLock,
   holdDeleteLock,
+  holdRetireLock,
   holdUploadLock,
   listLocks,
   removeLock,
@@ -408,7 +409,7 @@ describe("holdUploadLock", () => {
       (/** @type {Error} */ error) => {
         assert.match(
           error.message,
-          /Can't back up right now — a cleanup or delete is running on bucket 'b'/,
+          /Can't back up right now — a cleanup, delete or forget is running on bucket 'b'/,
         );
         assert.match(error.message, /cleanup by other@LAPTOP/);
         assert.match(error.message, /s3cab unlock --bucket b/);
@@ -510,7 +511,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -531,7 +532,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -550,7 +551,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -573,7 +574,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -601,7 +602,7 @@ describe("holdUploadLock", () => {
             { bucket: "b", command: "backup" },
             async () => undefined,
           ),
-          /a cleanup or delete is running/,
+          /a cleanup, delete or forget is running/,
         );
 
         assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -620,7 +621,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -637,7 +638,7 @@ describe("holdUploadLock", () => {
           { bucket: "b", command: "backup" },
           async () => undefined,
         ),
-        /a cleanup or delete is running/,
+        /a cleanup, delete or forget is running/,
       );
 
       assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -653,7 +654,7 @@ describe("holdUploadLock", () => {
 
     await assert.rejects(
       holdUploadLock({ bucket: "b", command: "backup" }, async () => undefined),
-      /a cleanup or delete is running/,
+      /a cleanup, delete or forget is running/,
     );
 
     assert.deepEqual(lockKeys(), ["locks/delete-20261027T140100.000Z"]);
@@ -849,5 +850,60 @@ describe("holdDeleteLock", () => {
       warnings.at(-1) ?? "",
       /Couldn't remove this run's lock from bucket 'b' \(denied\)[\s\S]*every backup and upload of the bucket is refused[\s\S]*s3cab unlock --bucket b delete-/,
     );
+  });
+});
+
+describe("holdRetireLock", () => {
+  it("writes a delete lock naming forget and the set before it looks, and removes it after", async () => {
+    let key = "";
+    let body = "";
+
+    const outcome = await holdRetireLock(
+      { bucket: "b", set: "photos" },
+      async () => {
+        key = String(lockKeys()[0]);
+        body = store.get(key) ?? "";
+        return "out";
+      },
+    );
+
+    assert.deepEqual(outcome, { value: "out" });
+    const id = key.slice("locks/".length);
+    assert.match(id, /^delete-/);
+    assert.match(body, /^COMMAND=forget\nSET=photos\n/);
+    assert.deepEqual(requests.slice(0, 2), [`put:locks/${id}`, "list:locks/"]);
+    assert.deepEqual(lockKeys(), []);
+  });
+
+  it("doesn't run while a backup of the set holds its lock, and returns it", async () => {
+    plant("upload-20261027T140205.123Z", "backup", "photos");
+    let ran = false;
+
+    const outcome = await holdRetireLock(
+      { bucket: "b", set: "photos" },
+      async () => {
+        ran = true;
+      },
+    );
+
+    assert.equal(ran, false);
+    assert.deepEqual(
+      "uploads" in outcome ? outcome.uploads.map(({ id }) => id) : outcome,
+      ["upload-20261027T140205.123Z"],
+    );
+    assert.deepEqual(lockKeys(), ["locks/upload-20261027T140205.123Z"]);
+  });
+
+  it("runs while another set's backup or a bucket-wide upload holds its lock", async () => {
+    // Neither reads this set's marker, so taking it out can't break them.
+    plant("upload-20261027T140205.123Z", "backup", "docs");
+    plant("upload-20261027T140206.123Z", "upload");
+
+    const outcome = await holdRetireLock(
+      { bucket: "b", set: "photos" },
+      async () => "out",
+    );
+
+    assert.deepEqual(outcome, { value: "out" });
   });
 });

@@ -367,6 +367,29 @@ describe("findInSnapshots", () => {
     ]);
   });
 
+  it("reports a copy in a set it wasn't asked to search, when that set shares the bucket", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const mine = await seedSet("myset", "my-bucket", {
+      "20260611T0915": [file("notes/secret1", "S")],
+    });
+    const docs = await seedSet("docs", "my-bucket", {
+      "20260611T0916": [file("backup/copy-of-it", "S")],
+    });
+    // Another bucket holds its own copy, which a delete here can't touch.
+    const work = await seedSet("work", "work-bucket", {
+      "20260611T0917": [file("archive/other-copy", "S")],
+    });
+
+    const result = await findInSnapshots([mine], ["secret1"], {
+      sharing: [mine, docs, work],
+    });
+
+    assert.deepEqual(result.files[0]?.objects[0]?.alsoBacks, [
+      at("backup/copy-of-it"),
+    ]);
+  });
+
   it("does not count a path that matched as a path the object 'also' backs", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

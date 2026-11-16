@@ -409,7 +409,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.notEqual(refused.status, 0, "backup must refuse beside a cleanup");
     assert.match(
       refused.stderr,
-      /Can't back up right now — a cleanup or delete is running on bucket/,
+      /Can't back up right now — a cleanup, delete or forget is running on bucket/,
     );
     assert.match(
       refused.stderr,
@@ -485,7 +485,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       cleanup.done,
     ]);
     assert.notEqual(backupDone.status, 0, "the backup saw the delete lock");
-    assert.match(backupDone.stderr, /a cleanup or delete is running/);
+    assert.match(backupDone.stderr, /a cleanup, delete or forget is running/);
     assert.notEqual(cleanupDone.status, 0, "the cleanup saw the upload lock");
     assert.match(cleanupDone.stderr, /a backup or upload is running/);
 

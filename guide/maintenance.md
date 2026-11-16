@@ -256,11 +256,12 @@ that the check was skipped, so a bypass never leaves a silent gap.
 Forgetting **every snapshot a set has retires the set**: it leaves the bucket too, so
 `verify` stops reporting it and its name is free again. The prompt says so before you answer.
 Backing it up again later starts with `s3cab takeover <set>` on a machine that still has the
-set, or with `setup` on any other. If `forget` stops before the set has gone, run it again at
-a terminal: with no snapshot left, it asks to take the set out of the bucket. The bucket can't
-tell that set from one whose snapshots were lost, so answer no if they were: once the set is
-out, `cleanup` deletes what only they referenced. For the same reason `--force` won't take a
-set out this way.
+set, or with `setup` on any other. If a backup of the set is running, the set stays, since
+that backup's snapshot will be its next. If `forget` stops before the set has gone, run it
+again at a terminal: with no snapshot left, it asks to take the set out of the bucket. The
+bucket can't tell that set from one whose snapshots were lost, so answer no if they were: once
+the set is out, `cleanup` deletes what only they referenced. For the same reason `--force`
+won't take a set out this way.
 
 `forget` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now
@@ -299,7 +300,7 @@ This permanently removes the content above from every backup in 'my-backups'.
 Type the bucket name to proceed: my-backups
 Record of this removal — verify and restore read it to tell deliberate removal from damage:
   s3://my-backups/objects.deleted-1.tsv
-my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
+my-backups: 297 objects (48.1GB) are no longer stored. Snapshots were not modified.
 ```
 
 ```console posix
@@ -312,7 +313,7 @@ This permanently removes the content above from every backup in 'my-backups'.
 Type the bucket name to proceed: my-backups
 Record of this removal — verify and restore read it to tell deliberate removal from damage:
   s3://my-backups/objects.deleted-1.tsv
-my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
+my-backups: 297 objects (48.1GB) are no longer stored. Snapshots were not modified.
 ```
 
 Hashes can also go straight on the command line
@@ -372,7 +373,7 @@ them:
 > s3cab cleanup my-backups
 Contacting the cloud…
 Delete 46 orphaned objects (6.6GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
-my-backups: deleted 46 orphaned objects, reclaimed 6.6GB.
+my-backups: 46 orphaned objects (6.6GB) are no longer stored.
 ```
 
 **It asks before it acts.** At a terminal the question itself carries the count and the
@@ -459,7 +460,8 @@ If it was stopped without finishing and left its lock behind, remove the lock wi
 
 Backups don't block each other, and neither do a `cleanup` and a `delete`. A `backup` that
 meets a running `cleanup` refuses the same way, with no `--wait`: a scheduled backup fails
-loudly and the next schedule tries again.
+loudly and the next schedule tries again. A `forget` that takes a set out of the bucket holds
+the same lock as a `cleanup` for the moment that takes.
 
 A lock is removed when its command finishes, and a failed run takes its lock with it. So does
 a backup stopped with Ctrl+C while it reads and uploads files: it saves its progress and ends

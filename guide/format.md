@@ -1654,4 +1654,6 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Remove the lock when the run ends, success or failure, once no delete request is in flight.
   Report one you couldn't remove, with its id, so a person can.
 - To compact records, write the merged record before deleting the files it absorbs, and drop
-  only rows whose hash no snapshot references.
+  only rows whose hash no snapshot references. Write the merge even when no row is left: a
+  record with no rows keeps the highest index in use, so a `delete` running alongside never
+  takes an index another compaction is about to delete.
