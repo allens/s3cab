@@ -76,10 +76,9 @@ Report, and stop.
      for the set's last run.
    - *anything else is an experiment*: nothing enters the repo. List what the report
      found as harness faults and spec errors to fix.
-5. **Keep and destroy.** Either way, move the clean room, credentials deleted, and a
-   restore's `spec-only/` to
-   `~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>/` (README), then
-   empty the sandbox, and stop.
+5. **Keep and destroy.** Either way, keep the run's record, not its trees, in
+   `~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>/` as the README's
+   keep step says, then empty the sandbox, and stop.
 
 Report each step as: *as planned*, *new*, *next*. Nothing is committed without the
 user's word.

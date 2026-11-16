@@ -135,8 +135,10 @@ cd -
 node --env-file=.env.test scripts/cleanroom/check-restore.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\check.txt
 node scripts/cleanroom/audit-transcript.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\audit.txt
 node scripts/cleanroom/judge-audit.mjs C:\s3cab.sandbox | tee C:\s3cab.sandbox\cleanroom\judge.txt
-# keep: the clean room, minus its credentials, into the experiments folder
+# keep: the clean room, minus its credentials and its trees, into the experiments folder
 Remove-Item C:\s3cab.sandbox\cleanroom\credentials.*
+Remove-Item -Recurse C:\s3cab.sandbox\cleanroom\reference
+# and every tree the session restored into, in cleanroom\ and spec-only\ (below)
 New-Item -ItemType Directory -Force $HOME/s3cab.experiments
 Move-Item C:\s3cab.sandbox\cleanroom $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh
 Move-Item C:\s3cab.sandbox\spec-only $HOME/s3cab.experiments/2026-10-12-restore-windows-opus55-xhigh/spec-only
@@ -177,7 +179,8 @@ is public, so download it as soon as the run ends, then delete it. It holds one
 ```sh
 gh workflow run cleanroom.yml --ref main -f role=backup -f platform=linux -f effort=low
 gh run download <run-id> -n cleanroom-<role>-<platform>-<model>-<effort> --dir ~/s3cab.experiments/<date>-<role>-<platform>-<model>-<effort>
-tar -xzf ~/s3cab.experiments/<that folder>/cleanroom.tgz -C ~/s3cab.experiments/<that folder>
+tar -xzf ~/s3cab.experiments/<that folder>/cleanroom.tgz -C ~/s3cab.experiments/<that folder> --exclude=./cleanroom/reference
+rm ~/s3cab.experiments/<that folder>/cleanroom.tgz
 gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 ```
 
@@ -185,8 +188,14 @@ gh api -X DELETE repos/allens/s3cab/actions/artifacts/<artifact-id>
 per run named for its date, role, platform, model and effort. What moves there is
 the clean room, minus its credentials, with the checker's, the audit's and the
 judge's output beside the report: the audit's is the run's token cost by model, kept for
-comparing runs later. The fixtures stay behind, since every build makes them
-afresh. The folder is cleared by hand. It sits in the home folder, so a later
+comparing runs later. The trees stay behind. The fixtures do, since every build
+makes them afresh. So do a restore's `reference/` and every tree its session
+restored into, wherever it put them, recognisable by the set folders they share
+with `reference/`. They are copies of the golden set the checker has already
+compared, hundreds of MB a run. Unpacking a CI run's tarball leaves the clean
+room's `reference/` out, anchored so that a `reference/` the session made of its
+own stays; the session's trees are then deleted by hand, as at home. The folder
+is cleared by hand. It sits in the home folder, so a later
 session that reads an earlier run's report is a stray the audit lists.
 
 Every run is built, run and checked the same way, and the audit reports its
