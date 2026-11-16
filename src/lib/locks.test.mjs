@@ -471,7 +471,7 @@ describe("holdUploadLock", () => {
     assert.match(
       warnings.at(-1) ?? "",
       new RegExp(
-        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. Until it goes, every cleanup and delete of the bucket is refused\\. The next backup, upload, cleanup or delete on this same system should remove it, once it can tell this run has stopped; to remove it yourself:\\n {2}s3cab unlock --bucket b ${id}`,
+        `Couldn't remove this run's lock from bucket 'b' \\(denied\\)\\. Until it goes, every cleanup and delete of the bucket is refused, and a forget can't take set 'photos' out of it\\. The next backup, upload, cleanup, delete or forget on this same system should remove it, once it can tell this run has stopped; to remove it yourself:\\n {2}s3cab unlock --bucket b ${id}`,
       ),
     );
   });

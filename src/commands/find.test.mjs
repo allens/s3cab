@@ -101,6 +101,21 @@ describe("find", () => {
     );
   });
 
+  it("fails a search when another set won't read for any other reason", async () => {
+    // It may share the bucket and hold a copy a delete would remove, so
+    // leaving it out of the other-copies check would hide that copy.
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    await seedSet("photos", "photo-bucket");
+    const { dirsPath } = writeSet("everything", { dirs: [BASE], bucket: "b" });
+    rmSync(dirsPath);
+    mkdirSync(dirsPath);
+
+    await assert.rejects(find(["secret1"], { set: "photos" }), {
+      code: "EISDIR",
+    });
+  });
+
   it("names the sets that exist when --set names one that doesn't", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

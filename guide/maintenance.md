@@ -338,9 +338,10 @@ Three things to understand about what it does:
 - **A hash is the content, wherever it lives.** Backups store one copy of identical
   content however many names, sets and machines share it — so deleting a hash removes that
   content from all of them. `find` warns when an object also backs files *outside* what you
-  searched for, and prints every path; the review is where you catch the copy you still
-  want. (One refusal is built in: the hash of the *empty file* backs every zero-byte file
-  in the repository, and `delete` won't take it.)
+  searched for, and prints every path; when a set you didn't search holds it, at any path,
+  it names that set, and `s3cab find` without `--set` shows its paths. The review is where
+  you catch the copy you still want. (One refusal is built in: the hash of the *empty file*
+  backs every zero-byte file in the repository, and `delete` won't take it.)
 - **It frees space directly.** Unlike `forget`, there's nothing left for `cleanup` to sweep
   — the objects themselves are deleted (softly: versioning keeps them recoverable for the
   usual window, below).

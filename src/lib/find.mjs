@@ -219,29 +219,20 @@ export async function findInSnapshots(
           if (!matchers.some((matcher) => matcher.test(candidate))) {
             continue;
           }
-          let byHash = matched.get(path);
-          if (!byHash) {
-            byHash = new Map();
-            matched.set(path, byHash);
-          }
-          let record = byHash.get(props.hash);
-          if (!record) {
-            record = {
-              size: props.size,
-              mtime: props.mtime,
-              indices: new Map(),
-            };
-            byHash.set(props.hash, record);
-          }
+          const byHash = entryOf(matched, path, () => new Map());
+          const record = entryOf(byHash, props.hash, () => ({
+            size: props.size,
+            mtime: props.mtime,
+            indices: new Map(),
+          }));
           // Newest wins: snapshots are read oldest first, so the last write is
           // the most recent thing the history knows about this content.
           record.mtime = props.mtime;
-          let indices = record.indices.get(set.name);
-          if (!indices) {
-            indices = [];
-            record.indices.set(set.name, indices);
-          }
-          indices.push(index);
+          entryOf(
+            record.indices,
+            set.name,
+            () => /** @type {number[]} */ ([]),
+          ).push(index);
         }
       }
     }
@@ -353,10 +344,10 @@ async function otherPaths(
           continue;
         }
         if (!searched.has(set.name)) {
-          addTo(holders, props.hash, set.name);
+          entryOf(holders, props.hash, () => new Set()).add(set.name);
         }
         if (!matchedPaths.has(path)) {
-          addTo(paths, props.hash, path);
+          entryOf(paths, props.hash, () => new Set()).add(path);
         }
       }
     }
@@ -366,15 +357,18 @@ async function otherPaths(
 }
 
 /**
- * @param {Map<string, Set<string>>} map
- * @param {string} key
- * @param {string} value
+ * What `map` holds under `key`, made and stored first if it holds nothing.
+ * @template K, V
+ * @param {Map<K, V>} map
+ * @param {K} key
+ * @param {() => V} make
+ * @returns {V}
  */
-function addTo(map, key, value) {
-  let values = map.get(key);
-  if (!values) {
-    values = new Set();
-    map.set(key, values);
+function entryOf(map, key, make) {
+  let value = map.get(key);
+  if (value === undefined) {
+    value = make();
+    map.set(key, value);
   }
-  values.add(value);
+  return value;
 }

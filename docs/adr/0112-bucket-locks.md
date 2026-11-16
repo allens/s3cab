@@ -267,7 +267,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
   keep. The retried backup uploads them again: it costs time, never data, because step 2 comes
   before anything decides what to skip.
 - **A hard stop anywhere before the snapshot lands leaves the lock**, and the next backup,
-  upload, cleanup or delete from that machine removes it, saying so.
+  upload, cleanup, delete or forget from that machine removes it, saying so.
 - **The seeding gap:** a cleanup between `upload --dir` and the first backup deletes the seeds,
   and the backup uploads them again. The guide says so: it's for the people sharing a bucket to
   avoid, not something to build for.

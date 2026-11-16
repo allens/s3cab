@@ -340,7 +340,7 @@ describe("forget command", () => {
     assert.deepEqual(removedSets, []);
     assert.match(
       said,
-      /Set 'photos' stays in the bucket: a backup or upload of it is running:\n {2}upload-20260613T091500Z\n\nIf it ends without leaving a snapshot, take the set out at a terminal with:\n {2}s3cab forget --set photos 20260612T0915 20260611T0915\nIf it was stopped without finishing and left its lock behind, remove the lock first with:\n {2}s3cab unlock --bucket b1\n/,
+      /Set 'photos' stays in the bucket: a backup or upload of it is running:\n {2}upload-20260613T091500Z\n\nIf it was stopped without finishing and left its lock behind, remove the lock with:\n {2}s3cab unlock --bucket b1\nThen, if it left no snapshot, take the set out at a terminal with:\n {2}s3cab forget --set photos 20260612T0915 20260611T0915\n/,
     );
     assert.doesNotMatch(said, /has left the bucket/);
   });

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { parseEnv } from "node:util";
-import { isENOENT, ValidationError } from "./error.mjs";
+import { isENOENT, NoBucketError, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { parseLines } from "./read-lines.mjs";
@@ -354,7 +354,7 @@ export function readSet(name) {
   const env = envText === undefined ? {} : parseEnv(envText);
   const bucket = env.S3CAB_BUCKET;
   if (!bucket) {
-    throw new Error(
+    throw new NoBucketError(
       `Backup set '${name}' has no bucket to back up to ` +
         `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +

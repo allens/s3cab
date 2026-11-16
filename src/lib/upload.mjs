@@ -791,6 +791,9 @@ export async function uploadSnapshot(set, { name, since }) {
   return holdUploadLock(
     { bucket, command: "upload", set: set.name },
     async () => {
+      // First under the lock, as `uploadSet` does: a set this machine doesn't
+      // hold is refused before a single object is sent.
+      await assertHeld(bucket, set.name, set.claimPath);
       const stored = await storedHashes({
         bucket,
         set: set.name,

@@ -417,11 +417,11 @@ async function takeOut(set) {
 const backupRunningParagraph = (set, snapshots, uploads) =>
   `Set '${set.name}' stays in the bucket: a backup or upload of it is running:\n` +
   uploads.map((lock) => `  ${describeLock(lock)}`).join("\n") +
-  `\n\nIf it ends without leaving a snapshot, take the set out at a terminal with:\n` +
-  `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}\n` +
-  `If it was stopped without finishing and left its lock behind, remove the ` +
-  `lock first with:\n` +
-  `  ${shellCommand(`s3cab unlock --bucket ${set.bucket}`)}\n\n`;
+  `\n\nIf it was stopped without finishing and left its lock behind, remove ` +
+  `the lock with:\n` +
+  `  ${shellCommand(`s3cab unlock --bucket ${set.bucket}`)}\n` +
+  `Then, if it left no snapshot, take the set out at a terminal with:\n` +
+  `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}\n\n`;
 
 /**
  * The keys `removeRemoteSet` left in a set's folder, which s3cab didn't write:

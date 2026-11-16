@@ -1,4 +1,4 @@
-import { requireArg } from "../lib/error.mjs";
+import { NoBucketError, requireArg } from "../lib/error.mjs";
 import { findInSnapshots } from "../lib/find.mjs";
 import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
 
@@ -45,18 +45,18 @@ export async function find(patterns, options = {}) {
   }
   const sets = names.map((name) => readSet(name));
 
-  // The dedup warning reads every attached set either way, except one that
-  // won't read: with no bucket it can't be told to share this one, and it
-  // mustn't fail a search of the set that was named.
+  // The dedup warning reads every attached set either way, except one with no
+  // bucket: it can't be told to share this one, and it mustn't fail a search
+  // of the set that was named. Any other set that won't read fails the
+  // search, since it may hold a copy a delete would remove.
   const sharing = attached.flatMap((name) => {
-    const searched = sets.find((set) => set.name === name);
-    if (searched) {
-      return [searched];
-    }
     try {
       return [readSet(name)];
-    } catch {
-      return [];
+    } catch (error) {
+      if (error instanceof NoBucketError) {
+        return [];
+      }
+      throw error;
     }
   });
 

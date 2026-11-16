@@ -395,7 +395,11 @@ const lockLeft = (bucket, lock, cause) =>
   `Couldn't remove this run's lock from bucket '${bucket}' ` +
   `(${reason(cause)}). Until it goes, every ` +
   `${lock.kind === "upload" ? "cleanup and delete" : "backup and upload"} ` +
-  `of the bucket is refused. The next backup, upload, cleanup or delete ` +
+  `of the bucket is refused` +
+  (lock.kind === "upload" && lock.set
+    ? `, and a forget can't take set '${lock.set}' out of it`
+    : ``) +
+  `. The next backup, upload, cleanup, delete or forget ` +
   `on this same system should remove it, once it can tell this run has ` +
   `stopped; to remove it yourself:\n` +
   `  ${shellCommand(`s3cab unlock --bucket ${bucket} ${lock.id}`)}`;
