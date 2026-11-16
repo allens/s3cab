@@ -300,10 +300,11 @@ A `cleanup` or `delete` won't run while a backup or upload holds a lock in the b
 later, or add `--wait`. If the lock was left by a run that died, remove it with `unlock`. See
 [locks](maintenance.md#locks-backups-and-clean-ups-take-turns).
 
-### Can't … right now — a cleanup or delete is running on bucket '…'
+### Can't … right now — a cleanup, delete or forget is running on bucket '…'
 
-A backup or upload won't run while a `cleanup` or `delete` holds a lock in the bucket. A
-scheduled backup simply fails, and the next one tries again. See
+A backup or upload won't run while a `cleanup` or `delete` holds a lock in the bucket, or a
+`forget` taking a set out of it. A scheduled backup simply fails, and the next one tries again.
+See
 [locks](maintenance.md#locks-backups-and-clean-ups-take-turns).
 
 ### Removing a lock needs a confirmation, and there is no terminal to ask on.
@@ -323,6 +324,13 @@ them with `s3cab unlock --bucket my-backups`, then name the ids.
 
 The command was given a snapshot name this machine doesn't have. The message lists the ones it
 has, newest first. To see what's in the bucket, use `s3cab list photos --remote`.
+
+### '…' isn't a snapshot name: a snapshot is named for the minute it was taken, like 20260612T0915, and s3cab reads no other file as one.
+
+A snapshot's name is the minute it was taken, `YYYYMMDDTHHMM`, and a file in the snapshots
+folder under any other name, such as a copy kept as `before-migration.tsv.gz`, is not one: s3cab
+won't read it, upload it, or keep its files in the bucket. The message lists the real snapshots,
+newest first.
 
 ### No snapshots to compare yet for set '…'.
 

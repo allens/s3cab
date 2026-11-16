@@ -44,6 +44,8 @@ let passErrors = [];
 let generateOptions;
 /** @type {UploadLockArgs[]} what the lock was asked to hold */
 let lockCalls = [];
+/** @type {Error | undefined} what the holder check refuses with, if it does */
+let notHeld;
 
 mock.module("./s3.mjs", {
   exports: s3Seam({
@@ -79,6 +81,9 @@ mock.module("./set-marker.mjs", {
     parseSnapshotsKey,
     assertHeld: async () => {
       events.push("assertHeld");
+      if (notHeld) {
+        throw notHeld;
+      }
     },
   },
 });
@@ -175,6 +180,7 @@ beforeEach(() => {
   passErrors = [];
   generateOptions = undefined;
   lockCalls = [];
+  notHeld = undefined;
 });
 
 describe("uploadSet (the fused pass)", () => {
@@ -186,6 +192,9 @@ describe("uploadSet (the fused pass)", () => {
 
     assert.deepEqual(events, [
       "lock",
+      // Under the lock, so a forget can't take the set out between the
+      // check and the lock; first, so a refusal costs seconds.
+      "assertHeld",
       "readBaseline",
       // A first backup: the store is LISTed before a single file is hashed, so
       // a credentials or network problem surfaces in seconds.
@@ -262,6 +271,16 @@ describe("uploadSet (the fused pass)", () => {
     );
     assert.ok(!events.includes(`put:${objectUri(hash)}`));
     assert.equal(result.candidates, 0);
+  });
+
+  it("refuses a set this machine doesn't hold before reading anything, and releases the lock", async () => {
+    await using dir = await mkTmpDir();
+    const { set } = await fixture(dir.path);
+    notHeld = new Error("not held");
+
+    await assert.rejects(uploadSet(set), /not held/);
+
+    assert.deepEqual(events, ["lock", "assertHeld", "unlock"]);
   });
 
   it("reports an upload failure without publishing the manifest, pointing at the cheap retry", async () => {

@@ -6,6 +6,7 @@ import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
 import { formatMoment, localMoment } from "../lib/format.mjs";
+import { describeLock, holdRetireLock } from "../lib/locks.mjs";
 import { storedObjectSizes } from "../lib/objects.mjs";
 import {
   formatForcedReport,
@@ -23,6 +24,8 @@ import {
   referencedObjects,
 } from "../lib/remote.mjs";
 import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
+
+/** @import { Lock } from "../lib/locks.mjs" */
 
 // The **preview**: a transient decision aid, overwritten every run, in the s3cab
 // root because it belongs to no set for longer than one command
@@ -160,7 +163,7 @@ export async function forget(snapshots = [], options = {}) {
   // referenced (ADR-0117 §5).
   const interactive = isInteractive(process.stdin);
   if (remote.length === 0 && !force && interactive) {
-    return retire(set);
+    return retire(set, snapshots);
   }
   const missing = snapshots.filter((name) => !remote.includes(name));
   if (missing.length) {
@@ -281,15 +284,7 @@ export async function forget(snapshots = [], options = {}) {
   for (const name of snapshots) {
     await deleteRemoteSnapshot(set.bucket, set.name, name);
   }
-  // Listed again rather than trusting `last`: a backup that landed while the
-  // prompt was open keeps its set.
-  const left = await listRemoteSnapshots(set.bucket, set.name);
-  const retired = left.length === 0;
-  /** @type {string[]} */
-  let stray = [];
-  if (retired) {
-    stray = await removeRemoteSet(set.bucket, set.name);
-  }
+  const outcome = last ? await takeOut(set) : undefined;
 
   // The removal happened, so it earns an audit record — kept, unlike the
   // preview. A `--force` run has no analysis to record, so it files the stub that
@@ -313,14 +308,16 @@ export async function forget(snapshots = [], options = {}) {
   console.warn(
     `Forgetting removes snapshots, not the objects they point at; ` +
       `reclaim unreferenced ones with:\n  ${shellCommand(`s3cab cleanup ${set.bucket}`)}\n\n` +
-      (retired
+      (outcome && "stray" in outcome
         ? `Set '${set.name}' had no other snapshot, so ` +
-          (stray.length > 0
+          (outcome.stray.length > 0
             ? `s3cab took its records out of the bucket too. `
             : `it has left the bucket too. `) +
           `To back it up again:\n  ${shellCommand(`s3cab takeover ${set.name}`)}\n\n` +
-          strayParagraph(set, stray)
-        : ``) +
+          strayParagraph(set, outcome.stray)
+        : outcome && "uploads" in outcome
+          ? backupRunningParagraph(set, snapshots, outcome.uploads)
+          : ``) +
       `Record of this removal:\n  ${auditPath}`,
   );
 
@@ -331,13 +328,12 @@ export async function forget(snapshots = [], options = {}) {
  * Take a set with no snapshots in the bucket out of it: a `forget` that stopped
  * before the set went, a set never backed up, or one whose snapshots were lost,
  * which the bucket can't tell apart (ADR-0117). Always asks, since only the
- * user knows which; `forget` reaches this only on a terminal. Listed again
- * after the answer, as the main path is, so a backup that landed meanwhile
- * keeps its set.
+ * user knows which; `forget` reaches this only on a terminal.
  * @param {ReturnType<typeof loadSet>} set
+ * @param {string[]} snapshots - The snapshots named, for the command to run again
  * @returns {Promise<RetiredResult>}
  */
-async function retire(set) {
+async function retire(set, snapshots) {
   const ok = await promptYesNo(
     `Set '${set.name}' has no snapshots in bucket ${set.bucket}, so there is ` +
       `nothing to forget. Take the set out of the bucket? If its snapshots were ` +
@@ -349,15 +345,22 @@ async function retire(set) {
     console.warn("Cancelled — nothing was removed.");
     return { set: set.name, retired: false, stray: [] };
   }
-  const left = await listRemoteSnapshots(set.bucket, set.name);
-  if (left.length > 0) {
+  const outcome = await takeOut(set);
+  if ("left" in outcome) {
     console.warn(
       `Set '${set.name}' has a snapshot in the bucket again, so it stays — ` +
         `nothing was removed.`,
     );
     return { set: set.name, retired: false, stray: [] };
   }
-  const stray = await removeRemoteSet(set.bucket, set.name);
+  if ("uploads" in outcome) {
+    console.warn(
+      backupRunningParagraph(set, snapshots, outcome.uploads) +
+        `Nothing was removed.`,
+    );
+    return { set: set.name, retired: false, stray: [] };
+  }
+  const { stray } = outcome;
 
   const moment = auditMoment();
   const auditPath = join(set.dir, auditFile(moment.name));
@@ -377,6 +380,48 @@ async function retire(set) {
   );
   return { set: set.name, retired: true, stray };
 }
+
+/**
+ * Take a set with no snapshot left out of the bucket, under a delete lock
+ * (`holdRetireLock`, ADR-0112). Listed inside the lock, so a backup that
+ * published before it shows in the listing, and one still running shows in
+ * `locks/`; either keeps the set.
+ * @param {ReturnType<typeof loadSet>} set
+ * @returns {Promise<{ stray: string[] } | { left: string[] } | { uploads: Lock[] }>}
+ *   The keys left in its folder once it is out, the snapshots it has again, or
+ *   the backups of it that are running
+ */
+async function takeOut(set) {
+  const outcome = await holdRetireLock(
+    { bucket: set.bucket, set: set.name },
+    async () => {
+      const left = await listRemoteSnapshots(set.bucket, set.name);
+      if (left.length > 0) {
+        return { left };
+      }
+      return { stray: await removeRemoteSet(set.bucket, set.name) };
+    },
+  );
+  return "value" in outcome ? outcome.value : outcome;
+}
+
+/**
+ * Why a set with no snapshot left stays in the bucket: a backup or upload of
+ * it is running. A backup's snapshot will be its next; an `upload --dir` or
+ * `--file` leaves none, so the set is taken out by running `forget` again.
+ * @param {ReturnType<typeof loadSet>} set
+ * @param {string[]} snapshots - The snapshots named, for the command to run again
+ * @param {Lock[]} uploads - The running uploads' locks
+ * @returns {string}
+ */
+const backupRunningParagraph = (set, snapshots, uploads) =>
+  `Set '${set.name}' stays in the bucket: a backup or upload of it is running:\n` +
+  uploads.map((lock) => `  ${describeLock(lock)}`).join("\n") +
+  `\n\nIf it was stopped without finishing and left its lock behind, remove ` +
+  `the lock with:\n` +
+  `  ${shellCommand(`s3cab unlock --bucket ${set.bucket}`)}\n` +
+  `Then, if it left no snapshot, take the set out at a terminal with:\n` +
+  `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")}`)}\n\n`;
 
 /**
  * The keys `removeRemoteSet` left in a set's folder, which s3cab didn't write:

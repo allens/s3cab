@@ -129,6 +129,12 @@ backup copy, and the copy on the other machine in the same set. The warning
 exists because that object is one thing: anything done to it reaches every path
 listed.
 
+### `⚠ also in N sets not searched`
+
+With `--set`, the other sets in the same bucket are still read for this: a delete
+removes the object from the whole bucket, so a set you didn't search loses its
+copy too, even one stored under the very path you searched for.
+
 ### `⚠ results span N buckets`
 
 Each set writes to one bucket, named on the `# searched` line. If the matches

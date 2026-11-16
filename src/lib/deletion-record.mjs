@@ -264,8 +264,9 @@ export async function readDeletionRecords(bucket) {
  * absorbed file is deleted, so a crash can only leave rows duplicated across
  * files — and a duplicated row is still just "deliberately gone", collapsed by
  * the next compaction. Two concurrent compactions merge to two fresh files the
- * same way. A `delete` running concurrently writes to an index this run's LIST
- * never saw, so its record is never absorbed or deleted.
+ * same way. A `delete` running concurrently writes to an index above every one
+ * this run's LIST saw, since the highest index never goes away, so its record
+ * is never absorbed or deleted.
  * @param {string} bucket - The repository's S3 bucket
  * @param {Set<string>} referenced - Every hash any snapshot in the bucket
  *   references (`planCleanup`'s union) — rows outside it are dropped
@@ -315,12 +316,12 @@ export async function compactDeletionRecords(bucket, referenced) {
     return { files: 0, rows: 0, trimmed: 0 };
   }
 
-  // Merge first, delete second — the order is the crash-safety. A merge with
-  // no surviving rows writes nothing: a row nothing references needs no
-  // tombstone, so the steady state there is no record file at all.
-  if (kept.length > 0) {
-    await writeDeletionRecord(bucket, formatDeletionRecord(kept));
-  }
+  // Merge first, delete second — the order is the crash-safety. The merge is
+  // written even with no rows: `writeDeletionRecord` numbers from the highest
+  // index, so deleting every file would free index 1 for a `delete` running
+  // now, whose record a crossing compaction that listed the old index 1 would
+  // then delete.
+  await writeDeletionRecord(bucket, formatDeletionRecord(kept));
   for (const { uri } of absorbed) {
     await deleteObject(uri);
   }

@@ -701,6 +701,13 @@ export function renderFind(result, { color = false } = {}) {
           ),
         );
       }
+      if (object.otherSets.length) {
+        lines.push(
+          warn(
+            `#   ⚠ also in ${countOf(object.otherSets.length, "set")} not searched (${object.otherSets.map((name) => `'${name}'`).join(", ")}) — deleting this removes it there too`,
+          ),
+        );
+      }
       lines.push(object.hash);
     }
   }
@@ -1769,6 +1776,10 @@ export function renderForget(result) {
  * line. `deleted: false` covers a dry run, a declined confirmation, and a
  * nothing-to-delete run alike — in each case the summary above it already
  * said which.
+ *
+ * Worded as the state, not the act: a `delete` crossing another of the same
+ * hashes counts them too, and S3's DELETE answers alike whether or not the key
+ * was there, so "deleted" would claim what the run can't know.
  * @param {DeleteResult} result
  * @returns {string}
  */
@@ -1782,9 +1793,9 @@ export function renderDelete({
     return "Nothing was deleted.";
   }
   return (
-    `${bucket}: deleted ${countOf(deletedObjects, "object")} ` +
-    `(${formatByteValue(deletedBytes)}). ` +
-    `Snapshots were not modified.`
+    `${bucket}: ${countOf(deletedObjects, "object")} ` +
+    `(${formatByteValue(deletedBytes)}) ${deletedObjects === 1 ? "is" : "are"} ` +
+    `no longer stored. Snapshots were not modified.`
   );
 }
 
@@ -1794,6 +1805,8 @@ export function renderDelete({
  * run that reclaimed reports what it removed; every other run (dry run,
  * declined, or nothing to do) reports the inventory — stored total, orphans and
  * the space they hold, plus the (integrity-fault) missing tally when non-zero.
+ * What it removed is worded as the state, as `renderDelete` is and for its
+ * reason: a crossing cleanup counts the same orphans.
  * @param {CleanupResult} result
  * @returns {string}
  */
@@ -1808,8 +1821,9 @@ export function renderCleanup(result) {
   } = result;
   if (deleted > 0) {
     return (
-      `${bucket}: deleted ${formatCount(deleted)} orphaned ` +
-      `${plural(deleted, "object")}, reclaimed ${formatByteValue(reclaimableBytes)}.`
+      `${bucket}: ${formatCount(deleted)} orphaned ${plural(deleted, "object")} ` +
+      `(${formatByteValue(reclaimableBytes)}) ${deleted === 1 ? "is" : "are"} ` +
+      `no longer stored.`
     );
   }
   let line =

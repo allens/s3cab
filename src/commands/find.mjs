@@ -1,4 +1,4 @@
-import { requireArg } from "../lib/error.mjs";
+import { NoBucketError, requireArg } from "../lib/error.mjs";
 import { findInSnapshots } from "../lib/find.mjs";
 import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
 
@@ -38,14 +38,27 @@ export async function find(patterns, options = {}) {
 
   // A named set is resolved (and rejected) by `readSet`, which lists the real
   // ones on a miss; with none named the answer spans every attached set.
-  const names = options.set === undefined ? listSets() : [options.set];
+  const attached = listSets();
+  const names = options.set === undefined ? attached : [options.set];
   if (names.length === 0) {
     throw new Error(NO_SETS_MESSAGE);
   }
+  const sets = names.map((name) => readSet(name));
 
-  return await findInSnapshots(
-    names.map((name) => readSet(name)),
-    patterns,
-    { all: options.all },
-  );
+  // The dedup warning reads every attached set either way, except one with no
+  // bucket: it can't be told to share this one, and it mustn't fail a search
+  // of the set that was named. Any other set that won't read fails the
+  // search, since it may hold a copy a delete would remove.
+  const sharing = attached.flatMap((name) => {
+    try {
+      return [readSet(name)];
+    } catch (error) {
+      if (error instanceof NoBucketError) {
+        return [];
+      }
+      throw error;
+    }
+  });
+
+  return await findInSnapshots(sets, patterns, { all: options.all, sharing });
 }

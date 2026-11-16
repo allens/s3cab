@@ -2161,7 +2161,7 @@ describe("renderDelete", () => {
     });
     assert.equal(
       text,
-      "my-backups: deleted 297 objects (2.3MB). Snapshots were not modified.",
+      "my-backups: 297 objects (2.3MB) are no longer stored. Snapshots were not modified.",
     );
   });
 
@@ -2175,7 +2175,7 @@ describe("renderDelete", () => {
     });
     assert.equal(
       text,
-      "my-backups: deleted 1 object (2.3MB). Snapshots were not modified.",
+      "my-backups: 1 object (2.3MB) is no longer stored. Snapshots were not modified.",
     );
   });
 
@@ -2228,6 +2228,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: [],
+                otherSets: [],
               },
             ],
           },
@@ -2247,6 +2248,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: ["C:\\a", "C:\\b", "C:\\c"],
+                otherSets: [],
               },
             ],
           },
@@ -2297,6 +2299,7 @@ describe("renderFind", () => {
                     },
                   ],
                   alsoBacks: [],
+                  otherSets: [],
                 },
               ],
             },
@@ -2343,6 +2346,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: ["C:\\a"],
+                otherSets: [],
               },
             ],
           },
@@ -2354,6 +2358,42 @@ describe("renderFind", () => {
       text,
       /# {3}⚠ also backs 1 other path — deleting this removes both$/m,
     );
+  });
+
+  it("names the sets not searched that hold the content", () => {
+    const text = renderFind(
+      findResult({
+        patterns: ["raw.mov"],
+        files: [
+          {
+            path: "D:\\Photos\\raw.mov",
+            objects: [
+              {
+                hash: "5e21ab7f",
+                size: 892,
+                mtime: "2019-03-28T14:02:00.000Z",
+                spans: [
+                  {
+                    set: "photos",
+                    first: "20190328T0812",
+                    last: "20190328T0812",
+                    count: 1,
+                  },
+                ],
+                alsoBacks: [],
+                otherSets: ["docs", "everything"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /# {3}⚠ also in 2 sets not searched \('docs', 'everything'\) — deleting this removes it there too$/m,
+    );
+    assert.doesNotMatch(text, /also backs/);
   });
 
   it("names a lone snapshot rather than a range of one", () => {
@@ -2377,6 +2417,7 @@ describe("renderFind", () => {
                   },
                 ],
                 alsoBacks: [],
+                otherSets: [],
               },
             ],
           },
@@ -2416,6 +2457,7 @@ describe("renderFind", () => {
                 },
               ],
               alsoBacks: [],
+              otherSets: [],
             },
           ],
         },
@@ -2561,7 +2603,17 @@ describe("renderCleanup", () => {
     );
     assert.equal(
       text,
-      "my-backups: deleted 44 orphaned objects, reclaimed 2.3MB.",
+      "my-backups: 44 orphaned objects (2.3MB) are no longer stored.",
+    );
+  });
+
+  it("reads as English at one", () => {
+    const text = renderCleanup(
+      cleanupResult({ orphanObjects: 1, reclaimableBytes: 15, deleted: 1 }),
+    );
+    assert.equal(
+      text,
+      "my-backups: 1 orphaned object (15B) is no longer stored.",
     );
   });
 });

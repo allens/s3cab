@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -85,6 +85,35 @@ describe("find", () => {
       result.files.map(({ path }) => path),
       [resolve(BASE, "work/secret1")],
     );
+  });
+
+  it("searches the set named with --set when another set has no bucket", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    await seedSet("photos", "photo-bucket");
+    rmSync(writeSet("old", { dirs: [BASE], bucket: "b" }).envPath);
+
+    const result = await find(["secret1"], { set: "photos" });
+
+    assert.deepEqual(
+      result.files.map(({ path }) => path),
+      [resolve(BASE, "photos/secret1")],
+    );
+  });
+
+  it("fails a search when another set won't read for any other reason", async () => {
+    // It may share the bucket and hold a copy a delete would remove, so
+    // leaving it out of the other-copies check would hide that copy.
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    await seedSet("photos", "photo-bucket");
+    const { dirsPath } = writeSet("everything", { dirs: [BASE], bucket: "b" });
+    rmSync(dirsPath);
+    mkdirSync(dirsPath);
+
+    await assert.rejects(find(["secret1"], { set: "photos" }), {
+      code: "EISDIR",
+    });
   });
 
   it("names the sets that exist when --set names one that doesn't", async () => {

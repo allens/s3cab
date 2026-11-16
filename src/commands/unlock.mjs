@@ -102,7 +102,7 @@ export async function unlock(ids = [], options = {}) {
 
   if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
-      `\nA lock whose command is still running keeps a cleanup or delete ` +
+      `\nA lock whose command is still running keeps a cleanup, delete or forget ` +
         `from removing what that backup needs — or a backup from storing ` +
         `what that cleanup is removing. Remove one only when you know its ` +
         `command has stopped.\n` +

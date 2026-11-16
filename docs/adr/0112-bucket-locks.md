@@ -19,7 +19,8 @@ running" asks for something its reader often can't see.
 ## Decision
 
 **Uploads and deletes never overlap, on any machine.** An upload is `backup` or any form of
-`upload`; a delete is `cleanup` or `delete`. Uploads don't exclude each other, and neither do
+`upload`; a delete is `cleanup`, `delete`, or `forget` taking a set out of the bucket
+(below). Uploads don't exclude each other, and neither do
 deletes: two cleanups, or a cleanup and a `delete`, can safely cross, as
 [0090](0090-deletion-record-format-compaction.md) requires. Reading takes no lock.
 
@@ -42,7 +43,7 @@ deletes: two cleanups, or a cleanup and a `delete`, can safely cross, as
   STARTED=2026-10-27T14:02:05.123Z
   ```
   `COMMAND` is what is running. `SET` is there when the run is for one set, which every upload is
-  except `upload --bucket`. `BY` is `user@machine`, as in `@SNAPSHOT BY`, `OS` the operating
+  except `upload --bucket`, and so is `forget`'s delete. `BY` is `user@machine`, as in `@SNAPSHOT BY`, `OS` the operating
   system whose process table holds the pid, `PIDNS` (Linux only, such as `pid:[4026531836]`)
   which of the machine's process tables, and `PID` the process: together they say whose process
   holds the lock, the one thing a rule reads (below). `STARTED`
@@ -114,7 +115,8 @@ moved out of the `backup` command for this), `uploadSnapshot`, `uploadDir` and `
 the upload lock; `reclaim` (top up, delete orphans, compact) and `deleteContent` (record, then
 delete) take the delete lock. A command parses, plans, confirms and renders; it cannot upload or
 delete without passing through one of those, so no command carries a "takes the lock" flag, and
-the lock's `COMMAND` is derived from the operation.
+the lock's `COMMAND` is derived from the operation. The one exception is `forget`, which takes
+the delete lock itself around `removeRemoteSet`, its only caller.
 
 ### A delete
 
@@ -155,6 +157,29 @@ typed bucket name. Then:
 **Both sides write first and look second.** An upload and a delete that start together each see
 the other's lock, so at worst both refuse. If either looked first, both could see nothing and
 carry on.
+
+### Taking a set out
+
+`forget` of a set's last snapshot takes the set out of the bucket
+([0117](0117-health-reports-count-only-what-they-checked.md) §5), and a backup of that set refuses to publish once its marker
+is gone. So the taking out is a delete, with `SET` naming the set:
+
+1. **Write the delete lock.**
+2. **List `locks/`**, removing any leftover from its own process table.
+3. **An upload lock of this set:** remove your own lock and keep the set, saying that a backup or
+   upload of it is running, naming each lock, and giving the command that takes the set out if it
+   ends without a snapshot, and `unlock` for a lock a stopped run left. A backup's snapshot will
+   be the set's next; an `upload --dir` or `--file` leaves none, and keeping the set for it only
+   leaves the set for a later `forget`. No `--wait`: the snapshots are already forgotten, and only
+   the set is left.
+4. **List the set's snapshots again**, and keep the set if one is there: a backup that published
+   between the forget's own listing and step 1.
+5. **Take the set out**, then remove the lock.
+
+Uploads of other sets, and `upload --bucket`, don't stop it: they never read this set's marker.
+They are still turned away for the few requests the lock is held, as by any delete. Forgetting
+snapshots that leave others behind takes no lock: a backup never reads its set's old snapshots
+back from the bucket.
 
 ### `unlock`
 
@@ -242,7 +267,7 @@ deny, as AWS's can; elsewhere `--wait` is the only way in. It is documented, not
   keep. The retried backup uploads them again: it costs time, never data, because step 2 comes
   before anything decides what to skip.
 - **A hard stop anywhere before the snapshot lands leaves the lock**, and the next backup,
-  upload, cleanup or delete from that machine removes it, saying so.
+  upload, cleanup, delete or forget from that machine removes it, saying so.
 - **The seeding gap:** a cleanup between `upload --dir` and the first backup deletes the seeds,
   and the backup uploads them again. The guide says so: it's for the people sharing a bucket to
   avoid, not something to build for.

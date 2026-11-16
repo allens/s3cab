@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -880,6 +881,31 @@ describe("readSnapshot", () => {
     // Not an EISDIR out of a read stream: only a regular file is a snapshot,
     // so this is the same "no such snapshot" the lister would imply.
     await assert.rejects(readSnapshot(dir.path, name), /not found/);
+  });
+
+  it("won't read a snapshot file under a name that isn't a snapshot's, and says what one is", async () => {
+    await using dir = await mkTmpDir();
+    writeRealSnapshot(dir.path);
+    copyFileSync(
+      join(dir.path, snapshotFileName(name)),
+      join(dir.path, "before-migration.tsv.gz"),
+    );
+
+    await assert.rejects(readSnapshot(dir.path, "before-migration"), {
+      message: new RegExp(
+        `^'before-migration' isn't a snapshot name: a snapshot is named for the minute it was taken, like 20260612T0915, and s3cab reads no other file as one\\.\\nSnapshots in .*, newest first:\\n  ${name}$`,
+      ),
+    });
+  });
+
+  it("says a set has no snapshots yet, and how to take one", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(readSnapshot(dir.path, name), {
+      message: new RegExp(
+        `^Snapshot '${name}' not found in .*\\.\\nThere are no snapshots in .* yet\\. Take one with:\\n  s3cab snapshot$`,
+      ),
+    });
   });
 });
 

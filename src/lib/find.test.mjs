@@ -367,6 +367,65 @@ describe("findInSnapshots", () => {
     ]);
   });
 
+  it("reports a copy in a set it wasn't asked to search, when that set shares the bucket", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const mine = await seedSet("myset", "my-bucket", {
+      "20260611T0915": [file("notes/secret1", "S")],
+    });
+    const docs = await seedSet("docs", "my-bucket", {
+      "20260611T0916": [file("backup/copy-of-it", "S")],
+    });
+    // Another bucket holds its own copy, which a delete here can't touch.
+    const work = await seedSet("work", "work-bucket", {
+      "20260611T0917": [file("archive/other-copy", "S")],
+    });
+
+    const result = await findInSnapshots([mine], ["secret1"], {
+      sharing: [mine, docs, work],
+    });
+
+    assert.deepEqual(result.files[0]?.objects[0]?.alsoBacks, [
+      at("backup/copy-of-it"),
+    ]);
+    assert.deepEqual(result.files[0]?.objects[0]?.otherSets, ["docs"]);
+  });
+
+  it("names a set not searched that holds the content at the very path that matched", async () => {
+    // Two sets over the same tree: the path alone can't tell the copy from
+    // the match, and a delete removes both.
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const mine = await seedSet("photos", "my-bucket", {
+      "20260611T0915": [file("raw.mov", "S")],
+    });
+    const everything = await seedSet("everything", "my-bucket", {
+      "20260611T0916": [file("raw.mov", "S")],
+    });
+
+    const result = await findInSnapshots([mine], ["raw.mov"], {
+      sharing: [mine, everything],
+    });
+
+    assert.deepEqual(result.files[0]?.objects[0]?.alsoBacks, []);
+    assert.deepEqual(result.files[0]?.objects[0]?.otherSets, ["everything"]);
+  });
+
+  it("names no other set when every set is searched", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const mine = await seedSet("photos", "my-bucket", {
+      "20260611T0915": [file("raw.mov", "S")],
+    });
+    const everything = await seedSet("everything", "my-bucket", {
+      "20260611T0916": [file("raw.mov", "S")],
+    });
+
+    const result = await findInSnapshots([mine, everything], ["raw.mov"]);
+
+    assert.deepEqual(result.files[0]?.objects[0]?.otherSets, []);
+  });
+
   it("does not count a path that matched as a path the object 'also' backs", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

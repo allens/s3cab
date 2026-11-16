@@ -409,7 +409,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.notEqual(refused.status, 0, "backup must refuse beside a cleanup");
     assert.match(
       refused.stderr,
-      /Can't back up right now — a cleanup or delete is running on bucket/,
+      /Can't back up right now — a cleanup, delete or forget is running on bucket/,
     );
     assert.match(
       refused.stderr,
@@ -485,7 +485,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       cleanup.done,
     ]);
     assert.notEqual(backupDone.status, 0, "the backup saw the delete lock");
-    assert.match(backupDone.stderr, /a cleanup or delete is running/);
+    assert.match(backupDone.stderr, /a cleanup, delete or forget is running/);
     assert.notEqual(cleanupDone.status, 0, "the cleanup saw the upload lock");
     assert.match(cleanupDone.stderr, /a backup or upload is running/);
 
@@ -501,15 +501,25 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     await wipeBucket();
     const home = join(scratch, "home");
     const data = join(scratch, "data");
-    makeTree(data, TREE);
+    makeTree(data, { "old.txt": "only in the oldest snapshot" });
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
 
+    // Backup 0 leaves an older snapshot, so forgetting the baseline below
+    // leaves the set in the bucket and the cleanup reaches the lock.
+    const zero = s3cab(["backup", "s"], { home, tz: nextZone() });
+    assert.equal(zero.status, 0, zero.stderr);
+    const [zeroManifest] = await manifestKeys();
+    rmSync(join(data, "old.txt"));
+    makeTree(data, TREE);
+
     // Backup 1 establishes the baseline.
     const first = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(first.status, 0, first.stderr);
-    const [firstManifest] = await manifestKeys();
+    const firstManifest = (await manifestKeys()).find(
+      (key) => key !== zeroManifest,
+    );
     const m1 = firstManifest?.slice("snapshots/s/".length, -".tsv.gz".length);
     assert.ok(m1);
 
@@ -527,9 +537,10 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       tag: "B2",
     });
 
-    // Inside the window: forget the baseline (no lock — it deletes manifests,
-    // never objects), then try to sweep. The old objects are unreferenced
-    // now, and only backup 2's upload lock stands between them and cleanup.
+    // Inside the window: forget the baseline (no lock while the set keeps a
+    // snapshot — it deletes manifests, never objects), then try to sweep. The
+    // baseline's objects are unreferenced now, and only backup 2's upload lock
+    // stands between them and cleanup.
     const forget = s3cab(
       ["forget", "--set", "s", /** @type {string} */ (m1), "--force"],
       { home },
@@ -538,7 +549,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     const cleanup = s3cab(["cleanup", bucket, "--force"], { home });
     assert.notEqual(cleanup.status, 0, "cleanup must refuse");
     assert.match(cleanup.stderr, /a backup or upload is running/);
-    assert.equal(await objectCount(), 5, "nothing swept");
+    assert.equal(await objectCount(), 6, "nothing swept");
 
     release(b2.gate);
     const b2Done = await b2.done;

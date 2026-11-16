@@ -276,7 +276,7 @@ The cloud round trip, plus the maintenance that keeps a repository healthy.
 | [`s3cab forget`](https://s3cab.plantegral.com/commands/forget)   | Remove snapshots from a backup ([guide](guide/maintenance.md)) |
 | [`s3cab delete`](https://s3cab.plantegral.com/commands/delete)   | Delete objects from every backup by content hash, permanently ([guide](guide/maintenance.md)) |
 | [`s3cab cleanup`](https://s3cab.plantegral.com/commands/cleanup) | Reclaim storage held by objects no snapshot references ([guide](guide/maintenance.md)) |
-| [`s3cab unlock`](https://s3cab.plantegral.com/commands/unlock)   | Remove locks a stopped backup, upload, cleanup or delete left behind ([guide](guide/maintenance.md)) |
+| [`s3cab unlock`](https://s3cab.plantegral.com/commands/unlock)   | Remove locks a stopped backup, upload, cleanup, delete or forget left behind ([guide](guide/maintenance.md)) |
 
 ### Advanced
 

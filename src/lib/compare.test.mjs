@@ -648,55 +648,48 @@ describe("compareSnapshots", () => {
   it("rejects an explicit snapshot name that does not exist", async () => {
     await using dir = await mkTmpDir();
 
-    await writeSnapshot(dir.path, "current", [
+    await writeSnapshot(dir.path, CURRENT, [
       new File(["contents1"], "file1.txt"),
     ]);
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], {
-        since: "nope",
-        until: "current",
+        since: "20000101T0000",
+        until: CURRENT,
       }),
-      /Snapshot 'nope' not found/,
+      /Snapshot '20000101T0000' not found/,
     );
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], {
-        since: "current",
-        until: "nope",
+        since: CURRENT,
+        until: "20000101T0000",
       }),
-      /Snapshot 'nope' not found/,
+      /Snapshot '20000101T0000' not found/,
     );
   });
 
-  it("requires an explicit since when until is not a listed snapshot", async () => {
+  it("won't read a snapshot file whose name isn't datestamped, as list() doesn't list it", async () => {
     await using dir = await mkTmpDir();
 
     await writeSnapshot(dir.path, PREVIOUS, [
       new File(["contents1"], "file1.txt"),
     ]);
-
-    // Readable as a snapshot, but its name isn't datestamped so list() — and
-    // therefore the default-predecessor rule — can't see it.
     await writeSnapshot(dir.path, "debug", [
       new File(["contents1"], "file1.txt"),
-      new File(["contents2"], "file2.txt"),
     ]);
 
     await assert.rejects(
       compareSnapshots(dir.path, [dir.path], { until: "debug" }),
-      /not in the snapshot list/,
+      /'debug' isn't a snapshot name/,
     );
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: PREVIOUS,
-      until: "debug",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: ["file2.txt"],
-    });
+    await assert.rejects(
+      compareSnapshots(dir.path, [dir.path], {
+        since: PREVIOUS,
+        until: "debug",
+      }),
+      /'debug' isn't a snapshot name/,
+    );
   });
 
   it("accepts full snapshot filenames", async () => {

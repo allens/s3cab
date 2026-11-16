@@ -42,7 +42,7 @@ prose rots silently.
 | `snapshots/<set>/<name>.tsv.gz` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
 | `snapshots/<set>.info` | absent → claimed → taken over | `setup` claims it (conditional `putText`, first-writer-wins, only while `snapshots/<set>/` is empty); `takeover` rewrites OWNER and CLAIMED with a plain PUT, keeping CREATED, or claims it conditionally when absent ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
 | `.s3cab/sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
-| `objects.deleted-<n>.tsv` | absent → present, then **immutable** (never overwritten — compaction writes a *new* index) | `delete` — conditional PUT at the lowest free index, walking upward on collision ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | `cleanup` — compaction removes absorbed files, only *after* their merge lands at a fresh index ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) |
+| `objects.deleted-<n>.tsv` | absent → present, then **immutable** (never overwritten — compaction writes a *new* index) | `delete` — conditional PUT at the index after the highest in use, walking upward on collision ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | `cleanup` — compaction removes absorbed files, only *after* their merge lands at a fresh index ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) |
 
 Two properties of `objects/` are worth stating precisely, because most of the durability surface
 rests on them:
@@ -211,7 +211,7 @@ caller cannot get the object listing without the snapshots having been read firs
 4. The delete lock, as `cleanup`'s step 7: written, then `locks/` listed; an upload lock
    refuses or, with `--wait`, waits.
 5. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
-   lowest free index, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
+   index after the highest in use, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
    a crash between them leaves an *over-complete* record (objects recorded as deleted that
    still exist, which reads as simply present) rather than unexplained absences.
 6. Remove the lock, on every exit.

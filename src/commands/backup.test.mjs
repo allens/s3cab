@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 import { ESCAPES } from "../lib/path-match.mjs";
 
-// Offline tests for `backup`'s porcelain: the holder check up front, the fused
-// pass handed to `uploadSet` (lib/upload.mjs, where its order and failures are
-// tested in upload.set.test.mjs), the best-effort config re-publish to the
+// Offline tests for `backup`'s porcelain: the fused pass handed to `uploadSet`
+// (lib/upload.mjs, where its holder check, order and failures are tested in
+// upload.set.test.mjs), the best-effort config re-publish to the
 // remote marker (ADR-0052), the comparison over the snapshot just written, and
 // the report. The set resolver, the upload lib and `set-marker` are faked at
 // the module seam — what's under test is the wiring and its order. Mocks
@@ -37,21 +37,11 @@ let comparison;
 let pushFails;
 /** @type {[string, string, object][]} */
 let pushCalls = [];
-/** @type {(() => void) | undefined} let the holder check refuse */
-let notHeld;
-/** @type {string[][]} the args each holder check got */
-let heldCalls = [];
-
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
 });
 mock.module("../lib/set-marker.mjs", {
   exports: {
-    assertHeld: async (/** @type {string[]} */ ...args) => {
-      calls.push("assertHeld");
-      heldCalls.push(args);
-      notHeld?.();
-    },
     pushSetConfig: async (
       /** @type {string} */ bucket,
       /** @type {string} */ set,
@@ -113,8 +103,6 @@ beforeEach(() => {
     dirs: [],
   };
   calls = [];
-  heldCalls = [];
-  notHeld = undefined;
   baseline = {
     name: "20260101T0900",
     previous: new Map(),
@@ -159,13 +147,10 @@ afterEach(() => {
 });
 
 describe("backup", () => {
-  it("checks the holder, runs the fused pass, re-syncs the config, then compares", async () => {
+  it("runs the fused pass, re-syncs the config, then compares", async () => {
     const result = await backup("photos");
 
     assert.deepEqual(calls, [
-      // Before the pass, so a set this machine doesn't hold is refused in
-      // seconds; `uploadSnapshotFile` checks again just before publishing.
-      "assertHeld",
       "uploadSet",
       "pushSetConfig",
       // Last, over the snapshot that has just landed — the run's report is a
@@ -173,7 +158,6 @@ describe("backup", () => {
       // (ADR-0078 §8).
       "compareSnapshots",
     ]);
-    assert.deepEqual(heldCalls, [["b", "photos", "photos/claim"]]);
     // The resolved set itself goes to the lib, which takes the lock for it.
     assert.equal(uploadSets[0], fakeSet);
     assert.deepEqual(uploadCalls, [
@@ -203,16 +187,6 @@ describe("backup", () => {
     });
   });
 
-  it("refuses a set this machine doesn't hold before reading anything", async () => {
-    notHeld = () => {
-      throw new Error("not held");
-    };
-
-    await assert.rejects(backup("photos"), /not held/);
-
-    assert.deepEqual(calls, ["assertHeld"]);
-  });
-
   it("passes --rehash, --resume and --debug through to the pass", async () => {
     await backup("photos", { rehash: true, resume: true, debug: true });
 
@@ -226,7 +200,7 @@ describe("backup", () => {
 
     await assert.rejects(backup("photos"), /connection reset/);
 
-    assert.deepEqual(calls, ["assertHeld", "uploadSet"]);
+    assert.deepEqual(calls, ["uploadSet"]);
   });
 
   it("suggests excluding only the files that failed last time too", async () => {

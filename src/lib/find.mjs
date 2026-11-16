@@ -53,6 +53,8 @@ export { compileFindPattern };
  * @property {string} mtime - As the newest snapshot recording it stored it
  * @property {FindSpan[]} spans - Oldest first, and set by set in search order
  * @property {string[]} alsoBacks - Other paths this content is stored under, sorted
+ * @property {string[]} otherSets - Sets sharing the bucket that weren't searched
+ *   but hold this content, at any path, the matched one included; sorted
  */
 
 /**
@@ -167,9 +169,16 @@ async function readOrRecord(set, name, unreadable) {
  * @param {string[]} patterns - Find patterns, as the user typed them
  * @param {object} [options]
  * @param {boolean} [options.all] - One entry per snapshot instead of collapsed ranges
+ * @param {BackupSet[]} [options.sharing] - The sets the dedup warning reads, those
+ *   in a searched set's bucket: a delete removes an object from the whole bucket,
+ *   so a copy in a set not searched goes with it (default: `sets`)
  * @returns {Promise<FindResult>}
  */
-export async function findInSnapshots(sets, patterns, { all = false } = {}) {
+export async function findInSnapshots(
+  sets,
+  patterns,
+  { all = false, sharing = sets } = {},
+) {
   const matchers = patterns.map(compileFindPattern);
 
   /** @type {Map<string, UnreadableSnapshot>} */
@@ -210,29 +219,20 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
           if (!matchers.some((matcher) => matcher.test(candidate))) {
             continue;
           }
-          let byHash = matched.get(path);
-          if (!byHash) {
-            byHash = new Map();
-            matched.set(path, byHash);
-          }
-          let record = byHash.get(props.hash);
-          if (!record) {
-            record = {
-              size: props.size,
-              mtime: props.mtime,
-              indices: new Map(),
-            };
-            byHash.set(props.hash, record);
-          }
+          const byHash = entryOf(matched, path, () => new Map());
+          const record = entryOf(byHash, props.hash, () => ({
+            size: props.size,
+            mtime: props.mtime,
+            indices: new Map(),
+          }));
           // Newest wins: snapshots are read oldest first, so the last write is
           // the most recent thing the history knows about this content.
           record.mtime = props.mtime;
-          let indices = record.indices.get(set.name);
-          if (!indices) {
-            indices = [];
-            record.indices.set(set.name, indices);
-          }
-          indices.push(index);
+          entryOf(
+            record.indices,
+            set.name,
+            () => /** @type {number[]} */ ([]),
+          ).push(index);
         }
       }
     }
@@ -242,9 +242,16 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
   const hashes = new Set(
     [...matched.values()].flatMap((byHash) => [...byHash.keys()]),
   );
-  const alsoBacks = await otherPaths(sets, hashes, new Set(matched.keys()), {
-    unreadable,
-  });
+  const buckets = new Set(sets.map((set) => set.bucket));
+  const others = await otherPaths(
+    sharing.filter((set) => buckets.has(set.bucket)),
+    hashes,
+    new Set(matched.keys()),
+    { unreadable, searched: new Set(sets.map((set) => set.name)) },
+  );
+  /** @param {Set<string> | undefined} names */
+  const sorted = (names) =>
+    [...(names ?? [])].sort((a, b) => a.localeCompare(b));
 
   const files = [...matched]
     .map(([path, byHash]) => ({
@@ -257,9 +264,8 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
           spans: [...indices].flatMap(([setName, positions]) =>
             collapse(setName, positions, namesBySet.get(setName) ?? [], all),
           ),
-          alsoBacks: [...(alsoBacks.get(hash) ?? [])].sort((a, b) =>
-            a.localeCompare(b),
-          ),
+          alsoBacks: sorted(others.paths.get(hash)),
+          otherSets: sorted(others.sets.get(hash)),
         }))
         // Newest version of the path first: the objects under one path are what
         // it held over time, and that is the order a reader is looking for.
@@ -283,7 +289,9 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
 /**
  * Pass 2: what *else* do these hashes back? Re-scans the same snapshots asking
  * the reverse question of the small hash set pass 1 produced, and collects every
- * path that is not itself a match.
+ * path that is not itself a match, and every set not searched that holds one of
+ * them. The set is what tells a copy at a matched path in another set from the
+ * match itself: the path alone would leave it out.
  *
  * This is the dedup warning — content-addressable storage means deleting an
  * object removes every file stored under that content, and a user who searched
@@ -297,13 +305,22 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
  * @param {Set<string>} matchedPaths - Paths that matched, excluded from the answer
  * @param {object} context
  * @param {Map<string, UnreadableSnapshot>} context.unreadable - Snapshots pass 1 could not read, skipped rather than re-reported
- * @returns {Promise<Map<string, Set<string>>>} Hash → the other paths it backs
+ * @param {Set<string>} context.searched - The names of the sets pass 1 searched
+ * @returns {Promise<{ paths: Map<string, Set<string>>, sets: Map<string, Set<string>> }>}
+ *   Hash → the other paths it backs, and hash → the sets not searched that hold it
  */
-async function otherPaths(sets, hashes, matchedPaths, { unreadable }) {
+async function otherPaths(
+  sets,
+  hashes,
+  matchedPaths,
+  { unreadable, searched },
+) {
   /** @type {Map<string, Set<string>>} */
-  const found = new Map();
+  const paths = new Map();
+  /** @type {Map<string, Set<string>>} */
+  const holders = new Map();
   if (hashes.size === 0) {
-    return found;
+    return { paths, sets: holders };
   }
 
   let read = 0;
@@ -323,18 +340,35 @@ async function otherPaths(sets, hashes, matchedPaths, { unreadable }) {
         continue;
       }
       for (const [path, props] of snapshot.entries) {
-        if (!hashes.has(props.hash) || matchedPaths.has(path)) {
+        if (!hashes.has(props.hash)) {
           continue;
         }
-        let paths = found.get(props.hash);
-        if (!paths) {
-          paths = new Set();
-          found.set(props.hash, paths);
+        if (!searched.has(set.name)) {
+          entryOf(holders, props.hash, () => new Set()).add(set.name);
         }
-        paths.add(path);
+        if (!matchedPaths.has(path)) {
+          entryOf(paths, props.hash, () => new Set()).add(path);
+        }
       }
     }
   }
   progress.done();
-  return found;
+  return { paths, sets: holders };
+}
+
+/**
+ * What `map` holds under `key`, made and stored first if it holds nothing.
+ * @template K, V
+ * @param {Map<K, V>} map
+ * @param {K} key
+ * @param {() => V} make
+ * @returns {V}
+ */
+function entryOf(map, key, make) {
+  let value = map.get(key);
+  if (value === undefined) {
+    value = make();
+    map.set(key, value);
+  }
+  return value;
 }

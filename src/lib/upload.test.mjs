@@ -1043,6 +1043,8 @@ describe("uploadSnapshot under the upload lock", () => {
     // No `hash:` event: this path never hashes, the snapshot carries every hash.
     assert.deepEqual(callOrder, [
       "lock",
+      // First under the lock, so a refusal costs no transfer.
+      "assertHeld",
       "put:photo.raw",
       "assertHeld",
       `put:${args.name}.tsv.gz`,
@@ -1051,6 +1053,20 @@ describe("uploadSnapshot under the upload lock", () => {
     assert.deepEqual(lockCalls, [
       { bucket: "trust-bucket", command: "upload", set: "trusty" },
     ]);
+  });
+
+  it("sends nothing for a set this machine doesn't hold, and releases the lock", async () => {
+    await using dir = await mkTmpDir();
+    const { args, baselineUri } = await oneFileFixture(dir.path);
+    remoteFiles.delete(baselineUri);
+    notHeld = new Error("not held");
+
+    try {
+      await assert.rejects(() => uploadSnapshotOf(args), /not held/);
+    } finally {
+      notHeld = undefined;
+    }
+    assert.deepEqual(callOrder, ["lock", "assertHeld", "unlock"]);
   });
 
   it("takes no lock for a snapshot that doesn't exist", async () => {

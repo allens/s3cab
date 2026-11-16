@@ -412,19 +412,23 @@ describe("prior-audit findings, encoded", () => {
     const root = dir.path;
     useHome(root, "mA");
     const data = await makeSet(root, "interleave", "data");
-    writeFileSync(join(data, "f.txt"), "vouched for by the baseline");
+    writeFileSync(join(data, "f.txt"), "in the oldest snapshot only");
     await backup("interleave");
     clockHolder.current.advance(MINUTE_MS);
+    writeFileSync(join(data, "f.txt"), "vouched for by the baseline");
+    const { snapshot: baseline } = await backup("interleave");
+    clockHolder.current.advance(MINUTE_MS);
 
-    // The second backup passes its baseline identity check and is skipping
+    // The third backup passes its baseline identity check and is skipping
     // every object the baseline vouches for. Mid-run, the baseline is
-    // forgotten (forget takes no lock: it deletes manifests, never objects)
-    // and cleanup follows — and meets the backup's upload lock.
+    // forgotten (forget takes no lock while the set keeps a snapshot: it
+    // deletes manifests, never objects) and cleanup follows — and meets the
+    // backup's upload lock.
     const fake = backendHolder.current;
     /** @type {unknown} */
     let cleanupOutcome;
     beforeManifestPut(fake, async () => {
-      await forget(["20260105T0000"], { set: "interleave", force: true });
+      await forget([baseline], { set: "interleave", force: true });
       cleanupOutcome = await cleanup(BUCKET, { force: true }).catch(
         (error) => error,
       );

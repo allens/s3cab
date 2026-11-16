@@ -206,6 +206,24 @@ export class ChangedWhileReadError extends Error {
 }
 
 /**
+ * A set whose `env` names no bucket (`readSet`, lib/sets.mjs).
+ *
+ * A subclass because `find` catches it *by type*: such a set can't be shown to
+ * share the searched set's bucket, so the other-copies check leaves it out,
+ * where any other failure to read a set fails the search.
+ */
+export class NoBucketError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "NoBucketError";
+  }
+}
+
+/**
  * The missing-argument sentence, given an argument's *display* form. One home for
  * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's

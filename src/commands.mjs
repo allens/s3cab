@@ -658,7 +658,7 @@ export const commands = {
   },
   unlock: {
     summary:
-      "Remove locks a stopped backup, upload, cleanup or delete left behind",
+      "Remove locks a stopped backup, upload, cleanup, delete or forget left behind",
     guide: "maintenance",
     examples: [
       "s3cab unlock --bucket my-backups",
