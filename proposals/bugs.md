@@ -274,7 +274,229 @@ possibly letting `archived` clear on a restored copy without a HEAD per object; 
 with the clock set back, which the clock warning no longer fires on. Measured on Windows 11 and
 NTFS only, with no real bucket.</sub>
 
+<sub>Three **adversarial reads** (2026-11-14, Claude Fable 5.2 at xhigh, each reading `36798921`)
+contributed the entries below marked with their read, each proved by a failing test or an exact
+reproduction; the tests land with the fixes. None used a real bucket.</sub>
+
+<sub>The **security read** (brief: where credentials and the Roles Anywhere keys are read, stored,
+printed and sent, the modes of the files holding them, and what the identities `s3cab aws`
+provisions may do; Windows 11 and WSL2) found twelve. **Sound**, measured or read: keys never
+arrive as flags and the secret prompt echoes nothing; `provider` and `list` show the key ID's last
+four characters and `list --json` never the secret; without `S3CAB_DEBUG` a rejected request
+prints only the reply's code and message, and the debug argument dump holds no secret;
+`pushSetConfig` never sends `env`, and `takeover` and `reattach` never write one; s3cab starts no
+child process and never writes `~/.aws`; a set naming a profile signs in as it under exported
+shell keys; on Linux the home, `roles-anywhere/`, `sets/` and each set folder are `700` and the
+secret files `600` (umask `022`); the user template has no `AWS::IAM::AccessKey`, the Roles
+Anywhere one embeds only the public CA certificate, and its role trusts one anchor by
+`aws:SourceArn`; `bucketPolicy` grants exactly the calls `s3.mjs` makes, with no wildcard and no
+`DeleteObjectVersion`; the client key is never sent; bucket and set names can't escape the home
+(`assertPathSegment`); objects carry no host, user or path metadata; snapshot headers, lock files
+and `forget`'s audit files hold no credential; a bucket snapshot name can't steer a download out
+of the set's folder. **Suspicions, not run:** an in-place `restore` writes wherever a snapshot
+written with a leaked key says, inside its own `@SET DIR`s (never over an existing file without
+`--overwrite`); a set whose directory *is* the home is walked, since the skip is for a `.s3cab`
+below one; the default home on Windows is assumed owner-only by the profile's permissions,
+unmeasured; `restore --overwrite` on Windows probably swaps a file's own permissions for its
+folder's inherited ones; a `credential_process` can start with a set's secret in its environment
+when a shell profile wins; S3's `ExpiredToken` and `InvalidToken` replies may echo the token under
+`S3CAB_DEBUG` too. macOS not run.</sub>
+
+<sub>The **read of [#512](https://github.com/allens/s3cab/pull/512) and
+[#513](https://github.com/allens/s3cab/pull/513)** (brief: break each fix, and check each statement
+#512 added to [guide/format.md](../guide/format.md) against the code; NTFS, and WSL2 on ext4 and
+on the `/mnt` drives) found six and updated a seventh. **Held:** the hard-link landing refuses a
+file, a folder, a file link, a dangling link, a junction and a case twin with `EEXIST` on NTFS,
+ext4 and a `/mnt` drive; names Windows reserves or trims (`NUL`, `CON`, a trailing dot or space)
+don't read as already there; a temp held open without delete-sharing lands the file, and a second
+write over it is reported in the way, not an abort; a skip wins over a hash already missing or
+withheld; a dedup copy from a landed file that changed, vanished or became a folder;
+`assertWalkableDirs` through an 8.3 short name too; gzip streams joined into one text, and two
+joined snapshots, a cut snapshot followed by a zero and other trailing bytes refused; the deletion
+record's `.` end line across about thirty shapes; listing pages (2,500 snapshots, 1,200 records);
+a file row equal to a `@SET DIR` refused across about twenty shapes; a file gone after its folder
+is listed gets an `#error` row. **Suspicions, not run:** the landing's no-hard-link fallback on
+FAT or exFAT (no such volume here) and `link`'s `EEXIST` on APFS are unmeasured; a file replaced
+in the microseconds after it lands gets the snapshot's time and reads `restored`; NFS answering
+`EEXIST` to a retried link that succeeded; `removeMade` removing an empty folder another program
+made just before `mkdirSync`; a hand-edited `@SET DIR` with a doubled separator or a `.` segment
+isn't matched against rows, which no spec sentence forbids.</sub>
+
+<sub>The **read of the deletion paths** (brief: `cleanup`, `forget`, `delete`, `unlock`, and
+backup's and upload's writes, deleting something a user still needs or misreporting what they
+kept or removed; read cold from `src/commands.mjs`, no ADR; model tier) found five. **No
+`cleanup` deleted an object a dated snapshot still names**, beside a backup on another machine or
+killed partway. **Held:** cleanup's scan order against a snapshot published mid-scan; its top-up
+under the lock (a new set, a key republished with the same or other bytes, a snapshot gone and
+back, a missing ETag); its refusals (an unreadable, cut or refused snapshot, a damaged record,
+missing objects, a set with no snapshots); the upload and delete locks in both orders, with
+`--wait` and a dead process's lock; every delete in flight settling before the lock goes; a
+backup's trust in its baseline; parked hashes feeding only hashing; a kill partway through
+`backup`, `delete`, `cleanup` and `forget`; `forget` deleting only exact names checked against the
+bucket, its retire never touching `snapshots/<set>/`; conditional snapshot PUTs; `upload --file
+--force` hash-checked; `delete` taking only a full SHA-256 and refusing the empty file's; the
+record's slot allocation under racing writers, and two compactions with no `delete` between;
+`unlock` removing exactly the ids given. **Suspicions, not run:** `forget` retiring a set just as a
+backup publishes would leave a snapshot with no holder or config; a `cleanup` failing while it
+compacts says nothing of the orphans it already deleted; `delete --wait` counts from its check
+before the wait; `cleanup` on a bucket with objects and no set takes every object for an orphan,
+`upload --file --bucket` seeds included; a store answering 404 twice for a snapshot it holds would
+have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes every key under
+`.s3cab/sets/<set>/`, whatever else might be there.</sub>
+
 **Open:**
+
+- **`upload --snapshot <name>` stores a snapshot under a name nothing else counts, and a later
+  `cleanup` deletes what only it names** (deletion read). `normalizeSnapshotName` in
+  `src/commands/upload.mjs` strips only the extension, so `upload photos --snapshot
+  before-migration` writes `snapshots/photos/before-migration.tsv.gz` and reports it uploaded.
+  [guide/format.md](../guide/format.md) counts only a `YYYYMMDDTHHMM.tsv.gz` key as a snapshot
+  "for every purpose", as `list`, `restore`, `forget`, `verify` and `cleanup` all do, so once the
+  dated snapshots naming that content are forgotten, `cleanup` deletes it. One machine, every
+  time. Read, not run: `upload --since before-migration` then trusts that key as a byte-identical
+  baseline and skips the objects cleanup deleted.
+- **Case twins restored from Linux onto a disk that ignores case lose one, exit 0** (read of
+  #512/#513). `restoreTargets` in `src/lib/restore.mjs` tells a file this run wrote by its real
+  path, and glibc's `realpath` returns the case it was asked for, never asking the directory, so
+  the second twin isn't seen as the first file. Measured from WSL onto a `/mnt` drive: `file.txt`
+  is reported `skipped` and its content is nowhere; with `--overwrite` it replaces `File.txt` and
+  both read `restored`. [guide/format.md](../guide/format.md) tells other writers to keep a device
+  and inode; s3cab keeps the real path. The same `realpath` makes `backup` record a member
+  directory typed in another case under that spelling, breaking "the casing the filesystem
+  reports" ([guide/format.md](../guide/format.md#paths)). Recording each written file's device
+  and inode also closes the next entry. Not measured on FAT, exFAT, NTFS mounted on Linux or a
+  case-folding ext4 folder.
+- **A case twin of a file this run wrote, after another program changed that file's size, is no
+  longer a collision** (read of #512/#513): `skipped`, or with `--overwrite` written over it, exit
+  0, where before #513 it was `collided`, exit 1. #513's review fix keys the record of written
+  files by size, and `occupant` asks for a real path only when a file of that size was written.
+  Needs case twins and a program rewriting restored files mid-run. NTFS and a network share.
+- **A member directory that is a link, pointed elsewhere during the walk, backs up rows that never
+  restore** (read of #512/#513). `generateSnapshot` in `src/lib/snapshot.mjs` resolves the member
+  directories again after `walkSet` walked them, so `@SET DIR` names the new target and the rows
+  sit under the old one. The backup reports success; s3cab's reader then refuses every row of that
+  directory. [guide/format.md](../guide/format.md): a row's path is "its member directory's real
+  path, exactly as its `@SET DIR` row holds it". NTFS (a junction) and WSL (a symlink).
+- **Two crossing cleanups and a `delete` can lose the deletion record, and backups then list a
+  file without storing it** (deletion read). `compactDeletionRecords` in
+  `src/lib/deletion-record.mjs` deletes the record files it absorbed by key, and
+  `writeDeletionRecord` numbers from `max(index) + 1`, which restarts at 1 once the record is
+  empty. A second cleanup emptying the record first lets a `delete` write index 1 again, and the
+  first cleanup's late delete removes it. Every later backup reports success over the file it
+  doesn't store, and `cleanup` refuses from then on. The doc comment on `compactDeletionRecords`
+  assumes an index is never reused. Needs three runs within a few round trips; nothing keeps two
+  cleanups apart.
+- **`find --set` leaves out the warning that content also backs a file in another set**
+  (deletion read). `otherPaths` in `src/lib/find.mjs` looks only at the sets searched, so a
+  `delete` of a hash it listed removes content another set's snapshots need.
+  [guide/maintenance.md](../guide/maintenance.md) promises `find` warns of files "outside what
+  you searched for", and that warning is the only review `delete` gets.
+- **A home moved with `S3CAB_HOME` to a folder not named `.s3cab` is backed up, keys and all,**
+  when it sits inside a set's directory (security read): `S3CAB_HOME=D:\Backups\s3cab` with a set
+  backing up `D:\Backups`. The walk skips s3cab's home only by the name `.s3cab` (`walkFiles`,
+  `backupMatcher` in `src/lib/walk.mjs`), so every set's `env` and `roles-anywhere/client.key`
+  and `ca.key` are uploaded. The bucket is versioned and the everyday identity can't delete
+  versions, so they can't be taken back out. [guide/backup.md](../guide/backup.md): "`env` never
+  leaves this machine"; [guide/auth.md](../guide/auth.md): "The private keys never leave that
+  directory". Windows and Linux.
+- **On Windows, a home outside the user profile leaves every secret file open to other local
+  users** (security read). The only protection is the POSIX mode (`envFileMode` in
+  `src/lib/env-file.mjs`, `ensureMachineIdentity`, the `0700` folders in `src/lib/sets.mjs` and
+  `src/lib/aws.mjs`), which Windows ignores, so the files inherit the folder's: on `D:`,
+  `Authenticated Users:(I)(M)` on `client.key`, `ca.key` and each set's `env` (`icacls`). Another
+  account can read the keys and rewrite a set's endpoint. [guide/aws.md](../guide/aws.md) and
+  [guide/auth.md](../guide/auth.md) promise "owner-only" without naming Windows, and the comment
+  on `envFileMode` assumes the profile's permissions.
+- **"Can never permanently destroy" holds for 90 days** (security read).
+  [guide/aws.md](../guide/aws.md) (twice) and [guide/maintenance.md](../guide/maintenance.md) say
+  a leaked everyday key can't permanently destroy the backup, but that identity may `PutObject`
+  and `DeleteObject` every key, and the bucket's lifecycle rule (`NONCURRENT_DAYS` in
+  `src/lib/aws.mjs`) expires a replaced or deleted version after 90 days. Both pages give the 90
+  days, but not as the limit of that promise, and a backup trusting its baseline never looks at
+  stored objects, so only `verify` would notice. From the templates `s3cab aws` writes and S3's
+  documented lifecycle.
+- **A Roles Anywhere reply missing a credential field is printed with the secret** (security
+  read). `parseSessionResponse` in `src/lib/roles-anywhere.mjs` throws with the whole body when a
+  2xx reply lacks any of the four fields or isn't JSON, and `src/lib/auth.mjs` quotes it in the
+  error every run prints. AWS sends no such reply today; something in between could.
+  [guide/auth.md](../guide/auth.md): s3cab will never "Log a credential".
+- **A set's saved keys mix with credentials the shell exports** (security read). `applyEnv` and
+  `loadSet` in `src/lib/env.mjs` lay the set's `env` over the shell one variable at a time and
+  clear nothing. An exported `AWS_PROFILE` wins over the set's keys, so the set runs as that
+  profile against its own bucket: the notice line says so, but a failed sign-in blames "the
+  access key from set 'photos' config" (`credentialsUsed`, `src/lib/auth.mjs`). An exported
+  `AWS_SESSION_TOKEN` joins the set's keys and goes to the set's endpoint on every request,
+  silently. [guide/auth.md](../guide/auth.md)'s "One mode per set, enforced" covers the set's
+  file, not the shell. Windows and Linux.
+- **`S3CAB_DEBUG` prints the session token** when a request signed with temporary credentials is
+  rejected for its signature (security read). The debug print in `src/s3cab.mjs` dumps every
+  field of the error, and the SDK copies the server's reply onto it: `CanonicalRequest`, with
+  its signed `x-amz-security-token` header. Run against a stand-in server; that S3 echoes the
+  canonical request is from knowledge of S3. [guide/auth.md](../guide/auth.md): never logged,
+  "not under `S3CAB_DEBUG`".
+- **`forget` can retire a set while a backup of it runs** (deletion read). `forget`
+  (`src/commands/forget.mjs`) takes no lock, so forgetting a set's only snapshot removes its
+  marker and config (`removeRemoteSet`, `src/lib/set-marker.mjs`) under the running backup, whose
+  `assertHeld` then fails after uploading everything, publishes nothing and drops this machine's
+  claim. Nothing stored is lost unless a `cleanup` comes before the next backup.
+- **A key to the bucket chooses what a machine taking a set over backs up** (security read).
+  `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
+  the set, writes the bucket's copies without asking, and the everyday identity can write those
+  keys. It prints the directory list and the holder's name, from a marker the same key can write,
+  but not the exclude patterns. The behaviour is designed and pinned in `takeover.test.mjs`; the
+  defect is [guide/aws.md](../guide/aws.md)'s security model, which says a leaked key "can add to
+  your backup and tweak its own set markers" and doesn't count this.
+- **An existing `env` keeps a loose mode when a secret is written into it** (security read).
+  `updateEnvFile` and `removeEnvKey` in `src/lib/env-file.mjs` give `0600` only on creation, so an
+  `env` an editor made at `0644` stays `0644` after `provider --keys`. Needs a set folder s3cab
+  didn't make, since its own are `0700`. Linux.
+- **`restore --overwrite` turns an owner-only file into one at the default mode** (security read).
+  `writeFileAtomic` in `src/lib/atomic-file.mjs` renames a temp made with the default mode over
+  the destination, so a `0600` file comes back `0644` under umask `022`.
+  [guide/format.md](../guide/format.md)'s "permissions are what the system gives a new file"
+  doesn't say an existing file's are replaced. Linux.
+- **A leftover temp, once backed up, is reported restored and then removed** (read of
+  #512/#513). `writeFileAtomic` removes whatever holds the temp's name before it writes, and the
+  walk backs such a file up like any other. Since #513 a temp can outlive its run as a second hard
+  link to the restored file (measured on Windows, with a holder that doesn't share delete), and an
+  in-place restore then backs it up. NTFS lists a leading `.` first, so the temp's row lands first
+  and is removed when its file lands: both read `restored`, one file is on disk. On a network
+  share the real file isn't restored at all. What is lost is s3cab's own leftover; the report is
+  wrong.
+- **A file that arrives during its download and is gone a moment later is reported `skipped`,
+  exit 0, with nothing on disk** (read of #512/#513). The `DestinationExistsError` branch of
+  `restoreTargets` maps everything that isn't a folder or a file of this run's to `skipped`,
+  nothing included. The window is microseconds.
+- **One folder named twice in a set under two spellings isn't caught as an overlap** (read of
+  #512/#513), so the snapshot holds every file twice: `walkDirs` in `src/lib/walk.mjs` stops only
+  when it builds one path twice. Measured for `Photos` and `PHOTOS` on a `/mnt` drive,
+  `\\wsl.localhost\Ubuntu` and `\\wsl.localhost\ubuntu`, and `C:\…` with `\\localhost\C$\…`.
+  [guide/format.md](../guide/format.md) says "a link, a junction or a difference in case can't
+  make one directory two"; the third case is two server names, which it doesn't cover. An
+  in-place restore reports the second row `skipped`, exit 0, where the spec says it "collides or
+  restores twice"; nothing is lost.
+- **Zero bytes after a snapshot's gzip stream are mostly refused, where
+  [guide/format.md](../guide/format.md) says they're ignored** (read of #512/#513).
+  `readSnapshotFile` and `parseCompressedSnapshotStream` in `src/lib/snapshot-file.mjs` accept the
+  padding only when it ends inside the chunk the stream ended in; otherwise a raw `ABORT_ERR`,
+  `ERR_STREAM_PREMATURE_CLOSE` or `ECONNRESET`. Loud, and padded snapshots come only from a block
+  or tape copy of a bucket.
+- **A plain `http://` endpoint is accepted silently** (security read). `validateEndpoint` in
+  `src/lib/provider.mjs` and `clientConfig` in `src/lib/s3.mjs` allow it "for a local provider",
+  but nothing tells a local address from a remote one and no guide mentions `http`: file
+  contents, snapshots and any session token travel in clear. The secret key never does.
+- **`updateEnvFile` writes values unquoted** (security read), so a secret holding `#` or `$&`, or
+  with a leading space, reads back different: `ab#cd` as `ab`, and `ab$&cd` as
+  `abAWS_SECRET_ACCESS_KEY=firstcd`, the replacement pattern expanding. A sign-in that fails, not
+  a leak.
+- **Two crossing cleanups both report deleting the same orphans** (deletion read): the report in
+  `src/lib/cleanup.mjs` is the plan's count. Two crossing `delete`s of one hash likewise both
+  report it, and write two records. Counts only; S3's DELETE answers the same whether or not the
+  key existed.
+- **`ca.key` is kept and nothing reads it** (security read). `ensureMachineIdentity` in
+  `src/lib/roles-anywhere.mjs` writes it and `IDENTITY_FILES` checks it exists, and the module's
+  comment says it "only re-issues client certs", which no code does. Whoever can read it can read
+  `client.key` beside it; it adds the power to issue certificates the trust anchor accepts. Low.
 
 - **[guide/format.md](../guide/format.md) lags three behaviours from the 2026-11-10 fixes**,
   frozen until real set 5's last restore: a set leaves the bucket with its last snapshot (the
@@ -313,14 +535,6 @@ NTFS only, with no real bucket.</sub>
   matches nothing, silently. [guide/exclude.md](../guide/exclude.md) says only that lines starting
   with `#` are comments, so this is documented by implication. It is listed because a pattern a
   user reads as right does nothing, and no `#excluded` row is there to miss. Run on Linux.
-- **On a Linux directory that ignores case, s3cab keeps the case as typed**, since glibc's
-  `realpath` never asks the directory how a name is spelled. `backup` records a member
-  directory typed in another case under that spelling, breaking "the casing the filesystem
-  reports" ([guide/format.md](../guide/format.md#paths)). Worse, `restore` tells a case twin
-  from a file already there by real path, which comes back spelled as each row has it, so
-  there the second twin overwrites the first, exit 0. The fix is to match each name in its
-  parent's listing by device and inode, as the spec now tells other writers. From reading the
-  code, not run: WSL's ext4 has no case-folding directory to try it on.
 - **`setup` accepts a member directory whose path holds a tab or a CR**, and every `backup`
   then refuses it. An LF splits the entry in `dirs.txt`, and a leading or trailing tab or CR
   is trimmed off, naming a different folder. Loud, so low.
