@@ -342,6 +342,20 @@ describe("interruption: cleanup and forget", () => {
     const home = join(scratch, "home");
     const data = join(scratch, "data");
     mkdirSync(home, { recursive: true });
+    seedSet(home, "s", [data]);
+    await claimSet(home, "s");
+
+    // A backup of other content goes first, so the set keeps a snapshot and
+    // cleanup gets past its refusal over a set with none (ADR-0117 §5) to the
+    // delete pass. Its one object stays referenced, and out of every count.
+    makeTree(data, { "old.txt": "only in the older snapshot" });
+    const older = s3cab(["backup", "s"], { home, tz: nextZone() });
+    assert.equal(older.status, 0, older.stderr);
+    rmSync(join(data, "old.txt"));
+    const [kept] = (await inspector.listAll(bucket))
+      .map(({ key }) => key)
+      .filter((key) => key.startsWith("objects/"));
+
     // More orphans than cleanup keeps in flight, so the kill can land on a
     // DELETE that waited for a slot. With every DELETE dispatched at once, a
     // kill on any of them precedes every response, and nothing is torn.
@@ -352,8 +366,6 @@ describe("interruption: cleanup and forget", () => {
         Array.from({ length: orphans }, (_, i) => [`f${i}.txt`, `orphan ${i}`]),
       ),
     );
-    seedSet(home, "s", [data]);
-    await claimSet(home, "s");
 
     // Manufacture genuine crash orphans: a backup killed at the commit
     // boundary leaves every object uploaded and no manifest.
@@ -365,7 +377,7 @@ describe("interruption: cleanup and forget", () => {
     assertKilled(killed, "orphan-manufacturing backup");
     const orphanKeys = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+      .filter((key) => key.startsWith("objects/") && key !== kept);
     assert.equal(orphanKeys.length, orphans, "crash orphans seeded");
     // The killed backup's upload lock is left; cleanup, from the same
     // machine, sweeps it on its way in rather than turning away.
@@ -395,7 +407,7 @@ describe("interruption: cleanup and forget", () => {
     );
     const remaining = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+      .filter((key) => key.startsWith("objects/") && key !== kept);
     assert.ok(
       remaining.length < orphans,
       "at least one orphan was deleted before the kill",
@@ -412,7 +424,7 @@ describe("interruption: cleanup and forget", () => {
     assert.equal(rerun.status, 0, `cleanup rerun failed:\n${rerun.stderr}`);
     const after = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+      .filter((key) => key.startsWith("objects/") && key !== kept);
     assert.deepEqual(after, [], "rerun reclaimed the remaining orphans");
     assert.match(rerun.stderr, /Removed the lock a stopped run left in bucket/);
     assert.deepEqual(
