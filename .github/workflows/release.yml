@@ -98,11 +98,11 @@ jobs:
               bin: s3cab,
               archive: s3cab-linux-arm64.tar.gz,
             }
-          # macos-15 is Apple Silicon (arm64). We label the target `macos` rather than
+          # macos-26 is Apple Silicon (arm64). We label the target `macos` rather than
           # the platform's `darwin` — friendlier on a download (the e2e test maps back).
           - {
               target: macos-arm64,
-              runner: macos-15,
+              runner: macos-26,
               bin: s3cab,
               archive: s3cab-macos-arm64.tar.gz,
             }
