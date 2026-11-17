@@ -112,6 +112,8 @@ export async function runSequence(steps, root) {
   const machineSets = new Set();
   /** @type {Map<string, number>} set → the machine holding it (ADR-0108) */
   const holders = new Map();
+  /** @type {Set<string>} `${machine}:${set}` — which of those have its member dirs */
+  const machineDirs = new Set();
 
   const homeOf = (/** @type {number} */ machine) =>
     join(root, `m${machine}`, ".s3cab");
@@ -175,12 +177,19 @@ export async function runSequence(steps, root) {
       const objectsBefore = keysBefore.filter((key) =>
         key.startsWith("objects/"),
       );
-      // A refusal that is the expected outcome: a backup or forget from a
-      // machine that has the set but doesn't hold it, a backup while a delete
-      // lock stands, a cleanup while an upload lock stands or while a set the
-      // bucket names has no snapshots.
+      // A refusal that is the expected outcome: a backup or snapshot on a
+      // machine that has the set but not its member dirs, a backup or forget
+      // from a machine that has the set but doesn't hold it, a backup while a
+      // delete lock stands, a cleanup while an upload lock stands or while a
+      // set the bucket names has no snapshots.
       /** @type {string | null} */
       let refused = null;
+      if (
+        (step.kind === "backup" || step.kind === "snapshot") &&
+        !machineDirs.has(`${step.machine}:${step.set}`)
+      ) {
+        refused = `machine ${step.machine} has no member dirs for ${step.set}`;
+      }
       if (
         (step.kind === "backup" || step.kind === "forget") &&
         holders.get(step.set) !== step.machine
@@ -238,6 +247,7 @@ export async function runSequence(steps, root) {
             // As setup canonicalizes it, so `asRestored` finds its restore.
             setDirs.set(step.set, realpathSync.native(dir));
             machineSets.add(`${step.machine}:${step.set}`);
+            machineDirs.add(`${step.machine}:${step.set}`);
             holders.set(step.set, step.machine);
             break;
           }
@@ -323,14 +333,6 @@ export async function runSequence(steps, root) {
               set: step.set,
               force: true,
             });
-            // Its last snapshot gone, the set leaves the bucket, marker and
-            // all: nobody holds it until a takeover claims it again.
-            const left = await fake.listAll(BUCKET);
-            if (
-              !left.some(({ key }) => key.startsWith(`snapshots/${step.set}/`))
-            ) {
-              holders.delete(step.set);
-            }
             break;
           }
           case "cleanup": {
@@ -353,6 +355,12 @@ export async function runSequence(steps, root) {
             switchTo(step.machine);
             await s3cab.takeover(step.set, [], { bucket: BUCKET });
             machineSets.add(`${step.machine}:${step.set}`);
+            // A machine without member dirs gets the bucket's copy, if there
+            // is one: a forget of the set's last snapshot deletes it, finished
+            // or not, and leaves none to pull.
+            if (keysBefore.includes(`.s3cab/sets/${step.set}/dirs.txt`)) {
+              machineDirs.add(`${step.machine}:${step.set}`);
+            }
             holders.set(step.set, step.machine);
             break;
           }
@@ -368,6 +376,29 @@ export async function runSequence(steps, root) {
 
       if (skipped) {
         continue;
+      }
+      const stored = await fake.listAll(BUCKET);
+      const keysAfter = stored.map(({ key }) => key);
+
+      // Its last snapshot gone, the set leaves the bucket, marker last:
+      // nobody holds it until a takeover claims it again. Read from the
+      // bucket, not from forget returning: a fault on the marker's DELETE, or
+      // after it, throws with the set already out.
+      if (step.kind === "forget") {
+        if (!keysAfter.includes(`snapshots/${step.set}.info`)) {
+          if (
+            keysAfter.some(
+              (key) =>
+                key.startsWith(`snapshots/${step.set}/`) &&
+                key.endsWith(".tsv.gz"),
+            )
+          ) {
+            violations.push(
+              `forget took ${step.set} out of the bucket while it has snapshots`,
+            );
+          }
+          holders.delete(step.set);
+        }
       }
 
       // ── Judge ──────────────────────────────────────────────────────────
@@ -441,7 +472,6 @@ export async function runSequence(steps, root) {
         }
       }
 
-      const keysAfter = (await fake.listAll(BUCKET)).map(({ key }) => key);
       if (!fault) {
         for (const key of keysAfter) {
           if (key.startsWith("locks/") && !locksBefore.includes(key)) {
