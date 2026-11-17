@@ -120,10 +120,8 @@ user's own folders too.
 
 A hard link and the temp's removal cost each written file about 1.2 ms more than a rename on
 NTFS, 0.4 ms on ext4 (2,000 files, one machine). Looking on each file's turn is the `lstat` the
-plan made. Whether a file at a destination is one this run wrote takes `realpathSync.native`,
-0.15 ms a file on NTFS (three times the `lstat`) and 0.013 ms on ext4, so it is asked only of a
-file the size of one this run wrote: a restore that skips most of a tree doesn't pay it for each
-file it skips.
+plan made, and whether a file there is one this run wrote is that `lstat`'s device and inode
+([0086](0086-restore-collision-filesystem-equivalence.md)).
 
 ### Considered options
 

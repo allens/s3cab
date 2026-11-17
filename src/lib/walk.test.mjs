@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { isUtf8 } from "node:buffer";
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   realpathSync,
@@ -621,6 +622,28 @@ describe("walkDirs canonicalizes its root", () => {
       }
     },
   );
+
+  it("yields each name's case on disk where realpath keeps the case it was given", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "Photos/Summer/a.jpg");
+    const canonical = realpathSync.native(dir.path);
+    if (!existsSync(join(canonical, "PHOTOS"))) {
+      t.skip("filesystem is case-sensitive");
+      return;
+    }
+    // glibc's `realpath` never asks the directory how a name is spelled, so in
+    // a Linux directory that ignores case (a `/mnt` drive under WSL, FAT, a
+    // case-folding ext4 folder) it hands back the case it was given.
+    t.mock.method(realpathSync, "native", (/** @type {string} */ path) => path);
+
+    const { files, roots } = walkDirs(
+      [join(canonical, "photos", "SUMMER")],
+      [],
+    );
+
+    assert.deepEqual(roots, [join(canonical, "Photos", "Summer")]);
+    assert.deepEqual(files, [join(canonical, "Photos", "Summer", "a.jpg")]);
+  });
 });
 
 describe("walkDirs on a root the OS won't canonicalize", () => {

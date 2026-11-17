@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmdirSync,
-  statSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, rmdirSync, statSync } from "node:fs";
 import { lstat, utimes } from "node:fs/promises";
 import { dirname, join, posix, resolve, win32 } from "node:path";
 import { platform, stderr } from "node:process";
@@ -28,6 +21,7 @@ import { listRemoteSnapshots, readRemoteSnapshot } from "./remote.mjs";
 import { isObjectNotFound } from "./s3.mjs";
 import { shellCommand } from "./style.mjs";
 
+/** @import { BigIntStats, Stats } from "node:fs" */
 /** @import { Props, Snapshot, SnapshotEntries } from "./snapshot-file.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { RecordedDeletion } from "./deletion-record.mjs" */
@@ -372,17 +366,16 @@ export async function restoreTargets({
   // this volume cannot tell apart — letter case (Windows, macOS default), or
   // Unicode normalization (APFS folds NFC/NFD) — and writing both would keep
   // only the last row's bytes while reporting both restored. So each written
-  // file's canonical on-disk path is recorded, by its size, and a later target
-  // that already *exists* (the volume's own answer, whatever its folding rules)
-  // and canonicalizes into that record is a collision — reported, never
-  // written. A link at the target is no collision, wherever it points:
-  // `--overwrite` replaces the link, never the file behind it, and without it
-  // the link is skipped like any file. The `realpathSync.native` (in
-  // `occupant`) is deliberate, not the walk-hot-path mistake: no pure-string
-  // function can say whether two names are one file — trusting strings is the
-  // bug this closes.
-  /** @type {Map<number, Set<string>>} */
-  const writtenCanonical = new Map();
+  // file's device and inode is recorded, and a later target that already
+  // *exists* (the volume's own answer, whatever its folding rules) and is one
+  // of those files is a collision — reported, never written, whatever another
+  // program has written into it since. A link at the target is no collision,
+  // wherever it points: `lstat` reads the link itself, so `--overwrite`
+  // replaces the link, never the file behind it, and without it the link is
+  // skipped like any file. Not the file's real path: glibc's `realpath` keeps
+  // the case it is given, so on Linux it calls two twins two files.
+  /** @type {Set<string>} */
+  const written = new Set();
   // What became of each content hash this run has tried to write, shared by
   // every path that holds it. Once content lands, every later path holding it
   // is copied from there rather than downloaded again (#1), until that file
@@ -457,7 +450,7 @@ export async function restoreTargets({
     // What is there now, at this file's turn, not when the run began:
     // something else can write here while it runs (ADR-0116). A file this run
     // wrote under another name is a collision whether or not `--overwrite`.
-    const there = refuse ? undefined : occupant(dest, writtenCanonical);
+    const there = refuse ? undefined : occupant(dest, written);
     const writes =
       there === "nothing" ||
       there === "ours" ||
@@ -523,7 +516,7 @@ export async function restoreTargets({
         // way. Anything else — a network or credentials failure, a full disk —
         // is wrong about the whole run, so it propagates and aborts.
         if (error instanceof DestinationExistsError) {
-          const now = occupant(dest, writtenCanonical);
+          const now = occupant(dest, written);
           outcome =
             now === "folder"
               ? "blocked"
@@ -543,15 +536,7 @@ export async function restoreTargets({
         }
       }
       if (outcome === "found") {
-        // The file's own size, not the row's: `occupant` looks it up by what is
-        // on disk, and a hand-edited or foreign manifest can get the row wrong.
-        const { size } = lstatSync(dest);
-        writtenCanonical.set(
-          size,
-          (writtenCanonical.get(size) ?? new Set()).add(
-            realpathSync.native(dest),
-          ),
-        );
+        written.add(fileId(lstatSync(dest, { bigint: true })));
         fateByHash.set(hash, { kind: "landed", dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
@@ -776,33 +761,37 @@ function isInTheWay(error, dest) {
 }
 
 /**
- * What is at `dest`: nothing; a folder; a file this run wrote under another
- * name this volume folds into `dest` (ADR-0086); or anything else — a file, or
- * a link of any kind, which `--overwrite` replaces without following. The
- * entry itself, not a link's target.
+ * What is at `dest`: nothing; a folder; a file this run wrote, under a name
+ * this volume folds into `dest` (ADR-0086); or anything else — a file, or a
+ * link of any kind, which `--overwrite` replaces without following. The entry
+ * itself, not a link's target.
  * @param {string} dest
- * @param {Map<number, Set<string>>} written - The canonical path of each file
- *   this run wrote, by its size
+ * @param {Set<string>} written - The {@link fileId} of each file this run wrote
  * @returns {"nothing" | "folder" | "ours" | "other"}
  */
 function occupant(dest, written) {
-  const there = statOrNothing(dest, lstatSync);
+  const there = /** @type {BigIntStats | undefined} */ (
+    statOrNothing(dest, (path, options) =>
+      lstatSync(path, { ...options, bigint: true }),
+    )
+  );
   if (there === undefined) {
     return "nothing";
   }
   if (there.isDirectory()) {
     return "folder";
   }
-  // Only a file the size of one this run wrote can be one, so only that file
-  // pays `realpathSync.native` (several times the `lstat`; ADR-0116's Cost),
-  // which a restore skipping most of a tree would otherwise pay for every file
-  // it skips. A file rewritten to another size since it landed holds nothing
-  // of this run's to lose.
-  return !there.isSymbolicLink() &&
-    written.get(there.size)?.has(realpathSync.native(dest)) === true
-    ? "ours"
-    : "other";
+  return written.has(fileId(there)) ? "ours" : "other";
 }
+
+/**
+ * Which file this is on this machine: its device and inode, which on Windows
+ * are the volume serial number and the file index. From a `bigint` stat only:
+ * NTFS's file index runs past 2^53, where a number drops its low bits and two
+ * files can read as one.
+ * @param {BigIntStats} stats
+ */
+const fileId = ({ dev, ino }) => `${dev}:${ino}`;
 
 /**
  * Whether a link sits where one of `dest`'s folders inside `outDir` should be.
@@ -841,7 +830,7 @@ function linkedFolder(dest, outDir, known, fresh = false) {
  * as `existsSync` reads one, so a check never replaces the error it was asked
  * about with its own.
  * @param {string} path
- * @param {typeof statSync} [stat] - `lstatSync` for the entry itself
+ * @param {(path: string, options: { throwIfNoEntry: false }) => Stats | BigIntStats | undefined} [stat] - `lstatSync` for the entry itself
  */
 export function statOrNothing(path, stat = statSync) {
   try {
