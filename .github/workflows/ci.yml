@@ -73,8 +73,8 @@ jobs:
         # though the lint job's coverage report also runs the suite on Linux — the small
         # double-run is worth a dedicated `test (ubuntu-latest)` result (the `ci gate`
         # job aggregates all three OSes for branch protection anyway).
-        # macos-15 is Apple Silicon; mirrors the release build targets.
-        os: [ubuntu-latest, windows-latest, macos-15]
+        # macos-26 is Apple Silicon; mirrors the release build targets.
+        os: [ubuntu-latest, windows-latest, macos-26]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
