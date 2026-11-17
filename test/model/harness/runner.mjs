@@ -356,7 +356,8 @@ export async function runSequence(steps, root) {
             await s3cab.takeover(step.set, [], { bucket: BUCKET });
             machineSets.add(`${step.machine}:${step.set}`);
             // A machine without member dirs gets the bucket's copy, if there
-            // is one: a forget stopped after deleting it leaves none to pull.
+            // is one: a forget of the set's last snapshot deletes it, finished
+            // or not, and leaves none to pull.
             if (keysBefore.includes(`.s3cab/sets/${step.set}/dirs.txt`)) {
               machineDirs.add(`${step.machine}:${step.set}`);
             }
@@ -376,15 +377,22 @@ export async function runSequence(steps, root) {
       if (skipped) {
         continue;
       }
+      const stored = await fake.listAll(BUCKET);
+      const keysAfter = stored.map(({ key }) => key);
 
       // Its last snapshot gone, the set leaves the bucket, marker last:
       // nobody holds it until a takeover claims it again. Read from the
       // bucket, not from forget returning: a fault on the marker's DELETE, or
       // after it, throws with the set already out.
       if (step.kind === "forget") {
-        const keys = (await fake.listAll(BUCKET)).map(({ key }) => key);
-        if (!keys.includes(`snapshots/${step.set}.info`)) {
-          if (keys.some((key) => key.startsWith(`snapshots/${step.set}/`))) {
+        if (!keysAfter.includes(`snapshots/${step.set}.info`)) {
+          if (
+            keysAfter.some(
+              (key) =>
+                key.startsWith(`snapshots/${step.set}/`) &&
+                key.endsWith(".tsv.gz"),
+            )
+          ) {
             violations.push(
               `forget took ${step.set} out of the bucket while it has snapshots`,
             );
@@ -464,7 +472,6 @@ export async function runSequence(steps, root) {
         }
       }
 
-      const keysAfter = (await fake.listAll(BUCKET)).map(({ key }) => key);
       if (!fault) {
         for (const key of keysAfter) {
           if (key.startsWith("locks/") && !locksBefore.includes(key)) {

@@ -10,6 +10,7 @@ import {
   lockKeys,
   makeTree,
   nextZone,
+  olderSnapshot,
   restoreAndCompare,
   s3cab,
   seedSet,
@@ -345,16 +346,7 @@ describe("interruption: cleanup and forget", () => {
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
 
-    // A backup of other content goes first, so the set keeps a snapshot and
-    // cleanup gets past its refusal over a set with none (ADR-0117 §5) to the
-    // delete pass. Its one object stays referenced, and out of every count.
-    makeTree(data, { "old.txt": "only in the older snapshot" });
-    const older = s3cab(["backup", "s"], { home, tz: nextZone() });
-    assert.equal(older.status, 0, older.stderr);
-    rmSync(join(data, "old.txt"));
-    const [kept] = (await inspector.listAll(bucket))
-      .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+    const kept = await olderSnapshot(home, "s", data);
 
     // More orphans than cleanup keeps in flight, so the kill can land on a
     // DELETE that waited for a slot. With every DELETE dispatched at once, a
@@ -424,8 +416,8 @@ describe("interruption: cleanup and forget", () => {
     assert.equal(rerun.status, 0, `cleanup rerun failed:\n${rerun.stderr}`);
     const after = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/") && key !== kept);
-    assert.deepEqual(after, [], "rerun reclaimed the remaining orphans");
+      .filter((key) => key.startsWith("objects/"));
+    assert.deepEqual(after, [kept], "rerun reclaimed the remaining orphans");
     assert.match(rerun.stderr, /Removed the lock a stopped run left in bucket/);
     assert.deepEqual(
       await lockKeys(),
