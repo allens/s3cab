@@ -1128,8 +1128,10 @@ For a restorer, or anything else that reads the files.
     twin's path finds the file the first row wrote. Keep each written file's identity, as
     s3cab does, so a twin still finds it after something else has changed it in place.
   - Don't rely on that identity lasting the run: FAT and exFAT on Linux number a file anew
-    once it leaves the cache. Where it doesn't match, compare the twin with the paths you
-    wrote that differ from it only in case or Unicode form, at the same moment.
+    once it leaves the cache. Where it doesn't match, take each path you wrote that differs
+    from the twin only in letter case, Unicode normalization or trailing dots, and read its
+    device and inode again beside the twin's: the same pair at that moment is the same
+    entry, whatever has been put there since. The spelling only picks which paths to read.
   - One there before is skipped, unless asked to overwrite. A skip alone exits 0, though it
     checks nothing about the file.
   - One this restore wrote is two rows landing on one file, however differently their paths

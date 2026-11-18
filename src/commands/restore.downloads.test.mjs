@@ -9,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -241,21 +242,34 @@ afterEach(() => {
 const dest = (/** @type {string} */ name) => join(output, "data", name);
 
 /**
- * Whether the disk under `output` folds case, as only such a disk can make
- * `File.txt` and `file.txt` one file; the test is skipped where it doesn't.
- * Leaves `output/data` made.
+ * Whether the disk under `output` takes `twin` for `name`, as only such a disk
+ * can make two rows one file; the test is skipped where it doesn't, or where
+ * it refuses `name`. Leaves
+ * `output/data` made.
  * @param {TestContext} t
+ * @param {string} name
+ * @param {string} twin
  */
-function foldsCaseHere(t) {
+function foldsHere(t, name, twin) {
   mkdirSync(join(output, "data"));
-  writeFileSync(dest("probe.tmp"), "");
-  const folds = existsSync(dest("PROBE.TMP"));
-  rmSync(dest("probe.tmp"));
+  try {
+    writeFileSync(dest(name), "");
+  } catch {
+    // vfat on Linux mounts with `iocharset=ascii` unless told otherwise.
+    t.skip(`this disk refuses ${name}`);
+    return false;
+  }
+  const folds = existsSync(dest(twin));
+  rmSync(dest(name));
   if (!folds) {
-    t.skip("filesystem is case-sensitive");
+    t.skip(`this disk keeps ${name} and ${twin} apart`);
   }
   return folds;
 }
+
+/** Whether the disk under `output` folds case: {@link foldsHere}. */
+const foldsCaseHere = (/** @type {TestContext} */ t) =>
+  foldsHere(t, "probe.tmp", "PROBE.TMP");
 
 describe("restore reads each modification time back", () => {
   it("reports a time kept 2 seconds or more off, and exits 1", async () => {
@@ -744,14 +758,13 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
     }
   });
 
-  it("collides the second twin after the disk renumbered the first, --overwrite or not", async (t) => {
+  it("collides the second twin after another program replaced the first by rename, --overwrite or not", async (t) => {
     if (!foldsCaseHere(t)) {
       return;
     }
     for (const overwrite of [false, true]) {
       process.exitCode = undefined;
       rmSync(join(output, "data"), { recursive: true });
-      renumbered = 0n;
       snapshot = {
         entries: new Map([
           ["/data/File.txt", { ...at, hash: "aaa" }],
@@ -760,10 +773,11 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
         ]),
         dirs: ["/data"],
       };
-      // File.txt leaves the cache while between.txt is written.
+      // Another file, under File.txt's name: the twin still can't land as its own.
       afterFetch = (label) => {
         if (label === "ccc") {
-          renumbered += 1_000_000n;
+          writeFileSync(dest("saved.tmp"), "saved");
+          renameSync(dest("saved.tmp"), dest("File.txt"));
         }
       };
 
@@ -775,8 +789,89 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
       });
 
       assert.deepEqual(result.collided, [dest("file.txt")]);
-      assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "saved");
       assert.equal(process.exitCode, 1);
+    }
+  });
+
+  /** @type {[folding: string, first: string, second: string][]} */
+  const twins = [
+    ["case", "File.txt", "file.txt"],
+    ["Unicode form", "caf\u00e9.txt", "cafe\u0301.txt"],
+    ["a shared capital", "\u03c3.txt", "\u03c2.txt"],
+    ["a trailing dot", "report", "report."],
+  ];
+  for (const [folding, first, second] of twins) {
+    it(`collides a twin by ${folding} after the disk renumbered the first, --overwrite or not`, async (t) => {
+      if (!foldsHere(t, first, second)) {
+        return;
+      }
+      for (const overwrite of [false, true]) {
+        process.exitCode = undefined;
+        rmSync(join(output, "data"), { recursive: true });
+        renumbered = 0n;
+        snapshot = {
+          entries: new Map([
+            [`/data/${first}`, { ...at, hash: "aaa" }],
+            ["/data/between.txt", { ...at, hash: "ccc" }],
+            [`/data/${second}`, { ...at, hash: "bbb" }],
+          ]),
+          dirs: ["/data"],
+        };
+        // The first twin leaves the cache while between.txt is written.
+        afterFetch = (label) => {
+          if (label === "ccc") {
+            renumbered += 1_000_000n;
+          }
+        };
+
+        const result = await restore([], {
+          all: true,
+          set: "photos",
+          output,
+          overwrite,
+        });
+
+        assert.deepEqual(result.collided, [dest(second)]);
+        assert.equal(readFileSync(dest(first), "utf8"), "aaa");
+        assert.equal(process.exitCode, 1);
+      }
+    });
+  }
+});
+
+describe("restore beside a file spelled like one it wrote, on a disk that keeps case (ADR-0086)", () => {
+  it("skips the other file, or replaces it under --overwrite: the disk, not the spelling, says which file is which", async (t) => {
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true, force: true });
+      mkdirSync(join(output, "data"));
+      writeFileSync(dest("file.txt"), "mine");
+      if (existsSync(dest("File.txt"))) {
+        t.skip("filesystem ignores case");
+        return;
+      }
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, []);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+      assert.equal(
+        readFileSync(dest("file.txt"), "utf8"),
+        overwrite ? "bbb" : "mine",
+      );
     }
   });
 });

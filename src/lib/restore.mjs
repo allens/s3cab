@@ -367,13 +367,14 @@ export async function restoreTargets({
   // only the last row's bytes while reporting both restored. So each written
   // file's device and inode is recorded, and a later target that already
   // *exists* (the volume's own answer, whatever its folding rules) and is one
-  // of those files is a collision — reported, never written, however another
-  // program has rewritten it in place since (one it replaced by rename is a
-  // file that arrived, ADR-0116). A link at the target is no collision,
-  // wherever it points: `lstat` reads the link itself, so `--overwrite`
-  // replaces the link, never the file behind it, and without it the link is
-  // skipped like any file. Not the file's real path: glibc's `realpath` keeps
-  // the case it is given, so on Linux it calls two twins two files.
+  // of those files, or stands where one was written, is a collision: reported,
+  // never written, whatever another program has done there since — rewritten
+  // it in place, or replaced it by rename or with a link (`occupant` says how
+  // each is told). Any other link is no collision, wherever it points: `lstat`
+  // reads the link itself, so `--overwrite` replaces the link, never the file
+  // behind it, and without it the link is skipped like any file. Not the
+  // file's real path: glibc's `realpath` keeps the case it is given, so on
+  // Linux it calls two twins two files.
   /** @type {Written} */
   const written = { ids: new Set(), paths: new Map() };
   // What became of each content hash this run has tried to write, shared by
@@ -769,15 +770,17 @@ function isInTheWay(error, dest) {
  */
 
 /**
- * What is at `dest`: nothing; a folder; a file this run wrote, under a name
- * this volume folds into `dest` (ADR-0086); or anything else — a file, or a
- * link of any kind, which `--overwrite` replaces without following. The entry
- * itself, not a link's target.
+ * What is at `dest`: nothing; a folder; ours — a file this run wrote under a
+ * name this volume folds into `dest`, or whatever now stands at that name
+ * (ADR-0086); or anything else — a file, or a link of any kind, which
+ * `--overwrite` replaces without following. The entry itself, not a link's
+ * target.
  *
- * FAT and exFAT on Linux number a file anew once it leaves the cache, so
- * the recorded ids miss it on a long run. A written path whose loose name
- * matches is asked for its number now, beside `dest`'s, as the disk gives one
- * file one number at any one time.
+ * The recorded ids find a file this run wrote however it was rewritten in
+ * place. A written path whose loose name matches is asked for its number now,
+ * beside `dest`'s, as the disk gives one entry one number at any one time:
+ * that finds whatever was put there by rename or as a link, and a file on FAT
+ * or exFAT on Linux, which number a file anew once it leaves the cache.
  * @param {string} dest
  * @param {Written} written
  * @returns {"nothing" | "folder" | "ours" | "other"}
@@ -804,13 +807,19 @@ function occupant(dest, written) {
 }
 
 /**
- * A path loosened past any folding a disk may do — case, Unicode form — only
- * to pick which written files to ask the disk about: whether one is the same
- * file stays the disk's answer (ADR-0086). Upper then lower, so letters that
- * share a capital (`ſ`, `s`) meet.
+ * A path loosened past the foldings disks are known to do — case, Unicode
+ * form, a name's trailing dots (FAT, exFAT) — only to pick which written files
+ * to ask the disk about: whether one is the same file stays the disk's answer
+ * (ADR-0086). Upper then lower, so letters that share a capital (`ς`, `σ`)
+ * meet. No string finds an 8.3 short name's long name.
  * @param {string} path
  */
-const looseName = (path) => path.normalize("NFKC").toUpperCase().toLowerCase();
+const looseName = (path) =>
+  path
+    .normalize("NFKC")
+    .toUpperCase()
+    .toLowerCase()
+    .replaceAll(/\.+(?=[/\\]|$)/g, "");
 
 /**
  * Whether a link sits where one of `dest`'s folders inside `outDir` should be.

@@ -100,8 +100,9 @@ user's own folders too.
 ### Decision
 
 - **Each file's destination is looked at on its own turn**, before its content is fetched or
-  copied. A folder there is `blocked`, a file this run wrote under another name is `collided`
-  ([0086](0086-restore-collision-filesystem-equivalence.md)), and anything else is `skipped`
+  copied. A folder there is `blocked`, a file this run wrote under another name, or anything
+  now at that name, is `collided` ([0086](0086-restore-collision-filesystem-equivalence.md)),
+  and anything else is `skipped`
   unless `--overwrite`. `planRestore`, which decided this for every file before the first
   download, is gone.
 - **Without `--overwrite`, a file lands by hard link, not by rename.** The filesystem refuses a

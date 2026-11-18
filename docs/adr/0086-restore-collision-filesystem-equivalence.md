@@ -55,10 +55,14 @@ Two subtleties the mechanism carries:
 - **Asked again at the same moment where the number doesn't last.** FAT and exFAT on Linux
   number a file anew once it leaves the cache (measured on loop-mounted images in WSL: the
   number changed once the page cache was dropped), so late in a long run a twin misses the
-  recorded number. Then each written path that differs from the target only in case or
-  Unicode form (NFKC, case-folded) is `lstat`ed beside it, and the same device and inode at
-  that moment is the same file. That loose name only picks which files to ask about; the disk
-  still decides, and a pair it doesn't pick is still caught wherever numbers last. Not holding
+  recorded number. Then each written path that differs from the target only in case, Unicode
+  form or a name's trailing dots (NFKC, case-folded, dots stripped) is `lstat`ed beside it,
+  and the same device and inode at that moment is the same entry. On every disk that also
+  finds whatever another program has put at a written name since, by rename or as a link,
+  which the recorded number misses: the twin still can't land as its own file, so it
+  collides. That loose name only picks which files to ask about; the disk still decides, and
+  a pair it doesn't pick (an 8.3 short name against its long name) is still caught wherever
+  numbers last. Not holding
   the first twin open until its twin comes: a whole twinned folder runs into the open-file
   limit. Not reading the folder listing: a resumed restore would list a folder per existing
   file.
@@ -67,10 +71,14 @@ Two subtleties the mechanism carries:
 
 - The first row's bytes survive; every folded-away later row is named, with exit 1 — silent
   last-wins is gone, on every folding the volume itself performs (case, normalization, and
-  anything a future filesystem invents).
-- The detection also fires for a file a concurrent writer creates at the destination during the
-  run, if it aliases a file this run wrote; an unrelated new file is skipped, never replaced,
-  unless `--overwrite` ([0116](0116-restore-rechecks-its-target.md)'s amendment).
+  anything a future filesystem invents) wherever file numbers last. Where they don't (FAT and
+  exFAT on Linux), late in a run only the foldings the loose name pairs are caught: an 8.3
+  short name restored after its long name was renumbered is skipped, or written over it under
+  `--overwrite`.
+- The detection also fires for whatever a concurrent writer puts at a name this run wrote (a
+  file by rename, a link) once a later row is that name's twin; an unrelated new file is
+  skipped, never replaced, unless `--overwrite`
+  ([0116](0116-restore-rechecks-its-target.md)'s amendment).
 - `RestoreResult` gains `collided`; the renderer lists it before `missing` so the
   unexplained-absence alarm stays last on screen.
 - Restoring the same snapshot *twice* into one output is unaffected: the second run skips
