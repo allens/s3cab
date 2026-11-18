@@ -6,7 +6,7 @@ import { platform, stderr } from "node:process";
 import { copyFileAtomic } from "./atomic-file.mjs";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { DestinationExistsError, IntegrityError } from "./error.mjs";
-import { statProps } from "./file-props.mjs";
+import { fileId, lstatOrNothing, statProps } from "./file-props.mjs";
 import { formatCount } from "./format.mjs";
 import { getObject } from "./objects.mjs";
 import {
@@ -21,7 +21,6 @@ import { listRemoteSnapshots, readRemoteSnapshot } from "./remote.mjs";
 import { isObjectNotFound } from "./s3.mjs";
 import { shellCommand } from "./style.mjs";
 
-/** @import { BigIntStats, Stats } from "node:fs" */
 /** @import { Props, Snapshot, SnapshotEntries } from "./snapshot-file.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { RecordedDeletion } from "./deletion-record.mjs" */
@@ -368,8 +367,9 @@ export async function restoreTargets({
   // only the last row's bytes while reporting both restored. So each written
   // file's device and inode is recorded, and a later target that already
   // *exists* (the volume's own answer, whatever its folding rules) and is one
-  // of those files is a collision — reported, never written, whatever another
-  // program has written into it since. A link at the target is no collision,
+  // of those files is a collision — reported, never written, however another
+  // program has rewritten it in place since (one it replaced by rename is a
+  // file that arrived, ADR-0116). A link at the target is no collision,
   // wherever it points: `lstat` reads the link itself, so `--overwrite`
   // replaces the link, never the file behind it, and without it the link is
   // skipped like any file. Not the file's real path: glibc's `realpath` keeps
@@ -770,11 +770,7 @@ function isInTheWay(error, dest) {
  * @returns {"nothing" | "folder" | "ours" | "other"}
  */
 function occupant(dest, written) {
-  const there = /** @type {BigIntStats | undefined} */ (
-    statOrNothing(dest, (path, options) =>
-      lstatSync(path, { ...options, bigint: true }),
-    )
-  );
+  const there = lstatOrNothing(dest);
   if (there === undefined) {
     return "nothing";
   }
@@ -783,15 +779,6 @@ function occupant(dest, written) {
   }
   return written.has(fileId(there)) ? "ours" : "other";
 }
-
-/**
- * Which file this is on this machine: its device and inode, which on Windows
- * are the volume serial number and the file index. From a `bigint` stat only:
- * NTFS's file index runs past 2^53, where a number drops its low bits and two
- * files can read as one.
- * @param {BigIntStats} stats
- */
-const fileId = ({ dev, ino }) => `${dev}:${ino}`;
 
 /**
  * Whether a link sits where one of `dest`'s folders inside `outDir` should be.
@@ -830,7 +817,7 @@ function linkedFolder(dest, outDir, known, fresh = false) {
  * as `existsSync` reads one, so a check never replaces the error it was asked
  * about with its own.
  * @param {string} path
- * @param {(path: string, options: { throwIfNoEntry: false }) => Stats | BigIntStats | undefined} [stat] - `lstatSync` for the entry itself
+ * @param {typeof statSync} [stat] - `lstatSync` for the entry itself
  */
 export function statOrNothing(path, stat = statSync) {
   try {

@@ -448,10 +448,10 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   nothing included. The window is microseconds.
 - **One folder named twice in a set under two spellings isn't caught as an overlap** (read of
   #512/#513), so the snapshot holds every file twice: `walkDirs` in `src/lib/walk.mjs` stops only
-  when it builds one path twice. Measured for `Photos` and `PHOTOS` on a `/mnt` drive,
-  `\\wsl.localhost\Ubuntu` and `\\wsl.localhost\ubuntu`, and `C:\…` with `\\localhost\C$\…`.
+  when it builds one path twice. Measured for `\\wsl.localhost\Ubuntu` and
+  `\\wsl.localhost\ubuntu`, and `C:\…` with `\\localhost\C$\…`.
   [guide/format.md](../guide/format.md) says "a link, a junction or a difference in case can't
-  make one directory two"; the third case is two server names, which it doesn't cover. An
+  make one directory two"; the second case is two server names, which it doesn't cover. An
   in-place restore reports the second row `skipped`, exit 0, where the spec says it "collides or
   restores twice"; nothing is lost.
 - **Zero bytes after a snapshot's gzip stream are mostly refused, where
@@ -481,8 +481,15 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   its lock reads every key it didn't read, by key and ETag.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
-  from `realpathSync.native(step.dest)`, rather than a per-file report. Needs something else
-  writing in the output folder, and it is loud, so low.
+  from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and
+  inode, rather than a per-file report. Needs something else writing in the output folder, and it
+  is loud, so low.
+- **On a Linux FAT or exFAT drive, a case twin may not be caught on a large restore** (review of
+  [#520](https://github.com/allens/s3cab/pull/520)). Restore knows a file it wrote by device and
+  inode (`occupant` in `src/lib/restore.mjs`), and there the inode number comes from `iunique`
+  and changes once the inode leaves the cache, so a twin restored long after the first reads as
+  someone else's file: `skipped`, exit 0, or under `--overwrite` written over the first.
+  Unmeasured: try a loop-mounted FAT image in WSL.
 - **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
   where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
   non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.

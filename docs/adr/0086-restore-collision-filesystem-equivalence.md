@@ -49,7 +49,7 @@ Two subtleties the mechanism carries:
   measured) it returns each twin as typed, and the second read as another file. The device and
   inode come from the `lstat` each destination already gets on its turn
   ([0116](0116-restore-rechecks-its-target.md)'s amendment), so they cost nothing more, and
-  still name the file after something else rewrites it. Read as `bigint`: on that `/mnt` drive
+  still name the file after something else rewrites it in place. Read as `bigint`: on that `/mnt` drive
   a file index was 6.7 × 10¹⁶, past 2⁵³, where a number drops its low bits.
 
 ## Consequences

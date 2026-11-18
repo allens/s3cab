@@ -659,7 +659,8 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
       return;
     }
     // glibc's `realpath` never asks the directory how a name is spelled, so on
-    // a disk that ignores case it hands back the case it was given.
+    // a disk that ignores case it hands back the case it was given. Restore
+    // calls no realpath today: this pins that it never takes identity from one.
     t.mock.method(realpathSync, "native", (/** @type {string} */ path) => path);
     for (const overwrite of [false, true]) {
       process.exitCode = undefined;

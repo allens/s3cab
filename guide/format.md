@@ -1126,7 +1126,7 @@ For a restorer, or anything else that reads the files.
 - Tell a destination that was there before the restore from one this restore wrote:
   - Tell them by the file, never by how its path is spelled: where the disk ignores case, a
     twin's path finds the file the first row wrote. Keep each written file's identity, as
-    s3cab does, so a twin still finds it after something else has changed the file.
+    s3cab does, so a twin still finds it after something else has changed it in place.
   - One there before is skipped, unless asked to overwrite. A skip alone exits 0, though it
     checks nothing about the file.
   - One this restore wrote is two rows landing on one file, however differently their paths

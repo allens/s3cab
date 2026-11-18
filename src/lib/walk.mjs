@@ -17,6 +17,7 @@ import {
   unusableExcludeError,
 } from "./exclude.mjs";
 import { showControlChars } from "./control-chars.mjs";
+import { fileId, lstatOrNothing } from "./file-props.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { preparePath } from "./path-match.mjs";
@@ -232,14 +233,22 @@ function assertWalkableDirs(set) {
  * glibc's never asks the directory how a name is spelled: in a Linux directory
  * that ignores case it keeps the case it was given. So each name is looked up
  * in its parent's listing, kept if the listing holds it as it is, else replaced
- * by the entry that is the same file (device and inode). Not by comparing
+ * by the one entry that is the same file ({@link fileId}). Not by comparing
  * names: a disk can ignore Unicode normalization as well as case. A listing or
  * an entry that can't be read leaves the name as it is.
  * @param {string} path
  * @returns {string}
  */
 export function realPath(path) {
-  const real = realpathSync.native(path);
+  return spelledOnDisk(realpathSync.native(path));
+}
+
+/**
+ * A real path with each name spelled as its parent's listing spells it: see
+ * `realPath`.
+ * @param {string} real
+ */
+function spelledOnDisk(real) {
   const { root } = parse(real);
   let spelled = root;
   for (const name of real.slice(root.length).split(sep).filter(Boolean)) {
@@ -249,7 +258,9 @@ export function realPath(path) {
 }
 
 /**
- * How the folder `parent` spells the entry reached by `name`: see `realPath`.
+ * How the folder `parent` spells the entry reached by `name`. Only when exactly
+ * one entry is that file: a mount can give many entries one inode number (0 on
+ * some SMB and FUSE mounts), and taking the first would name another folder.
  * @param {string} parent
  * @param {string} name
  */
@@ -264,29 +275,15 @@ function nameOnDisk(parent, name) {
   if (names.includes(name)) {
     return name;
   }
-  const typed = bigLstat(join(parent, name));
+  const typed = lstatOrNothing(join(parent, name));
   if (typed === undefined) {
     return name;
   }
-  return (
-    names.find((entry) => {
-      const listed = bigLstat(join(parent, entry));
-      return listed?.dev === typed.dev && listed.ino === typed.ino;
-    }) ?? name
-  );
-}
-
-/**
- * An entry's `lstat`, or `undefined` when it can't be read. `bigint`, or NTFS's
- * file index past 2^53 drops its low bits and two files can read as one.
- * @param {string} path
- */
-function bigLstat(path) {
-  try {
-    return lstatSync(path, { bigint: true });
-  } catch {
-    return undefined;
-  }
+  const [only, ...others] = names.filter((entry) => {
+    const listed = lstatOrNothing(join(parent, entry));
+    return listed !== undefined && fileId(listed) === fileId(typed);
+  });
+  return only !== undefined && others.length === 0 ? only : name;
 }
 
 /**
@@ -554,10 +551,10 @@ function recordUninspectable(path, error, excludedBy, found) {
  * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
  * above the member directory doesn't count: the walk starts below it.
  *
- * Compared exactly, not case-folded like `pathKey`: both sides are real paths,
- * which already agree in case wherever the disk ignores it, and in a
- * case-sensitive Windows folder `Photos` and `photos` are two folders, so
- * folding would count a link to the other one as saved.
+ * Compared exactly, not case-folded like `pathKey`: both sides are spelled as
+ * the disk spells them (`realPath`), so they already agree in case wherever the
+ * disk ignores it, and in a case-sensitive Windows folder `Photos` and `photos`
+ * are two folders, so folding would count a link to the other one as saved.
  * @param {string[]} roots - The member directories, canonical
  * @returns {(path: string, isDir: boolean) => boolean}
  */
@@ -655,7 +652,12 @@ function checkLink(path, excludedBy, found) {
     found.errors.push(unresolved);
     return;
   }
-  if (!found.inBackup(resolved, isDir)) {
+  // Spelled as the disk spells it only when it seems outside: that lists every
+  // folder above the target, per link.
+  if (
+    !found.inBackup(resolved, isDir) &&
+    !found.inBackup(spelledOnDisk(resolved), isDir)
+  ) {
     found.errors.push({
       path: errorPath,
       reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,

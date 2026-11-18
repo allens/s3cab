@@ -578,14 +578,13 @@ describe("walkSet dirs guard (ADR-0054)", () => {
   });
 });
 
-// The walk root is canonicalized with `realpathSync.native` (resolveWalkRoot), and
-// these pin *that behaviour* rather than the error branch around it. Everything
-// downstream is keyed on the paths the walk yields — snapshot entries, the drift
-// guard's re-stat, restore's collision map — so a root that reaches the walk in a
-// different spelling of the same location has to come back in one form, or those
-// keys silently stop matching.
+// The walk root is canonicalized with `realPath` (resolveWalkRoot), and these pin
+// *that behaviour* rather than the error branch around it. Everything downstream
+// is keyed on the paths the walk yields — snapshot entries, the drift guard's
+// re-stat — so a root that reaches the walk in a different spelling of the same
+// location has to come back in one form, or those keys silently stop matching.
 //
-// Why they exist: swapping `realpathSync.native` for `resolve()` used to fail only
+// Why they exist: swapping `realPath` for `resolve()` used to fail only
 // the ENOENT-shaping test above, which reads as "the vault error branch broke" and
 // invites deleting the now-unreachable branch — leaving canonicalization gone and
 // the suite green. Nothing named the property itself. Note `realpathSync` *without*
@@ -643,6 +642,29 @@ describe("walkDirs canonicalizes its root", () => {
 
     assert.deepEqual(roots, [join(canonical, "Photos", "Summer")]);
     assert.deepEqual(files, [join(canonical, "Photos", "Summer", "a.jpg")]);
+  });
+
+  it("keeps a link inside the backup when it names its target in another case", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "Photos/other/a.jpg");
+    const canonical = realpathSync.native(dir.path);
+    if (!existsSync(join(canonical, "PHOTOS"))) {
+      t.skip("filesystem is case-sensitive");
+      return;
+    }
+    const link = join(canonical, "Photos", "shortcut");
+    const typed = join(canonical, "PHOTOS", "other");
+    // A junction needs no privilege on Windows; elsewhere it's a plain link.
+    symlinkSync(typed, link, "junction");
+    // glibc's `realpath` resolves the link to the target as the link spells it.
+    const native = realpathSync.native;
+    t.mock.method(realpathSync, "native", (/** @type {string} */ path) =>
+      path === link ? typed : native(path),
+    );
+
+    const { errors } = walkDirs([join(canonical, "Photos")], []);
+
+    assert.deepEqual(errors, []);
   });
 });
 
