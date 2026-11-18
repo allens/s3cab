@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import {
   existsSync,
   lstatSync,
@@ -62,6 +63,8 @@ let recordReads = 0;
 let afterFetch = () => {};
 /** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
 let keeps = (mtime) => mtime;
+/** Added to every inode number a `bigint` `lstat` reads, as FAT and exFAT on Linux renumber a file once it leaves the cache. */
+let renumbered = 0n;
 
 // `utimes` alone is wrapped: no filesystem the suite runs on rounds or clamps a
 // time it can be relied on to, so `keeps` plays one. The static import above is
@@ -76,6 +79,23 @@ mock.module("node:fs/promises", {
       /** @type {Date} */ atime,
       /** @type {Date} */ mtime,
     ) => fsPromises.utimes(path, atime, keeps(mtime)),
+  },
+});
+// Bar the non-configurable `constants`, which a spread can't redefine.
+mock.module("node:fs", {
+  exports: {
+    ...Object.fromEntries(
+      Object.entries(fs).filter(([name]) => name !== "constants"),
+    ),
+    lstatSync: (
+      /** @type {string} */ path,
+      /** @type {fs.StatSyncOptions} */ options,
+    ) => {
+      const stats = fs.lstatSync(path, options);
+      return options?.bigint && stats
+        ? Object.assign(stats, { ino: BigInt(stats.ino) + renumbered })
+        : stats;
+    },
   },
 });
 
@@ -209,6 +229,7 @@ beforeEach(() => {
   recordReads = 0;
   afterFetch = () => {};
   keeps = (mtime) => mtime;
+  renumbered = 0n;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -719,6 +740,42 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
 
       assert.deepEqual(result.collided, [dest("file.txt")]);
       assert.equal(readFileSync(dest("File.txt"), "utf8"), "edited");
+      assert.equal(process.exitCode, 1);
+    }
+  });
+
+  it("collides the second twin after the disk renumbered the first, --overwrite or not", async (t) => {
+    if (!foldsCaseHere(t)) {
+      return;
+    }
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true });
+      renumbered = 0n;
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/between.txt", { ...at, hash: "ccc" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+      // File.txt leaves the cache while between.txt is written.
+      afterFetch = (label) => {
+        if (label === "ccc") {
+          renumbered += 1_000_000n;
+        }
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, [dest("file.txt")]);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
       assert.equal(process.exitCode, 1);
     }
   });

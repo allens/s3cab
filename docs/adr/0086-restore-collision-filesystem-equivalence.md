@@ -1,7 +1,8 @@
 # Restore detects folded-name collisions by the filesystem's own equivalence
 
 **Status:** accepted — designed and implemented 2026-08-14, amended 2026-11-17: a written file
-is told by its device and inode, not its real path. Extends `restore`'s
+is told by its device and inode, not its real path; amended 2026-11-18: where the disk
+renumbers a file, a written path spelled alike is asked at the same moment. Extends `restore`'s
 faithful-or-loud reporting (the report-then-exit-1 pattern of
 [0064](0064-path-scoped-delete-deletion-record.md)'s exit-code split); detection deliberately
 does **not** reuse the string case-folding of `pathMatcher`/`reroot`.
@@ -51,6 +52,16 @@ Two subtleties the mechanism carries:
   ([0116](0116-restore-rechecks-its-target.md)'s amendment), so they cost nothing more, and
   still name the file after something else rewrites it in place. Read as `bigint`: on that `/mnt` drive
   a file index was 6.7 × 10¹⁶, past 2⁵³, where a number drops its low bits.
+- **Asked again at the same moment where the number doesn't last.** FAT and exFAT on Linux
+  number a file anew once it leaves the cache (measured on loop-mounted images in WSL: the
+  number changed once the page cache was dropped), so late in a long run a twin misses the
+  recorded number. Then each written path that differs from the target only in case or
+  Unicode form (NFKC, case-folded) is `lstat`ed beside it, and the same device and inode at
+  that moment is the same file. That loose name only picks which files to ask about; the disk
+  still decides, and a pair it doesn't pick is still caught wherever numbers last. Not holding
+  the first twin open until its twin comes: a whole twinned folder runs into the open-file
+  limit. Not reading the folder listing: a resumed restore would list a folder per existing
+  file.
 
 ## Consequences
 

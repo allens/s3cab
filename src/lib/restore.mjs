@@ -374,8 +374,8 @@ export async function restoreTargets({
   // replaces the link, never the file behind it, and without it the link is
   // skipped like any file. Not the file's real path: glibc's `realpath` keeps
   // the case it is given, so on Linux it calls two twins two files.
-  /** @type {Set<string>} */
-  const written = new Set();
+  /** @type {Written} */
+  const written = { ids: new Set(), paths: new Map() };
   // What became of each content hash this run has tried to write, shared by
   // every path that holds it. Once content lands, every later path holding it
   // is copied from there rather than downloaded again (#1), until that file
@@ -536,7 +536,9 @@ export async function restoreTargets({
         }
       }
       if (outcome === "found") {
-        written.add(fileId(lstatSync(dest, { bigint: true })));
+        written.ids.add(fileId(lstatSync(dest, { bigint: true })));
+        const loose = looseName(dest);
+        written.paths.set(loose, [...(written.paths.get(loose) ?? []), dest]);
         fateByHash.set(hash, { kind: "landed", dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
@@ -761,12 +763,23 @@ function isInTheWay(error, dest) {
 }
 
 /**
+ * The files this run wrote: each one's {@link fileId}, and its path under
+ * {@link looseName}.
+ * @typedef {{ ids: Set<string>, paths: Map<string, string[]> }} Written
+ */
+
+/**
  * What is at `dest`: nothing; a folder; a file this run wrote, under a name
  * this volume folds into `dest` (ADR-0086); or anything else — a file, or a
  * link of any kind, which `--overwrite` replaces without following. The entry
  * itself, not a link's target.
+ *
+ * FAT and exFAT on Linux number a file anew once it leaves the cache, so
+ * the recorded ids miss it on a long run. A written path whose loose name
+ * matches is asked for its number now, beside `dest`'s, as the disk gives one
+ * file one number at any one time.
  * @param {string} dest
- * @param {Set<string>} written - The {@link fileId} of each file this run wrote
+ * @param {Written} written
  * @returns {"nothing" | "folder" | "ours" | "other"}
  */
 function occupant(dest, written) {
@@ -777,8 +790,27 @@ function occupant(dest, written) {
   if (there.isDirectory()) {
     return "folder";
   }
-  return written.has(fileId(there)) ? "ours" : "other";
+  const id = fileId(there);
+  if (written.ids.has(id)) {
+    return "ours";
+  }
+  const twins = written.paths.get(looseName(dest)) ?? [];
+  return twins.some((path) => {
+    const twin = lstatOrNothing(path);
+    return twin !== undefined && fileId(twin) === id;
+  })
+    ? "ours"
+    : "other";
 }
+
+/**
+ * A path loosened past any folding a disk may do — case, Unicode form — only
+ * to pick which written files to ask the disk about: whether one is the same
+ * file stays the disk's answer (ADR-0086). Upper then lower, so letters that
+ * share a capital (`ſ`, `s`) meet.
+ * @param {string} path
+ */
+const looseName = (path) => path.normalize("NFKC").toUpperCase().toLowerCase();
 
 /**
  * Whether a link sits where one of `dest`'s folders inside `outDir` should be.
