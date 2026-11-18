@@ -464,6 +464,12 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   exactly, and `checkLink` rechecks with the disk's spelling only a target that seems outside.
   `walkFiles` skips the real `.s3cab`, so the file it points to is in no snapshot and no
   `#error` row says so. Unmeasured; rare.
+- **A resumed restore on a mount that numbers every file 0 calls each existing file a
+  collision** (review of [#521](https://github.com/allens/s3cab/pull/521)). `occupant` in
+  `src/lib/restore.mjs` knows a file this run wrote by device and inode, and some SMB and FUSE
+  mounts give every entry inode 0. Once the first file lands, every destination already there
+  matches it: `collided`, exit 1, instead of `skipped`, and `--overwrite` replaces none. Loud,
+  and nothing is lost. Unmeasured.
 - **Zero bytes after a snapshot's gzip stream are mostly refused, where
   [guide/format.md](../guide/format.md) says they're ignored** (read of #512/#513).
   `readSnapshotFile` and `parseCompressedSnapshotStream` in `src/lib/snapshot-file.mjs` accept the
