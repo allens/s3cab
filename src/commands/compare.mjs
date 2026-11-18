@@ -21,7 +21,7 @@ import { loadSet } from "../lib/env.mjs";
  */
 export async function compare(setName, options = {}) {
   const set = loadSet(setName);
-  return compareSnapshots(set.snapshotsDir, set.dirs, {
+  return compareSnapshots(set.snapshotsDir, {
     ...options,
     setName: set.name,
   });

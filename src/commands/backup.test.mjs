@@ -57,11 +57,10 @@ mock.module("../lib/compare.mjs", {
   exports: {
     compareSnapshots: async (
       /** @type {string} */ snapshotDir,
-      /** @type {string[]} */ dirs,
       /** @type {Record<string, unknown>} */ options,
     ) => {
       calls.push("compareSnapshots");
-      compareCalls.push({ snapshotDir, dirs, ...options });
+      compareCalls.push({ snapshotDir, ...options });
       return comparison;
     },
   },
@@ -124,7 +123,6 @@ beforeEach(() => {
       { path: "/p/b.key", reason: "EACCES: permission denied" },
     ],
     elapsedMs: 9_000,
-    roots: [],
   };
   sending = {
     candidates: 3,
@@ -310,7 +308,6 @@ describe("backup", () => {
     assert.deepEqual(compareCalls, [
       {
         snapshotDir: "snaps",
-        dirs: [],
         // The parse handed straight through, not the baseline's *name*: the run
         // is holding it already (`readBaseline`), and `compare` accepts it in
         // this form precisely so it isn't decompressed twice. Both halves go —
@@ -326,21 +323,6 @@ describe("backup", () => {
       },
     ]);
     assert.equal(result.comparison, comparison);
-  });
-
-  it("shows the diff against the roots the walk read, not dirs.txt's text", async () => {
-    // The rows start with the walk's spelling, so a base spelled otherwise
-    // would print each path as `../Photos/…` under a header naming `PHOTOS`.
-    const root = resolve("real", "docs");
-    fakeSet.dirs = [resolve("alias", "docs")];
-    pass.roots = [root];
-
-    await backup("photos");
-
-    assert.deepEqual(
-      compareCalls.map(({ dirs }) => dirs),
-      [[root]],
-    );
   });
 
   it("runs no comparison at all on a first backup", async () => {

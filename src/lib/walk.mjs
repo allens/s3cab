@@ -288,8 +288,8 @@ function nameOnDisk(parent, name) {
 
 /**
  * Canonicalize one walk root with `realPath` — the low-frequency capture point
- * CLAUDE.md reserves `realpathSync.native` for (once per root, never per entry),
- * so every file below it is keyed on one stable path.
+ * CLAUDE.md reserves it for (once per root, never per entry), so every file
+ * below it is keyed on one stable path.
  *
  * It can fail on a directory that is plainly *there*: measured 2026-08-11 against
  * an unlocked OneDrive Personal Vault, where `lstat`/`stat` report a directory and

@@ -453,7 +453,17 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   [guide/format.md](../guide/format.md) says "a link, a junction or a difference in case can't
   make one directory two"; the second case is two server names, which it doesn't cover. An
   in-place restore reports the second row `skipped`, exit 0, where the spec says it "collides or
-  restores twice"; nothing is lost.
+  restores twice"; nothing is lost. Unmeasured, a third: a Linux mount that ignores case and
+  gives its folders one inode number (0 on some SMB and FUSE mounts). There `realPath` in
+  `src/lib/walk.mjs` can't tell which folder `PHOTOS` is, so it keeps the name as typed:
+  `Photos` and `PHOTOS` stay two, and in a set naming `PHOTOS` a link to `Photos/x` gets an
+  `#error` row as outside the backup.
+- **A link to a `.s3cab` folder typed in another case counts as backed up** on a Linux disk
+  that ignores case (review of [#520](https://github.com/allens/s3cab/pull/520)). glibc's
+  `realpath` keeps `.S3CAB` as typed, `backupMatcher` in `src/lib/walk.mjs` looks for `.s3cab`
+  exactly, and `checkLink` rechecks with the disk's spelling only a target that seems outside.
+  `walkFiles` skips the real `.s3cab`, so the file it points to is in no snapshot and no
+  `#error` row says so. Unmeasured; rare.
 - **Zero bytes after a snapshot's gzip stream are mostly refused, where
   [guide/format.md](../guide/format.md) says they're ignored** (read of #512/#513).
   `readSnapshotFile` and `parseCompressedSnapshotStream` in `src/lib/snapshot-file.mjs` accept the

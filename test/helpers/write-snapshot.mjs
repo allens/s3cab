@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { parse, resolve } from "node:path";
+import { parse, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileProps } from "../../src/lib/file-props.mjs";
 import { localMoment } from "../../src/lib/format.mjs";
@@ -44,6 +44,7 @@ const propsOfFile = async (file) => ({
  * @param {string} name
  * @param {Array<string|File>} files
  * @param {string} [base] - Root the file paths resolve against (default: `snapshotDir`)
+ * @param {string[]} [dirs] - The member directories, as `@SET DIR` rows (default: each filesystem root the paths sit on)
  * @returns {Promise<string>} path to written snapshot file
  */
 export async function writeSnapshot(
@@ -51,6 +52,7 @@ export async function writeSnapshot(
   name,
   files,
   base = snapshotDir,
+  dirs,
 ) {
   const snapshot = new Map();
   for (const file of files) {
@@ -64,7 +66,9 @@ export async function writeSnapshot(
       snapshot.set(resolve(base, file.name), await propsOfFile(file));
     }
   }
-  const roots = new Set([...snapshot.keys()].map((path) => parse(path).root));
+  const roots =
+    dirs?.map((dir) => dir + sep) ??
+    new Set([...snapshot.keys()].map((path) => parse(path).root));
   const preamble = [...roots]
     .map((root) => formatLine("@SET", "DIR", "", "", root))
     .join("");
