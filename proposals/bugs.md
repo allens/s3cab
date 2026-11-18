@@ -464,6 +464,12 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   exactly, and `checkLink` rechecks with the disk's spelling only a target that seems outside.
   `walkFiles` skips the real `.s3cab`, so the file it points to is in no snapshot and no
   `#error` row says so. Unmeasured; rare.
+- **A resumed restore on a mount that numbers every file 0 calls each existing file a
+  collision** (review of [#521](https://github.com/allens/s3cab/pull/521)). `occupant` in
+  `src/lib/restore.mjs` knows a file this run wrote by device and inode, and some SMB and FUSE
+  mounts give every entry inode 0. Once the first file lands, every destination already there
+  matches it: `collided`, exit 1, instead of `skipped`, and `--overwrite` replaces none. Loud,
+  and nothing is lost. Unmeasured.
 - **Zero bytes after a snapshot's gzip stream are mostly refused, where
   [guide/format.md](../guide/format.md) says they're ignored** (read of #512/#513).
   `readSnapshotFile` and `parseCompressedSnapshotStream` in `src/lib/snapshot-file.mjs` accept the
@@ -494,16 +500,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and
   inode, rather than a per-file report. Needs something else writing in the output folder, and it
   is loud, so low.
-- **On a Linux FAT or exFAT drive, a case twin restored late in a large run isn't caught**
-  (review of [#520](https://github.com/allens/s3cab/pull/520)). Restore knows a file it wrote by
-  device and inode (`occupant` in `src/lib/restore.mjs`), and there the inode number comes from
-  `iunique` and changes once the inode leaves the cache, so the second twin reads as someone
-  else's file: `skipped`, exit 0, or under `--overwrite` written over the first. Measured on
-  loop-mounted vfat and exFAT images in WSL (kernel 6.18): `File.txt` and `file.txt` share one
-  number until the caches are dropped, then both read a new one (vfat 205 to 206, exFAT 408 to
-  409). Dropping inodes alone changed nothing while the file's data was still cached; dropping
-  the page cache too did, as a restore streaming gigabytes does by itself. s3cab itself not yet
-  run on such a drive.
 - **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
   where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
   non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.

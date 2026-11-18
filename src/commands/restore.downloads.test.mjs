@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import {
   existsSync,
   lstatSync,
@@ -8,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -62,6 +64,10 @@ let recordReads = 0;
 let afterFetch = () => {};
 /** @type {(mtime: Date) => Date} The time `utimes` stores for the one it is asked for, as a filesystem that rounds or clamps does. */
 let keeps = (mtime) => mtime;
+/** Added to every inode number a `bigint` `lstat` reads, as FAT and exFAT on Linux renumber a file once it leaves the cache. */
+let renumbered = 0n;
+/** @type {(path: string) => string} The path an `lstat` of `path` reads, as a disk that folds names finds one file under several. */
+let folded = (path) => path;
 
 // `utimes` alone is wrapped: no filesystem the suite runs on rounds or clamps a
 // time it can be relied on to, so `keeps` plays one. The static import above is
@@ -76,6 +82,23 @@ mock.module("node:fs/promises", {
       /** @type {Date} */ atime,
       /** @type {Date} */ mtime,
     ) => fsPromises.utimes(path, atime, keeps(mtime)),
+  },
+});
+// Bar the non-configurable `constants`, which a spread can't redefine.
+mock.module("node:fs", {
+  exports: {
+    ...Object.fromEntries(
+      Object.entries(fs).filter(([name]) => name !== "constants"),
+    ),
+    lstatSync: (
+      /** @type {string} */ path,
+      /** @type {fs.StatSyncOptions} */ options,
+    ) => {
+      const stats = fs.lstatSync(folded(path), options);
+      return options?.bigint && stats
+        ? Object.assign(stats, { ino: BigInt(stats.ino) + renumbered })
+        : stats;
+    },
   },
 });
 
@@ -209,6 +232,8 @@ beforeEach(() => {
   recordReads = 0;
   afterFetch = () => {};
   keeps = (mtime) => mtime;
+  renumbered = 0n;
+  folded = (path) => path;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -220,21 +245,36 @@ afterEach(() => {
 const dest = (/** @type {string} */ name) => join(output, "data", name);
 
 /**
- * Whether the disk under `output` folds case, as only such a disk can make
- * `File.txt` and `file.txt` one file; the test is skipped where it doesn't.
- * Leaves `output/data` made.
+ * Whether the disk under `output` takes `twin` for `name`, as only such a disk
+ * can make two rows one file; the test is skipped where it doesn't, or where
+ * it refuses `name`. Leaves `output/data` made.
  * @param {TestContext} t
+ * @param {string} name
+ * @param {string} twin
  */
-function foldsCaseHere(t) {
+function foldsHere(t, name, twin) {
   mkdirSync(join(output, "data"));
-  writeFileSync(dest("probe.tmp"), "");
-  const folds = existsSync(dest("PROBE.TMP"));
-  rmSync(dest("probe.tmp"));
+  try {
+    writeFileSync(dest(name), "");
+  } catch (error) {
+    // vfat refuses a name its `iocharset` can't spell (WSL's kernel: `ascii`).
+    if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EINVAL") {
+      throw error;
+    }
+    t.skip(`this disk refuses ${name}`);
+    return false;
+  }
+  const folds = existsSync(dest(twin));
+  rmSync(dest(name));
   if (!folds) {
-    t.skip("filesystem is case-sensitive");
+    t.skip(`this disk keeps ${name} and ${twin} apart`);
   }
   return folds;
 }
+
+/** Whether the disk under `output` folds case: {@link foldsHere}. */
+const foldsCaseHere = (/** @type {TestContext} */ t) =>
+  foldsHere(t, "probe.tmp", "PROBE.TMP");
 
 describe("restore reads each modification time back", () => {
   it("reports a time kept 2 seconds or more off, and exits 1", async () => {
@@ -720,6 +760,158 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
       assert.deepEqual(result.collided, [dest("file.txt")]);
       assert.equal(readFileSync(dest("File.txt"), "utf8"), "edited");
       assert.equal(process.exitCode, 1);
+    }
+  });
+
+  it("collides the second twin after another program replaced the first by rename, --overwrite or not", async (t) => {
+    if (!foldsCaseHere(t)) {
+      return;
+    }
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true });
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/between.txt", { ...at, hash: "ccc" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+      // Another file, under File.txt's name: the twin still can't land as its own.
+      afterFetch = (label) => {
+        if (label === "ccc") {
+          writeFileSync(dest("saved.tmp"), "saved");
+          renameSync(dest("saved.tmp"), dest("File.txt"));
+        }
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, [dest("file.txt")]);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "saved");
+      assert.equal(process.exitCode, 1);
+    }
+  });
+
+  /** @type {[folding: string, first: string, second: string][]} */
+  const twins = [
+    ["case", "File.txt", "file.txt"],
+    ["Unicode form", "caf\u00e9.txt", "cafe\u0301.txt"],
+    ["a shared capital", "\u03c3.txt", "\u03c2.txt"],
+    ["a trailing dot", "report", "report."],
+  ];
+  for (const [folding, first, second] of twins) {
+    it(`collides a twin by ${folding} after the disk renumbered the first, --overwrite or not`, async (t) => {
+      if (!foldsHere(t, first, second)) {
+        return;
+      }
+      for (const overwrite of [false, true]) {
+        process.exitCode = undefined;
+        rmSync(join(output, "data"), { recursive: true });
+        renumbered = 0n;
+        snapshot = {
+          entries: new Map([
+            [`/data/${first}`, { ...at, hash: "aaa" }],
+            ["/data/between.txt", { ...at, hash: "ccc" }],
+            [`/data/${second}`, { ...at, hash: "bbb" }],
+          ]),
+          dirs: ["/data"],
+        };
+        // The first twin leaves the cache while between.txt is written.
+        afterFetch = (label) => {
+          if (label === "ccc") {
+            renumbered += 1_000_000n;
+          }
+        };
+
+        const result = await restore([], {
+          all: true,
+          set: "photos",
+          output,
+          overwrite,
+        });
+
+        assert.deepEqual(result.collided, [dest(second)]);
+        assert.equal(readFileSync(dest(first), "utf8"), "aaa");
+        assert.equal(process.exitCode, 1);
+      }
+    });
+  }
+
+  it("collides a twin by a trailing dot after the disk renumbered the first, on a disk faked to fold it", async () => {
+    // No disk the suite runs on folds a trailing dot (Node on NTFS keeps it),
+    // so `lstat` plays vfat's and exFAT's here.
+    folded = (path) => path.replace(/\.+$/, "");
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true, force: true });
+      renumbered = 0n;
+      snapshot = {
+        entries: new Map([
+          ["/data/report", { ...at, hash: "aaa" }],
+          ["/data/between.txt", { ...at, hash: "ccc" }],
+          ["/data/report.", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+      afterFetch = (label) => {
+        if (label === "ccc") {
+          renumbered += 1_000_000n;
+        }
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, [dest("report.")]);
+      assert.equal(readFileSync(dest("report"), "utf8"), "aaa");
+      assert.equal(process.exitCode, 1);
+    }
+  });
+});
+
+describe("restore beside a file spelled like one it wrote, on a disk that keeps case (ADR-0086)", () => {
+  it("skips the other file, or replaces it under --overwrite: the disk, not the spelling, says which file is which", async (t) => {
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true, force: true });
+      mkdirSync(join(output, "data"));
+      writeFileSync(dest("file.txt"), "mine");
+      if (existsSync(dest("File.txt"))) {
+        t.skip("filesystem ignores case");
+        return;
+      }
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, []);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+      assert.equal(
+        readFileSync(dest("file.txt"), "utf8"),
+        overwrite ? "bbb" : "mine",
+      );
     }
   });
 });
