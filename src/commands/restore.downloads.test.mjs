@@ -66,6 +66,8 @@ let afterFetch = () => {};
 let keeps = (mtime) => mtime;
 /** Added to every inode number a `bigint` `lstat` reads, as FAT and exFAT on Linux renumber a file once it leaves the cache. */
 let renumbered = 0n;
+/** @type {(path: string) => string} The path an `lstat` of `path` reads, as a disk that folds names finds one file under several. */
+let folded = (path) => path;
 
 // `utimes` alone is wrapped: no filesystem the suite runs on rounds or clamps a
 // time it can be relied on to, so `keeps` plays one. The static import above is
@@ -92,7 +94,7 @@ mock.module("node:fs", {
       /** @type {string} */ path,
       /** @type {fs.StatSyncOptions} */ options,
     ) => {
-      const stats = fs.lstatSync(path, options);
+      const stats = fs.lstatSync(folded(path), options);
       return options?.bigint && stats
         ? Object.assign(stats, { ino: BigInt(stats.ino) + renumbered })
         : stats;
@@ -231,6 +233,7 @@ beforeEach(() => {
   afterFetch = () => {};
   keeps = (mtime) => mtime;
   renumbered = 0n;
+  folded = (path) => path;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -244,8 +247,7 @@ const dest = (/** @type {string} */ name) => join(output, "data", name);
 /**
  * Whether the disk under `output` takes `twin` for `name`, as only such a disk
  * can make two rows one file; the test is skipped where it doesn't, or where
- * it refuses `name`. Leaves
- * `output/data` made.
+ * it refuses `name`. Leaves `output/data` made.
  * @param {TestContext} t
  * @param {string} name
  * @param {string} twin
@@ -254,8 +256,11 @@ function foldsHere(t, name, twin) {
   mkdirSync(join(output, "data"));
   try {
     writeFileSync(dest(name), "");
-  } catch {
-    // vfat on Linux mounts with `iocharset=ascii` unless told otherwise.
+  } catch (error) {
+    // vfat refuses a name its `iocharset` can't spell (WSL's kernel: `ascii`).
+    if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EINVAL") {
+      throw error;
+    }
     t.skip(`this disk refuses ${name}`);
     return false;
   }
@@ -838,6 +843,41 @@ describe("restore with case twins on a disk that ignores case (ADR-0086)", () =>
       }
     });
   }
+
+  it("collides a twin by a trailing dot after the disk renumbered the first, on a disk faked to fold it", async () => {
+    // No disk the suite runs on folds a trailing dot (Node on NTFS keeps it),
+    // so `lstat` plays vfat's and exFAT's here.
+    folded = (path) => path.replace(/\.+$/, "");
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true, force: true });
+      renumbered = 0n;
+      snapshot = {
+        entries: new Map([
+          ["/data/report", { ...at, hash: "aaa" }],
+          ["/data/between.txt", { ...at, hash: "ccc" }],
+          ["/data/report.", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+      afterFetch = (label) => {
+        if (label === "ccc") {
+          renumbered += 1_000_000n;
+        }
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, [dest("report.")]);
+      assert.equal(readFileSync(dest("report"), "utf8"), "aaa");
+      assert.equal(process.exitCode, 1);
+    }
+  });
 });
 
 describe("restore beside a file spelled like one it wrote, on a disk that keeps case (ADR-0086)", () => {

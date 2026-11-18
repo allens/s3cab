@@ -62,10 +62,9 @@ Two subtleties the mechanism carries:
   which the recorded number misses: the twin still can't land as its own file, so it
   collides. That loose name only picks which files to ask about; the disk still decides, and
   a pair it doesn't pick (an 8.3 short name against its long name) is still caught wherever
-  numbers last. Not holding
-  the first twin open until its twin comes: a whole twinned folder runs into the open-file
-  limit. Not reading the folder listing: a resumed restore would list a folder per existing
-  file.
+  numbers last. Not holding the first twin open until its twin comes: a whole twinned folder
+  runs into the open-file limit. Not reading the folder listing: a resumed restore would list
+  a folder per existing file.
 
 ## Consequences
 
