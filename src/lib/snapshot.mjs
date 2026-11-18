@@ -23,7 +23,7 @@ import {
   writeSnapshot,
 } from "./snapshot-file.mjs";
 import { dim, styleEnabled } from "./style.mjs";
-import { resolveWalkRoot, walkSet } from "./walk.mjs";
+import { walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
@@ -240,18 +240,13 @@ export async function generateSnapshot(
     console.warn(`Storing objects in 's3://${set.bucket}'`);
   }
 
-  const { files, excluded, errors: walkErrors, patterns } = walkSet(set);
-  // The `@SET DIR` rows, canonicalized the same way the walk canonicalized the
-  // roots it yielded these files from — `dirs.txt` is hand-edited (ADR-0052), so
-  // its text can name a directory in any casing Windows accepts while the rows
-  // below carry the on-disk spelling. Writing the raw text made a header that
-  // disagreed with every row it introduced, which `restore --output` reads as
-  // "this file is under no backed-up directory". After the walk, not before:
-  // `walkSet` runs `assertWalkableDirs` first, so an unplugged drive is reported
-  // as the whole list of what's unreachable (ADR-0054) instead of the first
-  // one's `ENOENT`. One realpath per member directory, against a walk that has
-  // just stat-ed every file under them.
-  const roots = set.dirs.map(resolveWalkRoot);
+  // `roots`, the `@SET DIR` rows, are the member directories as the walk
+  // resolved and read them, not `dirs.txt`'s text: that is hand-edited
+  // (ADR-0052), so it can name a directory in any casing Windows accepts while
+  // the rows below carry the on-disk spelling, and a header that disagreed with
+  // every row it introduced reads to `restore --output` as "this file is under
+  // no backed-up directory".
+  const { files, excluded, errors: walkErrors, patterns, roots } = walkSet(set);
 
   // Hashing is handed in as `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the lookup assembled

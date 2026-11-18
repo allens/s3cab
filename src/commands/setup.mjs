@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { applyEnv } from "../lib/env.mjs";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
@@ -23,6 +23,7 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
+import { realPath } from "../lib/walk.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
@@ -164,7 +165,7 @@ function resolveDirectories(directories, name, bucket) {
   return directories.map((directory) => {
     let real;
     try {
-      real = realpathSync.native(directory);
+      real = realPath(directory);
     } catch (error) {
       if (isENOENT(error)) {
         // `ENOENT` from realpath means one of three different things, so ask what

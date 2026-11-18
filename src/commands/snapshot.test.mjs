@@ -220,13 +220,15 @@ describe("snapshot", () => {
       assert.notEqual(lowerDrive, canonical, "the fixture must differ in case");
       writeSet("photos", { dirs: [lowerDrive], bucket: "b" });
 
-      await snapshot("photos", { rehash: true, debug: true });
+      const result = await snapshot("photos", { rehash: true, debug: true });
 
       const rows = debugRows(home);
       const dir = rows.find(
         ([type, name]) => type === "@SET" && name === "DIR",
       );
       assert.equal(dir?.[4], `${canonical}${sep}`, `@SET DIR kept dirs.txt`);
+      // And the report shortens each row against that spelling.
+      assert.deepEqual(result.dirs, [canonical]);
 
       // The point of canonicalizing: every row now sits under that directory,
       // which is exactly what `restore --output` needs to place them.

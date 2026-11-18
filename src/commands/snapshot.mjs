@@ -45,7 +45,7 @@ export async function snapshot(setName, options = {}) {
   // Both halves go through — its entries *and* the paths it couldn't hash, which
   // is what stops a file that was merely locked last time reading as new
   // (ADR-0079).
-  return await compareSnapshots(set.snapshotsDir, set.dirs, {
+  return await compareSnapshots(set.snapshotsDir, {
     since:
       previous && previousName
         ? { name: previousName, entries: previous, errors: previousErrors }

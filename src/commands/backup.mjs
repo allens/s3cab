@@ -103,7 +103,7 @@ export async function backup(setName, options = {}) {
   // worth having.
   const comparison =
     since && previous
-      ? await compareSnapshots(set.snapshotsDir, set.dirs, {
+      ? await compareSnapshots(set.snapshotsDir, {
           since: { name: since, entries: previous, errors: previousErrors },
           until: name,
           setName: set.name,

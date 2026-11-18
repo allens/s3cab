@@ -57,11 +57,10 @@ mock.module("../lib/compare.mjs", {
   exports: {
     compareSnapshots: async (
       /** @type {string} */ snapshotDir,
-      /** @type {string[]} */ dirs,
       /** @type {Record<string, unknown>} */ options,
     ) => {
       calls.push("compareSnapshots");
-      compareCalls.push({ snapshotDir, dirs, ...options });
+      compareCalls.push({ snapshotDir, ...options });
       return comparison;
     },
   },
@@ -309,7 +308,6 @@ describe("backup", () => {
     assert.deepEqual(compareCalls, [
       {
         snapshotDir: "snaps",
-        dirs: [],
         // The parse handed straight through, not the baseline's *name*: the run
         // is holding it already (`readBaseline`), and `compare` accepts it in
         // this form precisely so it isn't decompressed twice. Both halves go —

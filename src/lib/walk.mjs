@@ -8,7 +8,7 @@ import {
   statSync,
 } from "node:fs";
 import { isUtf8 } from "node:buffer";
-import { isAbsolute, posix, resolve, sep } from "node:path";
+import { isAbsolute, join, parse, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import {
@@ -17,6 +17,7 @@ import {
   unusableExcludeError,
 } from "./exclude.mjs";
 import { showControlChars } from "./control-chars.mjs";
+import { fileId, lstatOrNothing } from "./file-props.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { preparePath } from "./path-match.mjs";
@@ -44,7 +45,13 @@ import { countedPass } from "./progress.mjs";
  * @typedef {{ path: string, reason: string }} WalkError
  */
 
-/** @typedef {{ files: string[], excluded: ExclusionRecord[], errors: WalkError[] }} WalkResult */
+/**
+ * What a walk found, and `roots`: each member directory as the walk resolved
+ * and read it, the spelling every path in `files` starts with. A snapshot's
+ * `@SET DIR` rows are these, never the directories resolved again: one that is
+ * a link may point elsewhere by then, and its rows would sit under no `DIR`.
+ * @typedef {{ files: string[], excluded: ExclusionRecord[], errors: WalkError[], roots: string[] }} WalkResult
+ */
 
 /**
  * Characters a snapshot row cannot hold: the field separator, and the two that
@@ -219,17 +226,70 @@ function assertWalkableDirs(set) {
 }
 
 /**
- * Canonicalize one walk root — the low-frequency capture point CLAUDE.md reserves
- * `realpathSync.native` for (once per root, never per entry), so every file below
- * it is keyed on one stable path.
- *
- * Exported for `snapshot`, which records these same canonical roots as the
- * snapshot's `@SET DIR` rows rather than the raw `dirs.txt` text — so the header
- * and the rows beneath it are spelled the same way (guide/format.md, "Path
- * casing"). It re-resolves rather than the walk handing its roots back: this is
- * one call per member directory, against a walk that stats tens of thousands of
- * files, and `WalkResult` stays what it says it is — the entries encountered,
- * not a record of how the input was read.
+ * A path's real path, each name spelled as the disk spells it
+ * ([guide/format.md](../../guide/format.md#paths)): what `dirs.txt` stores and
+ * a snapshot's `@SET DIR` rows hold. `realpathSync.native` resolves links,
+ * `subst` drives and short names, and on Windows and macOS the case too, but
+ * glibc's never asks the directory how a name is spelled: in a Linux directory
+ * that ignores case it keeps the case it was given. So each name is looked up
+ * in its parent's listing, kept if the listing holds it as it is, else replaced
+ * by the one entry that is the same file ({@link fileId}). Not by comparing
+ * names: a disk can ignore Unicode normalization as well as case. A listing or
+ * an entry that can't be read leaves the name as it is.
+ * @param {string} path
+ * @returns {string}
+ */
+export function realPath(path) {
+  return spelledOnDisk(realpathSync.native(path));
+}
+
+/**
+ * A real path with each name spelled as its parent's listing spells it: see
+ * `realPath`.
+ * @param {string} real
+ */
+function spelledOnDisk(real) {
+  const { root } = parse(real);
+  let spelled = root;
+  for (const name of real.slice(root.length).split(sep).filter(Boolean)) {
+    spelled = join(spelled, nameOnDisk(spelled, name));
+  }
+  return spelled;
+}
+
+/**
+ * How the folder `parent` spells the entry reached by `name`. Only when exactly
+ * one entry is that file: a mount can give many entries one inode number (0 on
+ * some SMB and FUSE mounts), and taking the first would name another folder.
+ * @param {string} parent
+ * @param {string} name
+ */
+function nameOnDisk(parent, name) {
+  /** @type {string[]} */
+  let names;
+  try {
+    names = readdirSync(parent);
+  } catch {
+    return name;
+  }
+  if (names.includes(name)) {
+    return name;
+  }
+  const typed = lstatOrNothing(join(parent, name));
+  if (typed === undefined) {
+    return name;
+  }
+  const [only, ...others] = names.filter((entry) => {
+    const listed = lstatOrNothing(join(parent, entry));
+    return listed !== undefined && fileId(listed) === fileId(typed);
+  });
+  return only !== undefined && others.length === 0 ? only : name;
+}
+
+/**
+ * Canonicalize one walk root with `realPath` — the low-frequency capture point
+ * CLAUDE.md reserves it for (once per root, never per entry), so every file
+ * below it is keyed on one stable path.
  *
  * It can fail on a directory that is plainly *there*: measured 2026-08-11 against
  * an unlocked OneDrive Personal Vault, where `lstat`/`stat` report a directory and
@@ -250,9 +310,9 @@ function assertWalkableDirs(set) {
  * @param {string} dir - A member directory, absolute and already checked reachable
  * @returns {string} Its canonical path
  */
-export function resolveWalkRoot(dir) {
+function resolveWalkRoot(dir) {
   try {
-    return realpathSync.native(dir);
+    return realPath(dir);
   } catch (error) {
     if (!isENOENT(error) || !isDirectory(dir)) {
       throw error;
@@ -392,7 +452,7 @@ export function walkDirs(dirs, patterns) {
   }
 
   const { excluded, errors } = found;
-  return { files, excluded, errors };
+  return { files, excluded, errors, roots };
 }
 
 /**
@@ -491,10 +551,10 @@ function recordUninspectable(path, error, excludedBy, found) {
  * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
  * above the member directory doesn't count: the walk starts below it.
  *
- * Compared exactly, not case-folded like `pathKey`: both sides are real paths,
- * which already agree in case wherever the disk ignores it, and in a
- * case-sensitive Windows folder `Photos` and `photos` are two folders, so
- * folding would count a link to the other one as saved.
+ * Compared exactly, not case-folded like `pathKey`: both sides are spelled as
+ * the disk spells them (`realPath`), so they already agree in case wherever the
+ * disk ignores it, and in a case-sensitive Windows folder `Photos` and `photos`
+ * are two folders, so folding would count a link to the other one as saved.
  * @param {string[]} roots - The member directories, canonical
  * @returns {(path: string, isDir: boolean) => boolean}
  */
@@ -592,7 +652,12 @@ function checkLink(path, excludedBy, found) {
     found.errors.push(unresolved);
     return;
   }
-  if (!found.inBackup(resolved, isDir)) {
+  // Spelled as the disk spells it only when it seems outside: that lists every
+  // folder above the target, per link.
+  if (
+    !found.inBackup(resolved, isDir) &&
+    !found.inBackup(spelledOnDisk(resolved), isDir)
+  ) {
     found.errors.push({
       path: errorPath,
       reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,

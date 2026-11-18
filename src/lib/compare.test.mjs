@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, parse, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
 import { gzipSync } from "node:zlib";
@@ -288,7 +288,7 @@ describe("diff", () => {
 // ---------------------------------------------------------------------------
 // compareSnapshots — the I/O shell over `diff`.
 
-// These exercise `compareSnapshots(snapshotDir, dirs, …)` against real
+// These exercise `compareSnapshots(snapshotDir, …)` against real
 // snapshot files — the snapshots are written into the temp dir and the temp
 // dir is the (single) member root, so a path stored `resolve(dir.path, name)`
 // recovers its original relative name against the root.
@@ -358,7 +358,7 @@ describe("compareSnapshots", () => {
       new File(["contents1"], "file1.txt"),
     ]);
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
@@ -374,12 +374,13 @@ describe("compareSnapshots", () => {
 
     await writeSnapshot(dir.path, CURRENT, [new File(["12345"], "file1.txt")]);
 
-    const result = await compareSnapshots(dir.path, [dir.path], {
+    const result = await compareSnapshots(dir.path, {
       setName: "photos",
     });
 
     assert.equal(result.setName, "photos");
-    assert.deepStrictEqual(result.dirs, [dir.path]);
+    // The helper's `@SET DIR` row is the filesystem root.
+    assert.deepStrictEqual(result.dirs, [parse(resolve(dir.path)).root]);
     assert.equal(result.since, null); // first snapshot
     assert.equal(result.until, CURRENT);
     assert.deepStrictEqual(result.added, [
@@ -408,7 +409,7 @@ describe("compareSnapshots", () => {
         { size: 4, mtime: "2024-01-01T01:01:00Z", hash: "0".repeat(64) },
       ],
     ]);
-    const result = await compareSnapshots(dir.path, [dir.path], {
+    const result = await compareSnapshots(dir.path, {
       since: { name: PREVIOUS, entries, errors: new Map() },
       until: CURRENT,
     });
@@ -430,7 +431,7 @@ describe("compareSnapshots", () => {
       new File(["b"], "g.txt"),
     ]);
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.equal(result.since, PREVIOUS);
     assert.equal(result.until, CURRENT);
@@ -456,7 +457,7 @@ describe("compareSnapshots", () => {
 
     // No options: latest vs the snapshot immediately before it — were the
     // baseline OLDEST instead, fileB would show as added too.
-    const latestResult = await compareSnapshots(dir.path, [dir.path]);
+    const latestResult = await compareSnapshots(dir.path);
     assert.deepStrictEqual(summarize(latestResult, dir.path), {
       ...EMPTY,
       added: ["fileC.txt"],
@@ -464,7 +465,7 @@ describe("compareSnapshots", () => {
 
     // Explicit until: the default baseline is *its* predecessor, not the
     // latest snapshot (the step-2 inversion bug) and not an empty baseline.
-    const previousResult = await compareSnapshots(dir.path, [dir.path], {
+    const previousResult = await compareSnapshots(dir.path, {
       until: PREVIOUS,
     });
     assert.deepStrictEqual(summarize(previousResult, dir.path), {
@@ -500,7 +501,7 @@ describe("compareSnapshots", () => {
       ),
     );
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
@@ -531,7 +532,7 @@ describe("compareSnapshots", () => {
       getProps: async () => assert.fail("no files to hash"),
     });
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
@@ -559,7 +560,7 @@ describe("compareSnapshots", () => {
       ),
     );
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
@@ -589,7 +590,7 @@ describe("compareSnapshots", () => {
     );
     await writeSnapshot(dir.path, CURRENT, [new File(["contents"], "X.doc")]);
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
@@ -640,7 +641,7 @@ describe("compareSnapshots", () => {
       ),
     );
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(summarize(result, dir.path), EMPTY);
   });
@@ -653,7 +654,7 @@ describe("compareSnapshots", () => {
     ]);
 
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: "20000101T0000",
         until: CURRENT,
       }),
@@ -661,7 +662,7 @@ describe("compareSnapshots", () => {
     );
 
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: CURRENT,
         until: "20000101T0000",
       }),
@@ -680,11 +681,11 @@ describe("compareSnapshots", () => {
     ]);
 
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], { until: "debug" }),
+      compareSnapshots(dir.path, { until: "debug" }),
       /'debug' isn't a snapshot name/,
     );
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: PREVIOUS,
         until: "debug",
       }),
@@ -704,7 +705,7 @@ describe("compareSnapshots", () => {
       new File(["contents2"], "file2.txt"),
     ]);
 
-    const result = await compareSnapshots(dir.path, [dir.path], {
+    const result = await compareSnapshots(dir.path, {
       until: CURRENT + ".tsv.gz",
     });
 
@@ -726,7 +727,7 @@ describe("compareSnapshots", () => {
       new File(["x"], "..stuff/file.txt"),
     ]);
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(
       result.added.map((a) => a.path),
@@ -753,7 +754,7 @@ describe("compareSnapshots", () => {
     await writeSnapshot(dir.path, PREVIOUS, []);
     await writeSnapshot(dir.path, CURRENT, [fileA, fileB]);
 
-    const result = await compareSnapshots(dir.path, [rootA, rootB]);
+    const result = await compareSnapshots(dir.path);
 
     assert.deepStrictEqual(
       result.added.map((a) => a.path).sort(),
@@ -762,11 +763,42 @@ describe("compareSnapshots", () => {
     assert.deepStrictEqual(result.moved, []);
   });
 
+  it("shows the newer snapshot's member directories, which its rows start with", async () => {
+    // Not `dirs.txt`'s text: a hand-edited or linked entry is spelled otherwise.
+    await using dir = await mkTmpDir();
+    const photos = resolve(dir.path, "Photos");
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [
+              join(photos, "a.jpg"),
+              {
+                size: 1,
+                mtime: "2024-01-01T01:01:00.000Z",
+                hash: "a".repeat(64),
+              },
+            ],
+          ]),
+          {
+            start: momentOf(CURRENT).instant,
+            preamble: formatLine("@SET", "DIR", "", "", photos + sep),
+          },
+        ),
+        stream,
+      ),
+    );
+
+    const result = await compareSnapshots(dir.path);
+
+    assert.deepStrictEqual(result.dirs, [photos]);
+  });
+
   it("errors naming the set, with a copy-pasteable fix, when there are no snapshots", async () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
-      () => compareSnapshots(dir.path, [dir.path], { setName: "photos" }),
+      () => compareSnapshots(dir.path, { setName: "photos" }),
       /No snapshots to compare yet for set 'photos'[\s\S]*s3cab snapshot photos/,
     );
   });
@@ -820,7 +852,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     plant(dir.path, LATER_NAME, EARLIER_INSTANT);
 
     const said = await warningsFrom(() =>
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: EARLIER_NAME,
         until: LATER_NAME,
       }),
@@ -836,7 +868,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     plant(dir.path, "20260612T1030", "2026-06-12T09:30:00.000Z");
 
     const said = await warningsFrom(() =>
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: "20260612T0915",
         until: "20260612T1030",
       }),
@@ -853,7 +885,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     plant(dir.path, LATER_NAME, EARLIER_INSTANT);
 
     const said = await warningsFrom(() =>
-      compareSnapshots(dir.path, [dir.path], {
+      compareSnapshots(dir.path, {
         since: "20261025T0115",
         until: LATER_NAME,
       }),

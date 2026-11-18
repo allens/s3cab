@@ -56,10 +56,16 @@ mock.module("node:fs", {
   exports: {
     ...passthrough,
     /**
+     * The walk's listings; any other, such as `realPath`'s plain one, is the
+     * real one.
      * @param {string} dir
-     * @returns {Dirent<Buffer>[]}
+     * @param {{ withFileTypes?: boolean }} [options]
+     * @returns {Dirent<Buffer>[] | string[]}
      */
-    readdirSync: (dir) => {
+    readdirSync: (dir, options) => {
+      if (!options?.withFileTypes) {
+        return realFs.readdirSync(dir);
+      }
       const entries = realFs.readdirSync(dir, {
         withFileTypes: true,
         encoding: "buffer",

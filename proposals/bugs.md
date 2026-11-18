@@ -305,7 +305,18 @@ when a shell profile wins; S3's `ExpiredToken` and `InvalidToken` replies may ec
 <sub>The **read of [#512](https://github.com/allens/s3cab/pull/512) and
 [#513](https://github.com/allens/s3cab/pull/513)** (brief: break each fix, and check each statement
 #512 added to [guide/format.md](../guide/format.md) against the code; NTFS, and WSL2 on ext4 and
-on the `/mnt` drives) found six and updated a seventh. **Held:** the hard-link landing refuses a
+on the `/mnt` drives) found six and updated a seventh. Three are **fixed 2026-11-17**, pinned
+in [src/commands/restore.downloads.test.mjs](../src/commands/restore.downloads.test.mjs),
+[src/lib/walk.test.mjs](../src/lib/walk.test.mjs) and
+[src/lib/snapshot.retargeted-root.test.mjs](../src/lib/snapshot.retargeted-root.test.mjs).
+Restored from Linux onto a disk that ignores case, the second of two case twins was skipped or
+written over the first, exit 0, since glibc's `realpath` spells a path as typed; and a twin of a
+file another program had resized was no longer a collision, since the record was keyed by size.
+Restore now tells a written file by its device and inode
+([ADR-0086](../docs/adr/0086-restore-collision-filesystem-equivalence.md), amended), and
+`realPath` in `src/lib/walk.mjs` spells each name of a member directory as its parent lists it.
+And a member directory that is a link, pointed elsewhere during the walk, got a `@SET DIR` naming
+the new target over rows under the old one; the walk now hands back the roots it read. **Held:** the hard-link landing refuses a
 file, a folder, a file link, a dangling link, a junction and a case twin with `EEXIST` on NTFS,
 ext4 and a `/mnt` drive; names Windows reserves or trims (`NUL`, `CON`, a trailing dot or space)
 don't read as already there; a temp held open without delete-sharing lands the file, and a second
@@ -364,28 +375,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
 
 **Open:**
 
-- **Case twins restored from Linux onto a disk that ignores case lose one, exit 0** (read of
-  #512/#513). `restoreTargets` in `src/lib/restore.mjs` tells a file this run wrote by its real
-  path, and glibc's `realpath` returns the case it was asked for, never asking the directory, so
-  the second twin isn't seen as the first file. Measured from WSL onto a `/mnt` drive: `file.txt`
-  is reported `skipped` and its content is nowhere; with `--overwrite` it replaces `File.txt` and
-  both read `restored`. [guide/format.md](../guide/format.md) tells other writers to keep a device
-  and inode; s3cab keeps the real path. The same `realpath` makes `backup` record a member
-  directory typed in another case under that spelling, breaking "the casing the filesystem
-  reports" ([guide/format.md](../guide/format.md#paths)). Recording each written file's device
-  and inode also closes the next entry. Not measured on FAT, exFAT, NTFS mounted on Linux or a
-  case-folding ext4 folder.
-- **A case twin of a file this run wrote, after another program changed that file's size, is no
-  longer a collision** (read of #512/#513): `skipped`, or with `--overwrite` written over it, exit
-  0, where before #513 it was `collided`, exit 1. #513's review fix keys the record of written
-  files by size, and `occupant` asks for a real path only when a file of that size was written.
-  Needs case twins and a program rewriting restored files mid-run. NTFS and a network share.
-- **A member directory that is a link, pointed elsewhere during the walk, backs up rows that never
-  restore** (read of #512/#513). `generateSnapshot` in `src/lib/snapshot.mjs` resolves the member
-  directories again after `walkSet` walked them, so `@SET DIR` names the new target and the rows
-  sit under the old one. The backup reports success; s3cab's reader then refuses every row of that
-  directory. [guide/format.md](../guide/format.md): a row's path is "its member directory's real
-  path, exactly as its `@SET DIR` row holds it". NTFS (a junction) and WSL (a symlink).
 - **A home moved with `S3CAB_HOME` to a folder not named `.s3cab` is backed up, keys and all,**
   when it sits inside a set's directory (security read): `S3CAB_HOME=D:\Backups\s3cab` with a set
   backing up `D:\Backups`. The walk skips s3cab's home only by the name `.s3cab` (`walkFiles`,
@@ -459,12 +448,22 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   nothing included. The window is microseconds.
 - **One folder named twice in a set under two spellings isn't caught as an overlap** (read of
   #512/#513), so the snapshot holds every file twice: `walkDirs` in `src/lib/walk.mjs` stops only
-  when it builds one path twice. Measured for `Photos` and `PHOTOS` on a `/mnt` drive,
-  `\\wsl.localhost\Ubuntu` and `\\wsl.localhost\ubuntu`, and `C:\…` with `\\localhost\C$\…`.
+  when it builds one path twice. Measured for `\\wsl.localhost\Ubuntu` and
+  `\\wsl.localhost\ubuntu`, and `C:\…` with `\\localhost\C$\…`.
   [guide/format.md](../guide/format.md) says "a link, a junction or a difference in case can't
-  make one directory two"; the third case is two server names, which it doesn't cover. An
+  make one directory two"; the second case is two server names, which it doesn't cover. An
   in-place restore reports the second row `skipped`, exit 0, where the spec says it "collides or
-  restores twice"; nothing is lost.
+  restores twice"; nothing is lost. Unmeasured, a third: a Linux mount that ignores case and
+  gives its folders one inode number (0 on some SMB and FUSE mounts). There `realPath` in
+  `src/lib/walk.mjs` can't tell which folder `PHOTOS` is, so it keeps the name as typed:
+  `Photos` and `PHOTOS` stay two, and in a set naming `PHOTOS` a link to `Photos/x` gets an
+  `#error` row as outside the backup.
+- **A link to a `.s3cab` folder typed in another case counts as backed up** on a Linux disk
+  that ignores case (review of [#520](https://github.com/allens/s3cab/pull/520)). glibc's
+  `realpath` keeps `.S3CAB` as typed, `backupMatcher` in `src/lib/walk.mjs` looks for `.s3cab`
+  exactly, and `checkLink` rechecks with the disk's spelling only a target that seems outside.
+  `walkFiles` skips the real `.s3cab`, so the file it points to is in no snapshot and no
+  `#error` row says so. Unmeasured; rare.
 - **Zero bytes after a snapshot's gzip stream are mostly refused, where
   [guide/format.md](../guide/format.md) says they're ignored** (read of #512/#513).
   `readSnapshotFile` and `parseCompressedSnapshotStream` in `src/lib/snapshot-file.mjs` accept the
@@ -492,8 +491,15 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   its lock reads every key it didn't read, by key and ETag.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
-  from `realpathSync.native(step.dest)`, rather than a per-file report. Needs something else
-  writing in the output folder, and it is loud, so low.
+  from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and
+  inode, rather than a per-file report. Needs something else writing in the output folder, and it
+  is loud, so low.
+- **On a Linux FAT or exFAT drive, a case twin may not be caught on a large restore** (review of
+  [#520](https://github.com/allens/s3cab/pull/520)). Restore knows a file it wrote by device and
+  inode (`occupant` in `src/lib/restore.mjs`), and there the inode number comes from `iunique`
+  and changes once the inode leaves the cache, so a twin restored long after the first reads as
+  someone else's file: `skipped`, exit 0, or under `--overwrite` written over the first.
+  Unmeasured: try a loop-mounted FAT image in WSL.
 - **In-place restore on Linux takes a `//server/share/x` row as absolute** (`isAbsolute` is true),
   where the refusal message promises it wouldn't be. `mkdir //server/share` fails `EACCES` for a
   non-root user and aborts the run; as root it would write under `/server/share/`. Exit nonzero.

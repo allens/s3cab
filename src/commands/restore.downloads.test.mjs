@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -19,6 +20,8 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { tempPathFor, writeFileAtomic } from "../lib/atomic-file.mjs";
 import { IntegrityError } from "../lib/error.mjs";
+
+/** @import { TestContext } from "node:test" */
 
 // Offline tests for how restore lands its downloads: content shared by several
 // paths is downloaded once and copied to the rest, and one object absent from
@@ -215,6 +218,23 @@ afterEach(() => {
 
 /** Where `--output` re-roots `/data/<name>` to. */
 const dest = (/** @type {string} */ name) => join(output, "data", name);
+
+/**
+ * Whether the disk under `output` folds case, as only such a disk can make
+ * `File.txt` and `file.txt` one file; the test is skipped where it doesn't.
+ * Leaves `output/data` made.
+ * @param {TestContext} t
+ */
+function foldsCaseHere(t) {
+  mkdirSync(join(output, "data"));
+  writeFileSync(dest("probe.tmp"), "");
+  const folds = existsSync(dest("PROBE.TMP"));
+  rmSync(dest("probe.tmp"));
+  if (!folds) {
+    t.skip("filesystem is case-sensitive");
+  }
+  return folds;
+}
 
 describe("restore reads each modification time back", () => {
   it("reports a time kept 2 seconds or more off, and exits 1", async () => {
@@ -608,14 +628,9 @@ describe("restore with content shared by several paths", () => {
   });
 
   it("copies from the next path that landed when the first one collided", async (t) => {
-    // Only a filesystem that folds case can collide `File.txt` with `file.txt`.
-    mkdirSync(join(output, "data"));
-    writeFileSync(dest("probe.tmp"), "");
-    if (!existsSync(dest("PROBE.TMP"))) {
-      t.skip("filesystem is case-sensitive");
+    if (!foldsCaseHere(t)) {
       return;
     }
-    rmSync(dest("probe.tmp"));
     // Of another length than File.txt's: what collides is the file on disk,
     // whatever this row's own size.
     const longer = { ...at, size: 4, hash: "bbbb" };
@@ -635,6 +650,77 @@ describe("restore with content shared by several paths", () => {
     assert.deepEqual(fetched, ["aaa", "bbbb"]);
     assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
     assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbbb");
+  });
+});
+
+describe("restore with case twins on a disk that ignores case (ADR-0086)", () => {
+  it("collides the second twin where realpath keeps the case it was given, --overwrite or not", async (t) => {
+    if (!foldsCaseHere(t)) {
+      return;
+    }
+    // glibc's `realpath` never asks the directory how a name is spelled, so on
+    // a disk that ignores case it hands back the case it was given. Restore
+    // calls no realpath today: this pins that it never takes identity from one.
+    t.mock.method(realpathSync, "native", (/** @type {string} */ path) => path);
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true });
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.restored, [dest("File.txt")]);
+      assert.deepEqual(result.collided, [dest("file.txt")]);
+      assert.deepEqual(readdirSync(join(output, "data")), ["File.txt"]);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "aaa");
+      assert.equal(process.exitCode, 1);
+    }
+  });
+
+  it("collides the second twin after another program changed the first one's size, --overwrite or not", async (t) => {
+    if (!foldsCaseHere(t)) {
+      return;
+    }
+    for (const overwrite of [false, true]) {
+      process.exitCode = undefined;
+      rmSync(join(output, "data"), { recursive: true });
+      snapshot = {
+        entries: new Map([
+          ["/data/File.txt", { ...at, hash: "aaa" }],
+          ["/data/between.txt", { ...at, hash: "ccc" }],
+          ["/data/file.txt", { ...at, hash: "bbb" }],
+        ]),
+        dirs: ["/data"],
+      };
+      // Rewritten in place: the same file, now another size.
+      afterFetch = (label) => {
+        if (label === "ccc") {
+          writeFileSync(dest("File.txt"), "edited");
+        }
+      };
+
+      const result = await restore([], {
+        all: true,
+        set: "photos",
+        output,
+        overwrite,
+      });
+
+      assert.deepEqual(result.collided, [dest("file.txt")]);
+      assert.equal(readFileSync(dest("File.txt"), "utf8"), "edited");
+      assert.equal(process.exitCode, 1);
+    }
   });
 });
 
