@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { isUtf8 } from "node:buffer";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -9,12 +10,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { dirname, join, posix, relative, sep } from "node:path";
+import { dirname, join, parse, posix, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { ESCAPES } from "./path-match.mjs";
 import {
   backupMatcher,
+  inHome,
   readExcludePatterns,
+  realHome,
   walkDirs,
   walkSet,
 } from "./walk.mjs";
@@ -384,7 +387,7 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
   );
 
   it(
-    "makes a link into s3cab's home an error, whatever the home is named",
+    "makes a link into s3cab's home, or to it, an error, whatever the home is named",
     symlinks,
     async () => {
       await using dir = await mkTmpDir();
@@ -395,6 +398,7 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         join(root, "state", "sets", "photos", "env"),
         join(base, "to-env"),
       );
+      symlinkSync(join(root, "state"), join(base, "to-home"));
       process.env.S3CAB_HOME = join(root, "state");
 
       const { files, errors } = walkDirs([base], []);
@@ -404,6 +408,10 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         {
           path: "to-env",
           reason: `link to a file outside the backup: ${join(root, "state", "sets", "photos", "env")}`,
+        },
+        {
+          path: "to-home",
+          reason: `link to a folder outside the backup: ${join(root, "state")}`,
         },
       ]);
     },
@@ -655,6 +663,28 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     );
   });
 
+  it(
+    "refuses a member directory that is a link into s3cab's home",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const root = realpathSync.native(dir.path);
+      const home = join(root, "state");
+      write(home, "sets/photos/env");
+      const link = join(root, "settings");
+      symlinkSync(join(home, "sets"), link);
+      process.env.S3CAB_HOME = home;
+      const set = setOf(root, [link]);
+      assert.throws(
+        () => walkSet(set),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`  ${link}\n`) &&
+          error.message.includes(set.dirsPath),
+      );
+    },
+  );
+
   it("rejects an empty dirs list (nothing to back up)", async () => {
     await using dir = await mkTmpDir();
     assert.throws(
@@ -662,6 +692,43 @@ describe("walkSet dirs guard (ADR-0054)", () => {
       /no directories to back up[\s\S]*dirs\.txt/,
     );
   });
+});
+
+describe("s3cab's home", () => {
+  it("holds every folder on a drive when it is the drive's root", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    assert.equal(inHome(root, parse(root).root), true);
+  });
+
+  it("doesn't hold a sibling whose name starts with its own", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    mkdirSync(join(root, "stateful"));
+    assert.equal(inHome(join(root, "stateful"), join(root, "state")), false);
+  });
+
+  it(
+    "won't guess at a home that is there but won't resolve",
+    {
+      skip:
+        process.platform === "win32" || process.getuid?.() === 0
+          ? "needs a folder its owner can't search"
+          : false,
+    },
+    async () => {
+      await using dir = await mkTmpDir();
+      const locked = join(dir.path, "locked");
+      mkdirSync(join(locked, "home"), { recursive: true });
+      process.env.S3CAB_HOME = join(locked, "home");
+      chmodSync(locked, 0o000);
+      try {
+        assert.throws(() => realHome(), { code: "EACCES" });
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    },
+  );
 });
 
 // The walk root is canonicalized with `realPath` (resolveWalkRoot), and these pin

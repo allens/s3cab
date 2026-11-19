@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 
 /** @import { CompareError } from "../lib/compare.mjs" */
@@ -101,7 +101,19 @@ mock.module("../lib/upload.mjs", {
 
 const { upload } = await import("./upload.mjs");
 
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, savedEnv);
+});
+
 beforeEach(() => {
+  savedEnv = { ...process.env };
   loadSetCalls = [];
   propCalls = [];
   uploadFileCalls = [];
@@ -191,24 +203,16 @@ describe("upload validation", () => {
     await using home = await mkdtempDisposable(join(tmpdir(), "s3cab-home-"));
     const inside = join(home.path, "sets");
     mkdirSync(inside);
-    const saved = process.env.S3CAB_HOME;
     process.env.S3CAB_HOME = home.path;
-    try {
-      for (const dir of [home.path, inside]) {
-        await assert.rejects(
-          upload("photos", { dir }),
-          (error) =>
-            error instanceof Error &&
-            error.message.includes(dir) &&
-            /s3cab's own folder/.test(error.message),
-        );
-      }
-    } finally {
-      if (saved === undefined) {
-        delete process.env.S3CAB_HOME;
-      } else {
-        process.env.S3CAB_HOME = saved;
-      }
+    for (const dir of [home.path, inside]) {
+      await assert.rejects(
+        upload("photos", { dir }),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`  ${dir}\n`) &&
+          /s3cab's own folder/.test(error.message) &&
+          error.message.includes("s3cab upload photos --dir <folder>"),
+      );
     }
     assert.deepEqual(uploadDirCalls, []);
   });

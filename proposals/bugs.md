@@ -374,6 +374,13 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
 
 **Open:**
 
+- **s3cab's home reached under a second path is backed up, keys and all,** when it isn't named
+  `.s3cab` (review of [#523](https://github.com/allens/s3cab/pull/523)). `walkFiles` and
+  `inHome` in `src/lib/walk.mjs` know the home by the one path `realPath` gives it, so a bind
+  mount (`/mnt/me` over `/home/me`, home `/home/me/state`), a Windows folder mount of a lettered
+  volume, or a share named two ways (`\\localhost\D$\Backups`) walks into it. Device and inode
+  would catch it, except on mounts that number every entry 0, and cost a `stat` per folder in the
+  walk. Unmeasured; rare.
 - **On Windows, a home outside the user profile leaves every secret file open to other local
   users** (security read). The only protection is the POSIX mode (`envFileMode` in
   `src/lib/env-file.mjs`, `ensureMachineIdentity`, the `0700` folders in `src/lib/sets.mjs` and

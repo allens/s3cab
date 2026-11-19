@@ -187,12 +187,10 @@ function assertWalkableDirs(set) {
   const home = realHome();
   const homeDirs = set.dirs.filter((dir) => inHome(dir, home));
   if (homeDirs.length) {
-    throw new Error(
-      `These directories in backup set '${set.name}' are s3cab's own folder ` +
-        `(${tildeify(home)}) or inside it, so they can't be backed up:\n` +
-        homeDirs.map((dir) => `  ${dir}`).join("\n") +
-        `\nThat folder holds this computer's keys and sign-in settings, which ` +
-        `never leave it. Take them out of the set's directory list:\n` +
+    throw homeDirsError(
+      homeDirs,
+      home,
+      `Take those folders out of the directory list of backup set '${set.name}':\n` +
         `  ${set.dirsPath}`,
     );
   }
@@ -477,8 +475,12 @@ export function walkDirs(dirs, patterns) {
 export function realHome() {
   try {
     return realPath(s3cabDir());
-  } catch {
-    // A home not made yet has no real path.
+  } catch (error) {
+    // Only for a home not made yet. Spelled as typed, a home that is there
+    // would never match the walk's paths, so it would be walked.
+    if (!isENOENT(error)) {
+      throw error;
+    }
     return resolve(s3cabDir());
   }
 }
@@ -498,7 +500,26 @@ export function inHome(dir, home) {
   } catch {
     return false;
   }
-  return real === home || real.startsWith(home + sep);
+  // A root keeps its separator: `E:\`, `/`.
+  const inside = home.endsWith(sep) ? home : home + sep;
+  return real === home || real.startsWith(inside);
+}
+
+/**
+ * The refusal for folders `inHome` matched.
+ * @param {string[]} dirs - As the user named them
+ * @param {string} home - `realHome()`
+ * @param {string} fix - What to do instead, ending the message
+ */
+export function homeDirsError(dirs, home, fix) {
+  return new Error(
+    `Can't send s3cab's own folder (${tildeify(home)}), or a folder inside it, ` +
+      `to a bucket:\n` +
+      dirs.map((dir) => `  ${dir}`).join("\n") +
+      `\nThat folder holds this computer's keys and sign-in settings, which ` +
+      `never leave it.\n\n` +
+      fix,
+  );
 }
 
 /**
