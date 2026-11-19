@@ -446,6 +446,7 @@ describe("cli (e2e)", () => {
           USERPROFILE: home,
           AWS_PROFILE: "work",
           AWS_ENDPOINT_URL: "http://127.0.0.1:1",
+          AWS_ENDPOINT_URL_S3: "http://127.0.0.1:1", // wins if inherited
           AWS_REGION: "us-east-1",
           AWS_MAX_ATTEMPTS: "1",
           AWS_ACCESS_KEY_ID: "test",
@@ -460,52 +461,58 @@ describe("cli (e2e)", () => {
     );
   });
 
-  it("blanks the session token S3 echoes back, even in the S3CAB_DEBUG dump", async () => {
-    const TOKEN = "IQoJb3JpZ2luX2VjEXAMPLETOKEN";
-    const server = createServer((request, response) => {
-      request.resume();
-      response.writeHead(403, { "content-type": "application/xml" });
-      response.end(
-        `<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code>` +
-          `<Message>m</Message><CanonicalRequest>GET\n/\n\nx-amz-security-token:${TOKEN}\n` +
-          `</CanonicalRequest><RequestId>R</RequestId></Error>`,
+  // The plain run prints only the message, so this reply also echoes the token
+  // there, as a query-protocol service's does.
+  for (const debug of ["1", ""]) {
+    it(`blanks the session token S3 echoes back${debug ? ", in the S3CAB_DEBUG dump too" : ""}`, async () => {
+      const TOKEN = "IQoJb3JpZ2luX2VjEXAMPLETOKEN";
+      const canonical = `GET\n/\n\nx-amz-security-token:${TOKEN}\n`;
+      const server = createServer((request, response) => {
+        request.resume();
+        response.writeHead(403, { "content-type": "application/xml" });
+        response.end(
+          `<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code>` +
+            `<Message>should have been\n${canonical}</Message>` +
+            `<CanonicalRequest>${canonical}</CanonicalRequest><RequestId>R</RequestId></Error>`,
+        );
+      });
+      await new Promise((resolve) =>
+        server.listen(0, "127.0.0.1", () => resolve(undefined)),
       );
-    });
-    await new Promise((resolve) =>
-      server.listen(0, "127.0.0.1", () => resolve(undefined)),
-    );
-    await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    try {
-      const { port } = /** @type {AddressInfo} */ (server.address());
-      // `spawn`, not `spawnSync`: the stand-in answers from this process.
-      const child = spawn(process.execPath, [CLI, "hashes", "some-bucket"], {
-        env: {
-          ...process.env,
-          HOME: dir.path,
-          USERPROFILE: dir.path,
-          S3CAB_DEBUG: "1",
-          AWS_PROFILE: "", // a set profile would win over the keys below
-          AWS_ENDPOINT_URL: `http://127.0.0.1:${port}`,
-          AWS_REGION: "us-east-1",
-          AWS_MAX_ATTEMPTS: "1",
-          AWS_ACCESS_KEY_ID: "ASIAEXAMPLE",
-          AWS_SECRET_ACCESS_KEY: "secret",
-          AWS_SESSION_TOKEN: TOKEN,
-        },
-      });
-      let stderr = "";
-      child.stderr.setEncoding("utf8").on("data", (chunk) => {
-        stderr += chunk;
-      });
-      const [status] = await once(child, "close");
+      await using dir = await mkdtempDisposable(join("test", ".tmp"));
+      try {
+        const endpoint = `http://127.0.0.1:${/** @type {AddressInfo} */ (server.address()).port}`;
+        // `spawn`, not `spawnSync`: the stand-in answers from this process.
+        const child = spawn(process.execPath, [CLI, "hashes", "some-bucket"], {
+          env: {
+            ...process.env,
+            HOME: dir.path,
+            USERPROFILE: dir.path,
+            S3CAB_DEBUG: debug,
+            AWS_PROFILE: "", // a set profile would win over the keys below
+            AWS_ENDPOINT_URL: endpoint,
+            AWS_ENDPOINT_URL_S3: endpoint, // wins if inherited
+            AWS_REGION: "us-east-1",
+            AWS_MAX_ATTEMPTS: "1",
+            AWS_ACCESS_KEY_ID: "ASIAEXAMPLE",
+            AWS_SECRET_ACCESS_KEY: "secret",
+            AWS_SESSION_TOKEN: TOKEN,
+          },
+        });
+        let stderr = "";
+        child.stderr.setEncoding("utf8").on("data", (chunk) => {
+          stderr += chunk;
+        });
+        const [status] = await once(child, "close");
 
-      assert.equal(status, 1, stderr);
-      assert.match(stderr, /x-amz-security-token:\[redacted\]/);
-      assert.ok(!stderr.includes(TOKEN));
-    } finally {
-      server.close();
-    }
-  });
+        assert.equal(status, 1, stderr);
+        assert.match(stderr, /x-amz-security-token:\[redacted\]/);
+        assert.ok(!stderr.includes(TOKEN));
+      } finally {
+        server.close();
+      }
+    });
+  }
 
   it("help exclude prints the exclude-rules topic on stdout", () => {
     const { status, stdout } = run("help", "exclude");

@@ -125,7 +125,7 @@ aws sso login          # only if your profile is SSO and the session has expired
 npm run test:integration
 ```
 
-A configured bucket gets you every suite but two. The **Roles Anywhere** cases
+A configured bucket gets you every case but the ones below. The **Roles Anywhere** cases
 ([test/integration/roles-anywhere.test.mjs](../test/integration/roles-anywhere.test.mjs)) report
 as *skipped* until this machine has a working RA identity, because they authenticate with a real
 certificate rather than the ambient chain. That needs two things beyond the bucket — an
@@ -145,6 +145,12 @@ Skipping them is not a hole in the safety net: the signer itself is pinned by a 
 parity unit test against a live-validated spike ([ADR-0058](adr/0058-roles-anywhere-cert-generation.md)),
 so the live run is confirmation rather than the only proof. Stand it up when you are changing the
 RA path itself.
+
+The **AWS error replies** cases
+([test/integration/aws-errors.test.mjs](../test/integration/aws-errors.test.mjs)) report as
+*skipped* unless you sign in with temporary credentials (SSO or a role) and use AWS's own
+endpoint. They measure what AWS S3 echoes back when it turns a request down, and the session
+token they look for is only there with temporary credentials. CI's role runs them.
 
 > **A `NoSuchBucket` on *every* file usually means a typo, not a broken setup.** The harness only
 > checks that `S3CAB_TEST_BUCKET_INTEGRATION` is *set*, so a misspelling gets all the way to S3
