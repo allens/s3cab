@@ -19,7 +19,7 @@ import {
 import { showControlChars } from "./control-chars.mjs";
 import { fileId, lstatOrNothing } from "./file-props.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
-import { tildeify } from "./home.mjs";
+import { s3cabDir, tildeify } from "./home.mjs";
 import { preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
@@ -183,6 +183,12 @@ function assertWalkableDirs(set) {
         `  ${set.dirsPath}`,
     );
   }
+
+  assertOutsideHome(
+    set.dirs,
+    `Take those folders out of the directory list of backup set '${set.name}':\n` +
+      `  ${set.dirsPath}`,
+  );
 
   // Refuse a member directory whose real path a snapshot can't hold, even an
   // empty one the per-file check in `walkDirs` never meets: its `@SET DIR` row
@@ -348,6 +354,7 @@ function resolveWalkRoot(dir) {
 export function walkDirs(dirs, patterns) {
   const start = Temporal.Now.instant();
   const roots = dirs.map(resolveWalkRoot);
+  const home = realHome();
 
   /** @type {string[]} */
   const files = [];
@@ -362,7 +369,7 @@ export function walkDirs(dirs, patterns) {
     excluded: [],
     errors: [],
     unrepresentable: [],
-    inBackup: backupMatcher(roots),
+    inBackup: backupMatcher(roots, home),
   };
 
   for (const dir of roots) {
@@ -396,7 +403,7 @@ export function walkDirs(dirs, patterns) {
       return visit(path, fileType, unicode);
     };
 
-    for (const path of walkFiles(dir, walkCallbackFn)) {
+    for (const path of walkFiles(dir, walkCallbackFn, home)) {
       if (seen.has(path)) {
         // Name the offender so the user can fix dirs.txt, rather than failing
         // with a bare "duplicates" invariant.
@@ -453,6 +460,70 @@ export function walkDirs(dirs, patterns) {
 
   const { excluded, errors } = found;
   return { files, excluded, errors, roots };
+}
+
+/**
+ * s3cab's home spelled as the walk spells the paths it meets, so `walkFiles`
+ * can skip it by path wherever `S3CAB_HOME` puts it. Not by device and inode:
+ * on a mount that numbers every entry 0, every folder would match it.
+ */
+export function realHome() {
+  try {
+    return realPath(s3cabDir());
+  } catch (error) {
+    // ENOENT: a home not made yet, or one in storage that won't resolve (a
+    // vault, a volume with no mount point), which the walk, never following a
+    // link, can't enter either. Anything else is thrown: spelled as typed, a
+    // home that is there would never match the walk's paths, so it would be
+    // walked.
+    if (!isENOENT(error)) {
+      throw error;
+    }
+    return resolve(s3cabDir());
+  }
+}
+
+/**
+ * Refuse folders at or inside s3cab's home, which holds every set's keys:
+ * `walkFiles` skips the home only below where a walk starts.
+ * @param {string[]} dirs - As the user named them
+ * @param {string} fix - What to do instead, ending the message
+ */
+export function assertOutsideHome(dirs, fix) {
+  const home = realHome();
+  const homeDirs = dirs.filter((dir) => inHome(dir, home));
+  if (!homeDirs.length) {
+    return;
+  }
+  throw new Error(
+    `Can't back up s3cab's own folder (${tildeify(home)}), or a folder inside it:\n` +
+      homeDirs.map((dir) => `  ${dir}`).join("\n") +
+      `\nThat folder holds this computer's keys and sign-in settings, which ` +
+      `never leave it.\n\n` +
+      (home === parse(home).root
+        ? `With s3cab's home at the root of a drive, every folder on it is ` +
+          `inside. Move the home to a folder of its own (S3CAB_HOME).`
+        : fix),
+  );
+}
+
+/**
+ * Whether a walk starting at `dir` would read s3cab's home. A folder that won't
+ * resolve answers no, left for `resolveWalkRoot` to explain.
+ * @param {string} dir
+ * @param {string} home - `realHome()`
+ */
+function inHome(dir, home) {
+  /** @type {string} */
+  let real;
+  try {
+    real = realPath(dir);
+  } catch {
+    return false;
+  }
+  // A root keeps its separator: `E:\`, `/`.
+  const inside = home.endsWith(sep) ? home : home + sep;
+  return real === home || real.startsWith(inside);
 }
 
 /**
@@ -548,19 +619,25 @@ function recordUninspectable(path, error, excludedBy, found) {
 /**
  * Whether a canonical path is in the backup: in or under a member directory,
  * and not inside a folder below it that `walkFiles` never enters. That test is
- * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
- * above the member directory doesn't count: the walk starts below it.
+ * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`, and s3cab's
+ * home. Either above the member directory doesn't count: the walk starts
+ * below it.
  *
  * Compared exactly, not case-folded like `pathKey`: both sides are spelled as
  * the disk spells them (`realPath`), so they already agree in case wherever the
  * disk ignores it, and in a case-sensitive Windows folder `Photos` and `photos`
  * are two folders, so folding would count a link to the other one as saved.
  * @param {string[]} roots - The member directories, canonical
+ * @param {string} home - s3cab's home, canonical (`realHome`)
  * @returns {(path: string, isDir: boolean) => boolean}
  */
-export function backupMatcher(roots) {
+export function backupMatcher(roots, home) {
   /** @param {string} path */
   const exact = (path) => preparePath(path).path.replace(/\/+$/, "");
+  /** @type {(key: string, folder: string) => boolean} */
+  const within = (key, folder) =>
+    key === folder || key.startsWith(folder + posix.sep);
+  const homeKey = exact(home);
   const keyed = roots.map((root) => {
     const key = exact(root);
     return { key, depth: key.split(posix.sep).filter(Boolean).length };
@@ -571,8 +648,9 @@ export function backupMatcher(roots) {
     const folders = isDir ? segments : segments.slice(0, -1);
     return keyed.some(
       (root) =>
-        (key === root.key || key.startsWith(root.key + posix.sep)) &&
-        !folders.slice(root.depth).includes(".s3cab"),
+        within(key, root.key) &&
+        !folders.slice(root.depth).includes(".s3cab") &&
+        !(homeKey.startsWith(root.key + posix.sep) && within(key, homeKey)),
     );
   };
 }
@@ -764,10 +842,11 @@ function resolveFileType(dirent, path) {
  * valid name can hold too.
  * @param {string} dir - Directory to walk through
  * @param {WalkCallback} callbackFn - Whether to keep the entry
+ * @param {string} home - s3cab's home, never entered (`realHome`)
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
-function* walkFiles(dir, callbackFn) {
+function* walkFiles(dir, callbackFn, home) {
   const dirents = readdirSync(dir, { withFileTypes: true, encoding: "buffer" });
   for (const dirent of dirents) {
     const name = dirent.name.toString();
@@ -779,10 +858,10 @@ function* walkFiles(dir, callbackFn) {
     }
 
     if (fileType === DIRECTORY) {
-      if (name === ".s3cab") {
+      if (name === ".s3cab" || path === home) {
         continue;
       }
-      yield* walkFiles(path, callbackFn);
+      yield* walkFiles(path, callbackFn, home);
     } else {
       yield path;
     }

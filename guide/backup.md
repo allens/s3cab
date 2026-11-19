@@ -23,11 +23,15 @@ directory.
   followed, since you named it, and recorded as its [real path](format.md#paths).
 - **The directories mustn't overlap.** A file reached from two of them stops the backup,
   unless an exclude pattern keeps the inner directory out of the outer one's walk.
-- **A directory named `.s3cab`**, all lowercase even on Windows, is never walked: it is
-  s3cab's own, and backing it up would back up the tool's working files. It gets no row in
-  the snapshot unless an exclude pattern matches it, and then it is listed as excluded like
-  any other. Only a directory is skipped: a file or a link named `.s3cab` is backed up as
-  usual.
+- **A directory named `.s3cab`**, all lowercase even on Windows, is never walked, and
+  neither is s3cab's home, whatever `S3CAB_HOME` names it: they are s3cab's own, and backing
+  them up would back up the tool's working files and the keys it signs in with. Neither gets
+  a row in the snapshot unless an exclude pattern matches it, and then it is listed as
+  excluded like any other. Only a directory is skipped: a file or a link named `.s3cab` is
+  backed up as usual.
+- **s3cab's home can't be one of the directories**, nor can a folder inside it: `setup`
+  refuses it, and a backup refuses to start until you take it out of the set's directory
+  list.
 
 ## Where a set lives
 

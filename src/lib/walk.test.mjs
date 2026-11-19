@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { isUtf8 } from "node:buffer";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -9,12 +10,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { dirname, join, posix, relative, sep } from "node:path";
-import { describe, it } from "node:test";
+import { dirname, join, parse, posix, relative, sep } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { ESCAPES } from "./path-match.mjs";
 import {
+  assertOutsideHome,
   backupMatcher,
   readExcludePatterns,
+  realHome,
   walkDirs,
   walkSet,
 } from "./walk.mjs";
@@ -83,6 +86,20 @@ const relRecords = (root, records) =>
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+beforeEach(() => {
+  savedEnv = { ...process.env };
+});
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, savedEnv);
+});
+
 const symlinks = {
   skip:
     process.platform === "win32"
@@ -133,6 +150,20 @@ describe("walkDirs", () => {
     );
 
     assert.deepStrictEqual(found, ["keep.txt", "sub/keep.txt"]);
+  });
+
+  it("never walks s3cab's home, whatever it is named", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    write(root, "keep.txt");
+    write(root, "state/sets/photos/env", "AWS_SECRET_ACCESS_KEY=secret");
+    write(root, "state/roles-anywhere/client.key");
+    process.env.S3CAB_HOME = join(root, "state");
+
+    const { files, excluded } = walkDirs([root], []);
+
+    assert.deepStrictEqual(relPaths(root, files), ["keep.txt"]);
+    assert.deepStrictEqual(excluded, []);
   });
 
   it("walks several roots into one list", async () => {
@@ -236,7 +267,16 @@ describe("walkDirs", () => {
 });
 
 describe("backupMatcher skips only what the walk skips", () => {
-  const inBackup = backupMatcher(["C:\\set", "/home/me/set"]);
+  const inBackup = backupMatcher(
+    ["C:\\set", "/home/me/set"],
+    "/home/me/set/state",
+  );
+
+  it("leaves out s3cab's home below a member directory, and what is in it", () => {
+    assert.equal(inBackup("/home/me/set/state", true), false);
+    assert.equal(inBackup("/home/me/set/state/sets/photos/env", false), false);
+    assert.equal(inBackup("/home/me/set/stateful/a.txt", false), true);
+  });
 
   it("leaves out a folder named exactly .s3cab, and what is in it", () => {
     assert.equal(inBackup("C:\\set\\.s3cab", true), false);
@@ -341,6 +381,37 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         {
           path: "to-folder",
           reason: `link to a folder outside the backup: ${join(root, ".s3cab")}`,
+        },
+      ]);
+    },
+  );
+
+  it(
+    "makes a link into s3cab's home, or to it, an error, whatever the home is named",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      const root = realpathSync.native(base);
+      write(base, "state/sets/photos/env");
+      symlinkSync(
+        join(root, "state", "sets", "photos", "env"),
+        join(base, "to-env"),
+      );
+      symlinkSync(join(root, "state"), join(base, "to-home"));
+      process.env.S3CAB_HOME = join(root, "state");
+
+      const { files, errors } = walkDirs([base], []);
+
+      assert.deepStrictEqual(files, []);
+      assert.deepStrictEqual(relRecords(root, errors), [
+        {
+          path: "to-env",
+          reason: `link to a file outside the backup: ${join(root, "state", "sets", "photos", "env")}`,
+        },
+        {
+          path: "to-home",
+          reason: `link to a folder outside the backup: ${join(root, "state")}`,
         },
       ]);
     },
@@ -569,6 +640,51 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     );
   });
 
+  it("refuses s3cab's home and every directory inside it, pointing at the set's dirs.txt", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    const home = join(root, "state");
+    write(home, "sets/photos/env");
+    write(root, "elsewhere/a.txt");
+    process.env.S3CAB_HOME = home;
+    const set = setOf(root, [
+      home,
+      join(home, "sets"),
+      join(root, "elsewhere"),
+    ]);
+    assert.throws(
+      () => walkSet(set),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(`  ${home}\n`) &&
+        error.message.includes(`  ${join(home, "sets")}\n`) &&
+        !error.message.includes(join(root, "elsewhere")) &&
+        error.message.includes(set.dirsPath),
+    );
+  });
+
+  it(
+    "refuses a member directory that is a link into s3cab's home",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const root = realpathSync.native(dir.path);
+      const home = join(root, "state");
+      write(home, "sets/photos/env");
+      const link = join(root, "settings");
+      symlinkSync(join(home, "sets"), link);
+      process.env.S3CAB_HOME = home;
+      const set = setOf(root, [link]);
+      assert.throws(
+        () => walkSet(set),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`  ${link}\n`) &&
+          error.message.includes(set.dirsPath),
+      );
+    },
+  );
+
   it("rejects an empty dirs list (nothing to back up)", async () => {
     await using dir = await mkTmpDir();
     assert.throws(
@@ -576,6 +692,54 @@ describe("walkSet dirs guard (ADR-0054)", () => {
       /no directories to back up[\s\S]*dirs\.txt/,
     );
   });
+});
+
+describe("s3cab's home", () => {
+  it("holds every folder on a drive at the drive's root, and says to move it", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    process.env.S3CAB_HOME = parse(root).root;
+    assert.throws(
+      () => assertOutsideHome([root], "the caller's fix"),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(`  ${root}\n`) &&
+        error.message.includes("(S3CAB_HOME)") &&
+        !error.message.includes("the caller's fix"),
+    );
+  });
+
+  it("doesn't hold a sibling whose name starts with its own", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    mkdirSync(join(root, "stateful"));
+    process.env.S3CAB_HOME = join(root, "state");
+    assert.doesNotThrow(() =>
+      assertOutsideHome([join(root, "stateful")], "the caller's fix"),
+    );
+  });
+
+  it(
+    "won't guess at a home that is there but won't resolve",
+    {
+      skip:
+        process.platform === "win32" || process.getuid?.() === 0
+          ? "needs a folder its owner can't search"
+          : false,
+    },
+    async () => {
+      await using dir = await mkTmpDir();
+      const locked = join(dir.path, "locked");
+      mkdirSync(join(locked, "home"), { recursive: true });
+      process.env.S3CAB_HOME = join(locked, "home");
+      chmodSync(locked, 0o000);
+      try {
+        assert.throws(() => realHome(), { code: "EACCES" });
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    },
+  );
 });
 
 // The walk root is canonicalized with `realPath` (resolveWalkRoot), and these pin

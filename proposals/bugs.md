@@ -295,8 +295,7 @@ Anywhere one embeds only the public CA certificate, and its role trusts one anch
 and `forget`'s audit files hold no credential; a bucket snapshot name can't steer a download out
 of the set's folder. **Suspicions, not run:** an in-place `restore` writes wherever a snapshot
 written with a leaked key says, inside its own `@SET DIR`s (never over an existing file without
-`--overwrite`); a set whose directory *is* the home is walked, since the skip is for a `.s3cab`
-below one; the default home on Windows is assumed owner-only by the profile's permissions,
+`--overwrite`); the default home on Windows is assumed owner-only by the profile's permissions,
 unmeasured; `restore --overwrite` on Windows probably swaps a file's own permissions for its
 folder's inherited ones; a `credential_process` can start with a set's secret in its environment
 when a shell profile wins; S3's `ExpiredToken` and `InvalidToken` replies may echo the token under
@@ -375,14 +374,13 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
 
 **Open:**
 
-- **A home moved with `S3CAB_HOME` to a folder not named `.s3cab` is backed up, keys and all,**
-  when it sits inside a set's directory (security read): `S3CAB_HOME=D:\Backups\s3cab` with a set
-  backing up `D:\Backups`. The walk skips s3cab's home only by the name `.s3cab` (`walkFiles`,
-  `backupMatcher` in `src/lib/walk.mjs`), so every set's `env` and `roles-anywhere/client.key`
-  and `ca.key` are uploaded. The bucket is versioned and the everyday identity can't delete
-  versions, so they can't be taken back out. [guide/backup.md](../guide/backup.md): "`env` never
-  leaves this machine"; [guide/auth.md](../guide/auth.md): "The private keys never leave that
-  directory". Windows and Linux.
+- **s3cab's home reached under a second path is backed up, keys and all,** when it isn't named
+  `.s3cab` (review of [#523](https://github.com/allens/s3cab/pull/523)). `walkFiles` and
+  `inHome` in `src/lib/walk.mjs` know the home by the one path `realPath` gives it, so a bind
+  mount (`/mnt/me` over `/home/me`, home `/home/me/state`), a Windows folder mount of a lettered
+  volume, or a share named two ways (`\\localhost\D$\Backups`) walks into it. Device and inode
+  would catch it, except on mounts that number every entry 0, and cost a `stat` per folder in the
+  walk. Unmeasured; rare.
 - **On Windows, a home outside the user profile leaves every secret file open to other local
   users** (security read). The only protection is the POSIX mode (`envFileMode` in
   `src/lib/env-file.mjs`, `ensureMachineIdentity`, the `0700` folders in `src/lib/sets.mjs` and
@@ -458,11 +456,12 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   `src/lib/walk.mjs` can't tell which folder `PHOTOS` is, so it keeps the name as typed:
   `Photos` and `PHOTOS` stay two, and in a set naming `PHOTOS` a link to `Photos/x` gets an
   `#error` row as outside the backup.
-- **A link to a `.s3cab` folder typed in another case counts as backed up** on a Linux disk
-  that ignores case (review of [#520](https://github.com/allens/s3cab/pull/520)). glibc's
-  `realpath` keeps `.S3CAB` as typed, `backupMatcher` in `src/lib/walk.mjs` looks for `.s3cab`
-  exactly, and `checkLink` rechecks with the disk's spelling only a target that seems outside.
-  `walkFiles` skips the real `.s3cab`, so the file it points to is in no snapshot and no
+- **A link to a `.s3cab` folder, or into s3cab's home, typed in another case counts as backed
+  up** on a Linux disk that ignores case (review of
+  [#520](https://github.com/allens/s3cab/pull/520)). glibc's `realpath` keeps `.S3CAB` as
+  typed, `backupMatcher` in `src/lib/walk.mjs` compares `.s3cab` and the home's path exactly,
+  and `checkLink` rechecks with the disk's spelling only a target that seems outside.
+  `walkFiles` skips the real folder, so the file the link points to is in no snapshot and no
   `#error` row says so. Unmeasured; rare.
 - **A resumed restore on a mount that numbers every file 0 calls each existing file a
   collision** (review of [#521](https://github.com/allens/s3cab/pull/521)). `occupant` in
