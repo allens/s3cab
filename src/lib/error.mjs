@@ -275,6 +275,35 @@ export function requireArg(value, name) {
 }
 
 /**
+ * Blank the credentials an S3 error reply echoes back, before `S3CAB_DEBUG`
+ * prints the error whole. The SDK copies every field of the reply onto the
+ * error: SignatureDoesNotMatch's canonical request holds the signed session
+ * token, as text and again as hex bytes, and ExpiredToken's and InvalidToken's
+ * `Token-0` holds the token itself. Changes each error in the `cause` chain in
+ * place, so the dump still reads as the error it is.
+ * @param {unknown} error
+ */
+export function redactEchoedCredentials(error) {
+  for (
+    let fault = /** @type {any} */ (error);
+    fault && typeof fault === "object";
+    fault = fault.cause
+  ) {
+    if (typeof fault.CanonicalRequest === "string") {
+      fault.CanonicalRequest = fault.CanonicalRequest.replace(
+        /^(x-amz-security-token:).*$/gim,
+        "$1[redacted]",
+      );
+    }
+    for (const key of Object.keys(fault)) {
+      if (key === "CanonicalRequestBytes" || /^Token-\d+$/.test(key)) {
+        fault[key] = "[redacted]";
+      }
+    }
+  }
+}
+
+/**
  * Whether an error should print command usage alongside its message — our own
  * ParseArgsError, or any of Node parseArgs' argument failures (unknown option,
  * but also a missing/invalid option value, e.g. `--bucket` with no value). Both

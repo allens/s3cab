@@ -7,7 +7,12 @@ import { inspect, parseArgs } from "node:util";
 import { commands } from "./commands.mjs";
 import { errorReport, helpTopics, usage } from "./help.mjs";
 import { isCredentialProviderError } from "./lib/auth.mjs";
-import { InterruptedError, errorText, exitCodeFor } from "./lib/error.mjs";
+import {
+  InterruptedError,
+  errorText,
+  exitCodeFor,
+  redactEchoedCredentials,
+} from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 import { statusLine } from "./lib/progress.mjs";
 import { bold, styleEnabled } from "./lib/style.mjs";
@@ -168,6 +173,9 @@ try {
     // usage error (see lib/error.mjs for the exit-code axis). (Success is 0;
     // an unknown command exits 127 above, the shell's "command not found".)
     // Debug prints the error object whole instead, stack and all.
+    if (debug) {
+      redactEchoedCredentials(error);
+    }
     console.error(
       errorReport(
         commandName,

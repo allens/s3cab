@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { createServer } from "node:http";
+import { after, before, describe, it } from "node:test";
+import { inspect } from "node:util";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   EXIT_INTERRUPTED,
   InterruptedError,
@@ -9,8 +12,97 @@ import {
   exitCodeFor,
   isInputError,
   isUsageError,
+  redactEchoedCredentials,
   requireArg,
 } from "./error.mjs";
+
+/** @import { Server } from "node:http" */
+/** @import { AddressInfo } from "node:net" */
+
+// Real SDK errors from a stand-in S3, so a field the SDK renames or adds shows
+// up here rather than in a debug dump. The replies are S3's shapes.
+describe("redactEchoedCredentials", () => {
+  const TOKEN = "IQoJb3JpZ2luX2VjEXAMPLETOKEN";
+  const hex = (/** @type {string} */ text) =>
+    [...Buffer.from(text)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(" ");
+  const canonical = `GET\n/b/k\n\nhost:127.0.0.1\nx-amz-security-token:${TOKEN}\n\nhost;x-amz-security-token\nUNSIGNED-PAYLOAD`;
+  /** @type {Record<string, string>} */
+  const replies = {
+    SignatureDoesNotMatch: `<CanonicalRequest>${canonical}</CanonicalRequest><CanonicalRequestBytes>${hex(canonical)}</CanonicalRequestBytes>`,
+    ExpiredToken: `<Token-0>${TOKEN}</Token-0>`,
+  };
+  let code = "";
+  /** @type {Server} */
+  let server;
+  /** @type {S3Client} */
+  let client;
+
+  before(async () => {
+    server = createServer((request, response) => {
+      request.resume();
+      response.writeHead(400, { "content-type": "application/xml" });
+      response.end(
+        `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code>` +
+          `<Message>m</Message>${replies[code]}<RequestId>R</RequestId></Error>`,
+      );
+    });
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+    const { port } = /** @type {AddressInfo} */ (server.address());
+    client = new S3Client({
+      region: "us-east-1",
+      endpoint: `http://127.0.0.1:${port}`,
+      forcePathStyle: true,
+      maxAttempts: 1,
+      credentials: {
+        accessKeyId: "ASIAEXAMPLE",
+        secretAccessKey: "secret",
+        sessionToken: TOKEN,
+      },
+    });
+  });
+  after(() => {
+    client.destroy();
+    server.close();
+  });
+
+  /** The SDK's error for `reply`, wrapped as s3.mjs's relay wraps it. */
+  const rejection = async (/** @type {string} */ reply) => {
+    code = reply;
+    try {
+      await client.send(new GetObjectCommand({ Bucket: "b", Key: "k" }));
+    } catch (cause) {
+      return new Error("translated", { cause });
+    }
+    throw new Error("the stand-in S3 accepted the request");
+  };
+
+  for (const reply of Object.keys(replies)) {
+    it(`leaves no session token in a ${reply} dump`, async () => {
+      const error = await rejection(reply);
+      assert.ok(inspect(error).includes(TOKEN), "the reply echoes the token");
+
+      redactEchoedCredentials(error);
+
+      const dump = inspect(error);
+      assert.ok(!dump.includes(TOKEN));
+      assert.ok(!dump.includes(hex(TOKEN)));
+      assert.match(dump, /\[redacted\]/);
+    });
+  }
+
+  it("keeps the rest of the canonical request", async () => {
+    const error = await rejection("SignatureDoesNotMatch");
+    redactEchoedCredentials(error);
+    assert.equal(
+      /** @type {any} */ (error).cause.CanonicalRequest,
+      canonical.replace(TOKEN, "[redacted]"),
+    );
+  });
+});
 
 describe("ParseArgsError", () => {
   it("sets ERR_PARSE_ARGS code and message", () => {
