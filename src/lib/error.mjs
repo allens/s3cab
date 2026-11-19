@@ -275,6 +275,55 @@ export function requireArg(value, name) {
 }
 
 /**
+ * Blank the session tokens an AWS error reply echoes back, before s3cab prints
+ * the error. The SDK copies every field of the reply onto the error.
+ * SignatureDoesNotMatch's canonical request carries the signed token header
+ * (`x-amz-security-token`, or `x-amz-s3session-token` for a directory bucket):
+ * as text in S3's `CanonicalRequest`, as hex bytes in `CanonicalRequestBytes`,
+ * and in the message from a query-protocol service like CloudFormation, which
+ * also keeps the reply as a nested `Error` object, and so in the stack too.
+ * ExpiredToken's and InvalidToken's `Token-0` is the token itself. Changes each
+ * error in the `cause` chain in place, so a debug dump still reads as the error
+ * it is.
+ * @param {unknown} error
+ */
+export function redactEchoedCredentials(error) {
+  for (
+    let fault = /** @type {any} */ (error);
+    fault && typeof fault === "object";
+    fault = fault.cause
+  ) {
+    // Own names, not keys: `message` and `stack` aren't enumerable.
+    redactFields(fault, Object.getOwnPropertyNames(fault));
+  }
+}
+
+/**
+ * `redactEchoedCredentials` for one object's `keys`, and the plain objects under
+ * them. Only plain ones: `$response` holds the live reply stream.
+ * @param {any} target
+ * @param {string[]} keys
+ */
+function redactFields(target, keys) {
+  for (const key of keys) {
+    const value = target[key];
+    if (key === "CanonicalRequestBytes" || /^Token-\d+$/.test(key)) {
+      target[key] = "[redacted]";
+    } else if (typeof value === "string") {
+      const redacted = value.replace(
+        /(x-amz-[\w-]*token:)[^\r\n]*/gi,
+        "$1[redacted]",
+      );
+      if (redacted !== value) {
+        target[key] = redacted;
+      }
+    } else if (value && Object.getPrototypeOf(value) === Object.prototype) {
+      redactFields(value, Object.keys(value));
+    }
+  }
+}
+
+/**
  * Whether an error should print command usage alongside its message — our own
  * ParseArgsError, or any of Node parseArgs' argument failures (unknown option,
  * but also a missing/invalid option value, e.g. `--bucket` with no value). Both

@@ -297,8 +297,7 @@ of the set's folder. **Suspicions, not run:** an in-place `restore` writes where
 written with a leaked key says, inside its own `@SET DIR`s (never over an existing file without
 `--overwrite`); `restore --overwrite` on Windows probably swaps a file's own permissions for its
 folder's inherited ones; a `credential_process` can start with a set's secret in its environment
-when a shell profile wins; S3's `ExpiredToken` and `InvalidToken` replies may echo the token under
-`S3CAB_DEBUG` too. macOS not run.</sub>
+when a shell profile wins. macOS not run.</sub>
 
 <sub>The **read of [#512](https://github.com/allens/s3cab/pull/512) and
 [#513](https://github.com/allens/s3cab/pull/513)** (brief: break each fix, and check each statement
@@ -388,11 +387,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   days, but not as the limit of that promise, and a backup trusting its baseline never looks at
   stored objects, so only `verify` would notice. From the templates `s3cab aws` writes and S3's
   documented lifecycle.
-- **A Roles Anywhere reply missing a credential field is printed with the secret** (security
-  read). `parseSessionResponse` in `src/lib/roles-anywhere.mjs` throws with the whole body when a
-  2xx reply lacks any of the four fields or isn't JSON, and `src/lib/auth.mjs` quotes it in the
-  error every run prints. AWS sends no such reply today; something in between could.
-  [guide/auth.md](../guide/auth.md): s3cab will never "Log a credential".
 - **A set's saved keys mix with credentials the shell exports** (security read). `applyEnv` and
   `loadSet` in `src/lib/env.mjs` lay the set's `env` over the shell one variable at a time and
   clear nothing. An exported `AWS_PROFILE` wins over the set's keys, so the set runs as that
@@ -401,12 +395,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   `AWS_SESSION_TOKEN` joins the set's keys and goes to the set's endpoint on every request,
   silently. [guide/auth.md](../guide/auth.md)'s "One mode per set, enforced" covers the set's
   file, not the shell. Windows and Linux.
-- **`S3CAB_DEBUG` prints the session token** when a request signed with temporary credentials is
-  rejected for its signature (security read). The debug print in `src/s3cab.mjs` dumps every
-  field of the error, and the SDK copies the server's reply onto it: `CanonicalRequest`, with
-  its signed `x-amz-security-token` header. Run against a stand-in server; that S3 echoes the
-  canonical request is from knowledge of S3. [guide/auth.md](../guide/auth.md): never logged,
-  "not under `S3CAB_DEBUG`".
 - **A key to the bucket chooses what a machine taking a set over backs up** (security read).
   `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
   the set, writes the bucket's copies without asking, and the everyday identity can write those

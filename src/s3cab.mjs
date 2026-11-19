@@ -7,7 +7,12 @@ import { inspect, parseArgs } from "node:util";
 import { commands } from "./commands.mjs";
 import { errorReport, helpTopics, usage } from "./help.mjs";
 import { isCredentialProviderError } from "./lib/auth.mjs";
-import { InterruptedError, errorText, exitCodeFor } from "./lib/error.mjs";
+import {
+  InterruptedError,
+  errorText,
+  exitCodeFor,
+  redactEchoedCredentials,
+} from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 import { statusLine } from "./lib/progress.mjs";
 import { bold, styleEnabled } from "./lib/style.mjs";
@@ -91,6 +96,8 @@ if (args.includes("--help") || args.includes("-h")) {
 // that follows an unrecoverable lapse speaks for itself.
 let warnedRefreshFailure = false;
 process.on("unhandledRejection", (reason) => {
+  // Node's fatal print shows every field of the error.
+  redactEchoedCredentials(reason);
   if (!isCredentialProviderError(reason)) {
     throw reason;
   }
@@ -158,6 +165,8 @@ try {
     }
   }
 } catch (error) {
+  // Before anything below prints it, debug dump or not.
+  redactEchoedCredentials(error);
   // A run the user stopped is not a failure: print what it saved, plainly, and
   // exit on the shell's signal convention (ADR-0067) — no `ERROR:`, no usage.
   if (error instanceof InterruptedError) {
