@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { ESCAPES } from "./path-match.mjs";
 import {
   backupMatcher,
@@ -83,6 +83,20 @@ const relRecords = (root, records) =>
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+beforeEach(() => {
+  savedEnv = { ...process.env };
+});
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, savedEnv);
+});
+
 const symlinks = {
   skip:
     process.platform === "win32"
@@ -133,6 +147,20 @@ describe("walkDirs", () => {
     );
 
     assert.deepStrictEqual(found, ["keep.txt", "sub/keep.txt"]);
+  });
+
+  it("never walks s3cab's home, whatever it is named", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    write(root, "keep.txt");
+    write(root, "state/sets/photos/env", "AWS_SECRET_ACCESS_KEY=secret");
+    write(root, "state/roles-anywhere/client.key");
+    process.env.S3CAB_HOME = join(root, "state");
+
+    const { files, excluded } = walkDirs([root], []);
+
+    assert.deepStrictEqual(relPaths(root, files), ["keep.txt"]);
+    assert.deepStrictEqual(excluded, []);
   });
 
   it("walks several roots into one list", async () => {
@@ -236,7 +264,16 @@ describe("walkDirs", () => {
 });
 
 describe("backupMatcher skips only what the walk skips", () => {
-  const inBackup = backupMatcher(["C:\\set", "/home/me/set"]);
+  const inBackup = backupMatcher(
+    ["C:\\set", "/home/me/set"],
+    "/home/me/set/state",
+  );
+
+  it("leaves out s3cab's home below a member directory, and what is in it", () => {
+    assert.equal(inBackup("/home/me/set/state", true), false);
+    assert.equal(inBackup("/home/me/set/state/sets/photos/env", false), false);
+    assert.equal(inBackup("/home/me/set/stateful/a.txt", false), true);
+  });
 
   it("leaves out a folder named exactly .s3cab, and what is in it", () => {
     assert.equal(inBackup("C:\\set\\.s3cab", true), false);
@@ -341,6 +378,32 @@ describe("walkDirs never follows or records a link (ADR-0103)", () => {
         {
           path: "to-folder",
           reason: `link to a folder outside the backup: ${join(root, ".s3cab")}`,
+        },
+      ]);
+    },
+  );
+
+  it(
+    "makes a link into s3cab's home an error, whatever the home is named",
+    symlinks,
+    async () => {
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      const root = realpathSync.native(base);
+      write(base, "state/sets/photos/env");
+      symlinkSync(
+        join(root, "state", "sets", "photos", "env"),
+        join(base, "to-env"),
+      );
+      process.env.S3CAB_HOME = join(root, "state");
+
+      const { files, errors } = walkDirs([base], []);
+
+      assert.deepStrictEqual(files, []);
+      assert.deepStrictEqual(relRecords(root, errors), [
+        {
+          path: "to-env",
+          reason: `link to a file outside the backup: ${join(root, "state", "sets", "photos", "env")}`,
         },
       ]);
     },
@@ -566,6 +629,29 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     assert.throws(
       () => walkSet(setOf(root, [join(root, "notadir.txt")])),
       /aren't available/,
+    );
+  });
+
+  it("refuses s3cab's home and every directory inside it, pointing at the set's dirs.txt", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    const home = join(root, "state");
+    write(home, "sets/photos/env");
+    write(root, "elsewhere/a.txt");
+    process.env.S3CAB_HOME = home;
+    const set = setOf(root, [
+      home,
+      join(home, "sets"),
+      join(root, "elsewhere"),
+    ]);
+    assert.throws(
+      () => walkSet(set),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(`  ${home}\n`) &&
+        error.message.includes(`  ${join(home, "sets")}\n`) &&
+        !error.message.includes(join(root, "elsewhere")) &&
+        error.message.includes(set.dirsPath),
     );
   });
 

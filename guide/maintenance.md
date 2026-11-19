@@ -569,7 +569,8 @@ from a folder, or uploads everything a snapshot references and then the snapshot
   single file (`--file`) into a bucket that isn't one of your sets, signed in with your
   ambient AWS setup.
 - **Seeding with `--dir`?** Run no clean-up before that set's first backup
-  ([above](#locks-backups-and-clean-ups-take-turns)).
+  ([above](#locks-backups-and-clean-ups-take-turns)). `--dir` refuses s3cab's home and any
+  folder inside it, as a backup does ([what a set backs up](backup.md#what-a-set-backs-up)).
 
 ## A routine, if you want one
 

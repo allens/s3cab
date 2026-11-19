@@ -11,6 +11,7 @@ import { objectKey } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
 import { shellCommand } from "../lib/style.mjs";
 import { uploadDir, uploadFile, uploadSnapshot } from "../lib/upload.mjs";
+import { inHome, realHome } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
 
 /** @import { CompareError } from "../lib/compare.mjs" */
@@ -210,6 +211,14 @@ export async function upload(setName, options = {}) {
     }
     if (!isDir) {
       throw new ParseArgsError(`--dir needs a folder that exists: ${dir}`);
+    }
+    const home = realHome();
+    if (inHome(dir, home)) {
+      throw new Error(
+        `Can't upload '${dir}': it is s3cab's own folder (${tildeify(home)}) ` +
+          `or inside it, which holds this computer's keys and sign-in ` +
+          `settings. They never leave it. Pick a folder outside it.`,
+      );
     }
     // Always a set — the excludes that shape the seed come from it (no --bucket).
     const set = loadSet(setName);

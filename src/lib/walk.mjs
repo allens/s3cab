@@ -19,7 +19,7 @@ import {
 import { showControlChars } from "./control-chars.mjs";
 import { fileId, lstatOrNothing } from "./file-props.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
-import { tildeify } from "./home.mjs";
+import { s3cabDir, tildeify } from "./home.mjs";
 import { preparePath } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
@@ -180,6 +180,19 @@ function assertWalkableDirs(set) {
         `\nA backup won't run while a listed directory can't be reached — it may be ` +
         `missing (an unplugged drive, a deleted or renamed folder) or unreadable. ` +
         `Reconnect the drive, or edit the set's directory list:\n` +
+        `  ${set.dirsPath}`,
+    );
+  }
+
+  const home = realHome();
+  const homeDirs = set.dirs.filter((dir) => inHome(dir, home));
+  if (homeDirs.length) {
+    throw new Error(
+      `These directories in backup set '${set.name}' are s3cab's own folder ` +
+        `(${tildeify(home)}) or inside it, so they can't be backed up:\n` +
+        homeDirs.map((dir) => `  ${dir}`).join("\n") +
+        `\nThat folder holds this computer's keys and sign-in settings, which ` +
+        `never leave it. Take them out of the set's directory list:\n` +
         `  ${set.dirsPath}`,
     );
   }
@@ -348,6 +361,7 @@ function resolveWalkRoot(dir) {
 export function walkDirs(dirs, patterns) {
   const start = Temporal.Now.instant();
   const roots = dirs.map(resolveWalkRoot);
+  const home = realHome();
 
   /** @type {string[]} */
   const files = [];
@@ -362,7 +376,7 @@ export function walkDirs(dirs, patterns) {
     excluded: [],
     errors: [],
     unrepresentable: [],
-    inBackup: backupMatcher(roots),
+    inBackup: backupMatcher(roots, home),
   };
 
   for (const dir of roots) {
@@ -396,7 +410,7 @@ export function walkDirs(dirs, patterns) {
       return visit(path, fileType, unicode);
     };
 
-    for (const path of walkFiles(dir, walkCallbackFn)) {
+    for (const path of walkFiles(dir, walkCallbackFn, home)) {
       if (seen.has(path)) {
         // Name the offender so the user can fix dirs.txt, rather than failing
         // with a bare "duplicates" invariant.
@@ -453,6 +467,38 @@ export function walkDirs(dirs, patterns) {
 
   const { excluded, errors } = found;
   return { files, excluded, errors, roots };
+}
+
+/**
+ * s3cab's home spelled as the walk spells the paths it meets, so `walkFiles`
+ * can skip it by path wherever `S3CAB_HOME` puts it. Not by device and inode:
+ * on a mount that numbers every entry 0, every folder would match it.
+ */
+export function realHome() {
+  try {
+    return realPath(s3cabDir());
+  } catch {
+    // A home not made yet has no real path.
+    return resolve(s3cabDir());
+  }
+}
+
+/**
+ * Whether a walk starting at `dir` would read s3cab's home, which holds every
+ * set's keys: `walkFiles` skips the home only below where it starts. A folder
+ * that won't resolve answers no, left for `resolveWalkRoot` to explain.
+ * @param {string} dir
+ * @param {string} home - `realHome()`
+ */
+export function inHome(dir, home) {
+  /** @type {string} */
+  let real;
+  try {
+    real = realPath(dir);
+  } catch {
+    return false;
+  }
+  return real === home || real.startsWith(home + sep);
 }
 
 /**
@@ -548,19 +594,25 @@ function recordUninspectable(path, error, excludedBy, found) {
 /**
  * Whether a canonical path is in the backup: in or under a member directory,
  * and not inside a folder below it that `walkFiles` never enters. That test is
- * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`. A `.s3cab`
- * above the member directory doesn't count: the walk starts below it.
+ * `walkFiles`' own: a folder, not a file, named exactly `.s3cab`, and s3cab's
+ * home. Either above the member directory doesn't count: the walk starts
+ * below it.
  *
  * Compared exactly, not case-folded like `pathKey`: both sides are spelled as
  * the disk spells them (`realPath`), so they already agree in case wherever the
  * disk ignores it, and in a case-sensitive Windows folder `Photos` and `photos`
  * are two folders, so folding would count a link to the other one as saved.
  * @param {string[]} roots - The member directories, canonical
+ * @param {string} home - s3cab's home, canonical (`realHome`)
  * @returns {(path: string, isDir: boolean) => boolean}
  */
-export function backupMatcher(roots) {
+export function backupMatcher(roots, home) {
   /** @param {string} path */
   const exact = (path) => preparePath(path).path.replace(/\/+$/, "");
+  /** @type {(key: string, folder: string) => boolean} */
+  const within = (key, folder) =>
+    key === folder || key.startsWith(folder + posix.sep);
+  const homeKey = exact(home);
   const keyed = roots.map((root) => {
     const key = exact(root);
     return { key, depth: key.split(posix.sep).filter(Boolean).length };
@@ -571,8 +623,9 @@ export function backupMatcher(roots) {
     const folders = isDir ? segments : segments.slice(0, -1);
     return keyed.some(
       (root) =>
-        (key === root.key || key.startsWith(root.key + posix.sep)) &&
-        !folders.slice(root.depth).includes(".s3cab"),
+        within(key, root.key) &&
+        !folders.slice(root.depth).includes(".s3cab") &&
+        !(homeKey.startsWith(root.key + posix.sep) && within(key, homeKey)),
     );
   };
 }
@@ -764,10 +817,11 @@ function resolveFileType(dirent, path) {
  * valid name can hold too.
  * @param {string} dir - Directory to walk through
  * @param {WalkCallback} callbackFn - Whether to keep the entry
+ * @param {string} home - s3cab's home, never entered (`realHome`)
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
-function* walkFiles(dir, callbackFn) {
+function* walkFiles(dir, callbackFn, home) {
   const dirents = readdirSync(dir, { withFileTypes: true, encoding: "buffer" });
   for (const dirent of dirents) {
     const name = dirent.name.toString();
@@ -779,10 +833,10 @@ function* walkFiles(dir, callbackFn) {
     }
 
     if (fileType === DIRECTORY) {
-      if (name === ".s3cab") {
+      if (name === ".s3cab" || path === home) {
         continue;
       }
-      yield* walkFiles(path, callbackFn);
+      yield* walkFiles(path, callbackFn, home);
     } else {
       yield path;
     }
