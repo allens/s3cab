@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 
 /** @import { Dirent } from "node:fs" */
 
@@ -47,17 +48,9 @@ const PHANTOM = "phantom.txt";
 /** @type {string} */
 let phantomIn = "";
 
-// Everything `node:fs` really exports, bar `constants` — which is
-// non-configurable, so the module mocker throws trying to redefine it. The rest
-// has to come through because mocking a specifier replaces it for every module
-// that imports it, not just the one under test.
-const passthrough = Object.fromEntries(
-  Object.entries(realFs).filter(([name]) => name !== "constants"),
-);
-
 mock.module("node:fs", {
   exports: {
-    ...passthrough,
+    ...fsPassthrough,
     /**
      * Serves the walk's call shape — `readdirSync(dir, { withFileTypes: true,
      * encoding: "buffer" })`. Any other listing, such as `realPath`'s plain

@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { tempPathFor, writeFileAtomic } from "../lib/atomic-file.mjs";
 import { IntegrityError } from "../lib/error.mjs";
@@ -84,12 +85,9 @@ mock.module("node:fs/promises", {
     ) => fsPromises.utimes(path, atime, keeps(mtime)),
   },
 });
-// Bar the non-configurable `constants`, which a spread can't redefine.
 mock.module("node:fs", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(fs).filter(([name]) => name !== "constants"),
-    ),
+    ...fsPassthrough,
     lstatSync: (
       /** @type {string} */ path,
       /** @type {fs.StatSyncOptions} */ options,
