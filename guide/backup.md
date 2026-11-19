@@ -61,6 +61,10 @@ A set is a folder of plain files in s3cab's home, never inside the directories i
   s3cab prints follows it. Beside `sets/`, the home holds `roles-anywhere/`, this machine's
   keyless identity if you set one up ([signing in](auth.md#roles-anywhere-keyless)), and the
   templates `s3cab aws` writes ([setting up a cloud bucket](aws.md)).
+- **The home's files are yours alone**, since `env` and `roles-anywhere/` hold keys. On Linux
+  and macOS s3cab creates them owner-only (mode `0600`, folders `0700`). On Windows they take
+  their folder's permissions: inside your user profile that means yours alone, but a home
+  moved elsewhere with `S3CAB_HOME` gets that folder's, so pick one other accounts can't open.
 
 Each snapshot records a few of these settings for whoever reads it later:
 

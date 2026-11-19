@@ -295,8 +295,7 @@ Anywhere one embeds only the public CA certificate, and its role trusts one anch
 and `forget`'s audit files hold no credential; a bucket snapshot name can't steer a download out
 of the set's folder. **Suspicions, not run:** an in-place `restore` writes wherever a snapshot
 written with a leaked key says, inside its own `@SET DIR`s (never over an existing file without
-`--overwrite`); the default home on Windows is assumed owner-only by the profile's permissions,
-unmeasured; `restore --overwrite` on Windows probably swaps a file's own permissions for its
+`--overwrite`); `restore --overwrite` on Windows probably swaps a file's own permissions for its
 folder's inherited ones; a `credential_process` can start with a set's secret in its environment
 when a shell profile wins; S3's `ExpiredToken` and `InvalidToken` replies may echo the token under
 `S3CAB_DEBUG` too. macOS not run.</sub>
@@ -381,14 +380,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   volume, or a share named two ways (`\\localhost\D$\Backups`) walks into it. Device and inode
   would catch it, except on mounts that number every entry 0, and cost a `stat` per folder in the
   walk. Unmeasured; rare.
-- **On Windows, a home outside the user profile leaves every secret file open to other local
-  users** (security read). The only protection is the POSIX mode (`envFileMode` in
-  `src/lib/env-file.mjs`, `ensureMachineIdentity`, the `0700` folders in `src/lib/sets.mjs` and
-  `src/lib/aws.mjs`), which Windows ignores, so the files inherit the folder's: on `D:`,
-  `Authenticated Users:(I)(M)` on `client.key`, `ca.key` and each set's `env` (`icacls`). Another
-  account can read the keys and rewrite a set's endpoint. [guide/aws.md](../guide/aws.md) and
-  [guide/auth.md](../guide/auth.md) promise "owner-only" without naming Windows, and the comment
-  on `envFileMode` assumes the profile's permissions.
 - **"Can never permanently destroy" holds for 90 days** (security read).
   [guide/aws.md](../guide/aws.md) (twice) and [guide/maintenance.md](../guide/maintenance.md) say
   a leaked everyday key can't permanently destroy the backup, but that identity may `PutObject`
