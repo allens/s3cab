@@ -29,8 +29,9 @@ directory.
   a row in the snapshot unless an exclude pattern matches it, and then it is listed as
   excluded like any other. Only a directory is skipped: a file or a link named `.s3cab` is
   backed up as usual.
-- **s3cab's home can't be one of the directories**, nor can a folder inside it: a backup
-  refuses to start until you take it out of the set's directory list.
+- **s3cab's home can't be one of the directories**, nor can a folder inside it: `setup`
+  refuses it, and a backup refuses to start until you take it out of the set's directory
+  list.
 
 ## Where a set lives
 

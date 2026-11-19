@@ -11,7 +11,7 @@ import { objectKey } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
 import { shellCommand } from "../lib/style.mjs";
 import { uploadDir, uploadFile, uploadSnapshot } from "../lib/upload.mjs";
-import { homeDirsError, inHome, realHome } from "../lib/walk.mjs";
+import { assertOutsideHome } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
 
 /** @import { CompareError } from "../lib/compare.mjs" */
@@ -212,15 +212,11 @@ export async function upload(setName, options = {}) {
     if (!isDir) {
       throw new ParseArgsError(`--dir needs a folder that exists: ${dir}`);
     }
-    const home = realHome();
-    if (inHome(dir, home)) {
-      throw homeDirsError(
-        [dir],
-        home,
-        `To seed the set, name a folder outside it:\n` +
-          `  ${shellCommand(`s3cab upload ${setName} --dir <folder>`)}`,
-      );
-    }
+    assertOutsideHome(
+      [dir],
+      `To seed the set, name a folder outside it:\n` +
+        `  ${shellCommand(`s3cab upload ${setName} --dir <folder>`)}`,
+    );
     // Always a set — the excludes that shape the seed come from it (no --bucket).
     const set = loadSet(setName);
     // The porcelain announces; the engine reports. Each mode names what it is

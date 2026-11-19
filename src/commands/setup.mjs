@@ -23,7 +23,7 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
-import { homeDirsError, inHome, realHome, realPath } from "../lib/walk.mjs";
+import { assertOutsideHome, realPath } from "../lib/walk.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
@@ -194,16 +194,11 @@ function resolveDirectories(directories, name, bucket) {
     }
     return real;
   });
-  const home = realHome();
-  const homeDirs = directories.filter((directory) => inHome(directory, home));
-  if (homeDirs.length) {
-    throw homeDirsError(
-      homeDirs,
-      home,
-      `To create the set, name folders outside it:\n` +
-        `  ${shellCommand(`s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`)}`,
-    );
-  }
+  assertOutsideHome(
+    directories,
+    `To create the set, name folders outside it:\n` +
+      `  ${shellCommand(`s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`)}`,
+  );
   return dirs;
 }
 

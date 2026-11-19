@@ -184,16 +184,11 @@ function assertWalkableDirs(set) {
     );
   }
 
-  const home = realHome();
-  const homeDirs = set.dirs.filter((dir) => inHome(dir, home));
-  if (homeDirs.length) {
-    throw homeDirsError(
-      homeDirs,
-      home,
-      `Take those folders out of the directory list of backup set '${set.name}':\n` +
-        `  ${set.dirsPath}`,
-    );
-  }
+  assertOutsideHome(
+    set.dirs,
+    `Take those folders out of the directory list of backup set '${set.name}':\n` +
+      `  ${set.dirsPath}`,
+  );
 
   // Refuse a member directory whose real path a snapshot can't hold, even an
   // empty one the per-file check in `walkDirs` never meets: its `@SET DIR` row
@@ -476,8 +471,11 @@ export function realHome() {
   try {
     return realPath(s3cabDir());
   } catch (error) {
-    // Only for a home not made yet. Spelled as typed, a home that is there
-    // would never match the walk's paths, so it would be walked.
+    // ENOENT: a home not made yet, or one in storage that won't resolve (a
+    // vault, a volume with no mount point), which the walk, never following a
+    // link, can't enter either. Anything else is thrown: spelled as typed, a
+    // home that is there would never match the walk's paths, so it would be
+    // walked.
     if (!isENOENT(error)) {
       throw error;
     }
@@ -486,13 +484,36 @@ export function realHome() {
 }
 
 /**
- * Whether a walk starting at `dir` would read s3cab's home, which holds every
- * set's keys: `walkFiles` skips the home only below where it starts. A folder
- * that won't resolve answers no, left for `resolveWalkRoot` to explain.
+ * Refuse folders at or inside s3cab's home, which holds every set's keys:
+ * `walkFiles` skips the home only below where a walk starts.
+ * @param {string[]} dirs - As the user named them
+ * @param {string} fix - What to do instead, ending the message
+ */
+export function assertOutsideHome(dirs, fix) {
+  const home = realHome();
+  const homeDirs = dirs.filter((dir) => inHome(dir, home));
+  if (!homeDirs.length) {
+    return;
+  }
+  throw new Error(
+    `Can't back up s3cab's own folder (${tildeify(home)}), or a folder inside it:\n` +
+      homeDirs.map((dir) => `  ${dir}`).join("\n") +
+      `\nThat folder holds this computer's keys and sign-in settings, which ` +
+      `never leave it.\n\n` +
+      (home === parse(home).root
+        ? `With s3cab's home at the root of a drive, every folder on it is ` +
+          `inside. Move the home to a folder of its own (S3CAB_HOME).`
+        : fix),
+  );
+}
+
+/**
+ * Whether a walk starting at `dir` would read s3cab's home. A folder that won't
+ * resolve answers no, left for `resolveWalkRoot` to explain.
  * @param {string} dir
  * @param {string} home - `realHome()`
  */
-export function inHome(dir, home) {
+function inHome(dir, home) {
   /** @type {string} */
   let real;
   try {
@@ -503,23 +524,6 @@ export function inHome(dir, home) {
   // A root keeps its separator: `E:\`, `/`.
   const inside = home.endsWith(sep) ? home : home + sep;
   return real === home || real.startsWith(inside);
-}
-
-/**
- * The refusal for folders `inHome` matched.
- * @param {string[]} dirs - As the user named them
- * @param {string} home - `realHome()`
- * @param {string} fix - What to do instead, ending the message
- */
-export function homeDirsError(dirs, home, fix) {
-  return new Error(
-    `Can't send s3cab's own folder (${tildeify(home)}), or a folder inside it, ` +
-      `to a bucket:\n` +
-      dirs.map((dir) => `  ${dir}`).join("\n") +
-      `\nThat folder holds this computer's keys and sign-in settings, which ` +
-      `never leave it.\n\n` +
-      fix,
-  );
 }
 
 /**

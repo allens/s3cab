@@ -14,8 +14,8 @@ import { dirname, join, parse, posix, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { ESCAPES } from "./path-match.mjs";
 import {
+  assertOutsideHome,
   backupMatcher,
-  inHome,
   readExcludePatterns,
   realHome,
   walkDirs,
@@ -695,17 +695,28 @@ describe("walkSet dirs guard (ADR-0054)", () => {
 });
 
 describe("s3cab's home", () => {
-  it("holds every folder on a drive when it is the drive's root", async () => {
+  it("holds every folder on a drive at the drive's root, and says to move it", async () => {
     await using dir = await mkTmpDir();
     const root = realpathSync.native(dir.path);
-    assert.equal(inHome(root, parse(root).root), true);
+    process.env.S3CAB_HOME = parse(root).root;
+    assert.throws(
+      () => assertOutsideHome([root], "the caller's fix"),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(`  ${root}\n`) &&
+        error.message.includes("(S3CAB_HOME)") &&
+        !error.message.includes("the caller's fix"),
+    );
   });
 
   it("doesn't hold a sibling whose name starts with its own", async () => {
     await using dir = await mkTmpDir();
     const root = realpathSync.native(dir.path);
     mkdirSync(join(root, "stateful"));
-    assert.equal(inHome(join(root, "stateful"), join(root, "state")), false);
+    process.env.S3CAB_HOME = join(root, "state");
+    assert.doesNotThrow(() =>
+      assertOutsideHome([join(root, "stateful")], "the caller's fix"),
+    );
   });
 
   it(
