@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 
 /** @import { StatSyncOptions } from "node:fs" */
 
@@ -16,15 +17,9 @@ import { describe, it, mock } from "node:test";
 /** Every entry below this folder reports inode 0. */
 let sharing = "";
 
-// Everything `node:fs` really exports, bar the non-configurable `constants`
-// (see walk.unknown-dirent.test.mjs).
-const passthrough = Object.fromEntries(
-  Object.entries(realFs).filter(([name]) => name !== "constants"),
-);
-
 mock.module("node:fs", {
   exports: {
-    ...passthrough,
+    ...fsPassthrough,
     /**
      * @param {string} path
      * @param {StatSyncOptions} [options]

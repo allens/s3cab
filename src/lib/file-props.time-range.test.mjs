@@ -1,20 +1,19 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 
 // `fileProps` refuses a modification time the 24-character form can't hold, so
 // the hash pass gives the file an `#error` row. No filesystem the suite runs on
-// holds such a time, so `lstatSync` is faked to report one; the other two
-// functions `file-props.mjs` imports are the real ones, for the hash. Mocks
-// first, then a dynamic import.
+// holds such a time, so `lstatSync` is faked to report one. Mocks first, then a
+// dynamic import.
 
 /** @type {bigint} */
 let mtimeNs = 0n;
 
 mock.module("node:fs", {
   exports: {
-    createReadStream: fs.createReadStream,
-    readFileSync: fs.readFileSync,
+    ...fsPassthrough,
     lstatSync: (/** @type {string} */ path, /** @type {object} */ options) =>
       Object.assign(fs.lstatSync(path, options), { mtimeNs }),
   },

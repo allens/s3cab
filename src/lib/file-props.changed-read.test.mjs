@@ -1,20 +1,19 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 
 // `fileProps` refuses a file whose read returns another number of bytes than
 // its `lstat` reported, so the hash pass gives it an `#error` row. A file
 // changing between the two can't be timed in a test, so `lstatSync` is faked to
-// report the size; the other two functions `file-props.mjs` imports are the real
-// ones, for the read. Mocks first, then a dynamic import.
+// report the size. Mocks first, then a dynamic import.
 
 /** @type {bigint | undefined} */
 let size;
 
 mock.module("node:fs", {
   exports: {
-    createReadStream: fs.createReadStream,
-    readFileSync: fs.readFileSync,
+    ...fsPassthrough,
     lstatSync: (/** @type {string} */ path, /** @type {object} */ options) => {
       const stat = fs.lstatSync(path, options);
       return size === undefined ? stat : Object.assign(stat, { size });

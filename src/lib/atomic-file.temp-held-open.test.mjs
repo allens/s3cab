@@ -14,12 +14,10 @@ import { describe, it, mock } from "node:test";
 // removal means mocking `node:fs/promises` before `atomic-file.mjs` is loaded.
 
 // `EBUSY` is what Windows gives for a file open without delete-sharing.
-// Everything else passes through, bar `constants`, which is non-configurable.
+// Everything else passes through.
 mock.module("node:fs/promises", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(realFsPromises).filter(([name]) => name !== "constants"),
-    ),
+    ...realFsPromises,
     rm: async () => {
       throw Object.assign(new Error("EBUSY: resource busy or locked, unlink"), {
         code: "EBUSY",
