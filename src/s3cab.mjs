@@ -96,6 +96,8 @@ if (args.includes("--help") || args.includes("-h")) {
 // that follows an unrecoverable lapse speaks for itself.
 let warnedRefreshFailure = false;
 process.on("unhandledRejection", (reason) => {
+  // Node's fatal print shows every field of the error.
+  redactEchoedCredentials(reason);
   if (!isCredentialProviderError(reason)) {
     throw reason;
   }
@@ -163,6 +165,8 @@ try {
     }
   }
 } catch (error) {
+  // Before anything below prints it, debug dump or not.
+  redactEchoedCredentials(error);
   // A run the user stopped is not a failure: print what it saved, plainly, and
   // exit on the shell's signal convention (ADR-0067) — no `ERROR:`, no usage.
   if (error instanceof InterruptedError) {
@@ -173,9 +177,6 @@ try {
     // usage error (see lib/error.mjs for the exit-code axis). (Success is 0;
     // an unknown command exits 127 above, the shell's "command not found".)
     // Debug prints the error object whole instead, stack and all.
-    if (debug) {
-      redactEchoedCredentials(error);
-    }
     console.error(
       errorReport(
         commandName,

@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { inspect } from "node:util";
+import {
+  CloudFormationClient,
+  DescribeStacksCommand,
+} from "@aws-sdk/client-cloudformation";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   EXIT_INTERRUPTED,
@@ -19,49 +23,81 @@ import {
 /** @import { Server } from "node:http" */
 /** @import { AddressInfo } from "node:net" */
 
-// Real SDK errors from a stand-in S3, so a field the SDK renames or adds shows
-// up here rather than in a debug dump. The replies are S3's shapes.
+// Real SDK errors from a stand-in AWS, so a field the SDK renames or adds shows
+// up here rather than in a printed error. The replies are S3's and
+// CloudFormation's shapes; test/integration/aws-errors.test.mjs measures S3's.
 describe("redactEchoedCredentials", () => {
   const TOKEN = "IQoJb3JpZ2luX2VjEXAMPLETOKEN";
   const hex = (/** @type {string} */ text) =>
     [...Buffer.from(text)]
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join(" ");
-  const canonical = `GET\n/b/k\n\nhost:127.0.0.1\nx-amz-security-token:${TOKEN}\n\nhost;x-amz-security-token\nUNSIGNED-PAYLOAD`;
-  /** @type {Record<string, string>} */
+  const canonical = (/** @type {string} */ header) =>
+    `GET\n/b/k\n\nhost:127.0.0.1\n${header}:${TOKEN}\n\nhost;${header}\nUNSIGNED-PAYLOAD`;
+  const signature = (/** @type {string} */ header) =>
+    `<CanonicalRequest>${canonical(header)}</CanonicalRequest>` +
+    `<CanonicalRequestBytes>${hex(canonical(header))}</CanonicalRequestBytes>`;
+  /**
+   * S3's reply to a GetObject of each key: its code, then its echo.
+   * @type {Record<string, [string, string]>}
+   */
   const replies = {
-    SignatureDoesNotMatch: `<CanonicalRequest>${canonical}</CanonicalRequest><CanonicalRequestBytes>${hex(canonical)}</CanonicalRequestBytes>`,
-    ExpiredToken: `<Token-0>${TOKEN}</Token-0>`,
+    SignatureDoesNotMatch: [
+      "SignatureDoesNotMatch",
+      signature("x-amz-security-token"),
+    ],
+    "SignatureDoesNotMatch-directory-bucket": [
+      "SignatureDoesNotMatch",
+      signature("x-amz-s3session-token"),
+    ],
+    ExpiredToken: ["ExpiredToken", `<Token-0>${TOKEN}</Token-0>`],
+    InvalidToken: ["InvalidToken", `<Token-0>${TOKEN}</Token-0>`],
   };
-  let code = "";
+  // CloudFormation's, to any call: the canonical string is in the message.
+  const queryReply =
+    `<ErrorResponse><Error><Type>Sender</Type><Code>SignatureDoesNotMatch</Code>` +
+    `<Message>The request signature we calculated does not match the signature you provided.\n\n` +
+    `The Canonical String for this request should have been\n'POST\n/\n\nhost:127.0.0.1\n` +
+    `x-amz-security-token:${TOKEN}\n\nhost;x-amz-security-token\nabc'\n</Message></Error>` +
+    `<RequestId>R</RequestId></ErrorResponse>`;
   /** @type {Server} */
   let server;
+  let endpoint = "";
+  const credentials = {
+    accessKeyId: "ASIAEXAMPLE",
+    secretAccessKey: "secret",
+    sessionToken: TOKEN,
+  };
   /** @type {S3Client} */
   let client;
 
   before(async () => {
     server = createServer((request, response) => {
       request.resume();
+      if (request.method === "POST") {
+        response.writeHead(403, { "content-type": "text/xml" });
+        response.end(queryReply);
+        return;
+      }
+      const key = new URL(request.url ?? "", endpoint).pathname.split("/")[2];
+      const [code, echo] = replies[decodeURIComponent(key ?? "")] ?? ["", ""];
       response.writeHead(400, { "content-type": "application/xml" });
       response.end(
         `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code>` +
-          `<Message>m</Message>${replies[code]}<RequestId>R</RequestId></Error>`,
+          `<Message>m</Message>${echo}<RequestId>R</RequestId></Error>`,
       );
     });
     await new Promise((resolve) =>
       server.listen(0, "127.0.0.1", () => resolve(undefined)),
     );
     const { port } = /** @type {AddressInfo} */ (server.address());
+    endpoint = `http://127.0.0.1:${port}`;
     client = new S3Client({
       region: "us-east-1",
-      endpoint: `http://127.0.0.1:${port}`,
+      endpoint,
       forcePathStyle: true,
       maxAttempts: 1,
-      credentials: {
-        accessKeyId: "ASIAEXAMPLE",
-        secretAccessKey: "secret",
-        sessionToken: TOKEN,
-      },
+      credentials,
     });
   });
   after(() => {
@@ -71,9 +107,8 @@ describe("redactEchoedCredentials", () => {
 
   /** The SDK's error for `reply`, wrapped as s3.mjs's relay wraps it. */
   const rejection = async (/** @type {string} */ reply) => {
-    code = reply;
     try {
-      await client.send(new GetObjectCommand({ Bucket: "b", Key: "k" }));
+      await client.send(new GetObjectCommand({ Bucket: "b", Key: reply }));
     } catch (cause) {
       return new Error("translated", { cause });
     }
@@ -89,18 +124,51 @@ describe("redactEchoedCredentials", () => {
 
       const dump = inspect(error);
       assert.ok(!dump.includes(TOKEN));
-      assert.ok(!dump.includes(hex(TOKEN)));
       assert.match(dump, /\[redacted\]/);
     });
   }
+
+  it("blanks the canonical request's hex bytes", async () => {
+    const error = await rejection("SignatureDoesNotMatch");
+    assert.ok(inspect(error).includes(hex(TOKEN)), "the reply echoes the hex");
+
+    redactEchoedCredentials(error);
+
+    assert.ok(!inspect(error).includes(hex(TOKEN)));
+  });
 
   it("keeps the rest of the canonical request", async () => {
     const error = await rejection("SignatureDoesNotMatch");
     redactEchoedCredentials(error);
     assert.equal(
       /** @type {any} */ (error).cause.CanonicalRequest,
-      canonical.replace(TOKEN, "[redacted]"),
+      canonical("x-amz-security-token").replace(TOKEN, "[redacted]"),
     );
+  });
+
+  it("leaves no session token in a query-protocol message, or its stack", async () => {
+    const cloudFormation = new CloudFormationClient({
+      region: "us-east-1",
+      endpoint,
+      maxAttempts: 1,
+      credentials,
+    });
+    /** @type {any} */
+    let error;
+    try {
+      await cloudFormation.send(new DescribeStacksCommand({}));
+    } catch (rejected) {
+      error = rejected;
+    } finally {
+      cloudFormation.destroy();
+    }
+    assert.ok(error?.message.includes(TOKEN), "the message echoes the token");
+    assert.ok(error.stack.includes(TOKEN), "and so does the stack");
+
+    redactEchoedCredentials(error);
+
+    assert.ok(!inspect(error).includes(TOKEN));
+    assert.match(error.message, /x-amz-security-token:\[redacted\]\n/);
   });
 });
 

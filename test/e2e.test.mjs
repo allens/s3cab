@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
+import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+
+/** @import { AddressInfo } from "node:net" */
 
 // Drive the real CLI entry as a subprocess.
 const CLI = "src/s3cab.mjs";
@@ -454,6 +458,53 @@ describe("cli (e2e)", () => {
       stderr,
       /Using AWS profile: work \(from your environment\), endpoint: http:\/\/127\.0\.0\.1:1/,
     );
+  });
+
+  it("blanks the session token S3 echoes back, even in the S3CAB_DEBUG dump", async () => {
+    const TOKEN = "IQoJb3JpZ2luX2VjEXAMPLETOKEN";
+    const server = createServer((request, response) => {
+      request.resume();
+      response.writeHead(403, { "content-type": "application/xml" });
+      response.end(
+        `<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code>` +
+          `<Message>m</Message><CanonicalRequest>GET\n/\n\nx-amz-security-token:${TOKEN}\n` +
+          `</CanonicalRequest><RequestId>R</RequestId></Error>`,
+      );
+    });
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    try {
+      const { port } = /** @type {AddressInfo} */ (server.address());
+      // `spawn`, not `spawnSync`: the stand-in answers from this process.
+      const child = spawn(process.execPath, [CLI, "hashes", "some-bucket"], {
+        env: {
+          ...process.env,
+          HOME: dir.path,
+          USERPROFILE: dir.path,
+          S3CAB_DEBUG: "1",
+          AWS_PROFILE: "", // a set profile would win over the keys below
+          AWS_ENDPOINT_URL: `http://127.0.0.1:${port}`,
+          AWS_REGION: "us-east-1",
+          AWS_MAX_ATTEMPTS: "1",
+          AWS_ACCESS_KEY_ID: "ASIAEXAMPLE",
+          AWS_SECRET_ACCESS_KEY: "secret",
+          AWS_SESSION_TOKEN: TOKEN,
+        },
+      });
+      let stderr = "";
+      child.stderr.setEncoding("utf8").on("data", (chunk) => {
+        stderr += chunk;
+      });
+      const [status] = await once(child, "close");
+
+      assert.equal(status, 1, stderr);
+      assert.match(stderr, /x-amz-security-token:\[redacted\]/);
+      assert.ok(!stderr.includes(TOKEN));
+    } finally {
+      server.close();
+    }
   });
 
   it("help exclude prints the exclude-rules topic on stdout", () => {
