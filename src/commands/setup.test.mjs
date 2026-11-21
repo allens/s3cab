@@ -126,6 +126,25 @@ describe("setup (offline validation)", () => {
     );
   });
 
+  it("refuses s3cab's home and a folder inside it (before --bucket)", async () => {
+    await using dir = await mkTmpDir();
+    const s3cab = join(useTempHome(dir.path), ".s3cab");
+    mkdirSync(join(s3cab, "sets"), { recursive: true });
+
+    for (const folder of [s3cab, join(s3cab, "sets")]) {
+      await assert.rejects(
+        () => setup([folder], { set: "photos" }),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`  ${folder}\n`) &&
+          /s3cab's own folder/.test(error.message) &&
+          error.message.includes(
+            "s3cab setup --set photos --bucket <bucket> <directory>...",
+          ),
+      );
+    }
+  });
+
   it("won't call a folder it can't resolve missing, and says what it can't do", async (t) => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberDir(dir.path);

@@ -26,12 +26,10 @@ let statFailsFor;
 /** Whether the next `open` returns a handle whose `stat` fails. */
 let handleStatFails = false;
 
-// Everything else passes through, bar `constants`, which is non-configurable.
+// Everything else passes through.
 mock.module("node:fs/promises", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(realFsPromises).filter(([name]) => name !== "constants"),
-    ),
+    ...realFsPromises,
     /**
      * @param {string} path
      * @param {StatOptions} [options]

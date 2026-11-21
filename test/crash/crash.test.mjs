@@ -10,6 +10,7 @@ import {
   lockKeys,
   makeTree,
   nextZone,
+  olderSnapshot,
   restoreAndCompare,
   s3cab,
   seedSet,
@@ -342,6 +343,11 @@ describe("interruption: cleanup and forget", () => {
     const home = join(scratch, "home");
     const data = join(scratch, "data");
     mkdirSync(home, { recursive: true });
+    seedSet(home, "s", [data]);
+    await claimSet(home, "s");
+
+    const kept = await olderSnapshot(home, "s", data);
+
     // More orphans than cleanup keeps in flight, so the kill can land on a
     // DELETE that waited for a slot. With every DELETE dispatched at once, a
     // kill on any of them precedes every response, and nothing is torn.
@@ -352,8 +358,6 @@ describe("interruption: cleanup and forget", () => {
         Array.from({ length: orphans }, (_, i) => [`f${i}.txt`, `orphan ${i}`]),
       ),
     );
-    seedSet(home, "s", [data]);
-    await claimSet(home, "s");
 
     // Manufacture genuine crash orphans: a backup killed at the commit
     // boundary leaves every object uploaded and no manifest.
@@ -365,7 +369,7 @@ describe("interruption: cleanup and forget", () => {
     assertKilled(killed, "orphan-manufacturing backup");
     const orphanKeys = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+      .filter((key) => key.startsWith("objects/") && key !== kept);
     assert.equal(orphanKeys.length, orphans, "crash orphans seeded");
     // The killed backup's upload lock is left; cleanup, from the same
     // machine, sweeps it on its way in rather than turning away.
@@ -395,7 +399,7 @@ describe("interruption: cleanup and forget", () => {
     );
     const remaining = (await inspector.listAll(bucket))
       .map(({ key }) => key)
-      .filter((key) => key.startsWith("objects/"));
+      .filter((key) => key.startsWith("objects/") && key !== kept);
     assert.ok(
       remaining.length < orphans,
       "at least one orphan was deleted before the kill",
@@ -413,7 +417,7 @@ describe("interruption: cleanup and forget", () => {
     const after = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
-    assert.deepEqual(after, [], "rerun reclaimed the remaining orphans");
+    assert.deepEqual(after, [kept], "rerun reclaimed the remaining orphans");
     assert.match(rerun.stderr, /Removed the lock a stopped run left in bucket/);
     assert.deepEqual(
       await lockKeys(),

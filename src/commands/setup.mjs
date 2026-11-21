@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { applyEnv } from "../lib/env.mjs";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
@@ -23,6 +23,7 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
+import { assertOutsideHome, realPath } from "../lib/walk.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
@@ -153,18 +154,19 @@ const unresolvableDirectoryError = (directory, name, bucket, cause) =>
 
 /**
  * Resolve member directories to canonical absolute paths (what `dirs.txt` stores),
- * verifying each exists and is a directory. Pure-local and cheap, so `setup` runs
- * it *before* any S3 touch — a bad directory fails fast without claiming a name.
+ * verifying each exists, is a directory, and is outside s3cab's home. Pure-local
+ * and cheap, so `setup` runs it *before* any S3 touch — a bad directory fails
+ * fast without claiming a name.
  * @param {string[]} directories
  * @param {string} name - The set being created (named in the errors below)
  * @param {string} [bucket] - Its bucket, if `--bucket` was given (checked after this)
  * @returns {string[]}
  */
 function resolveDirectories(directories, name, bucket) {
-  return directories.map((directory) => {
+  const dirs = directories.map((directory) => {
     let real;
     try {
-      real = realpathSync.native(directory);
+      real = realPath(directory);
     } catch (error) {
       if (isENOENT(error)) {
         // `ENOENT` from realpath means one of three different things, so ask what
@@ -192,6 +194,12 @@ function resolveDirectories(directories, name, bucket) {
     }
     return real;
   });
+  assertOutsideHome(
+    directories,
+    `To create the set, name folders outside it:\n` +
+      `  ${shellCommand(`s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`)}`,
+  );
+  return dirs;
 }
 
 /**

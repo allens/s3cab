@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
 import { platform } from "node:process";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // Offline tests for the two counts `restore` puts in front of a user: the
@@ -36,13 +36,10 @@ mock.module("../lib/remote.mjs", {
   },
 });
 // Every destination reads as a file already there, so every file is skipped:
-// the loop counts them and touches nothing. All else passes through, bar the
-// non-configurable `constants` (see walk.unknown-dirent.test.mjs).
+// the loop counts them and touches nothing.
 mock.module("node:fs", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(fs).filter(([name]) => name !== "constants"),
-    ),
+    ...fsPassthrough,
     lstatSync: () => ({
       isDirectory: () => false,
       isSymbolicLink: () => false,

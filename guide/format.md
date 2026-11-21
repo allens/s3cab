@@ -1125,8 +1125,13 @@ For a restorer, or anything else that reads the files.
   names the three.
 - Tell a destination that was there before the restore from one this restore wrote:
   - Tell them by the file, never by how its path is spelled: where the disk ignores case, a
-    twin's path finds the file the first row wrote. Keep each written file's identity; s3cab
-    keeps its real path.
+    twin's path finds the file the first row wrote. Keep each written file's identity, as
+    s3cab does, so a twin still finds it after something else has changed it in place.
+  - Don't rely on that identity lasting the run: FAT and exFAT on Linux number a file anew
+    once it leaves the cache. Where it doesn't match, take each path you wrote that differs
+    from the twin only in letter case, Unicode normalization or trailing dots, and read its
+    device and inode again beside the twin's: the same pair at that moment is the same
+    entry, whatever has been put there since. The spelling only picks which paths to read.
   - One there before is skipped, unless asked to overwrite. A skip alone exits 0, though it
     checks nothing about the file.
   - One this restore wrote is two rows landing on one file, however differently their paths
@@ -1323,7 +1328,9 @@ For a restorer, or anything else that reads the files.
 
 - Walk every member directory without following a link. A member directory that is itself a
   link is followed, since it was named as one, and recorded as its [real path](#paths); links
-  found inside it are not. Hidden and system files are ordinary files.
+  found inside it are not. Resolve it once, for the walk and its `@SET DIR` row both: resolved
+  again after the walk, it names wherever the link points by then, and no row is under it.
+  Hidden and system files are ordinary files.
 - Leave out what you choose to, if your tool offers that; nothing requires it.
 - Write a row per entry:
   - a [file row](#the-columns) for each file: the SHA-256 of its content in lowercase hex,

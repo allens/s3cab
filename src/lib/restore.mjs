@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmdirSync,
-  statSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, rmdirSync, statSync } from "node:fs";
 import { lstat, utimes } from "node:fs/promises";
 import { dirname, join, posix, resolve, win32 } from "node:path";
 import { platform, stderr } from "node:process";
@@ -13,7 +6,7 @@ import { platform, stderr } from "node:process";
 import { copyFileAtomic } from "./atomic-file.mjs";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { DestinationExistsError, IntegrityError } from "./error.mjs";
-import { statProps } from "./file-props.mjs";
+import { fileId, lstatOrNothing, statProps } from "./file-props.mjs";
 import { formatCount } from "./format.mjs";
 import { getObject } from "./objects.mjs";
 import {
@@ -372,17 +365,18 @@ export async function restoreTargets({
   // this volume cannot tell apart — letter case (Windows, macOS default), or
   // Unicode normalization (APFS folds NFC/NFD) — and writing both would keep
   // only the last row's bytes while reporting both restored. So each written
-  // file's canonical on-disk path is recorded, by its size, and a later target
-  // that already *exists* (the volume's own answer, whatever its folding rules)
-  // and canonicalizes into that record is a collision — reported, never
-  // written. A link at the target is no collision, wherever it points:
-  // `--overwrite` replaces the link, never the file behind it, and without it
-  // the link is skipped like any file. The `realpathSync.native` (in
-  // `occupant`) is deliberate, not the walk-hot-path mistake: no pure-string
-  // function can say whether two names are one file — trusting strings is the
-  // bug this closes.
-  /** @type {Map<number, Set<string>>} */
-  const writtenCanonical = new Map();
+  // file's device and inode is recorded, and a later target that already
+  // *exists* (the volume's own answer, whatever its folding rules) and is one
+  // of those files, or stands where one was written, is a collision: reported,
+  // never written, whatever another program has done there since — rewritten
+  // it in place, or replaced it by rename or with a link (`occupant` says how
+  // each is told). Any other link is no collision, wherever it points: `lstat`
+  // reads the link itself, so `--overwrite` replaces the link, never the file
+  // behind it, and without it the link is skipped like any file. Not the
+  // file's real path: glibc's `realpath` keeps the case it is given, so on
+  // Linux it calls two twins two files.
+  /** @type {Written} */
+  const written = { ids: new Set(), paths: new Map() };
   // What became of each content hash this run has tried to write, shared by
   // every path that holds it. Once content lands, every later path holding it
   // is copied from there rather than downloaded again (#1), until that file
@@ -457,7 +451,7 @@ export async function restoreTargets({
     // What is there now, at this file's turn, not when the run began:
     // something else can write here while it runs (ADR-0116). A file this run
     // wrote under another name is a collision whether or not `--overwrite`.
-    const there = refuse ? undefined : occupant(dest, writtenCanonical);
+    const there = refuse ? undefined : occupant(dest, written);
     const writes =
       there === "nothing" ||
       there === "ours" ||
@@ -523,7 +517,7 @@ export async function restoreTargets({
         // way. Anything else — a network or credentials failure, a full disk —
         // is wrong about the whole run, so it propagates and aborts.
         if (error instanceof DestinationExistsError) {
-          const now = occupant(dest, writtenCanonical);
+          const now = occupant(dest, written);
           outcome =
             now === "folder"
               ? "blocked"
@@ -543,15 +537,9 @@ export async function restoreTargets({
         }
       }
       if (outcome === "found") {
-        // The file's own size, not the row's: `occupant` looks it up by what is
-        // on disk, and a hand-edited or foreign manifest can get the row wrong.
-        const { size } = lstatSync(dest);
-        writtenCanonical.set(
-          size,
-          (writtenCanonical.get(size) ?? new Set()).add(
-            realpathSync.native(dest),
-          ),
-        );
+        written.ids.add(fileId(lstatSync(dest, { bigint: true })));
+        const loose = looseName(dest);
+        written.paths.set(loose, [...(written.paths.get(loose) ?? []), dest]);
         fateByHash.set(hash, { kind: "landed", dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
@@ -776,33 +764,62 @@ function isInTheWay(error, dest) {
 }
 
 /**
- * What is at `dest`: nothing; a folder; a file this run wrote under another
- * name this volume folds into `dest` (ADR-0086); or anything else — a file, or
- * a link of any kind, which `--overwrite` replaces without following. The
- * entry itself, not a link's target.
+ * The files this run wrote: each one's {@link fileId}, and its path under
+ * {@link looseName}.
+ * @typedef {{ ids: Set<string>, paths: Map<string, string[]> }} Written
+ */
+
+/**
+ * What is at `dest`: nothing; a folder; ours — a file this run wrote under a
+ * name this volume folds into `dest`, or whatever now stands at that name
+ * (ADR-0086); or anything else — a file, or a link of any kind, which
+ * `--overwrite` replaces without following. The entry itself, not a link's
+ * target.
+ *
+ * The recorded ids find a file this run wrote however it was rewritten in
+ * place. A written path whose loose name matches is asked for its number now,
+ * beside `dest`'s, as the disk gives one entry one number at any one time:
+ * that finds whatever was put there by rename or as a link, and a file on FAT
+ * or exFAT on Linux, which number a file anew once it leaves the cache.
  * @param {string} dest
- * @param {Map<number, Set<string>>} written - The canonical path of each file
- *   this run wrote, by its size
+ * @param {Written} written
  * @returns {"nothing" | "folder" | "ours" | "other"}
  */
 function occupant(dest, written) {
-  const there = statOrNothing(dest, lstatSync);
+  const there = lstatOrNothing(dest);
   if (there === undefined) {
     return "nothing";
   }
   if (there.isDirectory()) {
     return "folder";
   }
-  // Only a file the size of one this run wrote can be one, so only that file
-  // pays `realpathSync.native` (several times the `lstat`; ADR-0116's Cost),
-  // which a restore skipping most of a tree would otherwise pay for every file
-  // it skips. A file rewritten to another size since it landed holds nothing
-  // of this run's to lose.
-  return !there.isSymbolicLink() &&
-    written.get(there.size)?.has(realpathSync.native(dest)) === true
+  const id = fileId(there);
+  if (written.ids.has(id)) {
+    return "ours";
+  }
+  const twins = written.paths.get(looseName(dest)) ?? [];
+  return twins.some((path) => {
+    const twin = lstatOrNothing(path);
+    return twin !== undefined && fileId(twin) === id;
+  })
     ? "ours"
     : "other";
 }
+
+/**
+ * A path loosened past the foldings disks are known to do — case, Unicode
+ * form, a name's trailing dots (FAT, exFAT) — only to pick which written files
+ * to ask the disk about: whether one is the same file stays the disk's answer
+ * (ADR-0086). Upper then lower, so letters that share a capital (`ς`, `σ`)
+ * meet. No string finds an 8.3 short name's long name.
+ * @param {string} path
+ */
+const looseName = (path) =>
+  path
+    .normalize("NFKC")
+    .toUpperCase()
+    .toLowerCase()
+    .replaceAll(/\.+(?=[/\\]|$)/g, "");
 
 /**
  * Whether a link sits where one of `dest`'s folders inside `outDir` should be.

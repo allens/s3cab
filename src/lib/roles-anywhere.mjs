@@ -845,24 +845,27 @@ export function parseSessionResponse({ status, body }) {
       `Roles Anywhere CreateSession failed (HTTP ${status ?? "?"}): ${body || "(empty body)"}`,
     );
   }
+  // Never quote a 2xx body: a partial or malformed one can still hold the
+  // secret key and session token, and this message is printed on every run.
   /** @type {any} */
   let parsed;
   try {
     parsed = JSON.parse(body);
   } catch {
     throw new RolesAnywhereSessionError(
-      `Roles Anywhere CreateSession returned a non-JSON body: ${body}`,
+      `Roles Anywhere CreateSession returned a body that isn't JSON`,
     );
   }
   const credentials = parsed?.credentialSet?.[0]?.credentials;
-  if (
-    !credentials?.accessKeyId ||
-    !credentials?.secretAccessKey ||
-    !credentials?.sessionToken ||
-    !credentials?.expiration
-  ) {
+  const missing = [
+    "accessKeyId",
+    "secretAccessKey",
+    "sessionToken",
+    "expiration",
+  ].filter((field) => !credentials?.[field]);
+  if (missing.length) {
     throw new RolesAnywhereSessionError(
-      `Roles Anywhere CreateSession returned no credentials: ${body}`,
+      `Roles Anywhere CreateSession returned no credentials (missing ${missing.join(", ")})`,
     );
   }
   return {

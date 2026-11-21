@@ -1,5 +1,12 @@
+import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { RealS3 } from "../model/harness/real-inspector.mjs";
@@ -213,6 +220,29 @@ export async function claimSet(home, name) {
   const info = `OWNER=crash@${basenameOf(home)}\nCLAIMED=${now}\nCREATED=${now}\n`;
   await inspector.putBytes(bucket, `snapshots/${name}.info`, Buffer.from(info));
   writeFileSync(join(home, "sets", name, "claim"), info);
+}
+
+/**
+ * Back up a file only this snapshot has, then remove it from `data`. The set
+ * keeps a snapshot whatever later backups do, so a cleanup gets past its
+ * refusal over a set with none (ADR-0117 §5).
+ * @param {string} home - The child's S3CAB_HOME, holding the set
+ * @param {string} name - The set name, `data` its one member dir, in a bucket
+ *   with no objects yet
+ * @param {string} data
+ * @returns {Promise<string>} its one object's key, referenced from then on
+ */
+export async function olderSnapshot(home, name, data) {
+  makeTree(data, { "old.txt": "only in the older snapshot" });
+  const older = s3cab(["backup", name], { home, tz: nextZone() });
+  assert.equal(older.status, 0, older.stderr);
+  rmSync(join(data, "old.txt"));
+  const stored = await inspector.listAll(bucket);
+  const objects = stored
+    .map(({ key }) => key)
+    .filter((key) => key.startsWith("objects/"));
+  assert.equal(objects.length, 1, objects.join(", "));
+  return /** @type {string} */ (objects[0]);
 }
 
 /**
