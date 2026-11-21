@@ -51,8 +51,8 @@ spec-adherent.
    refusals (a name holding a tab, CR or LF, a name with no UTF-8 form, overlapping member
    directories) say the backup stops, and that a writer may offer a way to leave the entry out.
 6. **`@SET BUCKET` and `@SET ENDPOINT` are optional**, in the spec's own terms: the bucket the
-   writer meant the snapshot for, as `s3://<bucket>`, and the S3 endpoint it used when that isn't
-   AWS's default. A writer with no bucket in mind leaves `BUCKET` out.
+   writer meant the snapshot for, as `s3://<bucket>`, and the S3 endpoint it was told to use,
+   when one is set. A writer with no bucket in mind leaves `BUCKET` out.
 
 ## Considered and rejected
 

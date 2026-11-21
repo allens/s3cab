@@ -469,10 +469,27 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
 
 - **A restore tells a 404 with no S3 code apart by whether the SDK can parse its body** (spec
   check of real set 5). `isObjectNotFound` in `src/lib/s3.mjs` takes the SDK's `NotFound`,
-  which it gives an empty body or an HTML page, so that 404 is a miss, checked against the
-  deletion records; a plain-text body comes back as a bare `Error` and stops the whole restore.
-  The body's syntax decides, not a rule. Loud either way, since a miss no record explains is
-  damage, exit 1. Measured against a local server; no provider seen sending one.
+  which it gives an empty body or markup with every tag closed, so that 404 is a miss, checked
+  against the deletion records; plain text, or nginx's 404 page with its `<hr>` left open,
+  comes back as a bare `Error` and stops the whole restore. The body's syntax decides, not a
+  rule. Loud either way, since a miss no record explains is damage, exit 1. Measured against a
+  local server; no provider seen sending one.
+- **s3cab and its S3 library can disagree about whether an endpoint is set** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). `customEndpoint` in `src/lib/env.mjs`
+  reads `AWS_ENDPOINT_URL_S3 ?? AWS_ENDPOINT_URL`, so an empty `AWS_ENDPOINT_URL_S3` hides a
+  set `AWS_ENDPOINT_URL`, where the SDK skips the empty one; and the SDK also reads
+  `endpoint_url` from the `~/.aws/config` profile, which s3cab never looks at. Then requests
+  go to the provider while s3cab thinks it is on AWS: it sends Glacier Instant Retrieval and
+  `AES256`, which R2 refuses, and a run that gets through writes no `@SET ENDPOINT` row.
+  Unmeasured.
+- **A holder's pair is deleted when the endpoint alone changes** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). The pair is kept per set, in
+  `~/.s3cab/sets/<set>/claim`, but the endpoint comes from the shell when the set's env names
+  none, and `assertHeld` in `src/lib/set-marker.mjs` deletes the pair on any mismatch. A shell
+  that exports `AWS_ENDPOINT_URL` for a local server with a bucket of the same name makes a
+  `backup` read that server's missing `.info` and delete the real pair; back on AWS the
+  machine must take its own set over. guide/format.md says to key the pair by set, bucket and
+  endpoint. Unmeasured.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
   from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and
