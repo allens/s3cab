@@ -383,7 +383,7 @@ when a custom endpoint is set, so a plain bucket elsewhere just works.
 ### Keeping the secret out of plaintext
 
 `--keys` stores the key pair in the set's env file (`~/.s3cab/sets/<set>/env`) —
-owner-only (mode `0600`, directories `0700`), but still plaintext on disk. The
+owner-only ([how, on each OS](backup.md#where-a-set-lives)), but still plaintext on disk. The
 secret can stay out of the file entirely: keep it in a secret manager and hand it to s3cab through the
 standard credential chain's **`credential_process`** hook, which s3cab already
 supports with no extra configuration.

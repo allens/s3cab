@@ -472,10 +472,36 @@ describe("parseSessionResponse", () => {
     );
   });
 
-  it("rejects a non-JSON body", () => {
+  it("names what a partial 2xx lacks without quoting the secret it holds", () => {
+    const partial = {
+      accessKeyId: creds.accessKeyId,
+      secretAccessKey: "s3cr3t",
+      expiration: creds.expiration,
+    };
     assert.throws(
-      () => parseSessionResponse({ status: 200, body: "<html>nope" }),
-      /non-JSON body/,
+      () =>
+        parseSessionResponse({
+          status: 200,
+          body: JSON.stringify({ credentialSet: [{ credentials: partial }] }),
+        }),
+      (error) =>
+        error instanceof Error &&
+        /missing sessionToken\)$/.test(error.message) &&
+        !error.message.includes("s3cr3t"),
+    );
+  });
+
+  it("rejects a body that isn't JSON without quoting it", () => {
+    assert.throws(
+      () =>
+        parseSessionResponse({
+          status: 200,
+          body: '{"credentialSet":[{"credentials":{"secretAccessKey":"s3cr3t"',
+        }),
+      (error) =>
+        error instanceof Error &&
+        /isn't JSON$/.test(error.message) &&
+        !error.message.includes("s3cr3t"),
     );
   });
 });

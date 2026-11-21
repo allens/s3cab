@@ -1,4 +1,4 @@
-import { basename, dirname } from "node:path";
+import { basename, dirname, parse, sep } from "node:path";
 import {
   listSnapshotNames,
   normalizeSnapshotName,
@@ -68,9 +68,11 @@ import { shellCommand } from "./style.mjs";
  */
 
 /**
- * Diff two snapshots from a snapshot directory, displaying paths relative to
- * `dirs` (the set's member directories). The engine behind the `compare`
- * command, reused by `snapshot` for its post-snapshot report.
+ * Diff two snapshots from a snapshot directory, with the newer one's member
+ * directories (its `@SET DIR` rows) for display. Not `dirs.txt`'s text: the
+ * rows start with the walk's spelling, which a hand-edited or linked entry
+ * needn't share. The engine behind the `compare` command, reused by `snapshot`
+ * and `backup` for their reports.
  *
  * Naming a snapshot that doesn't exist is an error, never a silent empty
  * result. When `until` is the oldest snapshot (or the only one), the baseline
@@ -87,14 +89,13 @@ import { shellCommand } from "./style.mjs";
  * silently reinstate the "previously unreadable file reads as new" bug the
  * baseline's errors exist to prevent (ADR-0079).
  * @param {string} snapshotDir - Directory holding the snapshot files
- * @param {string[]} dirs - The set's member directories (for path display)
  * @param {object} [options]
  * @param {string | { name: string, entries: SnapshotEntries, errors: SnapshotErrors }} [options.since] - Older snapshot to compare from (default: the one before `until`), optionally carrying its already-parsed entries and error rows
  * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
  * @param {string} [options.setName] - The set's name, for the "no snapshots yet" guidance
  * @returns {Promise<CompareResult>} Diff results
  */
-export async function compareSnapshots(snapshotDir, dirs, options = {}) {
+export async function compareSnapshots(snapshotDir, options = {}) {
   const snapshotNames = listSnapshotNames(snapshotDir);
 
   // Newer side (`until`) defaults to the latest snapshot.
@@ -185,7 +186,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   const untilEntries = untilSnapshot.entries;
   return {
     setName: options.setName,
-    dirs,
+    dirs: untilSnapshot.dirs.map(memberDir),
     since: since ?? null,
     until,
     added: Array.from(added, ([path, duplicates]) => ({
@@ -218,6 +219,14 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     })),
   };
 }
+
+/**
+ * A `@SET DIR` row's folder without the separator every row ends in, as
+ * `dirs.txt` spells it. A root keeps its own.
+ * @param {string} row
+ */
+const memberDir = (row) =>
+  row.endsWith(sep) && row !== parse(row).root ? row.slice(0, -1) : row;
 
 /** @typedef {Set<string>} PathSet */
 /** @typedef {Map<string, string>} PathFromToLookup */

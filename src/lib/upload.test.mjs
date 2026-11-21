@@ -12,7 +12,7 @@ import { basename, join, parse, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
 import { gzipSync } from "node:zlib";
 import { ChangedWhileReadError, ContentMismatchError } from "./error.mjs";
-import { fileProps, statProps } from "./file-props.mjs";
+import * as realProps from "./file-props.mjs";
 import { HEADING, formatLine } from "./snapshot-file.mjs";
 import { uploadLockSeam } from "../../test/helpers/lock-seam.mjs";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
@@ -151,8 +151,10 @@ const failHash = new Map();
 // window this opens by hand is the one a multi-GB seed opens by itself, where
 // hashing runs for minutes before the PUT re-reads the file. `fileProps` here is
 // the real one — the static import above resolves before this mock is registered.
+const { fileProps } = realProps;
 mock.module("./file-props.mjs", {
   exports: {
+    ...realProps,
     fileProps: async (
       /** @type {string} */ path,
       /** @type {HashSource} */ lookup,
@@ -169,7 +171,6 @@ mock.module("./file-props.mjs", {
       }
       return props;
     },
-    statProps,
   },
 });
 const {

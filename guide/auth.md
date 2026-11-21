@@ -47,8 +47,9 @@ Remove one with `--unset`:
 lines from stdin for scripts. It never takes them as flag values — those end up in your shell
 history and in the process list, where they linger long after you've forgotten them.
 
-They're written to the set's own env file (`~/.s3cab/sets/<set>/env`), owner-only. To keep a
-long-lived secret out of a plaintext file entirely, see
+They're written to the set's own env file (`~/.s3cab/sets/<set>/env`), owner-only
+([how, on each OS](backup.md#where-a-set-lives)). To keep a long-lived secret out of a
+plaintext file entirely, see
 [keeping the secret out of plaintext](aws.md#keeping-the-secret-out-of-plaintext) — the
 recipe serves it from a secret manager, and s3cab needs no extra configuration to use it.
 

@@ -3,6 +3,7 @@ import * as realFs from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { describe, it, mock } from "node:test";
+import { fsPassthrough } from "../../test/helpers/fs-passthrough.mjs";
 
 /** @import { Dirent } from "node:fs" */
 
@@ -46,20 +47,20 @@ const entry = (name, parentPath, link) =>
 const fsError = (code, message) =>
   Object.assign(new Error(`${code}: ${message}`), { code });
 
-// Everything `node:fs` really exports, bar the non-configurable `constants`
-// (see walk.unknown-dirent.test.mjs).
-const passthrough = Object.fromEntries(
-  Object.entries(realFs).filter(([name]) => name !== "constants"),
-);
-
 mock.module("node:fs", {
   exports: {
-    ...passthrough,
+    ...fsPassthrough,
     /**
+     * The walk's listings; any other, such as `realPath`'s plain one, is the
+     * real one.
      * @param {string} dir
-     * @returns {Dirent<Buffer>[]}
+     * @param {{ withFileTypes?: boolean }} [options]
+     * @returns {Dirent<Buffer>[] | string[]}
      */
-    readdirSync: (dir) => {
+    readdirSync: (dir, options) => {
+      if (!options?.withFileTypes) {
+        return realFs.readdirSync(dir);
+      }
       const entries = realFs.readdirSync(dir, {
         withFileTypes: true,
         encoding: "buffer",

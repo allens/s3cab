@@ -179,17 +179,18 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   have through the pipeline** (the `Dirent` carries the file type; `prop` already takes one
   `stat`), *not* a module-level cache — that's invisible to the type checker, makes a pure
   function order-dependent, and rots into dead code.
-- **`realpathSync.native` is the one reliable path canonicalizer — capture it once at the
-  low-frequency edges, then trust the fast string functions.** Pure-string
+- **`realPath` in `lib/walk.mjs` is the one reliable path canonicalizer — capture it once at
+  the low-frequency edges, then trust the fast string functions.** Pure-string
   `resolve`/`normalize`/`join` can return subtly different strings for the same real file (case,
   `..`, symlinks), silently breaking anything **keyed on the path** — snapshot lookups are
-  path-keyed, so a mismatched key reads as a different file. But realpath hits the filesystem: one
-  call fine, per-file-in-a-loop deadly. So realpath only at the capture points (`setup`'s
-  `resolveDirectories`, the walk root — once per root, never per entry), pure-string `path`
-  downstream (the compare renderer must **not** reintroduce a per-path `realpathSync`).
-  **`.native` is load-bearing, and enforced** (`no-restricted-syntax` bans the bare call): the JS
-  `realpathSync` returns a Windows drive letter *as typed*, so only the native binding
-  canonicalizes case. Tests must use it too — they build expectations with the same call, so the
+  path-keyed, so a mismatched key reads as a different file. Not `realpathSync.native` alone:
+  glibc's keeps the case it was given, so `realPath` also looks each name up in its parent's
+  listing. That hits the filesystem: one call fine, per-file-in-a-loop deadly. So `realPath`
+  only at the capture points (`setup`'s `resolveDirectories`, the walk root — once per root,
+  never per entry), pure-string `path` downstream (the compare renderer must **not** reintroduce
+  a per-path realpath). **`.native` is load-bearing, and enforced** (`no-restricted-syntax` bans
+  the bare call): the JS `realpathSync` returns a Windows drive letter *as typed*, so only the
+  native binding canonicalizes case. Tests must use it too — they build expectations with the same call, so the
   JS binding would make a test agree with a broken implementation, and a fixture that keys a mock
   on `resolve()`'s spelling fails only under a lowercase-drive cwd, where it reads as a flake.
 - **Canonical on the way out, case-tolerant on the way in.** Every path s3cab *writes* is

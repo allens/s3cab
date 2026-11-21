@@ -29,7 +29,9 @@ export async function photosSet(root, snapshots, folder = "Pictures") {
   writeFileSync(join(set, "dirs.txt"), `${pictures}\n`);
   writeFileSync(join(set, "env"), "S3CAB_BUCKET=my-backups\n");
   for (const [name, files] of Object.entries(snapshots)) {
-    await writeSnapshot(join(set, "snapshots"), name, files, pictures);
+    await writeSnapshot(join(set, "snapshots"), name, files, pictures, [
+      pictures,
+    ]);
   }
   return {
     home,

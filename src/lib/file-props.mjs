@@ -56,6 +56,29 @@ export function statProps(stat) {
 }
 
 /**
+ * An entry's own `lstat` as {@link fileId} needs it, or `undefined` for nothing
+ * or for one that can't be read.
+ * @param {string} path
+ * @returns {BigIntStats | undefined}
+ */
+export function lstatOrNothing(path) {
+  try {
+    return lstatSync(path, { bigint: true, throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Which file this is on this machine: its device and inode, which on Windows
+ * are the volume serial number and the file index. From a `bigint` stat only:
+ * NTFS's file index runs past 2^53, where a number drops its low bits and two
+ * files can read as one.
+ * @param {Pick<BigIntStats, "dev" | "ino">} stats
+ */
+export const fileId = ({ dev, ino }) => `${dev}:${ino}`;
+
+/**
  * The `mtimeNs` range that rounds, as {@link statProps} rounds, into the years
  * 0000 to 9999: all the 24-character form can hold. `toISOString` writes a time
  * outside it as `+010000-…` or `-000001-…`, a row every reader refuses, and past

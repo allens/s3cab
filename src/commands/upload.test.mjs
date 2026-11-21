@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
+import { mkdtempDisposable } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { beforeEach, describe, it, mock } from "node:test";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { ChangedWhileReadError, ContentMismatchError } from "../lib/error.mjs";
 
 /** @import { CompareError } from "../lib/compare.mjs" */
@@ -98,7 +101,19 @@ mock.module("../lib/upload.mjs", {
 
 const { upload } = await import("./upload.mjs");
 
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, savedEnv);
+});
+
 beforeEach(() => {
+  savedEnv = { ...process.env };
   loadSetCalls = [];
   propCalls = [];
   uploadFileCalls = [];
@@ -181,6 +196,24 @@ describe("upload validation", () => {
       upload("photos", { dir: "/no/such/folder/xyz" }),
       /--dir needs a folder that exists: \/no\/such\/folder\/xyz/,
     );
+    assert.deepEqual(uploadDirCalls, []);
+  });
+
+  it("rejects --dir at or inside s3cab's home (before any seeding)", async () => {
+    await using home = await mkdtempDisposable(join(tmpdir(), "s3cab-home-"));
+    const inside = join(home.path, "sets");
+    mkdirSync(inside);
+    process.env.S3CAB_HOME = home.path;
+    for (const dir of [home.path, inside]) {
+      await assert.rejects(
+        upload("photos", { dir }),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`  ${dir}\n`) &&
+          /s3cab's own folder/.test(error.message) &&
+          error.message.includes("s3cab upload photos --dir <folder>"),
+      );
+    }
     assert.deepEqual(uploadDirCalls, []);
   });
 });

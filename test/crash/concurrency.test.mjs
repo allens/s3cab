@@ -10,6 +10,7 @@ import {
   lockKeys,
   makeTree,
   nextZone,
+  olderSnapshot,
   release,
   restoreAndCompare,
   s3cab,
@@ -96,16 +97,21 @@ async function holdAt(args, { scratch, id, ...child }) {
 }
 
 /**
- * Crash orphans: a backup of `home`'s set killed between its last object and
- * the manifest leaves every object uploaded, no snapshot — and its upload
+ * Crash orphans: a backup of `tree` killed between its last object and the
+ * manifest leaves every object uploaded, no snapshot of them — and its upload
  * lock, which a kill never removes. The lock stays: every child here runs on
  * this machine, so the next upload or delete sees its process is gone and
  * sweeps it on the way in (ADR-0112), which the cases count on.
  * @param {string} home
- * @param {string} set
+ * @param {string} set - Seeded with `data` as its one member dir
+ * @param {string} data
+ * @param {Record<string, string>} tree - What the killed run backs up
  * @returns {Promise<number>} how many objects the killed run left
  */
-async function crashOrphans(home, set) {
+async function crashOrphans(home, set, data, tree) {
+  makeTree(data, tree);
+  const before = await objectCount();
+
   const killed = s3cab(["backup", set], {
     home,
     tz: nextZone(),
@@ -115,7 +121,8 @@ async function crashOrphans(home, set) {
   const stale = await lockKeys();
   assert.equal(stale.length, 1, `the killed run's lock (${stale.join(", ")})`);
   assert.match(stale[0] ?? "", /^locks\/upload-/);
-  return await objectCount();
+  const after = await objectCount();
+  return after - before;
 }
 
 describe("concurrency: backup vs backup", () => {
@@ -246,7 +253,6 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     const homeA = join(scratch, "homeA");
     const homeB = join(scratch, "homeB");
     const data = join(scratch, "data");
-    makeTree(data, TREE);
     for (const home of [homeA, homeB]) {
       mkdirSync(home, { recursive: true });
     }
@@ -254,8 +260,10 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     seedSet(homeB, "s", [data]);
     await claimSet(homeA, "s");
 
-    // Machine A crashes: four orphans, no snapshot.
-    assert.equal(await crashOrphans(homeA, "s"), 4);
+    // Machine A has an older snapshot, then crashes: four orphans, no
+    // snapshot of them.
+    await olderSnapshot(homeA, "s", data);
+    assert.equal(await crashOrphans(homeA, "s", data, TREE), 4);
 
     // Machine B takes the set over, backs up the same content, skips the
     // stored orphans, and parks before its manifest PUT — the §1 window, wide
@@ -285,7 +293,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     );
     assert.match(cleanup.stderr, /backup of set 's'/);
     assert.match(cleanup.stderr, /--wait/);
-    assert.equal(await objectCount(), 4, "nothing was deleted");
+    assert.equal(await objectCount(), 5, "nothing was deleted");
     const standing = await lockKeys();
     assert.equal(standing.length, 1, `only B's lock (${standing.join(", ")})`);
     assert.match(standing[0] ?? "", /^locks\/upload-/);
@@ -306,7 +314,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     // Nothing running: cleanup goes ahead, and finds every object referenced.
     const again = s3cab(["cleanup", bucket, "--force"], { home: homeA });
     assert.equal(again.status, 0, again.stderr);
-    assert.equal(await objectCount(), 4);
+    assert.equal(await objectCount(), 5);
     assert.deepEqual(await lockKeys(), []);
   });
 
@@ -316,7 +324,6 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     const homeA = join(scratch, "homeA");
     const homeB = join(scratch, "homeB");
     const data = join(scratch, "data");
-    makeTree(data, { ...TREE, "z.txt": "only the crashed run had this" });
     for (const home of [homeA, homeB]) {
       mkdirSync(home, { recursive: true });
     }
@@ -324,9 +331,11 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     seedSet(homeB, "s", [data]);
     await claimSet(homeA, "s");
 
-    // Five orphans; z.txt then goes away, so B references four of them and
-    // the fifth is a true orphan for cleanup to find.
-    assert.equal(await crashOrphans(homeA, "s"), 5);
+    // An older snapshot, then five orphans; z.txt then goes away, so B
+    // references four of them and the fifth is a true orphan for cleanup.
+    await olderSnapshot(homeA, "s", data);
+    const tree = { ...TREE, "z.txt": "only the crashed run had this" };
+    assert.equal(await crashOrphans(homeA, "s", data, tree), 5);
     rmSync(join(data, "z.txt"));
 
     await claimSet(homeB, "s");
@@ -350,7 +359,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       log: join(scratch, "trace-cleanup.log"),
       tag: "CLEANUP",
     });
-    assert.equal(await objectCount(), 5, "nothing deleted while waiting");
+    assert.equal(await objectCount(), 6, "nothing deleted while waiting");
     const standing = await lockKeys();
     assert.deepEqual(
       standing.filter((key) => key.startsWith("locks/delete-")),
@@ -369,8 +378,9 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       /Waiting for 1 running upload to finish before cleaning up:\n {2}backup of set 's'/,
     );
 
-    // B's four are referenced by its snapshot; the fifth went.
-    assert.equal(await objectCount(), 4, "only the true orphan swept");
+    // B's four are referenced by its snapshot, the older one's by that; the
+    // fifth orphan went.
+    assert.equal(await objectCount(), 5, "only the true orphan swept");
     assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
@@ -387,11 +397,12 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     await wipeBucket();
     const home = join(scratch, "home");
     const data = join(scratch, "data");
-    makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
-    assert.equal(await crashOrphans(home, "s"), 4);
+    const kept = await olderSnapshot(home, "s", data);
+    assert.equal(await crashOrphans(home, "s", data, TREE), 4);
+    const manifests = await manifestKeys();
 
     // cleanup wrote its lock, looked, topped up, and parks before its first
     // DELETE: the window where a backup that reused the orphans would
@@ -422,19 +433,19 @@ describe("concurrency: cleanup vs in-flight backup", () => {
       `only the cleanup's lock (${standing.join(", ")})`,
     );
     assert.match(standing[0] ?? "", /^locks\/delete-/);
-    assert.deepEqual(await manifestKeys(), [], "nothing was published");
+    assert.deepEqual(await manifestKeys(), manifests, "nothing was published");
 
     release(cleanup.gate);
     const cleanupDone = await cleanup.done;
     assert.equal(cleanupDone.status, 0, cleanupDone.stderr);
-    assert.deepEqual(await objectKeys(), [], "the orphans were swept");
+    assert.deepEqual(await objectKeys(), [kept], "the orphans were swept");
     assert.deepEqual(await lockKeys(), []);
 
     // The backup then uploads everything afresh: the orphans it would have
     // reused are gone, which costs time, never data.
     const backup = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(backup.status, 0, backup.stderr);
-    assert.equal(await objectCount(), 4);
+    assert.equal(await objectCount(), 5);
     assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
     const { violations } = restoreAndCompare({
@@ -501,17 +512,14 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     await wipeBucket();
     const home = join(scratch, "home");
     const data = join(scratch, "data");
-    makeTree(data, { "old.txt": "only in the oldest snapshot" });
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
 
     // Backup 0 leaves an older snapshot, so forgetting the baseline below
     // leaves the set in the bucket and the cleanup reaches the lock.
-    const zero = s3cab(["backup", "s"], { home, tz: nextZone() });
-    assert.equal(zero.status, 0, zero.stderr);
+    await olderSnapshot(home, "s", data);
     const [zeroManifest] = await manifestKeys();
-    rmSync(join(data, "old.txt"));
     makeTree(data, TREE);
 
     // Backup 1 establishes the baseline.
@@ -667,11 +675,11 @@ describe("concurrency: forget and cleanup", () => {
     await wipeBucket();
     const home = join(scratch, "home");
     const data = join(scratch, "data");
-    makeTree(data, TREE);
     mkdirSync(home, { recursive: true });
     seedSet(home, "s", [data]);
     await claimSet(home, "s");
-    assert.equal(await crashOrphans(home, "s"), 4);
+    const kept = await olderSnapshot(home, "s", data);
+    assert.equal(await crashOrphans(home, "s", data, TREE), 4);
 
     // Both park before their first orphan DELETE with identical plans, then
     // race the same delete list. Each wrote its delete lock and saw the
@@ -699,7 +707,7 @@ describe("concurrency: forget and cleanup", () => {
     // Safe, and the mechanism is S3 DeleteObject idempotency: deleting an
     // already-deleted key answers 204, so overlapping sweeps of the same
     // plan cannot fail each other or leave anything behind.
-    assert.deepEqual(await objectKeys(), []);
+    assert.deepEqual(await objectKeys(), [kept]);
     assert.deepEqual(await lockKeys(), []);
     assert.deepEqual(await bucketViolations(), []);
   });

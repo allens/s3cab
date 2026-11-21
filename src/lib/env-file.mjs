@@ -15,7 +15,8 @@ import { isENOENT } from "./error.mjs";
 // Env files can carry secrets (AWS_SECRET_ACCESS_KEY — the only auth every
 // non-AWS S3 provider supports is a long-lived key+secret), so create them
 // owner-only. Applies at creation only; a no-op on Windows, where POSIX modes
-// are ignored and the profile dir's ACLs already restrict access.
+// are ignored and a file takes its folder's ACL: owner-only in the user profile,
+// not in a home moved outside it, which guide/backup.md leaves to the user.
 const envFileMode = 0o600;
 
 /**

@@ -15,13 +15,10 @@ import { DestinationExistsError } from "./error.mjs";
 // Its own file, and a dotted aspect name (ADR-0049), because failing the link
 // means mocking `node:fs/promises` before `atomic-file.mjs` is loaded.
 
-// `EPERM` is Linux's answer on vfat (link(2)). Everything else passes through,
-// bar `constants`, which is non-configurable.
+// `EPERM` is Linux's answer on vfat (link(2)). Everything else passes through.
 mock.module("node:fs/promises", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(realFsPromises).filter(([name]) => name !== "constants"),
-    ),
+    ...realFsPromises,
     link: async () => {
       throw Object.assign(new Error("EPERM: operation not permitted, link"), {
         code: "EPERM",

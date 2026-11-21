@@ -15,13 +15,11 @@ import { IntegrityError } from "./error.mjs";
 // Its own file, and a dotted aspect name (ADR-0049), because making `rm` fail
 // means mocking `node:fs/promises` before `atomic-file.mjs` is loaded.
 
-// Everything else passes through, bar `constants`, which is non-configurable:
-// the failures under test come from the real filesystem.
+// Everything else passes through: the failures under test come from the real
+// filesystem.
 mock.module("node:fs/promises", {
   exports: {
-    ...Object.fromEntries(
-      Object.entries(realFsPromises).filter(([name]) => name !== "constants"),
-    ),
+    ...realFsPromises,
     rm: async () => {
       throw Object.assign(new Error("EBUSY: resource busy or locked, rm"), {
         code: "EBUSY",
