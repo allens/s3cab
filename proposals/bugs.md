@@ -467,12 +467,12 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   comment says it "only re-issues client certs", which no code does. Whoever can read it can read
   `client.key` beside it; it adds the power to issue certificates the trust anchor accepts. Low.
 
-- **[guide/format.md](../guide/format.md) lags three behaviours from the 2026-11-10 fixes**,
-  frozen until real set 5's last restore: a set leaves the bucket with its last snapshot (the
-  marker and `.s3cab/sets/<set>/` go too, and a clean-up must not read that as a lost set); a
-  snapshot file in a folder beside a set's, whatever its name, still protects its objects from a
-  clean-up (the spec says so only of a folder *below* a set's); and a clean-up's re-check under
-  its lock reads every key it didn't read, by key and ETag.
+- **A restore tells a 404 with no S3 code apart by whether the SDK can parse its body** (spec
+  check of real set 5). `isObjectNotFound` in `src/lib/s3.mjs` takes the SDK's `NotFound`,
+  which it gives an empty body or an HTML page, so that 404 is a miss, checked against the
+  deletion records; a plain-text body comes back as a bare `Error` and stops the whole restore.
+  The body's syntax decides, not a rule. Loud either way, since a miss no record explains is
+  damage, exit 1. Measured against a local server; no provider seen sending one.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
   from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and
