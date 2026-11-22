@@ -1498,7 +1498,8 @@ export async function* stringifySnapshot(
     return;
   }
   const end = finish ?? completionInstant();
-  yield property(SNAPSHOT, "FILES", String(files)) +
+  yield (
+    property(SNAPSHOT, "FILES", String(files)) +
     property(SNAPSHOT, "SIZE", `${size} (${formatByteValue(size)})`) +
     property(
       SNAPSHOT,
@@ -1506,7 +1507,8 @@ export async function* stringifySnapshot(
       shortDuration(Date.parse(end) - Date.parse(start)),
       end,
     ) +
-    `${TERMINATOR}\n`;
+    `${TERMINATOR}\n`
+  );
 }
 
 /**

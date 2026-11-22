@@ -141,8 +141,7 @@ const leftOut = computed(
           <td>{{ verdict.pattern ? "✗ Left out" : "✓ Kept" }}</td>
           <td>
             <template v-if="verdict.pattern">
-              <code>{{ verdict.pattern }}</code
-              ><span v-if="verdict.folder"
+              <code>{{ verdict.pattern }}</code><span v-if="verdict.folder"
                 >, by leaving out its folder
                 <code>{{ verdict.folder }}</code></span
               >
