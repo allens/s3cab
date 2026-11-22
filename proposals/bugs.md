@@ -467,12 +467,40 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   comment says it "only re-issues client certs", which no code does. Whoever can read it can read
   `client.key` beside it; it adds the power to issue certificates the trust anchor accepts. Low.
 
-- **[guide/format.md](../guide/format.md) lags three behaviours from the 2026-11-10 fixes**,
-  frozen until real set 5's last restore: a set leaves the bucket with its last snapshot (the
-  marker and `.s3cab/sets/<set>/` go too, and a clean-up must not read that as a lost set); a
-  snapshot file in a folder beside a set's, whatever its name, still protects its objects from a
-  clean-up (the spec says so only of a folder *below* a set's); and a clean-up's re-check under
-  its lock reads every key it didn't read, by key and ETag.
+- **A restore tells a 404 with no S3 code apart by whether the SDK can parse its body** (spec
+  check of real set 5). `isObjectNotFound` in `src/lib/s3.mjs` takes the SDK's `NotFound`,
+  which it gives a body its XML parser accepts, an empty one included, so that 404 is a miss,
+  checked against the deletion records; plain text, or nginx's 404 page with its `<hr>` left
+  open, comes back as a bare `Error` and stops the whole restore. The body's syntax decides, not a
+  rule. Loud either way, since a miss no record explains is damage, exit 1. Measured against a
+  local server; no provider seen sending one.
+- **s3cab and its S3 library can disagree about whether an endpoint is set** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). `customEndpoint` in `src/lib/env.mjs`
+  reads `AWS_ENDPOINT_URL_S3 ?? AWS_ENDPOINT_URL`, so an empty `AWS_ENDPOINT_URL_S3` hides a
+  set `AWS_ENDPOINT_URL`, where the SDK skips the empty one; and the SDK also reads
+  `endpoint_url` from the `~/.aws/config` profile, which s3cab never looks at. Then requests
+  go to the provider while s3cab thinks it is on AWS: it sends Glacier Instant Retrieval and
+  `AES256`, which R2 refuses, and a run that gets through writes no `@SET ENDPOINT` row.
+  Unmeasured.
+- **A holder's pair is deleted when the endpoint alone changes** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). The pair is kept per set, in
+  `~/.s3cab/sets/<set>/claim`, but the endpoint comes from the shell when the set's env names
+  none, and `assertHeld` in `src/lib/set-marker.mjs` deletes the pair on any mismatch. A shell
+  that exports `AWS_ENDPOINT_URL` for a local server with a bucket of the same name makes a
+  `backup` read that server's missing `.info` and delete the real pair; back on AWS the
+  machine must take its own set over. guide/format.md says to key the pair by set, bucket and
+  endpoint. Unmeasured.
+- **A set another tool retired stops `cleanup` with no way out it names** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). `listConfiguredSets` in
+  `src/lib/set-marker.mjs` counts a set from s3cab's config copy under `.s3cab/`, which
+  another tool mustn't touch, so the set has no snapshot to `cleanup`. The refusal,
+  `emptySetsMessage` in `src/lib/cleanup.mjs`, offers `takeover`, `upload --snapshot` and
+  `backup`; only `s3cab forget <set>` takes the set out. Loud, nothing lost.
+- **`forget` of a set's last snapshots doesn't say the set stayed** (review of
+  [#525](https://github.com/allens/s3cab/pull/525)). When a backup publishes before the
+  retire lock, `takeOut` in `src/commands/forget.mjs` returns `{ left }`, and the closing
+  message handles only `stray` and `uploads`, after the prompt said the set would leave the
+  bucket too. The no-snapshot `retire` path reports it. Nothing is lost.
 
 - **A landed file removed before restore reads it back aborts the run with a raw `ENOENT`,**
   from the `lstat` in `restoreTargets` (`src/lib/restore.mjs`) that records the file's device and

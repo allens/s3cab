@@ -301,7 +301,7 @@ const interruptedTakenError = () =>
  * the same minute would collide. That is refused (rather than silently
  * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
  * for re-running within a minute (docs/design/backup.md). The target is checked up
- * front, before any walking/hashing, so a same-minute re-run fails fast.
+ * front, after the walk and before any hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
  * @param {(stream: Writable, signal: AbortSignal) => Promise<void>} callbackFn - Callback receiving the write stream and the stop-cleanly signal
