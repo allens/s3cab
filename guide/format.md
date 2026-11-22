@@ -719,7 +719,7 @@ answer to "why wasn't this backed up?" is near the top; one `-` row per file (wi
 `#error` in among them for what only hashing a file finds: it can't be read, has gone or is
 no longer a file, its read returns a different number of bytes, or its time can't be held);
 then `FILES`, `SIZE` and `FINISH`, and the `.`. A
-reader goes by each row's type, not its position — except for the `.`, [below](#the-last-line) —
+reader goes by each row's type, not its position — except for the heading and the `.`, [below](#the-last-line) —
 so it reads every `@SET DIR` before judging a file row, wherever they come.
 Within a block, rows come in the
 order the directories were listed, which differs between filesystems, so compare two snapshots
@@ -1160,13 +1160,14 @@ For a restorer, or anything else that reads the files.
   code is `NoSuchKey`, or `NotFound`, which some providers send. A HEAD's 404 has no body, so
   no code, and libraries name it themselves: `NotFound` in the AWS JavaScript SDK, `'404'` in
   botocore. s3cab fetches with GET, and counts a GET's 404 with no code as a miss too when
-  the SDK can parse its body, an empty one or markup with every tag closed, since it names
-  that `NotFound` as well. A body it can't parse stops the restore: plain text, or nginx's
+  the SDK's XML parser accepts its body, as it does an empty one, since it names that
+  `NotFound` as well. A body the parser refuses stops the restore: plain text, or nginx's
   404 page, which leaves its `<hr>` open. It stops the whole restore on any other failure,
   whatever its status, a 400 included, such as:
   - a 404 `NoSuchBucket`, which says nothing about the file;
-  - a 301 where an endpoint is set. With none, s3cab starts in us-east-1, and its S3 library
-    follows a 301 to the region the bucket is in, so a tool that starts there must too;
+  - a 301 where an endpoint is set. With none, s3cab starts in `AWS_REGION`, else
+    `AWS_DEFAULT_REGION`, else us-east-1, and its S3 library follows a 301 to the region the
+    bucket is in, so a tool that starts in another region than the bucket's must too;
   - a 403, which S3 also answers for a missing key when the caller may not list the
     bucket, and the records can't tell that from a permissions fault;
   - a request that still fails after its retries;
@@ -1253,9 +1254,10 @@ For a restorer, or anything else that reads the files.
 - **Driving zlib's `inflate`.** A cut stream runs out of input before `inflate` returns
   `Z_STREAM_END`: its last call returns `Z_OK`, or `Z_BUF_ERROR` once no progress is
   possible, and a file missing only its trailer gets that far. Treat input ending without
-  `Z_STREAM_END` as cut short. A bad
-  CRC ends in `Z_DATA_ERROR`, "incorrect data check". After `Z_STREAM_END`, whatever
-  `avail_in` still holds is the next stream, and `inflateReset` starts it. Opened with
+  `Z_STREAM_END` as cut short. A bad CRC ends in `Z_DATA_ERROR`, "incorrect data check".
+  After `Z_STREAM_END`, input left in `avail_in` that starts with a zero byte is
+  [padding](#snapshot-files), and ends the file; anything else is the next stream,
+  and `inflateReset` starts it. Opened with
   `inflateInit2(&strm, 15 + 16)`, zlib reads the gzip header itself: it checks a header
   CRC, and refuses a reserved flag bit, both as `Z_DATA_ERROR`.
 - **Fields in C.** `strtok` takes two tabs in a row as one, so a blank column vanishes and
@@ -1532,7 +1534,7 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - **The gzip header.** Python's `gzip.open` writes the file's name and the current time into
   the header, so a snapshot written under a temporary name carries that name. Use
   `gzip.GzipFile(filename="", mtime=0, fileobj=…)`. `gzip.compress` writes the current time
-  as well in Python 3.12, though not in 3.14: pass it `mtime=0`.
+  as well before Python 3.14: pass it `mtime=0`.
 - **Line endings and encoding.** Python's text mode on Windows writes CRLF, and before
   Python 3.15 encodes as the locale's code page, often cp1252, which fails on a name like
   `🎉.txt`. Write bytes, or open the file with `newline="\n"` and `encoding="utf-8"`.
@@ -1597,7 +1599,7 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
   writes it before the walk, and holds it for the whole run. A `.info` claim decides
   nothing about objects, and needs no lock.
 - Name the set in the lock's `SET` whenever the upload is for one, so that
-  [retiring it](#who-holds-a-set) waits for the upload.
+  [retiring it](#who-holds-a-set) is refused while the upload runs.
 - Of the locks you find, one with your own `BY`, `OS` and `PIDNS` whose process is gone is a
   dead run's: remove it. Any other lock is alive until a person says otherwise.
 - On any `delete-` lock still alive, remove your own and refuse.
@@ -1777,13 +1779,16 @@ Lay the rows out in [canonical form](#canonical-form) too, so the file reads as 
 - Refuse while any set has no snapshot to read: everything only its lost snapshots referenced
   would look unused, and be deleted. A set here is each one that
   [listing a bucket's sets](#the-remote-repository-the-keystone) counts, from a `.info` or a
-  folder under `snapshots/`; s3cab also counts its copy of a set's config under `.s3cab/`. A
-  set [retired](#who-holds-a-set) on purpose has left the bucket, and doesn't count.
-- Retire a set only under a delete lock, while no upload lock still alive names it in `SET`,
-  and only once a listing of `snapshots/<set>/` made under the lock finds no snapshot.
-  Delete its `.info` last.
+  folder under `snapshots/`. A set [retired](#who-holds-a-set) on purpose has left the
+  bucket, and doesn't count. s3cab also counts a set from its copy of the set's config under
+  `.s3cab/`, which only s3cab writes or deletes, so a set another tool retires still stops
+  s3cab's clean-up until `s3cab forget <set>` takes it out.
+- Retire a set only under a delete lock, and only once a listing of `snapshots/<set>/` made
+  under the lock finds no snapshot. Delete its `.info` last. Of the upload locks still
+  alive, refuse only on one whose `SET` names the set: retiring is the one delete that goes
+  ahead beside other uploads.
 - Once the lock is held, list `snapshots/` again and read every key the plan's listing
-  lacked, held under another ETag, listed with no ETag, or couldn't be read, and take its
+  lacked, held under another ETag, or that either listing gave no ETag, and take its
   objects off the plan. A snapshot is named for its start and can land hours later, so
   compare keys and ETags, never names or times: the ETag catches a name that a `forget`
   freed and a backup took again, with other bytes.
