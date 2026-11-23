@@ -402,15 +402,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   but not the exclude patterns. The behaviour is designed and pinned in `takeover.test.mjs`; the
   defect is [guide/aws.md](../guide/aws.md)'s security model, which says a leaked key "can add to
   your backup and tweak its own set markers" and doesn't count this.
-- **An existing `env` keeps a loose mode when a secret is written into it** (security read).
-  `updateEnvFile` and `removeEnvKey` in `src/lib/env-file.mjs` give `0600` only on creation, so an
-  `env` an editor made at `0644` stays `0644` after `provider --keys`. Needs a set folder s3cab
-  didn't make, since its own are `0700`. Linux.
-- **`restore --overwrite` turns an owner-only file into one at the default mode** (security read).
-  `writeFileAtomic` in `src/lib/atomic-file.mjs` renames a temp made with the default mode over
-  the destination, so a `0600` file comes back `0644` under umask `022`.
-  [guide/format.md](../guide/format.md)'s "permissions are what the system gives a new file"
-  doesn't say an existing file's are replaced. Linux.
 - **A leftover temp, once backed up, is reported restored and then removed** (read of
   #512/#513). `writeFileAtomic` removes whatever holds the temp's name before it writes, and the
   walk backs such a file up like any other. Since #513 a temp can outlive its run as a second hard

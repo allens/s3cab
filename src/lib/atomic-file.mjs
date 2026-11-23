@@ -73,6 +73,15 @@ export async function writeFileAtomic(
   });
   try {
     try {
+      if (!noClobber) {
+        // A file the rename replaces keeps its own permissions, as `cp` over
+        // it would; the temp's default mode would open an owner-only file to
+        // whoever the umask lets in. Set before any byte goes in.
+        const replaced = await lstat(destPath).catch(() => undefined);
+        if (replaced?.isFile()) {
+          await fd.chmod(replaced.mode & 0o777);
+        }
+      }
       // Tee every chunk to disk unchanged, hashing en route only when verifying.
       await pipeline(
         source,
