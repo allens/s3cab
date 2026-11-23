@@ -176,7 +176,7 @@ describe("envSource", () => {
     // and a caller that assumed the profile would have to guess for the rest.
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    process.env.AWS_SESSION_TOKEN = "ambient";
+    process.env.AWS_REGION = "ambient";
     t.set(
       "photos",
       "S3CAB_BUCKET=photobucket\nAWS_ACCESS_KEY_ID=AKIAFROMSET\n",
@@ -185,7 +185,7 @@ describe("envSource", () => {
     t.loadSet("photos");
 
     assert.equal(t.envSource("AWS_ACCESS_KEY_ID"), "set 'photos' config");
-    assert.equal(t.envSource("AWS_SESSION_TOKEN"), "your environment");
+    assert.equal(t.envSource("AWS_REGION"), "your environment");
     assert.equal(t.envSource("AWS_SECRET_ACCESS_KEY"), undefined);
   });
 });

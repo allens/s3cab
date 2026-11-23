@@ -387,14 +387,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   days, but not as the limit of that promise, and a backup trusting its baseline never looks at
   stored objects, so only `verify` would notice. From the templates `s3cab aws` writes and S3's
   documented lifecycle.
-- **A set's saved keys mix with credentials the shell exports** (security read). `applyEnv` and
-  `loadSet` in `src/lib/env.mjs` lay the set's `env` over the shell one variable at a time and
-  clear nothing. An exported `AWS_PROFILE` wins over the set's keys, so the set runs as that
-  profile against its own bucket: the notice line says so, but a failed sign-in blames "the
-  access key from set 'photos' config" (`credentialsUsed`, `src/lib/auth.mjs`). An exported
-  `AWS_SESSION_TOKEN` joins the set's keys and goes to the set's endpoint on every request,
-  silently. [guide/auth.md](../guide/auth.md)'s "One mode per set, enforced" covers the set's
-  file, not the shell. Windows and Linux.
 - **A key to the bucket chooses what a machine taking a set over backs up** (security read).
   `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
   the set, writes the bucket's copies without asking, and the everyday identity can write those

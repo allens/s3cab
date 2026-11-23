@@ -128,13 +128,31 @@ function applyEnvLayer(path, label) {
   applyEnv(values, label);
 }
 
+/** The variables that pick or carry credentials in the standard AWS chain. */
+const credentialVariables = [
+  "AWS_PROFILE",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_CREDENTIAL_EXPIRATION",
+];
+
 /**
  * Merge values into process.env and record `label` as where they came from, so
- * `envSource` names it instead of "your environment".
+ * `envSource` names it instead of "your environment". Values that name any
+ * credential variable replace all of them, not one at a time: a merge would let
+ * an exported `AWS_PROFILE` win over a set's keys, or an exported
+ * `AWS_SESSION_TOKEN` go out with them to the set's endpoint.
  * @param {NodeJS.Dict<string>} values
  * @param {string} label - e.g. `set 'photos' config`
  */
 export function applyEnv(values, label) {
+  if (credentialVariables.some((name) => values[name] !== undefined)) {
+    for (const name of credentialVariables) {
+      delete process.env[name];
+      envSources.delete(name);
+    }
+  }
   Object.assign(process.env, values);
   for (const key of Object.keys(values)) {
     envSources.set(key, label);
