@@ -67,6 +67,7 @@ async function setup(root) {
   const setEnvPath = (name) => join(home, ".s3cab", "sets", name, "env");
   return {
     loadSet: env.loadSet,
+    applyEnv: env.applyEnv,
     envSource: env.envSource,
     setEnvPath,
     /** @param {string} name @param {string} contents */
@@ -128,6 +129,89 @@ describe("loadSet", () => {
   });
 });
 
+describe("a set's credentials over the shell's", () => {
+  /** Export a whole sign-in, as a shell might. */
+  const exportShellCredentials = () => {
+    process.env.AWS_PROFILE = "shellprof";
+    process.env.AWS_ACCESS_KEY_ID = "AKIAFROMSHELL";
+    process.env.AWS_SECRET_ACCESS_KEY = "shell-secret";
+    process.env.AWS_SESSION_TOKEN = "shell-token";
+    process.env.AWS_CREDENTIAL_EXPIRATION = "2099-01-01T00:00:00Z";
+    process.env.AWS_CREDENTIAL_SCOPE = "shell-scope";
+    process.env.AWS_ACCOUNT_ID = "111111111111";
+  };
+
+  it("keys replace every credential variable the shell exports", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    exportShellCredentials();
+    t.set(
+      "photos",
+      "S3CAB_BUCKET=photobucket\nAWS_ACCESS_KEY_ID=AKIAFROMSET\nAWS_SECRET_ACCESS_KEY=set-secret\n",
+    );
+
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_ACCESS_KEY_ID, "AKIAFROMSET");
+    assert.equal(process.env.AWS_SECRET_ACCESS_KEY, "set-secret");
+    for (const name of [
+      "AWS_PROFILE",
+      "AWS_SESSION_TOKEN",
+      "AWS_CREDENTIAL_EXPIRATION",
+      "AWS_CREDENTIAL_SCOPE",
+      "AWS_ACCOUNT_ID",
+    ]) {
+      assert.equal(process.env[name], undefined, name);
+      assert.equal(t.envSource(name), undefined, name);
+    }
+  });
+
+  it("setup's keys replace them too", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    exportShellCredentials();
+
+    t.applyEnv(
+      { AWS_ACCESS_KEY_ID: "AKIAFROMSETUP", AWS_SECRET_ACCESS_KEY: "s" },
+      "the setup command",
+    );
+
+    assert.equal(process.env.AWS_PROFILE, undefined);
+    assert.equal(process.env.AWS_SESSION_TOKEN, undefined);
+  });
+
+  it("a profile replaces only AWS_PROFILE, so the shell's keys stay for it", async () => {
+    // A profile with `credential_source = Environment` signs in with them.
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    exportShellCredentials();
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_PROFILE=setprof\n");
+
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_PROFILE, "setprof");
+    assert.equal(process.env.AWS_ACCESS_KEY_ID, "AKIAFROMSHELL");
+    assert.equal(process.env.AWS_SESSION_TOKEN, "shell-token");
+    assert.equal(t.envSource("AWS_SESSION_TOKEN"), "your environment");
+  });
+
+  it("a set with no credentials leaves the shell's alone", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    exportShellCredentials();
+    t.set(
+      "photos",
+      "S3CAB_BUCKET=photobucket\nAWS_REGION=auto\nAWS_ENDPOINT_URL_S3=https://example.com\n",
+    );
+
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_PROFILE, "shellprof");
+    assert.equal(process.env.AWS_ACCESS_KEY_ID, "AKIAFROMSHELL");
+    assert.equal(process.env.AWS_SESSION_TOKEN, "shell-token");
+  });
+});
+
 describe("envSource", () => {
   it("is undefined when no profile is set", async () => {
     await using dir = await mkTmpDir();
@@ -176,7 +260,7 @@ describe("envSource", () => {
     // and a caller that assumed the profile would have to guess for the rest.
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    process.env.AWS_SESSION_TOKEN = "ambient";
+    process.env.AWS_REGION = "ambient";
     t.set(
       "photos",
       "S3CAB_BUCKET=photobucket\nAWS_ACCESS_KEY_ID=AKIAFROMSET\n",
@@ -185,7 +269,7 @@ describe("envSource", () => {
     t.loadSet("photos");
 
     assert.equal(t.envSource("AWS_ACCESS_KEY_ID"), "set 'photos' config");
-    assert.equal(t.envSource("AWS_SESSION_TOKEN"), "your environment");
+    assert.equal(t.envSource("AWS_REGION"), "your environment");
     assert.equal(t.envSource("AWS_SECRET_ACCESS_KEY"), undefined);
   });
 });

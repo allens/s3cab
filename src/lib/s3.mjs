@@ -76,9 +76,8 @@ let _client;
  *
  * When given a `profileSource` (from env.mjs's `envSource("AWS_PROFILE")`), it appends
  * where that profile came from — `(from set 'photos' config)`, `(from the setup
- * command)` or `(from your environment)` — so a surprising profile (a stale
- * shell export shadowing a set,
- * say) is traceable, not a silent mystery.
+ * command)` or `(from your environment)` — so a surprising profile (one
+ * exported in the shell long ago, say) is traceable, not a silent mystery.
  *
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*
