@@ -39,8 +39,9 @@ upload that was never completed, so it doesn't touch the soft-vs-permanent seam.
 noncurrent version. The everyday key deliberately lacks **`DeleteObjectVersion`**, so it can't
 erase a version itself; only the lifecycle does, once the window passes. Permanently scrubbing
 a version is a rare, elevated-identity operation (needed only to reclaim space *before* the
-lifecycle window, or to hard-scrub) that most users never set up. This is exactly why the policy uses explicit verbs: an `s3:*Object`
-wildcard would silently re-grant `DeleteObjectVersion` and dissolve the seam.
+lifecycle window, or to hard-scrub) that most users never set up. This is exactly why the
+policy uses explicit verbs: an `s3:*Object` wildcard would silently re-grant
+`DeleteObjectVersion` and dissolve the seam.
 
 **Per-prefix scoping was considered and parked.** Append-only on `objects/`+`snapshots/` with
 delete confined to `sets/` would be a tighter policy, but with versioning as the backstop the

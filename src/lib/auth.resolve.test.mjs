@@ -97,7 +97,7 @@ function loadRaSet(root) {
 }
 
 /**
- * A complete machine identity: the four files plus a bucket's captured ARNs.
+ * A complete machine identity: its cert/key files plus a bucket's captured ARNs.
  * @param {string} [bucket] - Whose ARNs to capture (default: the set's).
  */
 function makeIdentity(bucket = "my-bucket") {

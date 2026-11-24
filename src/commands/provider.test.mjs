@@ -56,7 +56,7 @@ const seedSetEnv = (/** @type {string} */ name, /** @type {string} */ body) =>
 
 /**
  * Stand up a *complete* machine Roles Anywhere identity under the temp home —
- * the four cert/key files plus the ARNs captured for the set's bucket — which
+ * the cert/key files plus the ARNs captured for the set's bucket — which
  * `--roles-anywhere` requires before it will point a set at it (the readiness
  * gate shared with `setup`, lib/provider.mjs).
  */
@@ -488,7 +488,7 @@ describe("provider --roles-anywhere", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
-    ensureMachineIdentity(); // the four files, but no my-bucket.env → not signable
+    ensureMachineIdentity(); // the cert/key files, but no my-bucket.env → not signable
 
     await assert.rejects(
       () => provider("photos", { "roles-anywhere": true }),
