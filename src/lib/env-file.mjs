@@ -1,4 +1,12 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fchmodSync,
+  ftruncateSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { isENOENT } from "./error.mjs";
 
 // Editing s3cab's `KEY=value` env files in place — the *write* side of the env
@@ -13,11 +21,35 @@ import { isENOENT } from "./error.mjs";
 // cycle, since env.mjs already imports `resolveSet` from sets.mjs.
 
 // Env files can carry secrets (AWS_SECRET_ACCESS_KEY — the only auth every
-// non-AWS S3 provider supports is a long-lived key+secret), so create them
-// owner-only. Applies at creation only; a no-op on Windows, where POSIX modes
-// are ignored and a file takes its folder's ACL: owner-only in the user profile,
-// not in a home moved outside it, which guide/backup.md leaves to the user.
+// non-AWS S3 provider supports is a long-lived key+secret), so every write
+// leaves them owner-only, one an editor made too. A no-op on Windows, where
+// POSIX modes are ignored and a file takes its folder's ACL: owner-only in the
+// user profile, not in a home moved outside it, which guide/backup.md leaves to
+// the user.
 const envFileMode = 0o600;
+
+/**
+ * Replace a file's text, leaving it owner-only.
+ * @param {string} path
+ * @param {string} text
+ */
+function writeOwnerOnly(path, text) {
+  // Not "w", which empties the file before the chmod: a chmod that fails (a
+  // file another user owns, a mount that holds no modes) would leave it empty.
+  // In place, not a new file renamed over it, so a linked `env` stays linked.
+  const fd = openSync(
+    path,
+    constants.O_WRONLY | constants.O_CREAT,
+    envFileMode,
+  );
+  try {
+    fchmodSync(fd, envFileMode);
+    ftruncateSync(fd);
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /**
  * Escape a string for literal use inside a `RegExp`. The keys we build line
@@ -68,7 +100,7 @@ export function updateEnvFile(path, updates) {
       text += line + "\n";
     }
   }
-  writeFileSync(path, text, { mode: envFileMode });
+  writeOwnerOnly(path, text);
 }
 
 /**
@@ -92,5 +124,5 @@ export function removeEnvKey(path, key) {
   if (kept.length === lines.length) {
     return;
   } // key absent — nothing to write
-  writeFileSync(path, kept.join("\n"), { mode: envFileMode });
+  writeOwnerOnly(path, kept.join("\n"));
 }

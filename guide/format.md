@@ -881,7 +881,9 @@ alone, not on the `@SET DIR` it is under or on the other rows restored. In detai
   file lands, so a restore that writes nothing makes none of them. A file that fails, missing
   or withheld or refused, leaves none of the folders made for it.
 - s3cab sets a restored file's modification time, and its access time to the same, and
-  nothing else about it: its permissions are what the system gives a new file.
+  nothing else about it: its permissions are what the system gives a new file, except that on
+  Linux and macOS a file it overwrites keeps its read, write and execute bits, less any the
+  umask removes.
 - A folder s3cab makes gets what the system gives a new folder, permissions and times alike:
   s3cab sets nothing on it.
 - A file already at a destination before the restore began is left alone and reported as
