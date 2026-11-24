@@ -45,7 +45,7 @@ concurrency:
 env:
   # Match ci.yml: pin to the engines floor.
   NODE_VERSION: "26.10.0"
-  CLAUDE_CODE_VERSION: "2.1.321"
+  CLAUDE_CODE_VERSION: "2.1.331"
   ROLE: ${{ inputs.role }}
   S3CAB_TEST_BUCKET_CLEANROOM_BACKUP: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
   S3CAB_TEST_BUCKET_CLEANROOM_RESTORE: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE }}
@@ -65,7 +65,7 @@ jobs:
   run:
     name: ${{ inputs.role }} on ${{ inputs.platform }} (${{ inputs.model }}, ${{ inputs.effort }})
     # The seed's runners, cleanroom-seed.yml's.
-    runs-on: ${{ fromJSON('{"macos":"macos-26","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
+    runs-on: ${{ fromJSON('{"macos":"macos-26","linux":"ubuntu-26.04","windows":"windows-2025"}')[inputs.platform] }}
     timeout-minutes: 360 # GitHub's ceiling for a hosted job
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
@@ -104,13 +104,17 @@ jobs:
       - if: inputs.role == 'backup' && inputs.platform == 'windows'
         run: python -m pip install boto3 # into the tool cache's Python, outside the home folder
       # Claude Code's shell sandbox runs commands in bwrap with socat as its proxy, and
-      # Ubuntu 24.04 refuses bwrap an unprivileged user namespace by default. The sandbox
-      # root is one only root can make.
+      # Ubuntu refuses bwrap an unprivileged user namespace by default (the sysctl). 26.04
+      # also ships bwrap-userns-restrict, which runs bwrap's children without capabilities,
+      # so every sandboxed command dies in apply-seccomp writing /proc/self/setgroups. The
+      # sysctl doesn't lift that, and Claude Code's documented bwrap profile collides with it
+      # by name: unload it. The sandbox root is one only root can make.
       - if: inputs.platform == 'linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q bubblewrap socat
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
           sudo install -d -o "$USER" "$SANDBOX"
       - run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
       - if: inputs.platform == 'windows'
