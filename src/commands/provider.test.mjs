@@ -266,10 +266,10 @@ describe("provider --endpoint / --region", () => {
 
     for (const endpoint of [
       "http://nas.local:9000",
-      "http://admin:hunter2@192.168.1.5:9000",
+      "http://gw.lan:8080/s3",
       "http://127.example.com",
     ]) {
-      await provider(undefined, { endpoint });
+      await provider("photos", { endpoint });
       assert.equal(setEnv().AWS_ENDPOINT_URL_S3, endpoint); // still written
     }
     assert.match(
@@ -278,10 +278,12 @@ describe("provider --endpoint / --region", () => {
     );
     assert.match(
       warn(),
-      /s3cab provider --endpoint https:\/\/nas\.local:9000 <set>/,
+      /s3cab provider --endpoint https:\/\/nas\.local:9000 photos$/m,
     );
-    assert.match(warn(), /http:\/\/192\.168\.1\.5:9000 aren't encrypted/);
-    assert.doesNotMatch(warn(), /hunter2/); // a password in the URL isn't echoed
+    assert.match(
+      warn(),
+      /s3cab provider --endpoint https:\/\/gw\.lan:8080\/s3 photos$/m,
+    );
     assert.match(warn(), /http:\/\/127\.example\.com aren't encrypted/);
   });
 
@@ -290,12 +292,38 @@ describe("provider --endpoint / --region", () => {
     useTempHome(dir.path);
     makeSet();
 
-    for (const endpoint of ["accountid.r2.cloudflarestorage.com", "ftp://x"]) {
+    for (const endpoint of [
+      "accountid.r2.cloudflarestorage.com",
+      "ftp://x",
+      "https://acct.r2.cloud\nflarestorage.com", // `new URL` alone would drop the \n
+      "https://acct.r2.cloud\tflarestorage.com",
+    ]) {
       await assert.rejects(
         () => provider(undefined, { endpoint }),
         /Give the endpoint as a full URL/,
       );
     }
+  });
+
+  it("refuses an endpoint carrying a user name or password, without echoing it", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    for (const endpoint of [
+      "http://admin:hunter2@192.168.1.5:9000",
+      "https://admin@s3.example.com",
+    ]) {
+      await assert.rejects(
+        () => provider(undefined, { endpoint }),
+        (/** @type {Error} */ error) => {
+          assert.match(error.message, /without a user name or password/);
+          assert.doesNotMatch(error.message, /hunter2|admin/);
+          return true;
+        },
+      );
+    }
+    assert.equal(setEnv().AWS_ENDPOINT_URL_S3, undefined);
   });
 
   it("rejects an empty region, pointing at --unset", async () => {

@@ -256,6 +256,7 @@ async function create(name, directories, options) {
   // (or, in RA mode, the machine's certificate identity).
   const { updates } = await gatherProviderConfig({
     ...options,
+    set: name,
     rolesAnywhere: options["roles-anywhere"],
   });
   // The bucket too, as `loadSet` will for every later command: the Roles Anywhere
