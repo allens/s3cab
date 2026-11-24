@@ -78,27 +78,42 @@ function readText(path) {
 }
 
 /**
+ * A value no env-file line can hold.
+ * @param {string} key
+ */
+const unsavableValueError = (key) =>
+  new Error(
+    `s3cab can't save this value (${key}) in an env file: it holds a line break, or a mix of quote marks no quoting there can hold.\n\n` +
+      `To keep a secret like this out of the file, hand it to s3cab through your AWS config, ` +
+      `as "Keeping the secret out of plaintext" describes:\n` +
+      `  https://s3cab.plantegral.com/guide/aws`,
+  );
+
+/**
  * The `KEY=value` line `parseEnv` reads back as exactly `value`: bare when it
  * can be, so a plain value reads as a person would write it, else in the first
  * quotes it survives. Unquoted, `#` starts a comment and the ends are trimmed;
  * single quotes and backticks are literal; double quotes expand `\n`; a CR is
- * dropped everywhere. The parser is the judge, so no rule here can drift from it.
+ * dropped everywhere. The parser is the judge, so no rule here can drift from it
+ * — but it judges one line, and two things only show in a whole file: a value
+ * over several lines, which the line edits here can't follow, and a bare value
+ * opening with a quote, which reads on to the next such quote on any later line.
+ * Exported so a caller can refuse a value before it acts on it.
  * @param {string} key
  * @param {string} value
  */
-function envLine(key, value) {
-  for (const quote of ["", "'", "`", '"']) {
+export function envLine(key, value) {
+  if (/[\r\n\u2028\u2029]/.test(value)) {
+    throw unsavableValueError(key);
+  }
+  const quotes = /^['"`]/.test(value) ? ["'", "`", '"'] : ["", "'", "`", '"'];
+  for (const quote of quotes) {
     const line = `${key}=${quote}${value}${quote}`;
     if (parseEnv(line)[key] === value) {
       return line;
     }
   }
-  throw new Error(
-    `s3cab can't save this value (${key}) in an env file, which would read it back changed: it holds a carriage return, or all of ' " \` with a # or a space at either end.\n\n` +
-      `To keep a secret like this out of the file, hand it to s3cab through your AWS config, ` +
-      `as "Keeping the secret out of plaintext" describes:\n` +
-      `  https://s3cab.plantegral.com/guide/aws`,
-  );
+  throw unsavableValueError(key);
 }
 
 /**

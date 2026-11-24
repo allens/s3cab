@@ -77,6 +77,9 @@ describe("updateEnvFile", () => {
     "a'b`c",
     `a'b"c`,
     "a'b`c\"d",
+    "'abc",
+    '"abc',
+    "`abc",
     String.raw`a\nb`,
     "",
   ];
@@ -86,13 +89,21 @@ describe("updateEnvFile", () => {
       const path = join(dir.path, "env");
       updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value });
       assert.equal(parseEnvFile(path).AWS_SECRET_ACCESS_KEY, value);
-      writeFileSync(path, "AWS_SECRET_ACCESS_KEY=first\nS3CAB_BUCKET=b\n");
+      // Quoted lines after it: a value opening a quote it never closes would
+      // read on to theirs.
+      writeFileSync(
+        path,
+        "AWS_SECRET_ACCESS_KEY=first\nS3CAB_BUCKET=b\nAWS_PROFILE='work'\nAWS_REGION=\"auto\"\nX=`y`\n",
+      );
       updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value });
       assert.deepEqual(
         { ...parseEnvFile(path) },
         {
           AWS_SECRET_ACCESS_KEY: value,
           S3CAB_BUCKET: "b",
+          AWS_PROFILE: "work",
+          AWS_REGION: "auto",
+          X: "y",
         },
       );
     });
@@ -102,7 +113,14 @@ describe("updateEnvFile", () => {
     await using dir = await mkTmpDir();
     const path = join(dir.path, "env");
     writeFileSync(path, "AWS_SECRET_ACCESS_KEY=first\n");
-    for (const value of ["a'b`c\"d#e", " a'b`c\"d", "ab\rcd"]) {
+    for (const value of [
+      "a'b`c\"d#e",
+      " a'b`c\"d",
+      "'a`b\"c",
+      "ab\rcd",
+      "ab\ncd",
+      "ab\u2028cd",
+    ]) {
       assert.throws(
         () => updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value }),
         /can't save this value \(AWS_SECRET_ACCESS_KEY\)/,
