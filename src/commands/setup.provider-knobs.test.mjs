@@ -142,7 +142,7 @@ describe("setup provider knobs", () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberDir(dir.path);
     // The positive twin of setup.test.mjs's "refuses --roles-anywhere … no
-    // identity": with the four files *and* the bucket's captured ARNs in place,
+    // identity": with the identity's files *and* the bucket's captured ARNs in place,
     // the readiness gate (shared with `provider`, lib/provider.mjs) lets it through.
     ensureMachineIdentity();
     writeFileSync(
@@ -162,6 +162,27 @@ describe("setup provider knobs", () => {
     // …with the bucket in scope, which is how the signer picks its ARNs.
     assert.equal(envAtClaim?.S3CAB_BUCKET, "my-bucket");
     assert.equal(parseEnvFile(readSet("photos").envPath).S3CAB_RA, "1");
+  });
+
+  it("refuses a secret no env file can hold before claiming the set", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+    stdin.isTTY = false;
+    promptLines = ["AKIAEXAMPLE", "a'b`c\"d#e"];
+
+    await assert.rejects(
+      () =>
+        setup([photos], {
+          set: "photos",
+          bucket: "my-bucket",
+          endpoint: "https://acct.r2.cloudflarestorage.com",
+          keys: true,
+        }),
+      /can't save this value \(AWS_SECRET_ACCESS_KEY\)/,
+    );
+    // Refused before the claim, so the bucket holds no half-made set.
+    assert.equal(envAtClaim, undefined);
+    assert.equal(listSets().includes("photos"), false);
   });
 
   it("persists nothing on a lost claim — no set is created locally", async () => {

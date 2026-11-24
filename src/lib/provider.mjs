@@ -1,5 +1,6 @@
 import { isIPv4 } from "node:net";
 import { listProfiles } from "./auth.mjs";
+import { envLine } from "./env-file.mjs";
 import { customEndpoint } from "./env.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
@@ -239,6 +240,11 @@ export async function gatherProviderConfig({
     const pair = await readKeys();
     Object.assign(updates, pair);
     summary.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
+  }
+  // A value the env file can't hold is refused now, before `setup` claims the
+  // set in the bucket, not when the file is written after it.
+  for (const [key, value] of Object.entries(updates)) {
+    envLine(key, value);
   }
   return { updates, summary, replaces };
 }
