@@ -128,26 +128,35 @@ function applyEnvLayer(path, label) {
   applyEnv(values, label);
 }
 
-/** The variables that pick or carry credentials in the standard AWS chain. */
+/**
+ * The variables that pick or carry credentials in the standard AWS chain: a
+ * profile, and the keys with what the SDK's `fromEnv` folds in beside them.
+ */
 const credentialVariables = [
   "AWS_PROFILE",
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
   "AWS_SESSION_TOKEN",
   "AWS_CREDENTIAL_EXPIRATION",
+  "AWS_CREDENTIAL_SCOPE",
+  "AWS_ACCOUNT_ID",
 ];
 
 /**
  * Merge values into process.env and record `label` as where they came from, so
- * `envSource` names it instead of "your environment". Values that name any
- * credential variable replace all of them, not one at a time: a merge would let
- * an exported `AWS_PROFILE` win over a set's keys, or an exported
- * `AWS_SESSION_TOKEN` go out with them to the set's endpoint.
+ * `envSource` names it instead of "your environment".
+ *
+ * Keys replace every credential variable, not one at a time: merged, an
+ * exported `AWS_PROFILE` would win over them, and an exported
+ * `AWS_SESSION_TOKEN` would go out with them to the set's endpoint. A profile
+ * replaces only `AWS_PROFILE`, because one with `credential_source =
+ * Environment` signs in with the keys the shell exports; that leans on the SDK
+ * ignoring those keys under any other profile (auth.shell-keys.test.mjs).
  * @param {NodeJS.Dict<string>} values
  * @param {string} label - e.g. `set 'photos' config`
  */
 export function applyEnv(values, label) {
-  if (credentialVariables.some((name) => values[name] !== undefined)) {
+  if (values.AWS_ACCESS_KEY_ID || values.AWS_SECRET_ACCESS_KEY) {
     for (const name of credentialVariables) {
       delete process.env[name];
       envSources.delete(name);
@@ -169,7 +178,7 @@ export function applyEnv(values, label) {
  *
  * Feeds the auth notice (`authNotice` in s3.mjs) and the identity line every
  * request-time rejection carries (`credentialsUsed` in auth.mjs), so a surprising
- * credential — a stale shell export shadowing a set's config, say — is traceable
+ * credential — a profile exported in the shell long ago, say — is traceable
  * at a glance instead of a silent mystery. Which is exactly why it takes the
  * variable name rather than hard-coding `AWS_PROFILE`: **provenance is the whole
  * point, so no caller may assume it.** Claiming a key came from the set when the

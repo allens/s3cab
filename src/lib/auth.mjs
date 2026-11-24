@@ -381,10 +381,17 @@ export function credentialsUsed() {
   // The four modes docs/design/auth.md describes, in the precedence that
   // actually decides the request: Roles Anywhere short-circuits the chain
   // (`resolveCredentials` checks it first), then the standard chain's own order
-  // — explicit keys in the environment, then a named profile, then whatever
-  // `default` yields. Never prints the key itself, only that one was used.
+  // — a named profile, which the SDK takes over keys in the environment
+  // (auth.shell-keys.test.mjs), then those keys, then whatever `default`
+  // yields. Never prints the key itself, only that one was used.
   if (isRolesAnywhereMode()) {
     return "s3cab signed in with Roles Anywhere (keyless).";
+  }
+  const profile = process.env.AWS_PROFILE;
+  if (profile) {
+    const source = envSource("AWS_PROFILE");
+    const via = source ? ` (from ${source})` : "";
+    return `s3cab signed in with AWS profile '${profile}'${via}.`;
   }
   // `envSource` both detects the variable and traces it, so the sentence can
   // never claim a set saved a key the shell actually exported — the failure this
@@ -393,13 +400,7 @@ export function credentialsUsed() {
   if (keySource) {
     return `s3cab signed in with the access key from ${keySource}.`;
   }
-  const profile = process.env.AWS_PROFILE;
-  if (!profile) {
-    return "s3cab signed in with your default AWS credentials (no AWS_PROFILE is set).";
-  }
-  const source = envSource("AWS_PROFILE");
-  const via = source ? ` (from ${source})` : "";
-  return `s3cab signed in with AWS profile '${profile}'${via}.`;
+  return "s3cab signed in with your default AWS credentials (no AWS_PROFILE is set).";
 }
 
 /**

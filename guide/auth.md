@@ -30,8 +30,8 @@ flags:
 ```
 
 **One mode per set, enforced.** Setting one clears the others — `--keys` drops a profile,
-`--profile` drops saved keys. That's deliberate: with both recorded, the AWS SDK picks the
-profile, and you'd be signing in as someone other than who you think. Making that
+`--profile` drops saved keys. That's deliberate: with both recorded, the AWS SDK picks one by
+rules of its own, and you'd be signing in as someone other than who you think. Making that
 unrepresentable is worth more than the flexibility. (Endpoint and region are separate
 connection settings and stay put.)
 
@@ -86,8 +86,8 @@ Two steps, in order:
 1. **The set's own settings** — `~/.s3cab/sets/<set>/env`, if it has any. This is the one
    file s3cab owns. It holds the set's bucket and how to reach it, and its values are applied
    over your shell, so **a value here beats the same variable in your environment**. A set
-   with a profile or keys of its own ignores the ones in your shell — `AWS_PROFILE`, or
-   `AWS_ACCESS_KEY_ID` and its partners — so the two never mix.
+   with keys of its own ignores any sign-in your shell exports — `AWS_PROFILE`, other keys, a
+   session token — so the two never mix. A set with a profile replaces only `AWS_PROFILE`.
 2. **Your standard AWS setup** — `AWS_PROFILE`, the shared profiles in `~/.aws` (including
    single sign-on sessions and `credential_process`), and `AWS_*` variables in your
    environment. This is the ordinary AWS chain, used unchanged.

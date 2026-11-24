@@ -9,13 +9,12 @@ import { updateEnvFile } from "./env-file.mjs";
 import { loadSet } from "./env.mjs";
 import { writeSet } from "./sets.mjs";
 
-// A set's credentials replace the shell's rather than merge with them: an
-// exported AWS_PROFILE would otherwise win over the set's saved keys, since the
-// SDK's chain takes a profile over keys in the environment, and the set would
-// sign in as that profile at its own endpoint.
+// `applyEnv`'s rule that a set's keys replace the shell's credentials, here an
+// exported AWS_PROFILE.
 //
 // One case per file: auth.mjs builds its chain once, and the chain keeps the
-// first credentials it resolves (auth.shell-session-token.test.mjs is the other).
+// first credentials it resolves (auth.shell-session-token.test.mjs and
+// auth.shell-keys.test.mjs are the others).
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 

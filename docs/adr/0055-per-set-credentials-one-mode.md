@@ -14,13 +14,14 @@ The credential model is two precedence systems stacked on each other:
 1. s3cab's **per-key env-file layering** — set > user > shell ([0025](0025-drop-per-bucket-env-layer.md)),
    merged into `process.env`;
 2. inside that merged environment, the **AWS SDK chain's own cross-source order**
-   ([0015](0015-standard-aws-credential-chain.md)) — static env keys (`fromEnv`) resolve *before*
-   an `AWS_PROFILE`-based source (`fromIni`/`fromSSO`).
+   ([0015](0015-standard-aws-credential-chain.md)) — with `AWS_PROFILE` set, the profile-based
+   source (`fromIni`/`fromSSO`) wins and static env keys (`fromEnv`) are skipped, with a warning
+   that a future SDK may flip it.
 
 A code walkthrough of `noCredentialsError` surfaced that **these two orders can disagree**. If a
-set's env sets `AWS_PROFILE` and the user layer sets `AWS_ACCESS_KEY_ID`/`_SECRET`, both land in
-`process.env`; the chain then resolves the static keys *first*, so the user-layer keys silently
-beat the set-layer profile — the exact opposite of what "set overrides user" promises. The bug is
+set's env sets `AWS_ACCESS_KEY_ID`/`_SECRET` and the user layer sets `AWS_PROFILE`, both land in
+`process.env`; the chain then takes the profile, so the user-layer profile silently beats the
+set-layer keys — the exact opposite of what "set overrides user" promises. The bug is
 that s3cab treats auth as a **bag of `AWS_*` variables** it hands the chain to arbitrate, with no
 notion of *intent*.
 
@@ -50,8 +51,10 @@ the layering to **set > shell** and removes the cross-layer profile-vs-keys trap
 **2. A set carries exactly one credential mode — profile XOR keys XOR ambient — enforced at write
 time.** `provider --keys <set>` clears any `AWS_PROFILE` on that scope, and `--profile` clears the
 keys, each with a plain confirmation. A set env then always encodes one intent, and the silent
-precedence within a scope becomes unrepresentable *through the front door*. Region and endpoint are
-**orthogonal connection knobs** that pair with any mode.
+precedence within a scope becomes unrepresentable *through the front door*. The same intent holds
+against the shell: a set's keys replace the shell's credential variables whole when the set is
+loaded, and a set's profile replaces only `AWS_PROFILE` (`applyEnv` in `src/lib/env.mjs`). Region
+and endpoint are **orthogonal connection knobs** that pair with any mode.
 
 - **profile** — `AWS_PROFILE` → delegate to `~/.aws` (itself possibly SSO / static keys /
   `credential_process`).

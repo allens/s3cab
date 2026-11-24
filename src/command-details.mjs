@@ -207,8 +207,9 @@ s3cab names the cause and shows the raw error. By cause:
   Invalid / rejected credentials
     Replace the credentials s3cab is using, by their source:
     - the set's env file: re-enter the key + secret with
-      's3cab provider --keys <set>', or re-check a temporary
-      AWS_SESSION_TOKEN in your shell (no stray quotes or spaces)
+      's3cab provider --keys <set>'
+    - your shell: re-check the AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      and AWS_SESSION_TOKEN it exports (no stray quotes or spaces)
     - a profile: renew it, and confirm AWS_PROFILE names the right one
     - SSO: run 'aws sso login' again
 
