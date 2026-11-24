@@ -280,7 +280,9 @@ reproduction; the tests land with the fixes. None used a real bucket.</sub>
 
 <sub>The **security read** (brief: where credentials and the Roles Anywhere keys are read, stored,
 printed and sent, the modes of the files holding them, and what the identities `s3cab aws`
-provisions may do; Windows 11 and WSL2) found twelve. **Sound**, measured or read: keys never
+provisions may do; Windows 11 and WSL2) found twelve, all **fixed 2026-11-24**. Of the last
+five, `--endpoint` now warns of a plain `http://` host that isn't loopback, and the Roles Anywhere
+CA key is no longer kept. **Sound**, measured or read: keys never
 arrive as flags and the secret prompt echoes nothing; `provider` and `list` show the key ID's last
 four characters and `list --json` never the secret; without `S3CAB_DEBUG` a rejected request
 prints only the reply's code and message, and the debug argument dump holds no secret;
@@ -379,14 +381,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   volume, or a share named two ways (`\\localhost\D$\Backups`) walks into it. Device and inode
   would catch it, except on mounts that number every entry 0, and cost a `stat` per folder in the
   walk. Unmeasured; rare.
-- **"Can never permanently destroy" holds for 90 days** (security read).
-  [guide/aws.md](../guide/aws.md) (twice) and [guide/maintenance.md](../guide/maintenance.md) say
-  a leaked everyday key can't permanently destroy the backup, but that identity may `PutObject`
-  and `DeleteObject` every key, and the bucket's lifecycle rule (`NONCURRENT_DAYS` in
-  `src/lib/aws.mjs`) expires a replaced or deleted version after 90 days. Both pages give the 90
-  days, but not as the limit of that promise, and a backup trusting its baseline never looks at
-  stored objects, so only `verify` would notice. From the templates `s3cab aws` writes and S3's
-  documented lifecycle.
 - **The AWS SDK warns of two credential sources when a set's profile meets exported keys**
   (review of [#527](https://github.com/allens/s3cab/pull/527)). `applyEnv` in `src/lib/env.mjs`
   leaves the shell's keys beside a set's profile, for a profile with
@@ -394,13 +388,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   credential sources detected" warning once per run, telling the user to unset one. The profile
   wins (`auth.shell-keys.test.mjs`), so only the advice is wrong. Filtering it means handing the
   chain a logger that drops that one message.
-- **A key to the bucket chooses what a machine taking a set over backs up** (security read).
-  `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
-  the set, writes the bucket's copies without asking, and the everyday identity can write those
-  keys. It prints the directory list and the holder's name, from a marker the same key can write,
-  but not the exclude patterns. The behaviour is designed and pinned in `takeover.test.mjs`; the
-  defect is [guide/aws.md](../guide/aws.md)'s security model, which says a leaked key "can add to
-  your backup and tweak its own set markers" and doesn't count this.
 - **A leftover temp, once backed up, is reported restored and then removed** (read of
   #512/#513). `writeFileAtomic` removes whatever holds the temp's name before it writes, and the
   walk backs such a file up like any other. Since #513 a temp can outlive its run as a second hard
@@ -444,19 +431,6 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   padding only when it ends inside the chunk the stream ended in; otherwise a raw `ABORT_ERR`,
   `ERR_STREAM_PREMATURE_CLOSE` or `ECONNRESET`. Loud, and padded snapshots come only from a block
   or tape copy of a bucket.
-- **A plain `http://` endpoint is accepted silently** (security read). `validateEndpoint` in
-  `src/lib/provider.mjs` and `clientConfig` in `src/lib/s3.mjs` allow it "for a local provider",
-  but nothing tells a local address from a remote one and no guide mentions `http`: file
-  contents, snapshots and any session token travel in clear. The secret key never does.
-- **`updateEnvFile` writes values unquoted** (security read), so a secret holding `#` or `$&`, or
-  with a leading space, reads back different: `ab#cd` as `ab`, and `ab$&cd` as
-  `abAWS_SECRET_ACCESS_KEY=firstcd`, the replacement pattern expanding. A sign-in that fails, not
-  a leak.
-- **`ca.key` is kept and nothing reads it** (security read). `ensureMachineIdentity` in
-  `src/lib/roles-anywhere.mjs` writes it and `IDENTITY_FILES` checks it exists, and the module's
-  comment says it "only re-issues client certs", which no code does. Whoever can read it can read
-  `client.key` beside it; it adds the power to issue certificates the trust anchor accepts. Low.
-
 - **A restore tells a 404 with no S3 code apart by whether the SDK can parse its body** (spec
   check of real set 5). `isObjectNotFound` in `src/lib/s3.mjs` takes the SDK's `NotFound`,
   which it gives a body its XML parser accepts, an empty one included, so that 404 is a miss,

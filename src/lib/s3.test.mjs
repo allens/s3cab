@@ -471,8 +471,8 @@ describe("bucketPolicy", () => {
       "s3:PutObject",
     ]);
     // The security seam: a wildcard would silently re-grant DeleteObjectVersion,
-    // which the everyday key must never hold (it must never permanently destroy
-    // history — docs/adr/0033). Guard both the wildcard and the version verb.
+    // which the everyday key must never hold (it must not erase a version itself
+    // — docs/adr/0033). Guard both the wildcard and the version verb.
     assert.ok(
       !actions.some((a) => a.includes("*")),
       `unexpected wildcard: ${actions}`,

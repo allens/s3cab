@@ -33,7 +33,7 @@ One **machine-level** certificate, shared by every set in RA mode (a set stores 
 
 | File | What |
 | --- | --- |
-| `ca.pem` / `ca.key` | the self-signed CA (avoids AWS Private CA fees). `ca.key` is the *cold* key — only re-issues client certs; back it up. |
+| `ca.pem` | the self-signed CA (avoids AWS Private CA fees). Its private key signs `client.pem` and is never written ([ADR-0058](../adr/0058-roles-anywhere-cert-generation.md)). |
 | `client.pem` / `client.key` | the client certificate + key — the machine's identity; `client.key` is the runtime signing key, never sent to AWS. |
 | `<bucket>.env` | one per bucket, env-format (reusing `env-file.mjs`): `S3CAB_RA_TRUST_ANCHOR_ARN` / `S3CAB_RA_PROFILE_ARN` / `S3CAB_RA_ROLE_ARN` / `AWS_REGION`, and `S3CAB_RA_STACK` for the refused-session fix. The signer reads the file for the set's `S3CAB_BUCKET`. |
 

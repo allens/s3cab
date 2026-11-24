@@ -1,4 +1,6 @@
+import { isIPv4 } from "node:net";
 import { listProfiles } from "./auth.mjs";
+import { envLine } from "./env-file.mjs";
 import { customEndpoint } from "./env.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
@@ -71,15 +73,24 @@ async function warnIfUnknownProfile(name) {
 
 /**
  * Validate an `--endpoint` value: an absolute http(s) URL, or a typo'd endpoint
- * becomes the classic silent R2/B2 signature-mismatch trap later.
+ * becomes the classic silent R2/B2 signature-mismatch trap later. Plain http is
+ * allowed, for an S3 server on this machine or a NAS without TLS, but warned
+ * about unless the host is loopback: a LAN name can't be told from a remote one.
+ * A user name or password in the URL is refused: S3 never reads them, and every
+ * place that shows the endpoint would print them.
  * @param {string} endpoint
+ * @param {string} set - The set's name, to spell the https command.
  * @returns {string} The validated endpoint
  */
-function validateEndpoint(endpoint) {
+function validateEndpoint(endpoint, set) {
   const invalid = () =>
     new ParseArgsError(
       `Give the endpoint as a full URL, e.g. --endpoint https://<account>.r2.cloudflarestorage.com (got: ${endpoint})`,
     );
+  // `new URL` drops tabs and line breaks, so it would pass one the env file can't hold.
+  if (/\s/.test(endpoint)) {
+    throw invalid();
+  }
   let url;
   try {
     url = new URL(endpoint);
@@ -88,6 +99,26 @@ function validateEndpoint(endpoint) {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw invalid();
+  }
+  if (url.username || url.password) {
+    throw new ParseArgsError(
+      `Give the endpoint without a user name or password: s3cab signs in with the set's keys, profile or Roles Anywhere, never the URL (got: ${url.origin})`,
+    );
+  }
+  const loopback =
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]" ||
+    (isIPv4(url.hostname) && url.hostname.startsWith("127."));
+  if (url.protocol === "http:" && !loopback) {
+    const secure = new URL(url);
+    secure.protocol = "https:";
+    console.warn(
+      `Backups sent to ${url.origin} aren't encrypted on the way: anyone on the network between ` +
+        `can read your files, the snapshots that list them, and any session token. ` +
+        `(The secret key itself is never sent.)\n\n` +
+        `To switch to https, if the server offers it:\n` +
+        `  ${shellCommand(`s3cab provider --endpoint ${secure.href.replace(/\/$/, "")} ${set}`)}`,
+    );
   }
   return endpoint;
 }
@@ -145,14 +176,15 @@ ${setupSteps(bucket)}`,
  * `updates`: `provider` writes them to a set's env file (and clears the
  * credential modes in `replaces`); `setup` populates the environment for its
  * remote claim, then persists them on a win.
- * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean,
- *   rolesAnywhere?: boolean, bucket?: string }} options - `bucket` is the set's,
- *   used only to spell the Roles Anywhere recipe.
+ * @param {{ set: string, profile?: string, endpoint?: string, region?: string,
+ *   keys?: boolean, rolesAnywhere?: boolean, bucket?: string }} options - `set`
+ *   and `bucket` are the set's, used only to spell the commands a message shows.
  * @returns {Promise<{ updates: Record<string, string>, summary: string[],
  *   replaces: CredentialMode[] }>} `replaces` holds the credential modes not
  *   chosen, or none when no mode was chosen.
  */
 export async function gatherProviderConfig({
+  set,
   profile,
   endpoint,
   region,
@@ -207,7 +239,7 @@ export async function gatherProviderConfig({
     summary.push(`AWS profile '${name}'`);
   }
   if (endpoint !== undefined) {
-    updates.AWS_ENDPOINT_URL_S3 = validateEndpoint(endpoint.trim());
+    updates.AWS_ENDPOINT_URL_S3 = validateEndpoint(endpoint.trim(), set);
     summary.push(`endpoint ${updates.AWS_ENDPOINT_URL_S3}`);
   }
   if (region !== undefined) {
@@ -224,6 +256,11 @@ export async function gatherProviderConfig({
     const pair = await readKeys();
     Object.assign(updates, pair);
     summary.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
+  }
+  // A value the env file can't hold is refused now, before `setup` claims the
+  // set in the bucket, not when the file is written after it.
+  for (const [key, value] of Object.entries(updates)) {
+    envLine(key, value);
   }
   return { updates, summary, replaces };
 }

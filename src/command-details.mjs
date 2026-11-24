@@ -108,7 +108,7 @@ export const awsDetails = `It only PRINTS the steps — it never touches your ac
 credentials to run, so you can read the whole plan first. It emits two
 CloudFormation templates: one for the bucket (versioning ON as your safety
 net, and Retain-protected so a stack delete can't destroy it), one for a
-least-privilege identity that can never permanently destroy backup history.
+least-privilege identity whose deletes stay recoverable for 90 days.
 Deploy them, mint one access key, point s3cab at it. If the bucket already
 exists, skip the bucket template.
 

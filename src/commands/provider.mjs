@@ -300,6 +300,7 @@ export async function provider(setName, options = {}) {
   // with `setup` — see lib/provider.mjs. `provider` then applies the one-mode
   // clearing below, which `setup` doesn't need (its set is brand new).
   const { updates, summary, replaces } = await gatherProviderConfig({
+    set: scope.name,
     profile,
     endpoint,
     region,

@@ -3,6 +3,7 @@ import { X509Certificate, createHash, verify } from "node:crypto";
 import {
   mkdirSync,
   readFileSync,
+  readdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -130,9 +131,8 @@ describe("buildIdentity", () => {
     assert.ok(BigInt("0x" + ca.serialNumber) > 0n);
   });
 
-  it("exports both private keys as PKCS#8 PEM (the signer reads client.key)", () => {
+  it("exports the client key as PKCS#8 PEM (the signer reads client.key)", () => {
     assert.match(id.clientKeyPem, /-----BEGIN PRIVATE KEY-----/);
-    assert.match(id.caKeyPem, /-----BEGIN PRIVATE KEY-----/);
   });
 });
 
@@ -153,7 +153,7 @@ describe("caFingerprint", () => {
 });
 
 describe("ensureMachineIdentity", () => {
-  it("generates the four PEMs on first call, owner-only", async () => {
+  it("generates the three PEMs on first call, owner-only, and drops the CA's key", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
@@ -163,7 +163,13 @@ describe("ensureMachineIdentity", () => {
     assert.equal(machineIdentityExists(), true);
 
     const raDir = machineIdentityDir();
-    for (const file of ["ca.pem", "ca.key", "client.pem", "client.key"]) {
+    // Only client.key is private: a kept CA key would mint certs a CRL can't stop.
+    assert.deepEqual(readdirSync(raDir).sort(), [
+      "ca.pem",
+      "client.key",
+      "client.pem",
+    ]);
+    for (const file of ["ca.pem", "client.pem", "client.key"]) {
       const path = join(raDir, file);
       assert.ok(readFileSync(path, "utf8").length > 0, file);
       if (process.platform !== "win32") {
