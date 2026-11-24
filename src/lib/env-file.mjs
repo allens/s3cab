@@ -7,6 +7,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
 
 // Editing s3cab's `KEY=value` env files in place — the *write* side of the env
@@ -15,7 +16,7 @@ import { isENOENT } from "./error.mjs";
 // hand-written comments and overrides), so a mutation replaces or removes
 // individual lines rather than parse-and-rewriting the whole file.
 //
-// A standalone leaf (depends only on node:fs + error.mjs) so both `sets.mjs`
+// A standalone leaf (depends only on builtins + error.mjs) so both `sets.mjs`
 // (binding `S3CAB_BUCKET` into a set env) and the `aws` command (`AWS_PROFILE`
 // into the user or a set env) can import it — `env.mjs` can't host it without a
 // cycle, since env.mjs already imports `resolveSet` from sets.mjs.
@@ -77,6 +78,45 @@ function readText(path) {
 }
 
 /**
+ * A value no env-file line can hold.
+ * @param {string} key
+ */
+const unsavableValueError = (key) =>
+  new Error(
+    `s3cab can't save this value (${key}) in an env file: it holds a line break, or a mix of quote marks (' " \`) along with a #, a space at either end, or a quote at the start.\n\n` +
+      `To keep a secret like this out of the file, hand it to s3cab through your AWS config, ` +
+      `as "Keeping the secret out of plaintext" describes:\n` +
+      `  https://s3cab.plantegral.com/guide/aws`,
+  );
+
+/**
+ * The `KEY=value` line `parseEnv` reads back as exactly `value`: bare when it
+ * can be, so a plain value reads as a person would write it, else in the first
+ * quotes it survives. Unquoted, `#` starts a comment and the ends are trimmed;
+ * single quotes and backticks are literal; double quotes expand `\n`; a CR is
+ * dropped everywhere. The parser is the judge, so no rule here can drift from it
+ * — but it judges one line, and two things only show in a whole file: a value
+ * over several lines, which the line edits here can't follow, and a bare value
+ * opening with a quote, which reads on to the next such quote on any later line.
+ * Exported so a caller can refuse a value before it acts on it.
+ * @param {string} key
+ * @param {string} value
+ */
+export function envLine(key, value) {
+  if (/[\r\n\u2028\u2029]/.test(value)) {
+    throw unsavableValueError(key);
+  }
+  const quotes = /^['"`]/.test(value) ? ["'", "`", '"'] : ["", "'", "`", '"'];
+  for (const quote of quotes) {
+    const line = `${key}=${quote}${value}${quote}`;
+    if (parseEnv(line)[key] === value) {
+      return line;
+    }
+  }
+  throw unsavableValueError(key);
+}
+
+/**
  * Set `KEY=value` lines in an env file, replacing each key's existing line or
  * appending a new one. Line-based on purpose: the file is the API and may carry
  * hand-written comments and overrides, which an update must preserve — never a
@@ -87,12 +127,14 @@ function readText(path) {
 export function updateEnvFile(path, updates) {
   let text = readText(path);
   for (const [key, value] of Object.entries(updates)) {
-    const line = `${key}=${value}`;
+    const line = envLine(key, value);
     // Global: replace EVERY occurrence — parseEnv is last-wins, so updating
     // only the first of hand-made duplicates would leave the old value live.
     const existing = new RegExp(`^${escapeRegExp(key)}=.*$`, "gm");
     if (existing.test(text)) {
-      text = text.replaceAll(existing, line);
+      // A function, not the string: a replacement string expands `$&` and `$'`,
+      // which a secret may hold.
+      text = text.replaceAll(existing, () => line);
     } else {
       if (text && !text.endsWith("\n")) {
         text += "\n";

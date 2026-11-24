@@ -56,7 +56,7 @@ const seedSetEnv = (/** @type {string} */ name, /** @type {string} */ body) =>
 
 /**
  * Stand up a *complete* machine Roles Anywhere identity under the temp home —
- * the four cert/key files plus the ARNs captured for the set's bucket — which
+ * the cert/key files plus the ARNs captured for the set's bucket — which
  * `--roles-anywhere` requires before it will point a set at it (the readiness
  * gate shared with `setup`, lib/provider.mjs).
  */
@@ -248,17 +248,82 @@ describe("provider --endpoint / --region", () => {
     assert.equal(env.S3CAB_BUCKET, "my-bucket"); // untouched
   });
 
+  it("warns that plain http travels unencrypted, unless the host is this machine", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    const warn = captureWarn(t);
+
+    for (const endpoint of [
+      "http://localhost:9000",
+      "http://127.0.0.1:9000",
+      "http://[::1]:9000",
+      "https://nas.local",
+    ]) {
+      await provider(undefined, { endpoint });
+    }
+    assert.equal(warn(), "");
+
+    for (const endpoint of [
+      "http://nas.local:9000",
+      "http://gw.lan:8080/s3",
+      "http://127.example.com",
+    ]) {
+      await provider("photos", { endpoint });
+      assert.equal(setEnv().AWS_ENDPOINT_URL_S3, endpoint); // still written
+    }
+    assert.match(
+      warn(),
+      /Backups sent to http:\/\/nas\.local:9000 aren't encrypted/,
+    );
+    assert.match(
+      warn(),
+      /s3cab provider --endpoint https:\/\/nas\.local:9000 photos$/m,
+    );
+    assert.match(
+      warn(),
+      /s3cab provider --endpoint https:\/\/gw\.lan:8080\/s3 photos$/m,
+    );
+    assert.match(warn(), /http:\/\/127\.example\.com aren't encrypted/);
+  });
+
   it("rejects an endpoint that isn't an http(s) URL", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
 
-    for (const endpoint of ["accountid.r2.cloudflarestorage.com", "ftp://x"]) {
+    for (const endpoint of [
+      "accountid.r2.cloudflarestorage.com",
+      "ftp://x",
+      "https://acct.r2.cloud\nflarestorage.com", // `new URL` alone would drop the \n
+      "https://acct.r2.cloud\tflarestorage.com",
+    ]) {
       await assert.rejects(
         () => provider(undefined, { endpoint }),
         /Give the endpoint as a full URL/,
       );
     }
+  });
+
+  it("refuses an endpoint carrying a user name or password, without echoing it", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    for (const endpoint of [
+      "http://admin:hunter2@192.168.1.5:9000",
+      "https://admin@s3.example.com",
+    ]) {
+      await assert.rejects(
+        () => provider(undefined, { endpoint }),
+        (/** @type {Error} */ error) => {
+          assert.match(error.message, /without a user name or password/);
+          assert.doesNotMatch(error.message, /hunter2|admin/);
+          return true;
+        },
+      );
+    }
+    assert.equal(setEnv().AWS_ENDPOINT_URL_S3, undefined);
   });
 
   it("rejects an empty region, pointing at --unset", async () => {
@@ -451,7 +516,7 @@ describe("provider --roles-anywhere", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
-    ensureMachineIdentity(); // the four files, but no my-bucket.env → not signable
+    ensureMachineIdentity(); // the cert/key files, but no my-bucket.env → not signable
 
     await assert.rejects(
       () => provider("photos", { "roles-anywhere": true }),

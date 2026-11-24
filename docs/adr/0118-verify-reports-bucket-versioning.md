@@ -36,8 +36,8 @@ that never had it on. Some S3-compatible providers have no versioning to report.
    `SlowDown` or an expired token, fails `verify` as it would during the scan: a passing failure
    reported as a note would hide a suspended bucket behind exit 0.
 4. **`bucketPolicy()` grants `s3:GetBucketVersioning`** on the bucket. It reads a setting and
-   writes nothing, so 0033's property, that a leaked everyday key can never permanently destroy
-   anything, is untouched. `s3:PutBucketVersioning` stays ungranted.
+   writes nothing, so 0033's soft-delete property is untouched. `s3:PutBucketVersioning` stays
+   ungranted.
 
 ## Considered and rejected
 

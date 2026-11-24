@@ -602,7 +602,7 @@ the [format spec](../../guide/format.md)), not implementation choice:
   everyday identity *does* carry `DeleteObject` — deliberately, and this is the settled
   security model ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)): on a
   versioned bucket it is only a *soft* delete (writes a delete marker; the key lacks
-  `DeleteObjectVersion`), so a leaked everyday key can never permanently destroy history.
+  `DeleteObjectVersion`), so a leaked everyday key can't erase a version itself.
   The blast-radius boundary is soft-vs-permanent, **not** delete-vs-no-delete — so cleanup
   runs on that same everyday key and the `aws` policy helper needs no everyday/elevated
   split. (Per-prefix append-only scoping was weighed and parked in ADR-0033 §2.)

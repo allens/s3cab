@@ -23,8 +23,12 @@ are fundamentally different signers — so it is resolved here, before Phase B i
   - **client:** `basicConstraints = critical, CA:FALSE` + `keyUsage = critical, digitalSignature` + `extendedKeyUsage = clientAuth` (non-critical)
   - ECDSA **P-256**, ~10-year validity, generate-and-forget.
 - **Store the client private key as a `0600` PEM** under `~/.s3cab/roles-anywhere/` (dir `0700`),
-  beside the CA key, the two certs, and the ARN `env` file — the cluster
-  [0057](0057-roles-anywhere-credential-mode.md) already specified.
+  beside the two certs and the ARN `env` file — the cluster
+  [0057](0057-roles-anywhere-credential-mode.md) specified, less the CA key.
+- **Don't keep the CA's private key.** It signs the client certificate and is dropped. Nothing
+  re-issues a certificate (loss or compromise means a new identity), and a kept CA key sitting
+  beside `client.key` would protect nothing while letting a thief mint certificates the trust
+  anchor accepts — ones a CRL revoking the client certificate can't stop.
 - **The signer's key interface (Phase B) is therefore: a PEM private-key string read from
   `client.key`, passed to `crypto.createSign("SHA256").sign(keyPem)`** — exactly what the signer
   spike already does. Uniform across every OS; no OS-specific signing path.
@@ -136,8 +140,8 @@ machine-binding:
 
 - **Bounded blast radius (the strongest lever):** the least-privilege policy is *soft-delete-only* —
   `s3:DeleteObject` but deliberately **not** `DeleteObjectVersion`, on a versioned, `Retain`-protected
-  bucket ([0033](0033-bucket-onboarding-security-model.md)). Even a fully compromised key cannot
-  *permanently destroy* backup history. "Leaked key" is "rotate the trust anchor," not "backups gone."
+  bucket ([0033](0033-bucket-onboarding-security-model.md)). Even a fully compromised key can't
+  erase a version itself. "Leaked key" is "rotate the trust anchor," not "backups gone."
 - **Central revocation:** disable/delete the trust anchor kills all sessions; a CRL revokes one cert.
 - **Detection:** CloudTrail logs every `CreateSession`, alertable.
 - **Tight session duration + scoped session policy** on the RA profile cap the window and reach of any
@@ -157,8 +161,8 @@ together if it ever lands.
   the spike validates it; `openssl` stays the informal oracle, not a test dependency.
 - The client-cert serial is forced positive and non-zero (clear the sign bit, set `0x40`), so the
   all-zero serial RFC 5280 forbids can never be emitted.
-- `ensureMachineIdentity` is three-state — **none** of the four identity files → generate, **all
-  four** → reuse, **partial** → hard error — so a half-written or partly-deleted identity never falls
+- `ensureMachineIdentity` is three-state — **none** of the identity files → generate, **all of
+  them** → reuse, **partial** → hard error — so a half-written or partly-deleted identity never falls
   through to regeneration, which would mint a new CA and orphan an already-deployed trust anchor.
 - **UTCTime vs GeneralizedTime:** the encoder uses `UTCTime` for validity dates, correct through 2049
   (RFC 5280); a cert generated after ~2039 with a 10-year life crosses 2050 and needs the

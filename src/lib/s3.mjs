@@ -184,7 +184,7 @@ export function clientConfig() {
     requestHandler: {
       socketTimeout: SOCKET_TIMEOUT_MS,
       connectionTimeout: CONNECTION_TIMEOUT_MS,
-      // Both schemes: `endpoint` may be plain http for a local provider.
+      // Both schemes: `endpoint` may be plain http.
       httpAgent: { timeout: IDLE_SOCKET_TIMEOUT_MS },
       httpsAgent: { timeout: IDLE_SOCKET_TIMEOUT_MS },
     },
@@ -1135,8 +1135,8 @@ export async function bucketVersioning(bucket) {
  * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
  * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete
  * marker on a versioned bucket, but the key deliberately lacks
- * `DeleteObjectVersion`, so a leaked everyday key can never permanently destroy
- * backup history (the security model — see docs/adr/0033). Widening to `*Object`
+ * `DeleteObjectVersion`, so a leaked everyday key can't erase a version itself
+ * (the security model — see docs/adr/0033). Widening to `*Object`
  * would silently re-grant that.
  * @param {string} bucketName
  */

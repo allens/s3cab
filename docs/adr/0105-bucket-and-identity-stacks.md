@@ -68,7 +68,7 @@ the `S3CAB_RA=1` marker.
   than one CA.
 - **One CA, s3cab signs a certificate per machine.** Either the CA key spreads to every machine
   or the files go both ways; cutting off one machine needs a revocation list s3cab doesn't make.
-- **Copying `~/.s3cab/roles-anywhere/` to the second machine.** Spreads the CA key and makes
+- **Copying `~/.s3cab/roles-anywhere/` to the second machine.** Spreads the client key and makes
   revocation all-or-nothing. It still works — two machines then share one identity stack — but
   the guide doesn't offer it as the path.
 - **Refuse a second bucket's `--save`.** Turns the silent break into an error but keeps the limit.

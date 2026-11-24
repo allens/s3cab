@@ -4,6 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { removeEnvKey, updateEnvFile } from "./env-file.mjs";
+import { parseEnvFile } from "./env.mjs";
 
 // Tests for in-place env-file editing. Each test writes to a throwaway file in a
 // disposable temp dir, so they assert on the exact bytes left on disk.
@@ -58,6 +59,74 @@ describe("updateEnvFile", () => {
     writeFileSync(path, "AxB=other\nA.B=old\n");
     updateEnvFile(path, { "A.B": "new" });
     assert.equal(readFileSync(path, "utf8"), "AxB=other\nA.B=new\n");
+  });
+
+  // Secrets from S3-compatible providers aren't limited to base64, so a value
+  // reads back exactly whatever it holds: comment marks, replacement patterns,
+  // edge spaces, quotes.
+  const awkward = [
+    "ab#cd",
+    "ab #cd",
+    "#ab",
+    "ab$&cd",
+    "ab$'cd",
+    "$HOME",
+    " ab",
+    "ab ",
+    "it's",
+    "a'b`c",
+    `a'b"c`,
+    "a'b`c\"d",
+    "'abc",
+    '"abc',
+    "`abc",
+    String.raw`a\nb`,
+    "",
+  ];
+  for (const value of awkward) {
+    it(`writes ${JSON.stringify(value)} so it reads back exactly, new or replacing`, async () => {
+      await using dir = await mkTmpDir();
+      const path = join(dir.path, "env");
+      updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value });
+      assert.equal(parseEnvFile(path).AWS_SECRET_ACCESS_KEY, value);
+      // Quoted lines after it: a value opening a quote it never closes would
+      // read on to theirs.
+      writeFileSync(
+        path,
+        "AWS_SECRET_ACCESS_KEY=first\nS3CAB_BUCKET=b\nAWS_PROFILE='work'\nAWS_REGION=\"auto\"\nX=`y`\n",
+      );
+      updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value });
+      assert.deepEqual(
+        { ...parseEnvFile(path) },
+        {
+          AWS_SECRET_ACCESS_KEY: value,
+          S3CAB_BUCKET: "b",
+          AWS_PROFILE: "work",
+          AWS_REGION: "auto",
+          X: "y",
+        },
+      );
+    });
+  }
+
+  it("refuses a value no env-file line can hold, leaving the file alone", async () => {
+    await using dir = await mkTmpDir();
+    const path = join(dir.path, "env");
+    writeFileSync(path, "AWS_SECRET_ACCESS_KEY=first\n");
+    for (const value of [
+      "a'b`c\"d#e",
+      " a'b`c\"d",
+      "'a`b\"c",
+      "ab\rcd",
+      "ab\ncd",
+      "ab\u2028cd",
+    ]) {
+      assert.throws(
+        () => updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: value }),
+        /can't save this value \(AWS_SECRET_ACCESS_KEY\)/,
+      );
+    }
+    assert.equal(readFileSync(path, "utf8"), "AWS_SECRET_ACCESS_KEY=first\n");
   });
 
   it(
