@@ -387,6 +387,13 @@ have that snapshot's objects deleted (S3 doesn't); `removeRemoteSet` deletes eve
   days, but not as the limit of that promise, and a backup trusting its baseline never looks at
   stored objects, so only `verify` would notice. From the templates `s3cab aws` writes and S3's
   documented lifecycle.
+- **The AWS SDK warns of two credential sources when a set's profile meets exported keys**
+  (review of [#527](https://github.com/allens/s3cab/pull/527)). `applyEnv` in `src/lib/env.mjs`
+  leaves the shell's keys beside a set's profile, for a profile with
+  `credential_source = Environment`, and the SDK's `defaultProvider` then prints its "Multiple
+  credential sources detected" warning once per run, telling the user to unset one. The profile
+  wins (`auth.shell-keys.test.mjs`), so only the advice is wrong. Filtering it means handing the
+  chain a logger that drops that one message.
 - **A key to the bucket chooses what a machine taking a set over backs up** (security read).
   `takeover` (`src/commands/takeover.mjs`), on a machine with no `dirs.txt` or `exclude.txt` for
   the set, writes the bucket's copies without asking, and the everyday identity can write those
