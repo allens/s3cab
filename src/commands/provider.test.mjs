@@ -248,6 +248,38 @@ describe("provider --endpoint / --region", () => {
     assert.equal(env.S3CAB_BUCKET, "my-bucket"); // untouched
   });
 
+  it("warns that plain http travels unencrypted, unless the host is this machine", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    const warn = captureWarn(t);
+
+    for (const endpoint of [
+      "http://localhost:9000",
+      "http://127.0.0.1:9000",
+      "http://[::1]:9000",
+      "https://nas.local",
+    ]) {
+      await provider(undefined, { endpoint });
+    }
+    assert.equal(warn(), "");
+
+    for (const endpoint of [
+      "http://nas.local:9000",
+      "http://192.168.1.5:9000",
+      "http://127.example.com",
+    ]) {
+      await provider(undefined, { endpoint });
+      assert.equal(setEnv().AWS_ENDPOINT_URL_S3, endpoint); // still written
+    }
+    assert.match(
+      warn(),
+      /Backups sent to http:\/\/nas\.local:9000 aren't encrypted/,
+    );
+    assert.match(warn(), /http:\/\/192\.168\.1\.5:9000 aren't encrypted/);
+    assert.match(warn(), /http:\/\/127\.example\.com aren't encrypted/);
+  });
+
   it("rejects an endpoint that isn't an http(s) URL", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

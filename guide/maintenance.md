@@ -521,14 +521,17 @@ S3 writes a delete marker and the bytes live on as a noncurrent version. So a `c
 you regret, a `delete` that took more than you meant, a snapshot you shouldn't
 have dropped — even a leaked key used maliciously — can be recovered. The least-privilege identity `s3cab aws` generates is deliberately allowed to
 delete objects but **not** object *versions*, which means a stolen credential can add to your
-backup and can never permanently destroy its history.
+backup, and whatever it deletes or overwrites can be recovered for as long as the window
+below lasts.
 
 The trade-off is that **reclaimed space doesn't free immediately**. Those noncurrent versions
 are still stored until a lifecycle rule expires them — 90 days in the generated template.
-That deferral *is* the safety net, not a bug: it's your window to notice and undo. If you
-reclaim a large amount and watch the bill, expect it to drop when the window elapses, not
-today. [The cloud-bucket guide](aws.md) covers the full model, including how to change the
-window.
+That deferral *is* the safety net, not a bug: it's your window to notice and undo. It is also
+the limit: once it passes, a version is gone for good. A backup trusts that what it stored
+before is still there, so `verify` is what notices damage; run it more often than the window.
+If you reclaim a large amount and watch the bill, expect it to drop when the window elapses,
+not today. [The cloud-bucket guide](aws.md#the-security-model) covers the full model, and
+[how to change the window](aws.md#what-it-sets-up).
 
 ## The building blocks: `hashes` and `upload`
 

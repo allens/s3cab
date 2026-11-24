@@ -1,3 +1,4 @@
+import { isIPv4 } from "node:net";
 import { listProfiles } from "./auth.mjs";
 import { customEndpoint } from "./env.mjs";
 import { ParseArgsError } from "./error.mjs";
@@ -71,7 +72,9 @@ async function warnIfUnknownProfile(name) {
 
 /**
  * Validate an `--endpoint` value: an absolute http(s) URL, or a typo'd endpoint
- * becomes the classic silent R2/B2 signature-mismatch trap later.
+ * becomes the classic silent R2/B2 signature-mismatch trap later. Plain http is
+ * allowed, for an S3 server on this machine or a NAS without TLS, but warned
+ * about unless the host is loopback: a LAN name can't be told from a remote one.
  * @param {string} endpoint
  * @returns {string} The validated endpoint
  */
@@ -88,6 +91,18 @@ function validateEndpoint(endpoint) {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw invalid();
+  }
+  const loopback =
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]" ||
+    (isIPv4(url.hostname) && url.hostname.startsWith("127."));
+  if (url.protocol === "http:" && !loopback) {
+    console.warn(
+      `Backups sent to ${endpoint} aren't encrypted on the way: anyone on the network between ` +
+        `can read your files, the snapshots that list them, and any session token. ` +
+        `(The secret key itself is never sent.)\n\n` +
+        `If the server offers https, give its https:// address instead.`,
+    );
   }
   return endpoint;
 }

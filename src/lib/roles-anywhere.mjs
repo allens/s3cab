@@ -24,8 +24,9 @@ import { shellCommand } from "./style.mjs";
 // a machine-level AWS_PROFILE. Stored under `~/.s3cab/roles-anywhere/` (dir 0700,
 // files 0600), matching the `~/.s3cab/sets/<set>/` cluster convention:
 //
-//   ca.pem / ca.key         the self-signed CA (avoids AWS Private CA fees). ca.key
-//                           is the *cold* key — only re-issues client certs.
+//   ca.pem                  the self-signed CA (avoids AWS Private CA fees). Its
+//                           key signs client.pem and is never written: kept, it
+//                           would let a thief mint certs a CRL can't revoke.
 //   client.pem / client.key the machine's identity; client.key is the runtime
 //                           signing key (Phase B), NEVER sent to AWS.
 //   <bucket>.env            KEY=value, one per bucket: the three RA ARNs, the
@@ -309,11 +310,10 @@ const generateP256 = () =>
   generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 
 /**
- * A generated machine RA identity — the four PEMs, in memory. Pure: no I/O, so it
+ * A generated machine RA identity — the three PEMs, in memory. Pure: no I/O, so it
  * is unit-testable against the mandated cert shape without touching the filesystem.
  * @typedef {Object} MachineIdentity
  * @property {string} caPem - The self-signed CA certificate.
- * @property {string} caKeyPem - The CA private key (PKCS#8 PEM).
  * @property {string} clientPem - The client certificate (signed by the CA).
  * @property {string} clientKeyPem - The client private key (PKCS#8 PEM).
  */
@@ -324,7 +324,8 @@ const generateP256 = () =>
  *   CA:     basicConstraints critical CA:TRUE pathlen:0; keyUsage critical keyCertSign,cRLSign
  *   client: basicConstraints critical CA:FALSE; keyUsage critical digitalSignature;
  *           extendedKeyUsage clientAuth (non-critical)
- * ECDSA P-256, ~10-year validity. Pure — the caller persists it.
+ * ECDSA P-256, ~10-year validity. The CA's private key signs the client cert
+ * and goes no further. Pure — the caller persists it.
  * @returns {MachineIdentity}
  */
 export function buildIdentity() {
@@ -371,14 +372,12 @@ export function buildIdentity() {
     ],
   });
 
-  const pkcs8 = (/** @type {KeyObject} */ key) =>
-    key.export({ type: "pkcs8", format: "pem" }).toString();
-
   return {
     caPem,
-    caKeyPem: pkcs8(ca.privateKey),
     clientPem,
-    clientKeyPem: pkcs8(client.privateKey),
+    clientKeyPem: client.privateKey
+      .export({ type: "pkcs8", format: "pem" })
+      .toString(),
   };
 }
 
@@ -418,11 +417,11 @@ export const setupSteps = (bucket = "<bucket>") =>
 then run the steps it prints: deploy the two templates, and capture the
 identity's ARNs with the --save command it gives.`;
 
-/** The four files that together make up a complete machine identity. */
-const IDENTITY_FILES = ["ca.pem", "ca.key", "client.pem", "client.key"];
+/** The files that together make up a complete machine identity. */
+const IDENTITY_FILES = ["ca.pem", "client.pem", "client.key"];
 
 /**
- * Whether a **complete** machine RA identity is present — all four files, not just
+ * Whether a **complete** machine RA identity is present — every file, not just
  * one. Keying on a single file would misread a half-written or partly-deleted
  * identity as "present" (or, worse, as "absent" and regenerate over it). A partial
  * state is neither present nor absent; {@link ensureMachineIdentity} treats it as
@@ -436,8 +435,8 @@ export const machineIdentityExists = () =>
  * anchor's `CERTIFICATE_BUNDLE`). Generate-and-forget (ADR-0057), with three
  * states so re-running `aws --roles-anywhere` **never silently mints a new CA**
  * (which would orphan an already-deployed trust anchor):
- *   - **none of the four files** → generate + persist a fresh identity;
- *   - **all four** → reuse; re-read the CA and re-print the same template;
+ *   - **none of the files** → generate + persist a fresh identity;
+ *   - **all of them** → reuse; re-read the CA and re-print the same template;
  *   - **some but not all** → a hard error (ADR-0030). A partial identity (an
  *     interrupted write, a hand-deleted file) must not fall through to
  *     regeneration, which would replace the CA behind the user's back.
@@ -469,7 +468,6 @@ export function ensureMachineIdentity() {
   const write = (/** @type {string} */ file, /** @type {string} */ content) =>
     writeFileSync(identityPath(file), content, { mode: FILE_MODE });
   write("ca.pem", identity.caPem);
-  write("ca.key", identity.caKeyPem);
   write("client.pem", identity.clientPem);
   write("client.key", identity.clientKeyPem);
   return { caPem: identity.caPem, created: true, dir };

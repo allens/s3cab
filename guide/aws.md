@@ -171,8 +171,20 @@ to move):
 ## The security model
 
 The everyday identity and the bucket together give a backup tool the property it
-should have: **a leaked everyday key can add to your backup and tweak its own set
-markers, but can never _permanently destroy_ your content or history.**
+should have: **a leaked everyday key can add to your backup, and whatever it deletes or
+overwrites stays recoverable for 90 days.**
+
+Those 90 days are the [lifecycle window](#what-it-sets-up), and they are the limit of that
+promise: once the window passes, a version the key replaced or deleted is gone for good.
+Backups won't tell you in the meantime, since a backup trusts that what it stored before is
+still there. [`verify`](maintenance.md#is-my-backup-still-good-verify) is what notices, so run
+it more often than the window: it reports an object that's gone or changed size. One swapped
+for other bytes of the same size shows only when a restore checks it.
+
+The same key can rewrite a set's [copy in the bucket](backup.md#its-copy-in-the-bucket), so it
+can also choose what a machine taking the set over backs up: `s3cab takeover` adopts the
+bucket's directory list and exclude rules wherever that machine has none of its own. After a
+takeover, read the set's `dirs.txt` and `exclude.txt` before its first backup.
 
 The generated policy grants exactly:
 
@@ -191,7 +203,8 @@ an identity that only verifies or restores needs nothing there.
 `DeleteObject` is a **soft** delete: on a versioned bucket it writes a delete
 marker and the bytes survive as a noncurrent version (reclaimed by the lifecycle
 after the window). The key deliberately has **no** `DeleteObjectVersion`, so it
-cannot truly erase anything. Permanently scrubbing a version is a rare,
+can't erase a version itself; only the lifecycle does, once the window passes.
+Permanently scrubbing a version sooner is a rare,
 elevated-identity operation most people never need — and versioning is the
 backstop that makes everyday soft-deletes safe.
 
@@ -276,7 +289,7 @@ AWS-only, so it can't be combined with a custom `--endpoint`.)
 - **Another machine on this bucket:** run the same steps on that machine. It
   generates its own certificate, so its identity stack has a different name and
   leaves this machine's alone; the bucket step finds nothing to change. Don't copy
-  `~/.s3cab/roles-anywhere/` across instead: that spreads the CA key, and you lose
+  `~/.s3cab/roles-anywhere/` across instead: that spreads the client key, and you lose
   the ability to cut off one machine without the other.
 - **Cutting off one machine:** delete its identity stack on each bucket it uses
   (`aws cloudformation delete-stack --stack-name s3cab-<bucket>-<fingerprint>`).
@@ -315,10 +328,10 @@ s3cab deliberately doesn't require.
 What actually bounds the damage is the same backstop as everywhere in s3cab: the
 least-privilege policy is **soft-delete-only** (`DeleteObject`, never
 `DeleteObjectVersion`) on a versioned, `Retain`-protected bucket, so even a fully
-compromised identity **cannot permanently destroy your backup history** — a leaked
-key is "rotate the trust anchor," not "backups gone." Keep the key file `0600`,
-watch CloudTrail's `CreateSession` events, and you have detection plus a bounded
-blast radius.
+compromised identity **can't erase your backup history within the 90-day window**
+([the security model](#the-security-model)) — a leaked key is "rotate the trust anchor and
+run `verify`," not "backups gone." Keep the key file `0600`, watch CloudTrail's
+`CreateSession` events, and you have detection plus a bounded blast radius.
 
 ### AWS IAM Identity Center (SSO)
 
@@ -375,6 +388,11 @@ The steps (also available offline via `s3cab help provider`):
    owner-only). Some providers want a real region label (e.g. `us-east-1`); R2
    takes `auto`. To change any of it later, use `s3cab provider`
    (e.g. `s3cab provider --keys <set>`).
+
+   Give the endpoint as `https://`. A plain `http://` one works too, for an S3 server
+   on the same machine or a NAS without encryption, but your files and snapshots then
+   cross the network readable (the secret key never does), and s3cab warns unless the
+   host is this machine (`localhost`).
 
 s3cab automatically drops AWS-only request features (server-side encryption, the
 Glacier Instant Retrieval storage class, the default integrity-checksum trailer)

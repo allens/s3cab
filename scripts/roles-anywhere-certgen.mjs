@@ -27,7 +27,6 @@ import { buildIdentity } from "../src/lib/roles-anywhere.mjs";
 const dir = mkdtempSync(join(tmpdir(), "s3cab-certgen-"));
 const id = buildIdentity();
 writeFileSync(join(dir, "ca.pem"), id.caPem);
-writeFileSync(join(dir, "ca.key"), id.caKeyPem);
 writeFileSync(join(dir, "client.pem"), id.clientPem);
 writeFileSync(join(dir, "client.key"), id.clientKeyPem);
 

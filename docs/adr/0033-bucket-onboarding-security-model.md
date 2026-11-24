@@ -7,10 +7,11 @@ stands).
 
 The `aws` command (and the AWS path of `setup`) sets a user up with an everyday cloud
 identity and a bucket configured so the pair has the property a backup tool should have: **a
-leaked everyday key can add to your backup and tweak its own set markers, but can never
-*permanently destroy* your content or history.** This ADR records how that property is
-achieved, because the choices (why `DeleteObject` is granted at all, why per-prefix scoping was
-*not* used) are not obvious from the policy JSON alone.
+leaked everyday key can add to your backup, and whatever it deletes or overwrites stays
+recoverable for the lifecycle window (90 days).** The window is the limit: past it the
+noncurrent version expires, and nothing but `verify` looks for the damage before then. This ADR
+records how that property is achieved, because the choices (why `DeleteObject` is granted at
+all, why per-prefix scoping was *not* used) are not obvious from the policy JSON alone.
 
 The least-privilege policy is `bucketPolicy()` in [src/lib/s3.mjs](../../src/lib/s3.mjs) — the
 single source of truth, emitted by `s3cab aws` and referenced by
@@ -35,10 +36,10 @@ upload that was never completed, so it doesn't touch the soft-vs-permanent seam.
 `DeleteObject` **is** granted — `setup` already needs it (the stale-`exclude.txt` cleanup in
 `set-marker.mjs`), and the future cleanup command will too. But on a **versioned** bucket
 `DeleteObject` is a *soft* delete: it writes a delete marker, and the bytes survive as a
-noncurrent version. The everyday key deliberately lacks **`DeleteObjectVersion`**, so it can
-never truly erase anything. Permanently scrubbing a version is a rare, elevated-identity
-operation (needed only to reclaim space *before* the lifecycle window, or to hard-scrub) that
-most users never set up. This is exactly why the policy uses explicit verbs: an `s3:*Object`
+noncurrent version. The everyday key deliberately lacks **`DeleteObjectVersion`**, so it can't
+erase a version itself; only the lifecycle does, once the window passes. Permanently scrubbing
+a version is a rare, elevated-identity operation (needed only to reclaim space *before* the
+lifecycle window, or to hard-scrub) that most users never set up. This is exactly why the policy uses explicit verbs: an `s3:*Object`
 wildcard would silently re-grant `DeleteObjectVersion` and dissolve the seam.
 
 **Per-prefix scoping was considered and parked.** Append-only on `objects/`+`snapshots/` with
