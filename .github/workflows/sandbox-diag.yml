@@ -90,7 +90,7 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
             claude -p --restricted --tools Bash --settings ../settings.json --safe-mode \
               --model claude-sonnet-5-5 --effort low --permission-mode auto --max-budget-usd 1 \
-              'Run this with the Bash tool, once, exactly as written: echo $((6*7)) > probe.txt; grep -E "^(CapEff|Seccomp|NoNewPrivs):" /proc/self/status. Then reply with its output, or its error, verbatim.' \
+              'Run this with the Bash tool, once, exactly as written: echo $((6*7)) > probe.txt && echo written. Then reply with its output, or its error, verbatim.' \
             || status=$?
           echo "claude exit: ${status:-0}"
           if [ "$(cat probe.txt 2>/dev/null)" = 42 ]; then echo "PROBE PASS: sandboxed Bash ran"; else echo "PROBE FAIL: sandboxed Bash did not run"; exit 1; fi
