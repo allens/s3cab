@@ -83,7 +83,7 @@ function readText(path) {
  */
 const unsavableValueError = (key) =>
   new Error(
-    `s3cab can't save this value (${key}) in an env file: it holds a line break, or a mix of quote marks no quoting there can hold.\n\n` +
+    `s3cab can't save this value (${key}) in an env file: it holds a line break, or a mix of quote marks (' " \`) along with a #, a space at either end, or a quote at the start.\n\n` +
       `To keep a secret like this out of the file, hand it to s3cab through your AWS config, ` +
       `as "Keeping the secret out of plaintext" describes:\n` +
       `  https://s3cab.plantegral.com/guide/aws`,
