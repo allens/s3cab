@@ -49,4 +49,14 @@ describe("writeFileAtomic over an owner-only file", { skip }, () => {
 
     assert.equal(modeOf(dest), "600");
   });
+
+  it("never leaves one wider than the umask allows", async () => {
+    const dest = join(dir, "shared.txt");
+    writeFileSync(dest, "old");
+    chmodSync(dest, 0o666);
+
+    await writeFileAtomic(dest, Readable.from(["restored"]));
+
+    assert.equal(modeOf(dest), "644");
+  });
 });

@@ -61,11 +61,19 @@ export async function writeFileAtomic(
   // (measured; ext4 refuses). So it is removed first, not on `EEXIST`, and
   // what can't be removed is the `EEXIST` the open answers with.
   await rm(tmpPath, { force: true }).catch(() => {});
+  // A file the rename replaces keeps its permission bits, less what the umask
+  // takes; the default would open an owner-only file to whoever the umask lets
+  // in. Given to the open, not a chmod after it, which leaves a moment when the
+  // temp is readable and fails on a mount that holds no modes.
+  const replaced = noClobber
+    ? undefined
+    : await lstat(destPath).catch(() => undefined);
+  const mode = replaced?.isFile() ? replaced.mode & 0o777 : 0o666;
   // Opened before any byte flows, not `createWriteStream(tmpPath)`: that opens
   // lazily, so `pipeline` can reject before the temp exists, and the open
   // creates it after the cleanup below has run. Outside the `try` so that
   // `EEXIST` leaves what is there alone: it isn't this call's temp.
-  const fd = await open(tmpPath, "wx").catch((error) => {
+  const fd = await open(tmpPath, "wx", mode).catch((error) => {
     // Nothing else will read `source`, and an S3 body left open keeps its
     // connection.
     source.destroy();
@@ -73,15 +81,6 @@ export async function writeFileAtomic(
   });
   try {
     try {
-      if (!noClobber) {
-        // A file the rename replaces keeps its own permissions, as `cp` over
-        // it would; the temp's default mode would open an owner-only file to
-        // whoever the umask lets in. Set before any byte goes in.
-        const replaced = await lstat(destPath).catch(() => undefined);
-        if (replaced?.isFile()) {
-          await fd.chmod(replaced.mode & 0o777);
-        }
-      }
       // Tee every chunk to disk unchanged, hashing en route only when verifying.
       await pipeline(
         source,
