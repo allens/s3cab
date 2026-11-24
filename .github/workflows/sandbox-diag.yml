@@ -1,0 +1,93 @@
+# Throwaway, never merged: which setup lets Claude Code's Linux shell sandbox start on
+# ubuntu-26.04. Each job runs one sandboxed Bash command the way cleanroom.yml's session
+# does, and passes only if that command wrote its file. The first row reproduces the
+# clean-room failure, so a pass elsewhere means something.
+
+name: sandbox-diag
+
+on:
+  push:
+    branches: [claude/sandbox-diag]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: ${{ matrix.os }} · ${{ matrix.fix }} · ${{ matrix.cc }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-26.04, fix: sysctl, cc: 2.1.321 } # the clean room's setup: expected to fail
+          - { os: ubuntu-26.04, fix: sysctl, cc: 2.1.331 }
+          - { os: ubuntu-26.04, fix: profile, cc: 2.1.331 }
+          - { os: ubuntu-26.04, fix: sysctl+profile, cc: 2.1.331 }
+          - { os: ubuntu-26.04, fix: replace, cc: 2.1.331 }
+          - { os: ubuntu-24.04, fix: sysctl, cc: 2.1.331 }
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26.10.0"
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat
+      - name: what the image has
+        run: |
+          head -2 /etc/os-release; uname -r; which bwrap; bwrap --version
+          sysctl kernel.apparmor_restrict_unprivileged_userns kernel.apparmor_restrict_unprivileged_unconfined user.max_user_namespaces 2>&1 || true
+          echo "--- AppArmor files naming bwrap or userns"
+          sudo grep -l -E 'bwrap|unpriv|userns' /etc/apparmor.d/* 2>/dev/null || true
+          echo "--- loaded profiles naming bwrap or userns"
+          sudo aa-status 2>/dev/null | grep -i -E 'bwrap|unpriv|userns' || true
+      - if: contains(matrix.fix, 'sysctl')
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # replace: unload every shipped profile that attaches to bwrap, then add the docs' one.
+      - if: matrix.fix == 'replace'
+        run: |
+          for f in $(sudo grep -l -E '/usr/bin/bwrap|unpriv_bwrap' /etc/apparmor.d/* 2>/dev/null); do
+            echo "unloading $f"; sudo apparmor_parser -R "$f" || true
+          done
+      # The profile from https://code.claude.com/docs/en/sandboxing, verbatim.
+      - if: contains(matrix.fix, 'profile') || matrix.fix == 'replace'
+        run: |
+          sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            include if exists <local/bwrap>
+          }
+          EOF
+          sudo systemctl reload apparmor
+          sudo aa-status 2>/dev/null | grep -i -E 'bwrap|unpriv|userns' || true
+      - run: npm install --global "@anthropic-ai/claude-code@${{ matrix.cc }}"
+      - name: one sandboxed Bash command
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          sudo install -d -o "$USER" /srv/probe/cleanroom
+          cd /srv/probe/cleanroom
+          cat > ../settings.json <<'EOF'
+          {
+            "permissions": { "blockReadsOutsideWorkingDirectories": true },
+            "sandbox": {
+              "enabled": true,
+              "failIfUnavailable": true,
+              "allowUnsandboxedCommands": false,
+              "network": { "allowedDomains": ["*.amazonaws.com"], "strictAllowlist": true }
+            }
+          }
+          EOF
+          env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" USER="$USER" LOGNAME="$USER" \
+            PATH="$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+            CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+            claude -p --restricted --tools Bash --settings ../settings.json --safe-mode \
+              --model claude-sonnet-5-5 --effort low --permission-mode auto --max-budget-usd 1 \
+              'Run this with the Bash tool, once, exactly as written: echo $((6*7)) > probe.txt; grep -E "^(CapEff|Seccomp|NoNewPrivs):" /proc/self/status. Then reply with its output, or its error, verbatim.' \
+            || status=$?
+          echo "claude exit: ${status:-0}"
+          if [ "$(cat probe.txt 2>/dev/null)" = 42 ]; then echo "PROBE PASS: sandboxed Bash ran"; else echo "PROBE FAIL: sandboxed Bash did not run"; exit 1; fi
