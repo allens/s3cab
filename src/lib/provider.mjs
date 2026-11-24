@@ -99,10 +99,11 @@ function validateEndpoint(endpoint) {
     (isIPv4(url.hostname) && url.hostname.startsWith("127."));
   if (url.protocol === "http:" && !loopback) {
     console.warn(
-      `Backups sent to ${endpoint} aren't encrypted on the way: anyone on the network between ` +
+      `Backups sent to ${url.origin} aren't encrypted on the way: anyone on the network between ` +
         `can read your files, the snapshots that list them, and any session token. ` +
         `(The secret key itself is never sent.)\n\n` +
-        `If the server offers https, give its https:// address instead.`,
+        `To switch to https, if the server offers it:\n` +
+        `  ${shellCommand(`s3cab provider --endpoint https://${url.host} <set>`)}`,
     );
   }
   return endpoint;

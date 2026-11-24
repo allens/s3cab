@@ -392,7 +392,7 @@ The steps (also available offline via `s3cab help provider`):
    Give the endpoint as `https://`. A plain `http://` one works too, for an S3 server
    on the same machine or a NAS without encryption, but your files and snapshots then
    cross the network readable (the secret key never does), and s3cab warns unless the
-   host is this machine (`localhost`).
+   host is `localhost`, a `127.` address or `[::1]`.
 
 s3cab automatically drops AWS-only request features (server-side encryption, the
 Glacier Instant Retrieval storage class, the default integrity-checksum trailer)

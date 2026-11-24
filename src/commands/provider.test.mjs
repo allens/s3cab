@@ -266,7 +266,7 @@ describe("provider --endpoint / --region", () => {
 
     for (const endpoint of [
       "http://nas.local:9000",
-      "http://192.168.1.5:9000",
+      "http://admin:hunter2@192.168.1.5:9000",
       "http://127.example.com",
     ]) {
       await provider(undefined, { endpoint });
@@ -276,7 +276,12 @@ describe("provider --endpoint / --region", () => {
       warn(),
       /Backups sent to http:\/\/nas\.local:9000 aren't encrypted/,
     );
+    assert.match(
+      warn(),
+      /s3cab provider --endpoint https:\/\/nas\.local:9000 <set>/,
+    );
     assert.match(warn(), /http:\/\/192\.168\.1\.5:9000 aren't encrypted/);
+    assert.doesNotMatch(warn(), /hunter2/); // a password in the URL isn't echoed
     assert.match(warn(), /http:\/\/127\.example\.com aren't encrypted/);
   });
 
