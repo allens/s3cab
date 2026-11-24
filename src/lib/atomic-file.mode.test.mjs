@@ -39,8 +39,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("writeFileAtomic over an owner-only file", { skip }, () => {
-  it("leaves it owner-only", async () => {
+describe("writeFileAtomic over an existing file", { skip }, () => {
+  it("leaves an owner-only one owner-only", async () => {
     const dest = join(dir, "id_ed25519");
     writeFileSync(dest, "old key");
     chmodSync(dest, 0o600);

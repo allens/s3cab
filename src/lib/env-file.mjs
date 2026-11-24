@@ -1,4 +1,12 @@
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fchmodSync,
+  ftruncateSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { isENOENT } from "./error.mjs";
 
 // Editing s3cab's `KEY=value` env files in place — the *write* side of the env
@@ -26,16 +34,21 @@ const envFileMode = 0o600;
  * @param {string} text
  */
 function writeOwnerOnly(path, text) {
-  // A new file, owner-only from its creation, renamed over the old one. Not a
-  // chmod of the old one: that can fail once the file is emptied (one another
-  // user owns, a mount that holds no modes), and a handle opened while the
-  // file was readable would read the secret anyway.
-  const tmp = `${path}.tmp`;
-  // `wx` refuses a leftover, and a link planted at this name must not carry
-  // the secret elsewhere.
-  rmSync(tmp, { force: true });
-  writeFileSync(tmp, text, { mode: envFileMode, flag: "wx" });
-  renameSync(tmp, path);
+  // Not "w", which empties the file before the chmod: a chmod that fails (a
+  // file another user owns, a mount that holds no modes) would leave it empty.
+  // In place, not a new file renamed over it, so a linked `env` stays linked.
+  const fd = openSync(
+    path,
+    constants.O_WRONLY | constants.O_CREAT,
+    envFileMode,
+  );
+  try {
+    fchmodSync(fd, envFileMode);
+    ftruncateSync(fd);
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**

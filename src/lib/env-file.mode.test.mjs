@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  lstatSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,5 +58,18 @@ describe("an env file holding a secret is owner-only", { skip }, () => {
     removeEnvKey(path, "AWS_PROFILE");
 
     assert.equal(modeOf(path), "600");
+  });
+
+  it("and a linked one stays linked, the secret written through it", () => {
+    const target = join(dir, "dotfiles-env");
+    writeFileSync(target, "S3CAB_BUCKET=b\n");
+    const path = join(dir, "env");
+    symlinkSync(target, path);
+
+    updateEnvFile(path, SECRET);
+
+    assert.ok(lstatSync(path).isSymbolicLink());
+    assert.match(readFileSync(target, "utf8"), /AWS_SECRET_ACCESS_KEY=/);
+    assert.equal(modeOf(target), "600");
   });
 });
