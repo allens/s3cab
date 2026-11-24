@@ -80,10 +80,9 @@ jobs:
             root: /srv/s3cab.seed
           - os: windows-latest
             root: C:\s3cab.seed
-          # macos-15: Apple Silicon, APFS case- and normalization-insensitive. Not macos-26
-          # (ci.yml's) yet: the brief's macOS transport advice and the recorded runs'
-          # Xcode 16.4 are macOS 15's, so move between sets, with a reseed.
-          - os: macos-15
+          # macos-26: Apple Silicon, APFS case- and normalization-insensitive. fixtures.mjs's
+          # header names it too, so the stamp covers it: change both, and the move reseeds.
+          - os: macos-26
             root: /Users/Shared/s3cab.seed
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role

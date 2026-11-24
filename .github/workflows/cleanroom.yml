@@ -45,7 +45,7 @@ concurrency:
 env:
   # Match ci.yml: pin to the engines floor.
   NODE_VERSION: "26.10.0"
-  CLAUDE_CODE_VERSION: "2.1.301"
+  CLAUDE_CODE_VERSION: "2.1.321"
   ROLE: ${{ inputs.role }}
   S3CAB_TEST_BUCKET_CLEANROOM_BACKUP: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_BACKUP }}
   S3CAB_TEST_BUCKET_CLEANROOM_RESTORE: ${{ vars.S3CAB_TEST_BUCKET_CLEANROOM_RESTORE }}
@@ -65,7 +65,7 @@ jobs:
   run:
     name: ${{ inputs.role }} on ${{ inputs.platform }} (${{ inputs.model }}, ${{ inputs.effort }})
     # The seed's runners, cleanroom-seed.yml's.
-    runs-on: ${{ fromJSON('{"macos":"macos-15","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
+    runs-on: ${{ fromJSON('{"macos":"macos-26","linux":"ubuntu-latest","windows":"windows-latest"}')[inputs.platform] }}
     timeout-minutes: 360 # GitHub's ceiling for a hosted job
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
