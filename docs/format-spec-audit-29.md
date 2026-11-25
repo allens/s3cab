@@ -3,7 +3,8 @@
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.2 at
 `xhigh`, all reading the spec of 2026-10-30 as of
 [PR #527](https://github.com/allens/s3cab/pull/527). The set so far: backups on
-[Linux](format-spec-audit-28.md), Windows (this run) and [macOS](format-spec-audit-30.md).
+[Linux](format-spec-audit-28.md), Windows (this run) and [macOS](format-spec-audit-30.md); restore
+on [Linux](format-spec-audit-31.md).
 
 - **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/windows/s3cab-backup.py), Python with
   boto3, and `ctypes` for the Windows calls. Its notes, logs and test tools stay with the run,

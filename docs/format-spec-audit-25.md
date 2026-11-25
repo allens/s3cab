@@ -9,7 +9,7 @@ a multipart upload refused at completion. The set is runs 22–27: backups on
 [Windows](format-spec-audit-24.md); restores on Linux (this run), [macOS](format-spec-audit-26.md)
 and [Windows](format-spec-audit-27.md).
 
-- **Program:** [`crestore/`](../scripts/cleanroom/restorers/crestore/), C with OpenSSL and zlib over
+- **Program:** [`crestore/`](https://github.com/allens/s3cab/tree/5632ef359c58b9fdf60a0b4d1e2a7a5a39a400fe/scripts/cleanroom/restorers/crestore), C with OpenSSL and zlib over
   its own HTTP client; no S3 library. Its notes, logs and test tools stay with the run, outside the
   repo.
 - **Checker:** the spec-only phase's restorer matches. The reconcile phase never ran: the session
