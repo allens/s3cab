@@ -48,13 +48,13 @@
  * forbids characters 1–31 and `: * ? " < > |` in a name; `a:b.txt` there makes a file `a`
  * with an alternate data stream. Windows' own oddities (a trailing dot, hidden and system,
  * a junction, reserved names such as `CON` that are hostile to a plain-path open) are the
- * Windows section at the foot of the table. macOS is declared as its runners' (macos-26)
- * APFS holds it: case- and normalization-insensitive, so the case and NFC/NFD pairs fold;
- * UTF-8 names only; and mtimes as 64-bit nanoseconds, so nothing past 2262. The read-back
- * still checks every entry built. Whatever fails to build is removed with everything
- * sharing its `why`, and named in a loud notice: a partial corpus that reads as a complete
- * one is the silent-shortening failure the exercise hunts. A set with nothing left is
- * removed and reported too, so a refused set is never an empty set that publishes.
+ * Windows section at the foot of the table. macOS is declared as its runners' APFS holds
+ * it: case- and normalization-insensitive, so the case and NFC/NFD pairs fold; UTF-8 names
+ * only; and mtimes as 64-bit nanoseconds, so nothing past 2262. The read-back still checks
+ * every entry built. Whatever fails to build is removed with everything sharing its `why`,
+ * and named in a loud notice: a partial corpus that reads as a complete one is the
+ * silent-shortening failure the exercise hunts. A set with nothing left is removed and
+ * reported too, so a refused set is never an empty set that publishes.
  *
  * The out-of-range mtimes (before 1970, after 2262) are off Windows for now: there
  * `statSync` wraps a time outside 1970–2106 (proposals/bugs.md), so s3cab's own reference

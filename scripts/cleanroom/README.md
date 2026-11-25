@@ -577,10 +577,17 @@ spec of …` at the top of `format.md`), `fixtures.mjs` and the seed script. The
 date and not the file, because it changes when the format does and never for a
 change of wording. Hashing the spec alone let a build accept a golden set from
 older fixtures, and a run measured against a corpus missing what was added since
-passes without saying so. The stamp is a bucket tag, not a key, because a
-restorer works out the bucket's contents from a listing and would report a key
-the spec doesn't describe. It is removed first and written last, so a seed that
-fails halfway leaves a bucket every restore build refuses.
+passes without saying so. Not the runners the seed runs on: a golden set depends
+on each platform's filesystem, which a new image of it doesn't change, and every
+restore reads all three platforms' sets anyway. The stamp is a bucket tag, not a
+key, because a restorer works out the bucket's contents from a listing and would
+report a key the spec doesn't describe. It is removed first and written last, so
+a seed that fails halfway leaves a bucket every restore build refuses.
+
+A push to `main` that changes what the stamp covers reseeds at once, emptying the
+bucket under any restore run still reading it: each restore runs in a
+concurrency group of its own, so none waits for the seed. Land such a change
+only while no restore run is going.
 
 **It empties the bucket for you**, when the bucket is its own to empty. A seed
 needs an empty repository — snapshots are immutable and a set name belongs to
