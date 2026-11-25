@@ -56,9 +56,6 @@
  * silent-shortening failure the exercise hunts. A set with nothing left is removed and
  * reported too, so a refused set is never an empty set that publishes.
  *
- * The seed's runners are ubuntu-26.04, windows-2025 and macos-26 (cleanroom-seed.yml),
- * named here so the stamp covers them: a runner move reseeds.
- *
  * The out-of-range mtimes (before 1970, after 2262) are off Windows for now: there
  * `statSync` wraps a time outside 1970–2106 (proposals/bugs.md), so s3cab's own reference
  * row would be wrong and the checker would fail a correct program.

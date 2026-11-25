@@ -74,8 +74,8 @@ jobs:
       max-parallel: 1
       matrix:
         # Each root is seedRoots' in fixtures.mjs, which says why it is where it is; the
-        # seed refuses any other. Each runner is pinned, never -latest, and fixtures.mjs's
-        # header names it too, so the stamp covers it: change both, and the move reseeds.
+        # seed refuses any other. Each runner is pinned, never -latest, so none moves
+        # during a set; cleanroom.yml's runs-on names the same three.
         include:
           - os: ubuntu-26.04
             root: /srv/s3cab.seed
