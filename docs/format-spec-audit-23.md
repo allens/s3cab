@@ -9,7 +9,7 @@ a multipart upload refused at completion. The set is runs 22–27: backups on
 on [Linux](format-spec-audit-25.md), [macOS](format-spec-audit-26.md) and
 [Windows](format-spec-audit-27.md).
 
-- **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/macos/s3cab-backup.py), Python with
+- **Program:** [`s3cab-backup.py`](https://github.com/allens/s3cab/blob/10978b2aa882f7ff721e188e1581cb86d1f571f5/scripts/cleanroom/backup/macos/s3cab-backup.py), Python with
   boto3. Its notes, logs and test tools stay with the run, outside the repo.
 - **Checker:** matches.
 - **Audit:** 3 moves flagged, each a heredoc writing the session's own files (its program, its
