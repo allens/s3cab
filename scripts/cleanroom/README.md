@@ -35,7 +35,8 @@ On Fable 5.1 at `xhigh` once more (2026-11-09 and 2026-11-10): backups on
 [Windows](../../docs/format-spec-audit-24.md), restores on
 [Linux](../../docs/format-spec-audit-25.md), [macOS](../../docs/format-spec-audit-26.md) and
 [Windows](../../docs/format-spec-audit-27.md).
-On Fable 5.2 at `xhigh` (2026-11-25): backup on [Linux](../../docs/format-spec-audit-28.md).
+On Fable 5.2 at `xhigh` (2026-11-25): backups on [Linux](../../docs/format-spec-audit-28.md) and
+[Windows](../../docs/format-spec-audit-29.md).
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 

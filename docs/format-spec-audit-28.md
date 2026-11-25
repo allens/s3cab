@@ -2,7 +2,8 @@
 
 One of the six runs of a real set: each role on each platform, run in CI on Claude Fable 5.2 at
 `xhigh`, all reading the spec of 2026-10-30 as of
-[PR #527](https://github.com/allens/s3cab/pull/527). The set so far: backup on Linux (this run).
+[PR #527](https://github.com/allens/s3cab/pull/527). The set so far: backups on Linux (this run)
+and [Windows](format-spec-audit-29.md).
 
 - **Program:** [`s3cab-backup.py`](../scripts/cleanroom/backup/linux/s3cab-backup.py), Python with
   boto3. Its notes, logs and test tools stay with the run, outside the repo.
