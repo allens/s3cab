@@ -9,7 +9,8 @@ a multipart upload refused at completion. The set is runs 22–27: backups on
 [Windows](format-spec-audit-24.md); restores on [Linux](format-spec-audit-25.md), macOS (this run)
 and [Windows](format-spec-audit-27.md).
 
-- **Program:** [`swiftrestore/`](../scripts/cleanroom/restorers/swiftrestore/), Swift 6 with
+- **Program:**
+  [`swiftrestore/`](https://github.com/allens/s3cab/tree/73296c241ab111656206c981f392137510064abd/scripts/cleanroom/restorers/swiftrestore), Swift 6 with
   Foundation, and the macOS SDK's libcurl, zlib and CommonCrypto through a bridging header; no S3
   library. The reconcile phase left it unchanged; its notes, logs and test tools stay with the run,
   outside the repo.

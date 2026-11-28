@@ -1,79 +1,117 @@
 import Foundation
 
-setvbuf(stdout, nil, _IOLBF, 0)
+// s3cab-restore <bucket> <set> <dir> [<snapshot>]
+//
+// Restores one snapshot of one set from an s3cab repository into <dir>, working only from the
+// stored format. Credentials and region come from the environment.
+//
+// Exit status: 0 when every file row was restored, skipped because a file was already there,
+// or deliberately deleted; 1 when anything else happened to a row; 2 when the restore could
+// not start or had to stop (a refused snapshot, a failed request, bad arguments).
 
-func die(_ msg: String, code: Int32 = 1) -> Never { fputs("s3cab-restore: \(msg)\n", stderr); exit(code) }
-
-let args = CommandLine.arguments
-guard args.count == 4 || args.count == 5 else { die("usage: s3cab-restore <bucket> <set> <dir> [<snapshot>]", code: 2) }
-let bucket = args[1], setName = args[2], outDir = args[3]
-var snapshotArg: String? = args.count == 5 ? args[4] : nil
-
-func isSetName(_ s: String) -> Bool {
-    let u = Array(s.utf8)
-    guard !u.isEmpty, u.first != 0x2D, u.last != 0x2D else { return false }
-    var prevHyphen = false
-    for c in u {
-        if c == 0x2D { if prevHyphen { return false }; prevHyphen = true; continue }
-        guard (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) else { return false }
-        prevHyphen = false
+func rawArguments() -> [[UInt8]] {
+    var args = [[UInt8]]()
+    for i in 0..<Int(CommandLine.argc) {
+        guard let p = CommandLine.unsafeArgv[i] else { continue }
+        args.append(Array(UnsafeRawBufferPointer(start: p, count: strlen(p))))
     }
-    return true
-}
-func isSnapshotName(_ s: String) -> Bool {
-    let u = Array(s.utf8); guard u.count == 13 else { return false }
-    for (i, c) in u.enumerated() {
-        if i == 8 { if c != 0x54 { return false } } else if !(c >= 0x30 && c <= 0x39) { return false }
-    }
-    return true
+    return args
 }
 
-guard isSetName(setName) else { die("'\(setName)' isn't a set name: a to z and digits with single hyphens between") }
-
-let env = ProcessInfo.processInfo.environment
-guard let ak = env["AWS_ACCESS_KEY_ID"], let sk = env["AWS_SECRET_ACCESS_KEY"] else { die("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set") }
-let region = env["AWS_REGION"] ?? env["AWS_DEFAULT_REGION"] ?? "us-east-1"
-let token = env["AWS_SESSION_TOKEN"]
-
-let s3: S3Client
-do { s3 = try S3Client(bucket: bucket, region: region, accessKey: ak, secretKey: sk, token: token) } catch { die("\(error)") }
-
-var name: String
-if var s = snapshotArg {
-    if s.hasSuffix(".tsv.gz") { s = String(s.dropLast(7)) }
-    guard isSnapshotName(s) else { die("'\(snapshotArg!)' isn't a snapshot name (YYYYMMDDTHHMM)") }
-    name = s
-} else {
-    let prefix = "snapshots/\(setName)/"
-    let listing: (keys: [String], prefixes: [String])
-    do { listing = try s3.list(prefix: prefix) } catch { die("listing \(prefix): \(error)") }
-    let names = listing.keys.compactMap { k -> String? in
-        guard k.hasPrefix(prefix), k.hasSuffix(".tsv.gz") else { return nil }
-        let n = String(k.dropFirst(prefix.count).dropLast(7))
-        return isSnapshotName(n) ? n : nil
+/// Not part of the restorer's contract: prints the sets and snapshots a bucket holds.
+func listRepository(bucket: String) throws -> Int32 {
+    let s3 = try makeClient(bucket: bucket)
+    let top = try s3.list(prefix: "snapshots/", delimiter: "/")
+    var sets = Set<String>()
+    for p in top.prefixes {
+        let name = Array(p.dropFirst("snapshots/".utf8.count).dropLast())
+        if isSetName(name) { sets.insert(String(decoding: name, as: UTF8.self)) }
     }
-    guard let latest = names.max(by: { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }) else { die("set '\(setName)' has no snapshot in \(bucket)") }
-    name = latest
-    fputs("latest snapshot of \(setName): \(name) (of \(names.count))\n", stderr)
+    for k in top.keys {
+        let name = Array(k.dropFirst("snapshots/".utf8.count))
+        if name.count > 5, Array(name.suffix(5)) == Array(".info".utf8), isSetName(Array(name.dropLast(5))) {
+            sets.insert(String(decoding: name.dropLast(5), as: UTF8.self))
+        }
+    }
+    for set in sets.sorted() {
+        for name in try snapshotNames(s3, set: set) { say("\(set)\t\(name)") }
+    }
+    // To stderr, so the list above stays machine-readable: a listing long enough to need
+    // every page, and the deletion records.
+    let objects = try s3.list(prefix: "objects/", delimiter: "/")
+    let records = try s3.list(prefix: "objects.deleted-", delimiter: "/").keys
+        .compactMap { strictUTF8($0) }.filter(isDeletionRecordKey)
+    complain("\(objects.keys.count) keys directly under objects/; deletion records: \(records.joined(separator: " "))")
+    complain("\(s3.requestsSent) requests sent")
+    return 0
 }
 
-let key = "snapshots/\(setName)/\(name).tsv.gz"
-let gz = MemorySink()
-do {
-    switch try s3.get(key: key, sink: gz) {
-    case .miss: die("no such snapshot: \(key)")
-    case .ok: break
+func restore(bucket: String, set: String, output: [UInt8], named: String?) throws -> Int32 {
+    let s3 = try makeClient(bucket: bucket)
+
+    let name: String
+    if let named {
+        name = named
+    } else {
+        // The latest is the name that sorts last, whatever its upload time or START says.
+        guard let latest = try snapshotNames(s3, set: set).last else {
+            throw Fatal("set `\(set)` has no snapshot in \(bucket)")
+        }
+        name = latest
     }
-} catch { die("fetching \(key): \(error)") }
+    let key = "snapshots/\(set)/\(name).tsv.gz"
 
-let text: Bytes
-do { text = try gunzipAll(gz.data) } catch { die("snapshot \(key) is damaged: \(error); refusing to restore from it") }
+    let stored = MemorySink()
+    guard case .found = try s3.fetch(key: key, into: stored) else { throw Fatal("no such snapshot: \(key)") }
 
-let snap: Snapshot
-do { snap = try parseSnapshot(text) } catch { die("snapshot \(key) refused: \(error)") }
-fputs("snapshot \(name): \(snap.fileRowCount) file row(s), \(snap.dirs.count) @SET DIR row(s), START \(snap.start.map { String(decoding: $0.text, as: UTF8.self) } ?? "none")\n", stderr)
+    // The whole snapshot is checked before any row of it is restored.
+    let snapshot: Snapshot
+    do {
+        snapshot = try parseSnapshot(text: try gunzipAll(stored.bytes))
+    } catch let d as Damaged {
+        throw Fatal("\(key) is refused whole, nothing restored: damaged gzip: \(d.message)")
+    } catch let r as Refused {
+        throw Fatal("\(key) is refused whole, nothing restored: \(r.message)")
+    }
+    say("\(key): \(snapshot.rows.count) file row(s)")
 
-let restorer = Restorer(s3: s3, output: bytes(outDir), start: snap.start)
-do { try restorer.run(snap) } catch { fputs("\(restorer.summary())\n", stderr); die("stopped: \(error)") }
-fputs("\(restorer.summary()); \(s3.requests) request(s)\n", stderr)
-exit(restorer.failed ? 1 : 0)
+    let restorer = Restorer(s3: s3, output: output, snapshot: snapshot)
+    return try restorer.run()
+}
+
+func usage() -> Int32 {
+    complain("usage: s3cab-restore <bucket> <set> <dir> [<snapshot>]")
+    complain("       s3cab-restore --list <bucket>")
+    return 2
+}
+
+func run() -> Int32 {
+    let args = rawArguments()
+    do {
+        try startTransport()
+        if args.count == 3, args[1] == Array("--list".utf8), isBucketName(args[2]) {
+            return try listRepository(bucket: String(decoding: args[2], as: UTF8.self))
+        }
+        guard args.count == 4 || args.count == 5 else { return usage() }
+        guard isBucketName(args[1]) else { throw Fatal("`\(printable(args[1]))` is not a bucket name") }
+        guard isSetName(args[2]) else {
+            throw Fatal("`\(printable(args[2]))` is not a set name: lowercase letters, digits and hyphens only")
+        }
+        guard !args[3].isEmpty else { throw Fatal("the output folder is empty") }
+        if args.count == 5 {
+            guard isSnapshotName(args[4]) else {
+                throw Fatal("`\(printable(args[4]))` is not a snapshot name: YYYYMMDDTHHMM")
+            }
+        }
+        return try restore(bucket: String(decoding: args[1], as: UTF8.self), set: String(decoding: args[2], as: UTF8.self),
+                           output: args[3], named: args.count == 5 ? String(decoding: args[4], as: UTF8.self) : nil)
+    } catch let f as Fatal {
+        complain("s3cab-restore: \(f.message)")
+        return 2
+    } catch {
+        complain("s3cab-restore: \(error)")
+        return 2
+    }
+}
+
+exit(run())

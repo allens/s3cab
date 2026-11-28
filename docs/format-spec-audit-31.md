@@ -4,7 +4,8 @@ One of the six runs of a real set: each role on each platform, run in CI on Clau
 `xhigh`, all reading the spec of 2026-10-30 as of
 [PR #527](https://github.com/allens/s3cab/pull/527). The set so far: backups on
 [Linux](format-spec-audit-28.md), [Windows](format-spec-audit-29.md) and
-[macOS](format-spec-audit-30.md); restore on Linux (this run).
+[macOS](format-spec-audit-30.md); restores on Linux (this run) and
+[macOS](format-spec-audit-32.md).
 
 - **Program:** [`crestore/`](../scripts/cleanroom/restorers/crestore/), C23 with OpenSSL, zlib,
   expat and ICU over its own HTTP client; no S3 library. The reconcile phase left it unchanged; its

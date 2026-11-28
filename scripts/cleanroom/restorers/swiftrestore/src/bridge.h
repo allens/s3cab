@@ -1,29 +1,22 @@
-// Bridging header: the C libraries the restorer uses, all shipped with macOS / the Xcode CLT.
-#ifndef S3CAB_BRIDGE_H
-#define S3CAB_BRIDGE_H
+// Bridging header: the four system libraries the restorer uses, and nothing else.
+//   libcurl       - the HTTP client (general purpose; knows nothing about S3)
+//   zlib          - gzip
+//   CommonCrypto  - SHA-256 and HMAC-SHA-256
+//   libicucore    - Unicode lower-casing as JavaScript does it (u_strToLower)
 #include <curl/curl.h>
 #include <zlib.h>
 #include <CommonCrypto/CommonDigest.h>
 #include <CommonCrypto/CommonHMAC.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <errno.h>
+#include <unicode/ustring.h>
 
-// curl_easy_setopt / curl_easy_getinfo are variadic, which Swift cannot call: typed wrappers.
-static inline CURLcode s3cab_setopt_str(CURL *h, CURLoption o, const char *v) { return curl_easy_setopt(h, o, v); }
-static inline CURLcode s3cab_setopt_long(CURL *h, CURLoption o, long v) { return curl_easy_setopt(h, o, v); }
-static inline CURLcode s3cab_setopt_ptr(CURL *h, CURLoption o, void *v) { return curl_easy_setopt(h, o, v); }
-static inline CURLcode s3cab_setopt_slist(CURL *h, CURLoption o, struct curl_slist *v) { return curl_easy_setopt(h, o, v); }
-static inline CURLcode s3cab_setopt_wcb(CURL *h, CURLoption o, curl_write_callback cb) { return curl_easy_setopt(h, o, cb); }
-static inline CURLcode s3cab_getinfo_long(CURL *h, CURLINFO i, long *v) { return curl_easy_getinfo(h, i, v); }
+// curl_easy_setopt and curl_easy_getinfo take a variable argument list, which Swift cannot
+// call, and inflateInit2 is a macro. One typed wrapper each.
+typedef size_t (*s3r_curl_cb)(char *ptr, size_t size, size_t nmemb, void *userdata);
 
-// inflateInit2 is a macro.
-static inline int s3cab_inflateInit2(z_streamp s, int windowBits) { return inflateInit2(s, windowBits); }
-
-// rename without replacing an existing destination.
-static inline int s3cab_rename_noreplace(const char *from, const char *to) { return renamex_np(from, to, RENAME_EXCL); }
-static inline int s3cab_errno(void) { return errno; }
-#endif
+static inline CURLcode s3r_setopt_long(CURL *h, CURLoption opt, long v) { return curl_easy_setopt(h, opt, v); }
+static inline CURLcode s3r_setopt_str(CURL *h, CURLoption opt, const char *v) { return curl_easy_setopt(h, opt, v); }
+static inline CURLcode s3r_setopt_ptr(CURL *h, CURLoption opt, void *v) { return curl_easy_setopt(h, opt, v); }
+static inline CURLcode s3r_setopt_slist(CURL *h, CURLoption opt, struct curl_slist *v) { return curl_easy_setopt(h, opt, v); }
+static inline CURLcode s3r_setopt_cb(CURL *h, CURLoption opt, s3r_curl_cb v) { return curl_easy_setopt(h, opt, v); }
+static inline CURLcode s3r_getinfo_long(CURL *h, CURLINFO info, long *v) { return curl_easy_getinfo(h, info, v); }
+static inline int s3r_inflateInit2(z_streamp s, int windowBits) { return inflateInit2(s, windowBits); }
